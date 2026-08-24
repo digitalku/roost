@@ -146,9 +146,23 @@ video, poppler or a bundled PDF renderer for PDF, raw decoders. If a backend is 
 asset still imports — it gets a placeholder thumbnail and a `capability_missing` note, never an
 error.
 
-`sharp` is the decode and encode path (ADR-0009). Its async API runs on libuv's threadpool, so
-image work does not occupy the engine's event loop; `UV_THREADPOOL_SIZE` is raised to the core
-count at engine start, because the default of four is a silent ceiling on import throughput.
+`sharp` is the decode and encode path (ADR-0009), imported in exactly one module — `decoder.ts` —
+so that replacing it is a contained change rather than a survey. Its async API runs on libuv's
+threadpool, so image work does not occupy the engine's event loop; `UV_THREADPOOL_SIZE` is raised
+to the core count at engine start, because the default of four is a silent ceiling on import
+throughput. Measured: 623 thumbnails/sec with the pool at the core count.
+
+**Where it can run is not "everywhere" (ADR-0013).** The prebuilt `sharp` bundles its own GLib;
+the Electron binary on Linux links the system's; two type registries in one process make the
+first decode segfault. The CLI is unaffected — it runs on the system's Node — and the Linux
+build of the app has to supply libvips itself. `scripts/probe-native.ts` decodes and encodes
+rather than calling `require`, because loading is exactly the part that succeeds.
+
+Two formats are recognised but deliberately not drawn. **BMP**: libvips has no loader for it.
+**SVG**: librsvg follows external references, measured, so rendering an imported SVG would read
+files off the user's disk through the thumbnailer and could reach the network — invariant 7. An
+asset with no thumbnail imports normally; that is the promise above, and these are the first two
+formats to use it.
 
 ### 3.4 `@roost/search` (`packages/search`)
 RQL grammar → AST → a `WHERE` fragment with bound parameters. Zero string interpolation of user

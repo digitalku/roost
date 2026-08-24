@@ -176,6 +176,10 @@ pnpm --filter @roost/cli start -- fixture ~/RoostBench --count 100000
   native module that never builds. That is why M0's Electron binary had to be fetched by hand.
   `pnpm approve-builds <pkg>` writes the right key into `pnpm-workspace.yaml`; do not write it
   from memory.
+- **`sharp`'s prebuilt binary cannot run inside Electron on Linux.** It loads and then
+  segfaults on the first decode (ADR-0013). `pnpm test` and the CLI are unaffected — they run on
+  the system's Node. If you are working on M3 and thumbnails take the engine down, this is why,
+  and `node --experimental-strip-types scripts/probe-native.ts --both` says so in two seconds.
 - **Thumbnails do not survive a rebuild.** They derive from bytes, not from journal records.
   `roost rebuild` says so and tells you to run `roost thumb`.
 - **A library can be open in one process at a time.** The single-instance lock is advisory —

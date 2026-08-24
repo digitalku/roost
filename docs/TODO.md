@@ -103,9 +103,10 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - ☑ ~~**Check `better-sqlite3` and `sharp` the way the hashing binding was checked.**~~ Two of
   three done 2026-08-24. `better-sqlite3` 13.0.3 is Node-API (`NAPI_VERSION=10`, prebuilds named
   by platform with no ABI number) and the **same installed binary loaded under Node 22.23.1
-  (ABI 127) and Electron 43.4.1 (ABI 148)**, FTS5 present in both. `sharp` is the one left and
-  arrives with the thumbnail pipeline. `scripts/probe-native.ts --both` is the check, and it runs
-  in CI on all three platforms.
+  (ABI 127) and Electron 43.4.1 (ABI 148)**, FTS5 present in both. **`sharp` failed**: it loads
+  under Electron and segfaults on the first decode, because its bundled GLib collides with the
+  one Electron links (ADR-0013). The probe now decodes and encodes rather than calling
+  `require`, which is the only reason this was caught before M3.
 - ☑ ~~**The per-platform native CI job.**~~ Landed 2026-08-24 with the second native module, on
   Linux, macOS, and Windows. It runs natively per platform rather than cross-compiling, for the
   reason §4.7 gives, and it is the one job that downloads Electron — probing under one ABI proves
@@ -149,6 +150,23 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   tag-group listing, `find_folder_by_path`, and the `folder_is_within` cycle guard. Every `apply*`
   is here, because replay needs all 22 operations in M1; the reads that only a sidebar uses arrive
   with the sidebar.
+
+- 🔴 **ADR-0013 is Proposed and needs a decision before M3.** `sharp`'s prebuilt binary cannot
+  run inside Electron on Linux. The recommendation is to build it from source against the
+  platform's libvips there and keep the prebuilt elsewhere, with the WASM build as a documented
+  6x-slower fallback. Nothing in M1 is blocked — the CLI runs on the system's Node, where the
+  prebuilt is both correct and fastest.
+- 🟡 **`roost doctor` should report which sharp build is loaded.** "Thumbnails are slow" and
+  "thumbnails crash the engine" have the same cause and no other symptom.
+- 🟢 **BMP has no thumbnail here.** libvips 8.18.3 has no BMP loader; the Rust build's `image`
+  crate did. A `.bmp` still imports and still carries tags. Pinned by a test so it stays a
+  decision.
+- 🟡 **SVG is deliberately not rendered**, and that costs a real feature: an SVG icon set is a
+  plausible library and every asset in it would be blank in the grid. The reason is measured —
+  librsvg follows external references, so an imported SVG can read files off disk through the
+  thumbnailer, and the same path reaches remote URLs (invariant 7). M4 should rasterise SVG
+  somewhere that cannot reach the filesystem, and until then the renderer can still preview one
+  with its own engine.
 
 ### Search and organize (M2)
 - 🟡 Extract the query corpus from `roost-old`'s parser tests before starting, so the grammar is

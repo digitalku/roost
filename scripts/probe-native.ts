@@ -35,8 +35,16 @@ const requireFrom = (pkg: string): NodeJS.Require =>
 /** The published BLAKE3 digest of "abc". */
 const BLAKE3_ABC = "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85";
 
-/** Each module, and one call that proves the binary actually works. */
-const MODULES: { name: string; probe: () => string }[] = [
+/**
+ * Each module, and one call that proves the binary actually works.
+ *
+ * "Works" means doing the module's real job, not loading. sharp's prebuilt
+ * binary **loads** under Electron on Linux and then segfaults on the first
+ * decode, because it carries its own GLib into a process that already links the
+ * system's (ADR-0013). A probe that only called `require` reported that
+ * combination as healthy.
+ */
+const MODULES: { name: string; probe: () => string | Promise<string> }[] = [
   {
     name: "better-sqlite3",
     probe: () => {
@@ -54,6 +62,32 @@ const MODULES: { name: string; probe: () => string }[] = [
     },
   },
   {
+    name: "sharp",
+    probe: async () => {
+      const sharp = requireFrom("media")("sharp");
+      const { vips } = sharp.versions as { vips: string };
+
+      // Not a key count on `sharp.format`: a format is listed whether or not
+      // this build can read or write it. And not a load-only check either —
+      // see the note above. This decodes and encodes, which is where the
+      // GLib collision actually fires.
+      const png: Buffer = await sharp({
+        create: { width: 320, height: 200, channels: 3, background: { r: 10, g: 80, b: 160 } },
+      })
+        .png()
+        .toBuffer();
+      const thumb: Buffer = await sharp(png)
+        .resize({ width: 64, height: 64, fit: "inside", withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer();
+      const meta = (await sharp(thumb).metadata()) as { format: string; width: number };
+      if (meta.format !== "webp" || meta.width !== 64) {
+        throw new Error(`round-trip produced ${meta.format} ${meta.width}px`);
+      }
+      return `libvips ${vips}, decoded and encoded a ${thumb.length} B webp`;
+    },
+  },
+  {
     name: "@napi-rs/blake-hash",
     probe: () => {
       const { Blake3Hasher } = requireFrom("media")("@napi-rs/blake-hash");
@@ -68,7 +102,7 @@ const MODULES: { name: string; probe: () => string }[] = [
   },
 ];
 
-function probeThisRuntime(): boolean {
+async function probeThisRuntime(): Promise<boolean> {
   const runtime = process.versions.electron
     ? `Electron ${process.versions.electron} (Node ${process.versions.node})`
     : `Node ${process.versions.node}`;
@@ -77,7 +111,7 @@ function probeThisRuntime(): boolean {
   let ok = true;
   for (const { name, probe } of MODULES) {
     try {
-      console.log(`  ok    ${name} - ${probe()}`);
+      console.log(`  ok    ${name} - ${await probe()}`);
     } catch (error) {
       ok = false;
       console.log(`  FAIL  ${name} - ${error instanceof Error ? error.message : String(error)}`);
@@ -103,10 +137,19 @@ function probeUnderElectron(): boolean {
     stdio: "inherit",
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
   });
+
+  // A module that takes the process down leaves no message of its own, so the
+  // listing simply stops mid-way and the reason has to be reported from here.
+  // This is not hypothetical: it is exactly what sharp's prebuilt does under
+  // Electron on Linux (ADR-0013).
+  if (result.signal !== null) {
+    console.log(`  FAIL  the runtime died on ${result.signal} while probing the module above`);
+    return false;
+  }
   return result.status === 0;
 }
 
-let ok = probeThisRuntime();
+let ok = await probeThisRuntime();
 if (process.argv.includes("--both") && !process.versions.electron) {
   console.log("");
   ok = probeUnderElectron() && ok;

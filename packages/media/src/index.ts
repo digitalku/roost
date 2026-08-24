@@ -5,11 +5,38 @@
  * hashes and dominant colour belong here too, and arrive with M5.
  *
  * Optional backends are runtime-probed, never hard dependencies: an asset whose
- * decoder is missing still imports, with a placeholder and a note.
+ * decoder is missing still imports, with no thumbnail rather than an error.
  */
+export { decoderVersions, isRenderable, type Thumbnail, WEBP_QUALITY } from "./decoder.js";
+export {
+  FORMATS,
+  type Format,
+  formatFromExtension,
+  isFormat,
+  kindOf,
+  mediaTypeOf,
+  SNIFF_BYTES,
+  sniff,
+} from "./format.js";
 export {
   FULL_HASH_MAX_BYTES,
   type Hashed,
   hashFile,
   PARTIAL_WINDOW_BYTES,
 } from "./hash.js";
+export { type Probed, probe, sniffFile } from "./probe.js";
+export {
+  gradient,
+  gradientPixels,
+  isSyntheticFormat,
+  SYNTHETIC_FORMATS,
+  type SyntheticFormat,
+  syntheticFormatForExtension,
+} from "./synth.js";
+export {
+  EAGER_SIZES,
+  GRID_SIZE,
+  generateThumbnails,
+  PREVIEW_SIZE,
+  THUMBNAIL_SIZES,
+} from "./thumbnail.js";

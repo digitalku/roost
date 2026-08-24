@@ -54,6 +54,44 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-08-24 — thumbnails, and where sharp can run (M1)
+
+Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe.
+Node 22.23.1 (ABI 127) and Electron 43.4.1 (Node 24.18.1, ABI 148).
+sharp 0.35.3 / libvips 8.18.3 in all three builds.
+
+One import's worth of work: decode a 4000x3000 JPEG, downscale to the 256 px grid size,
+encode WebP q80 — the thumbnail the schema actually stores. `UV_THREADPOOL_SIZE` set to the
+core count for the concurrent column, as `ARCHITECTURE.md` §3.3 requires.
+
+| Build | Node, sequential | Node, concurrency 64 | Electron, concurrency 64 |
+| --- | --- | --- | --- |
+| Prebuilt `@img/sharp-linux-x64` | 8.9 ms | **623/sec** | **SIGSEGV** |
+| Built from source against system libvips | 8.1 ms | 612/sec | 342/sec |
+| `@img/sharp-wasm32` | 12.2 ms | **101/sec** | 105/sec |
+
+**What this revealed, first.** The prebuilt sharp **loads** under Electron and then segfaults on
+the first decode, in `sharp::OpenInput`, calling through a null function pointer — a GObject
+lookup against a type registered in a different GLib. The prebuilt bundles its own GLib and
+exports its symbols; the Electron binary dynamically links the system's. Two registries, one
+process. ADR-0013 has the stack and the options.
+
+The check that had passed this module was `require()`. It is now a decode and an encode, in
+`scripts/probe-native.ts`, and it fails today on Linux under Electron — correctly.
+
+**What this revealed, second, and it is the more transferable half.** WASM is 1.4x slower per
+thumbnail and **6.2x slower under concurrency**. It does not scale across libuv's threadpool the
+way the native build does, so the sequential figure — the natural one to quote, and the one a
+micro-benchmark produces — understates the real cost by more than four times.
+
+`TODO.md` §4.2 records the Rust build's version of this trap: end-to-end timing hid a regression
+that a micro-benchmark showed as a straight line. This is the same trap from the other side, and
+the rule that covers both is that a number is only about the concurrency it was taken at.
+
+**Against the budget.** `CONCEPT.md` §7 asks for at least 300 imports/sec. Native clears it
+twice over even inside Electron; WASM does not clear it at all. That is what makes ADR-0013 a
+decision rather than a preference.
+
 ### 2026-08-24 — content hashing (M1)
 
 Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe. Node 22.23.1.

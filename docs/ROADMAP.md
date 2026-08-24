@@ -86,7 +86,11 @@ containers where no window can open.
 - ☑ Streamed BLAKE3 including the >50 MB partial scheme and `is_partial_hash`, byte-verified
   against digests taken from the Rust implementation — and the verification itself checked, by
   flipping the size prefix to big-endian and watching the two partial-hash cases fail
-- ☐ `@roost/media`: magic-byte probing, dimensions, WebP q80 thumbnails at 256/512 as BLOBs
+- ☑ `@roost/media`: magic-byte probing over 21 formats with the extension as a hint only,
+  header-only dimensions, and WebP q80 thumbnails at 256/512 as BLOBs — plus the synthetic
+  gradient generator `roost fixture` needs. **ADR-0013 came out of it**: `sharp`'s prebuilt
+  binary segfaults inside Electron on Linux, which the CLI does not hit and M3 would have
+  discovered the hard way
 - ☐ Import pipeline: discover → probe → hash → dedupe → place → journal → index
 - ☐ `@roost/library`: `Library` create/open/rebuild, manifest, import
 - ☐ `@roost/cli`: `init`, `import`, `stats`, `rebuild`, `thumb`, `fixture`

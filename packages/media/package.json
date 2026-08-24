@@ -14,8 +14,9 @@
   "types": "./dist/index.d.ts",
   "main": "./dist/index.js",
   "dependencies": {
+    "@napi-rs/blake-hash": "1.4.0",
     "@roost/core": "workspace:*",
-    "@napi-rs/blake-hash": "1.4.0"
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@types/node": "22.20.1"
