@@ -1,0 +1,22 @@
+{
+  "name": "@roost/media",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Format probing, decoding, thumbnails, metadata extraction, and content hashing.",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "dependencies": {
+    "@roost/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@roost/library",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The application service layer: import, edit, search, thumbnails, doctor, rebuild.",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "dependencies": {
+    "@roost/core": "workspace:*",
+    "@roost/media": "workspace:*",
+    "@roost/search": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1"
+  }
+}

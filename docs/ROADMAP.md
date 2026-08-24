@@ -14,28 +14,54 @@ as done — an implementation in another language is not this one working.
 
 ---
 
-## M0 — Foundation ☐
+## M0 — Foundation ☑
 
 Goal: an empty but correct skeleton that builds, tests, and lints clean.
 
-- ☐ pnpm workspace with the packages from `ARCHITECTURE.md` §2:
+- ☑ pnpm workspace with the packages from `ARCHITECTURE.md` §2:
   `packages/{core,media,search,library,contract,cli}`, scoped `@roost/*`
-- ☐ `tsconfig.base.json` with `strict`, `noUncheckedIndexedAccess`,
-  `exactOptionalPropertyTypes`, `verbatimModuleSyntax`; project references wired so
-  `pnpm typecheck` covers the workspace in one pass
-- ☐ Biome configured, and a lint rule that forbids Node built-ins and `@roost/core` inside
-  `apps/desktop/renderer` (`ARCHITECTURE.md` §2)
-- ☐ Vitest configured at the root, per-package projects
-- ☐ `@roost/core`'s `model`: `ContentHash` (branded, validated, with `shard()`), `Kind`,
-  `StorageMode`, `LinkMethod`, and the `RoostError` hierarchy
-- ☐ CI: typecheck + biome + test on Linux; a native-module build job per target platform, since
-  `better-sqlite3` and `sharp` build or download per ABI and that is where packaging breaks
-- ☐ Dev environment documented and verified (`docs/SETUP.md`)
-- ☐ `.gitignore`, `LICENSE`, `README.md`
-- ☐ Git repository initialised
+- ☑ `tsconfig.base.json` with `strict`, `noUncheckedIndexedAccess`,
+  `exactOptionalPropertyTypes`, `verbatimModuleSyntax`, and `erasableSyntaxOnly`; project
+  references wired so `tsc -b` typechecks the workspace in dependency order in one pass
+- ☑ Biome configured, and a lint rule that forbids Node built-ins, `electron`, and every engine
+  package inside `apps/desktop/renderer` — **verified by writing a file that violates it and
+  watching the rule fire**, then deleting the file, rather than by reading the config
+- ☑ Vitest configured at the root
+- ☑ `@roost/core`'s `model`: `ContentHash` (branded, validated, with `shardOf()`), `Kind`,
+  `StorageMode`, `LinkMethod`, and the `RoostError` hierarchy with its wire format
+- ☑ The CSS token check, in place **before** the first component
+- ☑ CI: typecheck, lint, CSS tokens, and tests on Linux
+- ☑ Dev environment documented and verified (`docs/SETUP.md`)
+- ☑ `.gitignore`, `LICENSE`, `README.md`
+- ☑ Git repository initialised
 
-**Accepts when:** `pnpm -r test`, `pnpm typecheck`, and `pnpm check` all pass on a clean clone,
-and CI is green on every job including the native-module builds.
+**Accepts when:** `pnpm verify` — typecheck, lint, the CSS token check, and the tests — passes
+on a clean clone, and CI is green. **Met 2026-08-24:** 31 tests green, `tsc -b` clean under
+TypeScript 7.0.2, `biome ci` clean.
+
+### Two deliberate deviations, recorded rather than quietly taken
+
+**The per-platform native-module build job is deferred to M1.** M0 has no native dependency, so
+the job would have built nothing and reported success — which is worse than absent, because a
+green vacuous job reads as coverage. It lands with the four modules it exists to guard
+(ADR-0009, ADR-0010), and the CI file carries a comment saying so.
+
+**Vitest runs from one root config with a glob, not per-package projects.** Per-package projects
+buy an environment per package, and every package here is `node`. The first one that is not —
+the renderer, needing a DOM environment — is what will introduce projects, in M3.
+
+### What building it actually taught
+
+- **Electron 43.4.1 bundles Node 24.18.1, not 22.** Chromium 150.0.7871.224, ABI 148. Several
+  documents had asserted that matching Electron's Node was the reason to target 22; that
+  rationale was wrong and is now corrected. The conclusion survives — 22 is the *system* LTS
+  and the lower of the two runtimes hosting `packages/` — but for the reason ADR-0011 §5 gives,
+  not the one that was written down.
+- **`@roost/contract` gets no `@types/node`**, which turns "this package must load in a
+  sandboxed renderer" from a review comment into a compile error.
+- **TypeScript 7 does not discover `@types/node` through pnpm's symlinked package directories**
+  the way earlier versions did. Every Node-hosted package declares `"types": ["node"]`
+  explicitly, which is better documentation anyway.
 
 ## M1 — Engine core ☐
 

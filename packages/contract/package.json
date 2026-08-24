@@ -1,0 +1,16 @@
+{
+  "name": "@roost/contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The IPC surface as data: message shapes and their validators. Imported by every process; depends on nothing.",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js"
+}

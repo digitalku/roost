@@ -73,22 +73,27 @@ Two things that are no longer blocked, but are still easy to get wrong:
 
 Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a second copy of it.
 
-### Foundation (M0)
-- 🔴 **Four native modules, not three** (ADR-0009 + ADR-0010). The CI native-build job has to
-  cover the in-repo reflink addon too, and that one has no upstream prebuilds — publishing its
-  own is part of M1's definition of done, not an M6 concern.
-- 🔴 **`@roost/library` must run in a plain Node process.** ADR-0006 puts the engine in a
-  `utilityProcess`, which makes it tempting to reach for `electron` inside the library. Nothing
-  under `packages/` may import it — the CLI is the test that this held, and a lint rule should
-  say so before the first import does.
-- 🟡 The renderer import-restriction lint rule. It is invariant 11 in practice, and it is one
-  careless auto-import from being silently lost.
-- 🟡 The CSS token check. `roost-old` added it *after* an undeclared `var(--bg)` shipped a
-  transparent panel over the grid. Comments must be stripped before the scan, or the comment
-  explaining the bug reports itself.
-- 🟢 An `.editorconfig`, so an editor without Biome still produces the same whitespace.
+### Foundation (M0) — done 2026-08-24
+- ☑ ~~The renderer import-restriction lint rule.~~ In place, and **verified by violating it**: a
+  throwaway file importing `node:fs` and `@roost/core` was written, watched to fail, and deleted.
+  Reading the config would not have proved anything.
+- ☑ ~~The CSS token check.~~ In place before the first component, with unit tests and an
+  end-to-end check in both directions. Comments are stripped before the scan, or the comment
+  explaining the bug would report itself.
+- ☑ ~~An `.editorconfig`.~~
+- 🟡 **The per-platform native-module CI job is deferred to M1**, where the four modules it
+  guards actually arrive. A job that builds nothing and reports success is worse than an absent
+  one. `ROADMAP.md` M0 records the deviation; the CI file carries the reason.
+- 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
+  milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
 ### Engine (M1)
+- 🔴 **Native modules must be built for Electron's ABI, which is 148, not for Node 22's.**
+  `pnpm install` at M0 installs nothing native, so this is entirely untested. The first native
+  dependency is also the moment the deferred per-platform CI job has to land.
+- 🟡 **`@roost/library` must not acquire `electron` in its dependency graph**, directly or
+  transitively. A lint rule or a dependency-graph assertion belongs with the first real service,
+  since the CLI is what proves the layering and the CLI is written in this milestone.
 - 🔴 **The reflink addon needs a test that measures allocation, not bytes.** Clone a file and
   compare the filesystem's reported allocated size before and after. A reflink that quietly
   became a full copy passes any test that only checks the two files match — which is exactly how

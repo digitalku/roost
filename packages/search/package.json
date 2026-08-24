@@ -1,0 +1,22 @@
+{
+  "name": "@roost/search",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Roost Query Language: grammar, parser, and its compiler to a bound SQL fragment.",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "dependencies": {
+    "@roost/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1"
+  }
+}

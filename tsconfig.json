@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/contract" },
+    { "path": "packages/media" },
+    { "path": "packages/search" },
+    { "path": "packages/library" },
+    { "path": "packages/cli" }
+  ]
+}

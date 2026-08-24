@@ -1,0 +1,92 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.10/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": ["**/*.ts", "**/*.tsx", "**/*.mjs", "**/*.json", "**/*.css", "!**/dist"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noConsole": {
+          "level": "error",
+          "options": {
+            "allow": ["error"]
+          }
+        }
+      },
+      "style": {
+        "useConsistentArrayType": {
+          "level": "error",
+          "options": {
+            "syntax": "shorthand"
+          }
+        },
+        "noNonNullAssertion": "error",
+        "useNodejsImportProtocol": "error"
+      },
+      "complexity": {
+        "noForEach": "off"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["packages/*/src/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/desktop/renderer/**/*.ts", "apps/desktop/renderer/**/*.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "electron": "The renderer is sandboxed and has no ambient authority (ARCHITECTURE.md invariant 10). Reach the engine through window.roost.",
+                  "@roost/core": "Engine packages never load in the renderer. Use @roost/contract for the message shapes.",
+                  "@roost/library": "Engine packages never load in the renderer. Use @roost/contract for the message shapes.",
+                  "@roost/media": "Engine packages never load in the renderer. Use @roost/contract for the message shapes.",
+                  "@roost/search": "Engine packages never load in the renderer. Use @roost/contract for the message shapes.",
+                  "node:fs": "The renderer has no filesystem access. Bytes arrive over the roost:// protocol (ADR-0008).",
+                  "node:path": "The renderer has no filesystem access.",
+                  "node:child_process": "The renderer has no ambient authority.",
+                  "node:os": "The renderer has no ambient authority.",
+                  "node:crypto": "The renderer has no ambient authority.",
+                  "fs": "The renderer has no filesystem access.",
+                  "path": "The renderer has no filesystem access."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

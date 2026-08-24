@@ -12,7 +12,7 @@ Correct it in the same change if M0 lands differently.
 
 | Requirement | Version | Why |
 | --- | --- | --- |
-| Node.js | 22 LTS | Electron's bundled Node is 22; matching it avoids two ABIs in one repo |
+| Node.js | 22 LTS | The system runtime for the CLI and for tests. **Not** Electron's Node, which is 24.18.1 at Electron 43 — `packages/` targets the lower of the two (ADR-0011 §5) |
 | pnpm | 10+ | Workspace manager of record. `corepack enable` is enough |
 | git | any | |
 | A C++ toolchain | `gcc-c++`, `make`, `python3` | Only needed when a native module has no prebuilt binary for Electron's ABI |
@@ -59,6 +59,25 @@ sudo dnf install -y gcc-c++ cmake ffmpeg-free gh
 
 The working directory is on **Btrfs**, so reflink import is testable here.
 
+### Toolchain versions, as pinned and verified 2026-08-24
+
+| Thing | Version | Note |
+| --- | --- | --- |
+| Electron | 43.4.1 | Pinned exactly; ADR-0011 governs when it moves |
+| ├ Chromium | 150.0.7871.224 | What the renderer's frame budget is measured against |
+| ├ Node (bundled) | **24.18.1** | The engine process runs on this |
+| └ ABI (`process.versions.modules`) | 148 | What all four native modules must be built for |
+| Node (system) | 22.23.1 | The CLI and the tests run on this; `packages/` targets it |
+| TypeScript | 7.0.2 | The native compiler; `tsc -b` is the typecheck |
+| Vitest | 4.1.11 | |
+| Biome | 2.5.10 | Formatter and linter, one tool |
+
+**The bundled Node is 24, not 22.** Earlier drafts of this file said Electron bundled 22 and that
+matching it was why the repository targeted 22. That was wrong. The reason to target 22 is that
+it is the *system* LTS and the lower of the two runtimes hosting `packages/` — the CLI runs on
+the system's Node, the engine runs on Electron's — and ADR-0011 §5 makes re-checking that part
+of every Electron bump.
+
 **Display passthrough works**: the session is Wayland with `WAYLAND_DISPLAY=wayland-0` and
 XWayland at `:0`, both visible inside the container. Electron defaults to XWayland unless told
 otherwise, so `pnpm dev` passes `--ozone-platform-hint=auto` — under XWayland the window is
@@ -71,10 +90,11 @@ See `TODO.md` §2 for what each absence blocks.
 
 ```bash
 git clone <this repo> && cd roost
-pnpm install          # also rebuilds native modules against Electron's ABI
-pnpm -r build
-pnpm -r test
+pnpm install
+pnpm verify           # typecheck, lint, CSS tokens, tests — everything CI runs
 ```
+
+`pnpm verify` is the gate. Run it before finishing a session; if it passes, CI will too.
 
 `pnpm install` is where native modules are resolved. Four of them matter: `better-sqlite3`,
 `sharp`, and the BLAKE3 binding (ADR-0009), plus the in-repo reflink addon (ADR-0010). The first
@@ -88,15 +108,21 @@ missing compiler, so check for `g++` before debugging the network.
 ## 3. Everyday commands
 
 ```bash
-pnpm dev                     # Electron main + Vite renderer, both watching
-pnpm typecheck               # tsc --noEmit across the workspace, via project references
+pnpm verify                  # typecheck + lint + CSS tokens + tests, in CI's order
+pnpm typecheck               # tsc -b — build mode is the typecheck, in dependency order
 pnpm check                   # biome check --write
-pnpm -r test                 # vitest
-pnpm -r test -- --watch
+pnpm check:css               # fail on a var(--token) nothing declares
+pnpm test                    # vitest
+pnpm test:watch
+pnpm build                   # tsc -b
+pnpm clean                   # tsc -b --clean
 
-pnpm --filter @roost/cli start -- --help
-pnpm --filter @roost/core test
+pnpm dev                                        # Electron + Vite, both watching  (M3)
+pnpm --filter @roost/cli start -- --help        #                                 (M1)
 ```
+
+There is no separate `--noEmit` typecheck. `tsc -b` is what validates project references, so
+build mode *is* the check, and a stale `dist/` cannot make it pass.
 
 Working against a library:
 

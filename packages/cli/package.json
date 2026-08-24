@@ -1,0 +1,23 @@
+{
+  "name": "@roost/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The `roost` binary. A first-class frontend over the same services the desktop app uses.",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "dependencies": {
+    "@roost/core": "workspace:*",
+    "@roost/library": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1"
+  }
+}

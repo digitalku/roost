@@ -411,7 +411,7 @@ JSON at debug level so a problem reported days later can still be investigated.
 | Layer | Choice | Note |
 | --- | --- | --- |
 | Shell | Electron | Chromium renderer, Node engine, one language end to end (ADR-0001) |
-| Language | TypeScript, ESM, Node 22 LTS | strict, no `any` |
+| Language | TypeScript 7, ESM | strict, `erasableSyntaxOnly`, no `any`; targets Node 22, which is *not* Electron's Node — see ADR-0011 |
 | DB | `better-sqlite3` + FTS5 | synchronous by design; WAL; derived cache (ADR-0003, ADR-0009) |
 | Images | `sharp` (libvips) | decode and WebP q80 thumbnails at 256 and 512 (ADR-0009) |
 | Hashing | native BLAKE3 binding, streamed | content identity; a perceptual hasher arrives with M5 |

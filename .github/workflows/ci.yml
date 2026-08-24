@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Nothing in CI launches a window yet, and the binary is ~150 MB per run.
+  # This is removed by M3, which is the first milestone that starts Electron.
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+jobs:
+  checks:
+    name: Typecheck, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          # The engine runs on Electron's Node and the CLI runs on the system's,
+          # so packages/ targets the lower of the two (ADR-0011 §5). That is 22
+          # while Electron 43 bundles 24.
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # tsc -b in dependency order. This is the typecheck; there is no separate
+      # --noEmit pass, because build mode is what checks project references.
+      - run: pnpm typecheck
+
+      - run: pnpm check:ci
+
+      # CSS has no undefined-variable error, so this is the only thing that sees
+      # a typo'd design token. It is in place before the first component, not
+      # after the first bug. See docs/TODO.md §4.
+      - run: pnpm check:css
+
+      - run: pnpm test
+
+# A native-module build job, one runner per target platform, arrives with M1 —
+# the milestone that adds better-sqlite3, sharp, the BLAKE3 binding, and the
+# in-repo reflink addon (ADR-0009, ADR-0010). It is deliberately absent until
+# then rather than present and vacuous.
+#
+# It must run natively on each platform rather than cross-compiling. The Rust
+# implementation's portability job cross-compiled, and every target therefore
+# built SQLite from C before reaching any code worth checking — so the job could
+# only ever fail on the C toolchain. See docs/TODO.md §4.

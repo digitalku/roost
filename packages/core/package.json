@@ -1,0 +1,19 @@
+{
+  "name": "@roost/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Domain model, SQLite index, content-addressed storage, the journal, and platform access. Everything docs/STORAGE_SPEC.md governs.",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "devDependencies": {
+    "@types/node": "22.20.1"
+  }
+}
