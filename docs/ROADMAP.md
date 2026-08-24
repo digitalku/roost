@@ -81,8 +81,12 @@ containers where no window can open.
 - ☑ `@roost/core` `storage`: the `Storage` interface, `ManagedStorage` (reflink → hardlink →
   copy, atomic temp+rename) and `ReferencedStorage` — with a fragment of a **Rust-written
   object store committed as a fixture**, walked and re-derived path by path
-- ☐ `@roost/core` `platform`: XDG directories, reflink probing, reveal, single-instance lock
-- ☐ `@roost/core` `log`: structured logger, sinks installed by the binaries
+- ☑ `@roost/core` `platform`: XDG directories, reflink probing, reveal, single-instance lock —
+  whose key derivation is pinned against **three lock files `roost-old` actually left on this
+  machine**, so the two builds lock each other out of a library rather than both believing they
+  are alone
+- ☑ `@roost/core` `log`: structured logger, scopes, bound fields, sinks installed by the
+  binaries — and nothing written at all until one is
 - ☑ Streamed BLAKE3 including the >50 MB partial scheme and `is_partial_hash`, byte-verified
   against digests taken from the Rust implementation — and the verification itself checked, by
   flipping the size prefix to big-endian and watching the two partial-hash cases fail

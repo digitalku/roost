@@ -41,6 +41,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@napi-rs/blake-hash':
+        specifier: 1.4.0
+        version: 1.4.0
       better-sqlite3:
         specifier: 13.0.3
         version: 13.0.3

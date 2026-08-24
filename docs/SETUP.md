@@ -183,6 +183,9 @@ pnpm --filter @roost/cli start -- fixture ~/RoostBench --count 100000
 - **Thumbnails do not survive a rebuild.** They derive from bytes, not from journal records.
   `roost rebuild` says so and tells you to run `roost thumb`.
 - **A library can be open in one process at a time.** The single-instance lock is advisory —
-  a PID file under `$XDG_STATE_HOME/roost/locks`, keyed by a hash of the library's canonical
-  path. A Roost killed without releasing it leaves the file behind; deleting it is safe once
-  the process is really gone.
+  a PID file under `$XDG_STATE_HOME/roost/locks`, keyed by a BLAKE3 hash of the library's
+  canonical path. A Roost killed without releasing it leaves the file behind; deleting it is
+  safe once the process is really gone.
+  **`roost-old` and this build share that derivation**, deliberately and by test, so they lock
+  each other out of the same library. That matters here: both repositories are checked out on
+  this machine and both get pointed at the same test library.

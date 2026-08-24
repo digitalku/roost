@@ -151,11 +151,17 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   is here, because replay needs all 22 operations in M1; the reads that only a sidebar uses arrive
   with the sidebar.
 
-- 🔴 **ADR-0013 is Proposed and needs a decision before M3.** `sharp`'s prebuilt binary cannot
-  run inside Electron on Linux. The recommendation is to build it from source against the
-  platform's libvips there and keep the prebuilt elsewhere, with the WASM build as a documented
-  6x-slower fallback. Nothing in M1 is blocked — the CLI runs on the system's Node, where the
-  prebuilt is both correct and fastest.
+- ☑ ~~**ADR-0013 needs a decision before M3.**~~ Accepted 2026-08-25: build `sharp` from source
+  against the platform's libvips on Linux, keep the prebuilt on macOS and Windows, WASM as a
+  documented 6x-slower fallback. What it leaves behind is M6 work, below.
+- 🟡 **The Linux app build must compile `sharp` from source** (ADR-0013). It needs `vips-devel`,
+  `node-addon-api`, and `node-gyp`, and it needs the prebuilt `@img/*` packages **absent** —
+  `SHARP_FORCE_GLOBAL_LIBVIPS=1` on its own does not produce a source build in sharp 0.35, and a
+  build that quietly keeps the prebuilt is a build that quietly segfaults. M6, and the CI native
+  job is what will catch getting it wrong.
+- 🟡 **Linux packaging carries libvips and must not carry GLib** (ADR-0013). Bundling GLib
+  recreates the exact collision this decision avoids. Flatpak gets this right from its runtime;
+  an AppImage or `.deb` has to be checked rather than assumed.
 - 🟡 **`roost doctor` should report which sharp build is loaded.** "Thumbnails are slow" and
   "thumbnails crash the engine" have the same cause and no other symptom.
 - 🟢 **BMP has no thumbnail here.** libvips 8.18.3 has no BMP loader; the Rust build's `image`
