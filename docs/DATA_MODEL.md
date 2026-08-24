@@ -291,11 +291,44 @@ Non-normative, and specific to this port. Each of these is a place where the Rus
 implementation got a guarantee from its type system that this one has to test for.
 
 **Integers.** `size`, `imported_at`, `created_at`, and `duration_ms` are SQLite integers, and a
-file can exceed `Number.MAX_SAFE_INTEGER` bytes only in theory — but `better-sqlite3` returns
-`BigInt` for values that do not fit a double, and only when they do not fit. A column that is
-usually `number` and occasionally `bigint` is the sort of thing that fails once, in production,
-on someone's disk image. Read integer columns through one helper that normalises, and decide
-per column which type wins.
+file can exceed `Number.MAX_SAFE_INTEGER` bytes only in theory.
+
+This section previously said `better-sqlite3` returns `BigInt` for values that do not fit a
+double, and only when they do not. **Measured on 2026-08-24 against 13.0.3, that is wrong, and
+wrong in the worse direction.** Storing `9007199254740993` and reading it back returns the
+`number` `9007199254740992` — no `BigInt`, no error, one lost unit. `BigInt` is not a default
+the driver falls into; it is a mode (`safeIntegers`) that must be asked for, and asking for it
+turns *every* integer into a `bigint`, including the row ids and counts that arithmetic here
+treats as numbers.
+
+So the decision is to read integers as `number` and to keep the boundary out of reach rather
+than handle it: no column in this schema can approach 2^53. `size` would need a nine-petabyte
+file, `imported_at` a date 285 million years out, and the ids are row counters. What is worth
+writing down is that the failure mode is silent rounding rather than a type surprise — a
+`typeof` check would never have caught it, and a corrupt or hostile database is the only way to
+reach it.
+
+**Placeholders are not all the same placeholder.** SQLite accepts `?`, `?NNN`, and `@name`;
+`better-sqlite3` does not treat them alike. It reads `?NNN` as a *named* parameter and refuses
+to bind it positionally, so a statement ported from the Rust build unchanged fails with "too
+many parameter values were provided" no matter how many values it is given. This matters
+because the numbering was load-bearing there: the keyset predicate writes the cursor's
+timestamp twice, and numbering both occurrences as one parameter is what lets SQLite recognise
+a range and seek instead of walking the index from the newest row — 23x on page 200 of a
+50,000-asset library, in that build's own benchmark.
+
+The port keeps the property and changes the spelling: the cursor and the limit are bound **by
+name**, and a compiled RQL filter keeps its anonymous `?`. Mixing the two in one statement
+works — the anonymous ones are bound positionally from the argument list, the named ones from a
+trailing object — and it also drops the parameter counting the Rust version had to thread
+through, since nothing appended needs to know how many placeholders the filter used.
+
+**A boolean is not a bindable value.** `better-sqlite3` binds numbers, strings, bigints,
+buffers, and `null`, and throws a `TypeError` on anything else. `undefined` is the exception it
+makes quietly, binding as `NULL`. Neither is worth relying on: `is_favorite` and
+`is_partial_hash` are `INTEGER CHECK (… IN (0, 1))` in the schema, so the conversion belongs at
+the call site that knows which column it is filling, and an optional journal field is written
+`?? null` rather than left to a convenience the driver does not document.
 
 **`NULL` is not `undefined`.** The schema uses `NULL` to mean "unrated", "no note", "top-level
 folder", and the journal ops for those carry an explicit `null` rather than omitting the field

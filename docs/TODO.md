@@ -100,13 +100,16 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   storage is handed the extension, it does not choose it. The fixture at
   `packages/core/src/storage/__fixtures__/rust-written-library` pins the layout; nothing yet
   pins the *choice*, and that belongs with the import pipeline.
-- 🟡 **Check `better-sqlite3` and `sharp` the way the hashing binding was checked**: load each
-  under system Node *and* under Electron, and see whether the same installed binary serves both.
-  `@napi-rs/blake-hash` does, because Node-API is ABI-stable — which means an Electron bump may
-  touch none of them (ADR-0009's amendment). Verified for one; assumed for none.
-- 🟡 **The per-platform native CI job now has something to guard.** `@roost/media` has its first
-  native dependency, so the job deferred from M0 should land with the next one rather than at the
-  end of M1.
+- ☑ ~~**Check `better-sqlite3` and `sharp` the way the hashing binding was checked.**~~ Two of
+  three done 2026-08-24. `better-sqlite3` 13.0.3 is Node-API (`NAPI_VERSION=10`, prebuilds named
+  by platform with no ABI number) and the **same installed binary loaded under Node 22.23.1
+  (ABI 127) and Electron 43.4.1 (ABI 148)**, FTS5 present in both. `sharp` is the one left and
+  arrives with the thumbnail pipeline. `scripts/probe-native.ts --both` is the check, and it runs
+  in CI on all three platforms.
+- ☑ ~~**The per-platform native CI job.**~~ Landed 2026-08-24 with the second native module, on
+  Linux, macOS, and Windows. It runs natively per platform rather than cross-compiling, for the
+  reason §4.7 gives, and it is the one job that downloads Electron — probing under one ABI proves
+  nothing about the other.
 - 🟡 **`@roost/library` must not acquire `electron` in its dependency graph**, directly or
   transitively. A lint rule or a dependency-graph assertion belongs with the first real service,
   since the CLI is what proves the layering and the CLI is written in this milestone.
@@ -125,11 +128,27 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🔴 **A fixture library written by `roost-old`**, committed, for the cross-implementation test.
   Small enough to commit; it needs a managed asset, a referenced asset, a partial-hash asset,
   tags, groups, folders, a smart folder, and at least one op from the post-v1 set.
-- 🟡 Decide how integer columns are read. `better-sqlite3` returns `bigint` only for values that
-  do not fit a double, so a column is `number` until one day it is not (`DATA_MODEL.md` §4).
+- ☑ ~~Decide how integer columns are read.~~ Settled 2026-08-24, and the premise was wrong:
+  `better-sqlite3` does **not** return `bigint` past 2^53, it silently rounds. `DATA_MODEL.md` §4
+  carries the measurement and the decision — read `number`, and rely on no column in this schema
+  being able to approach the boundary.
 - 🟡 Journal `fsync` policy: per batch during import, bounded interval otherwise. The journal is
   the source of truth, so a write that reaches the database but not the journal is data loss.
 - 🟢 Streamed hashing must not read whole files. Assets are routinely gigabytes.
+
+- 🟡 **Packaging must carry `packages/core/migrations/`.** The migration runner reads the
+  `.sql` files at run time, relative to the module, so that the files stay the single source of
+  truth the conformance test compares against. That is free in dev and in the CLI; an Electron
+  bundle has to be told to include them. M6, but written down here because the failure is "the
+  app cannot open any library" and the cause is invisible in the source.
+- 🟢 **`ThumbnailReader`, the read-only handle in main, is not written yet.** `ARCHITECTURE.md`
+  §3.2 specifies it and M3 is the first milestone with a protocol handler to use it, so it is
+  deliberately absent rather than scaffolded. When it lands it takes `readonly: true` and the
+  same `configure` pragmas.
+- 🟢 **The M2 organize reads are deliberately absent from `Repo`**: the folder tree, tag counts,
+  tag-group listing, `find_folder_by_path`, and the `folder_is_within` cycle guard. Every `apply*`
+  is here, because replay needs all 22 operations in M1; the reads that only a sidebar uses arrive
+  with the sidebar.
 
 ### Search and organize (M2)
 - 🟡 Extract the query corpus from `roost-old`'s parser tests before starting, so the grammar is
@@ -186,3 +205,9 @@ repository's session log, because a lesson nobody rereads is a lesson nobody has
 7. **Cross-compiling a project with native dependencies checks the C toolchain, not your code.**
    `roost-old`'s portability job could only ever fail before it reached anything worth checking.
    Build native modules on the platform they target.
+8. **A test can pass because the code is right, or because the fixture is too small to tell.**
+   Found three times in one session, each by deliberately breaking the thing the test guarded:
+   dropping the keyset tie-break changed nothing (the index supplies that order anyway),
+   `PRAGMA foreign_keys = OFF` changed nothing (`better-sqlite3` sets it on regardless), and an
+   unanchored `/@cursorTs/` matched `@cursorTs2` and counted the broken version as correct.
+   Writing the test is half the work; breaking the code to watch it fail is the other half.

@@ -28,3 +28,5 @@ index.db-shm
 .DS_Store
 *.log
 .tmp-test/
+dist-tests/
+dist-scripts/

@@ -2,5 +2,9 @@ packages:
   - 'packages/*'
   - 'apps/*/*'
 
-onlyBuiltDependencies:
-  - electron
+# pnpm 11 renamed this from `onlyBuiltDependencies`. The old key is silently
+# ignored, which is why M0's Electron binary never downloaded and had to be
+# fetched by hand.
+allowBuilds:
+  better-sqlite3: true
+  electron: true

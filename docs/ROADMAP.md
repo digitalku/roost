@@ -69,8 +69,11 @@ Goal: a headless CLI that can build and query a real library. **No GUI yet.**
 This milestone is deliberately GUI-free — it proves the engine independently and works in
 containers where no window can open.
 
-- ☐ `@roost/core` `db`: migrations 0001–0005 carried over verbatim (`DATA_MODEL.md` port note),
-  migration runner, single-writer discipline, repositories
+- ☑ `@roost/core` `db`: migrations 0001–0005 carried over verbatim (`DATA_MODEL.md` port note,
+  SQL byte-identical, only Rust path references in the comments adapted), forward-only migration
+  runner, one connection by construction rather than by mutex, and the repository — guarded by an
+  **`index.db` written by the Rust implementation**, which opens here at v5 with no migration and
+  answers every statement this build knows how to ask
 - ☑ `@roost/core` `journal`: append-only writer, monthly rotation, `fsync` policy, replay engine
   with skip-unknown-op and torn-line handling — guarded by a **journal written by the Rust
   implementation carrying all 22 operations**, which every record must re-serialise to byte for
@@ -87,9 +90,13 @@ containers where no window can open.
 - ☐ Import pipeline: discover → probe → hash → dedupe → place → journal → index
 - ☐ `@roost/library`: `Library` create/open/rebuild, manifest, import
 - ☐ `@roost/cli`: `init`, `import`, `stats`, `rebuild`, `thumb`, `fixture`
-- ☐ **Rebuild equivalence test** mandated by the spec, wired into CI
-- ☐ **Cross-implementation test**: a committed fixture library written by `roost-old` opens,
-  replays, and produces the same state here (`ARCHITECTURE.md` §4.5)
+- ◐ **Rebuild equivalence test** mandated by the spec, wired into CI — the journal half is in
+  (replaying the Rust build's 22-operation journal into an empty index lands the same state,
+  derived data aside); the `originals/` half arrives with the import pipeline
+- ◐ **Cross-implementation test**: a committed fixture library written by `roost-old` opens,
+  replays, and produces the same state here (`ARCHITECTURE.md` §4.5) — index and journal are
+  committed and tested; the object store is committed but not yet joined to them, which needs
+  the import pipeline
 - ☐ First benchmark run recorded in `docs/BENCHMARKS.md`, against the Rust baseline of
   4,900 files/sec at 100k
 

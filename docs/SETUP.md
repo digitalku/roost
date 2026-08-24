@@ -168,7 +168,14 @@ pnpm --filter @roost/cli start -- fixture ~/RoostBench --count 100000
   auto-import pulls `@roost/core` into a component, the failure appears as a bundler error
   about `node:fs`, which is the rule working.
 - **`better-sqlite3` is synchronous.** `await` on a query is not just unnecessary, it hides
-  which thread is blocked. See `ARCHITECTURE.md` §4.1.
+  which thread is blocked. See `ARCHITECTURE.md` §4.1. It also means `Db.transaction` refuses a
+  function that returns a promise, which is why rebuild uses `beginTransaction`/`commitTransaction`
+  directly — replay reads files, so it awaits by nature.
+- **pnpm calls the build-script allowlist `allowBuilds`, not `onlyBuiltDependencies`.** It was
+  renamed in pnpm 11 and the old key is **ignored in silence** — no warning, no error, just a
+  native module that never builds. That is why M0's Electron binary had to be fetched by hand.
+  `pnpm approve-builds <pkg>` writes the right key into `pnpm-workspace.yaml`; do not write it
+  from memory.
 - **Thumbnails do not survive a rebuild.** They derive from bytes, not from journal records.
   `roost rebuild` says so and tells you to run `roost thumb`.
 - **A library can be open in one process at a time.** The single-instance lock is advisory —

@@ -14,10 +14,13 @@ export {
   IoError,
   isErrorCode,
   isWireError,
+  MigrationFailedError,
   NotInObjectStoreError,
   RemoteError,
   RoostError,
+  SchemaTooNewError,
   toWire,
+  UnreadableSchemaVersionError,
   UnsupportedPlatformError,
   type WireError,
 } from "./error.js";

@@ -9,7 +9,10 @@ export const ERROR_CODES = [
   "invalid_timestamp",
   "io",
   "malformed_record",
+  "migration_failed",
   "not_in_object_store",
+  "schema_too_new",
+  "unreadable_schema_version",
   "unsupported_platform",
   "remote", // an error that crossed a process boundary; see fromWire()
 ] as const;
@@ -127,6 +130,53 @@ export class UnsupportedPlatformError extends RoostError {
       operation,
       platform: process.platform,
     });
+  }
+}
+
+/**
+ * A migration failed partway. The transaction it ran in is already rolled back,
+ * so the database is still at the previous version — which is why the version
+ * is worth reporting: it says where a fix has to start.
+ */
+export class MigrationFailedError extends RoostError {
+  readonly code = "migration_failed";
+
+  constructor(version: number, name: string, cause: unknown) {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    super(`Migration ${version} (${name}) failed: ${reason}`, { version, name, reason });
+  }
+}
+
+/**
+ * The library was written by a build that knows a later schema.
+ *
+ * Refused rather than opened read-only or migrated backwards: this build cannot
+ * know what a table it has never seen means, and guessing risks writing a
+ * journal the newer build then misreads. There are no down-migrations.
+ */
+export class SchemaTooNewError extends RoostError {
+  readonly code = "schema_too_new";
+
+  constructor(found: number, supported: number) {
+    super(`Library is at schema v${found}; this build understands up to v${supported}`, {
+      found,
+      supported,
+    });
+  }
+}
+
+/**
+ * A `meta` table with no usable `schema_version`.
+ *
+ * Reported rather than treated as version 0: a zero would re-run migration 1
+ * over tables that already exist, and the failure would name a `CREATE TABLE`
+ * instead of the real problem.
+ */
+export class UnreadableSchemaVersionError extends RoostError {
+  readonly code = "unreadable_schema_version";
+
+  constructor(value: string) {
+    super(`meta.schema_version is not a version number: ${value}`, { value });
   }
 }
 

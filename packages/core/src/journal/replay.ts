@@ -16,6 +16,19 @@ import { monthsIn } from "./writer.js";
  */
 export interface ReplaySink {
   apply(record: JournalRecord): void;
+
+  /**
+   * Called once, after the last record of the last month.
+   *
+   * A sink that batches its writes commits the open batch here — the same
+   * contract `Journal.close()` carries on the writing side, and for the same
+   * reason: JavaScript has no destructor to flush in.
+   *
+   * It is **not** called when replay throws, deliberately. A rebuild that fails
+   * halfway must not leave a half-built index behind, and an uncommitted batch
+   * is discarded when the connection closes.
+   */
+  finish?(): void;
 }
 
 /** A line replay could not use. */
@@ -96,6 +109,7 @@ export async function replay(journalDir: string, sink: ReplaySink): Promise<Repl
     await replayFile(join(journalDir, `${month}.jsonl`), month, sink, report);
   }
 
+  sink.finish?.();
   return report;
 }
 

@@ -1,11 +1,29 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/core" },
-    { "path": "packages/contract" },
-    { "path": "packages/media" },
-    { "path": "packages/search" },
-    { "path": "packages/library" },
-    { "path": "packages/cli" }
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/core/tsconfig.tests.json"
+    },
+    {
+      "path": "packages/contract"
+    },
+    {
+      "path": "packages/media"
+    },
+    {
+      "path": "packages/search"
+    },
+    {
+      "path": "packages/library"
+    },
+    {
+      "path": "packages/cli"
+    },
+    {
+      "path": "tsconfig.scripts.json"
+    }
   ]
 }

@@ -46,12 +46,37 @@ jobs:
 
       - run: pnpm test
 
-# A native-module build job, one runner per target platform, arrives with M1 —
-# the milestone that adds better-sqlite3, sharp, the BLAKE3 binding, and the
-# in-repo reflink addon (ADR-0009, ADR-0010). It is deliberately absent until
-# then rather than present and vacuous.
-#
-# It must run natively on each platform rather than cross-compiling. The Rust
-# implementation's portability job cross-compiled, and every target therefore
-# built SQLite from C before reaching any code worth checking — so the job could
-# only ever fail on the C toolchain. See docs/TODO.md §4.
+  native:
+    name: Native modules on ${{ matrix.os }}
+    # Electron's binary is needed here and only here: the point of the job is
+    # to load each module under both Node ABIs, and one of them is Electron's.
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Native modules are the point of this job, so their build scripts have to
+      # run. `pnpm-workspace.yaml` allows exactly the two that need them.
+      - run: pnpm install --frozen-lockfile
+
+      # The engine and the CLI run on different Node ABIs — Electron 43 bundles
+      # Node 24 (ABI 148), the CLI uses the system's 22 (ABI 127) — so a module
+      # that loads in one is not thereby proven to load in the other. Both
+      # current modules are Node-API and the same binary serves both
+      # (ADR-0009), which is a claim that has to keep being true, not a fact to
+      # be assumed once.
+      - run: node --experimental-strip-types scripts/probe-native.ts --both
+
+      - run: pnpm test
