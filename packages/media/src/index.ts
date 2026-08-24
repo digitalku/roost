@@ -6,7 +6,10 @@
  *
  * Optional backends are runtime-probed, never hard dependencies: an asset whose
  * decoder is missing still imports, with a placeholder and a note.
- *
- * Arrives with M1.
  */
-export {};
+export {
+  FULL_HASH_MAX_BYTES,
+  type Hashed,
+  hashFile,
+  PARTIAL_WINDOW_BYTES,
+} from "./hash.js";

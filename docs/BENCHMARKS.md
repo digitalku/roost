@@ -1,6 +1,6 @@
 # Roost — Benchmarks
 
-Status: **empty, on purpose** · Last updated: 2026-08-24
+Status: **first results in** · Last updated: 2026-08-24
 
 Nothing has been measured in this implementation, because nothing has been built. What this
 file holds today is the **baseline**: the numbers the Rust implementation at `../roost-old`
@@ -54,4 +54,41 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
-Nothing yet. The first entry lands with M1.
+### 2026-08-24 — content hashing (M1)
+
+Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe. Node 22.23.1.
+Files served from the page cache, so these measure hashing plus buffer copies, not the disk.
+
+**Choosing the binding.** Two BLAKE3 implementations, hashing 256 MiB in 256 KiB chunks with
+no file I/O at all:
+
+| Implementation | Throughput |
+| --- | --- |
+| `@napi-rs/blake-hash` (Node-API native) | **3089 MiB/s** |
+| `hash-wasm` (WASM) | 463 MiB/s |
+
+A 6.7× difference, which is what settles ADR-0009's "native, not WASM" for hashing. Both agree
+with the published BLAKE3 vectors for `""` and `"abc"`.
+
+**Through the file path**, which is what import actually pays:
+
+| Case | Per file | Effective |
+| --- | --- | --- |
+| Full hash, 50 MiB | 50.9 ms | 982 MiB/s |
+| Full hash, 1 MiB | 1.17 ms | 852 MiB/s |
+| Partial hash, 64 MiB file | 0.28 ms | reads 128 KiB, not 64 MiB |
+
+**What this revealed.** The hasher alone runs at 3089 MiB/s and the file path delivers 982 —
+so **two thirds of the time is spent getting bytes to it**, not hashing them. That is a lead
+for later (a larger read buffer, or the binding's own `digestStream`), not a problem now:
+1.17 ms per megabyte-sized file leaves room for ≥300 files/sec several times over, before the
+worker pool multiplies it.
+
+It also lands within a few percent of the Rust implementation on the same work — `roost-old`
+importing the same fixtures reported ~1020 MB/s of hashing. That is the expected result rather
+than a pleasant surprise: both call native BLAKE3, and the bottleneck is on the other side of
+the call. It is worth recording because the fear that motivated `CONCEPT.md` §8's "a JS engine
+is slower than the Rust one it replaces" does not apply where the work is already native.
+
+**The partial scheme is doing its job.** A 64 MiB file costs 0.28 ms because it reads 128 KiB.
+At 4 GB, that number does not change.

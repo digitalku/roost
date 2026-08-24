@@ -88,9 +88,14 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
 ### Engine (M1)
-- 🔴 **Native modules must be built for Electron's ABI, which is 148, not for Node 22's.**
-  `pnpm install` at M0 installs nothing native, so this is entirely untested. The first native
-  dependency is also the moment the deferred per-platform CI job has to land.
+- 🟡 **Check `better-sqlite3` and `sharp` the way the hashing binding was checked**: load each
+  under system Node *and* under Electron, and see whether the same installed binary serves both.
+  `@napi-rs/blake-hash` does, because Node-API is ABI-stable — which means an Electron bump may
+  touch only our own reflink addon rather than all four modules (ADR-0009's amendment). Verified
+  for one; assumed for none.
+- 🟡 **The per-platform native CI job now has something to guard.** `@roost/media` has its first
+  native dependency, so the job deferred from M0 should land with the next one rather than at the
+  end of M1.
 - 🟡 **`@roost/library` must not acquire `electron` in its dependency graph**, directly or
   transitively. A lint rule or a dependency-graph assertion belongs with the first real service,
   since the CLI is what proves the layering and the CLI is written in this milestone.
@@ -99,10 +104,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   became a full copy passes any test that only checks the two files match — which is exactly how
   `COPYFILE_FICLONE` fools people, and the reason ADR-0010 exists. This machine is on Btrfs, so
   the test can be written the same day as the addon.
-- 🔴 **A digest fixture from the Rust implementation.** Before writing the hasher: take a
-  >50 MB file, hash it with `roost-old`, and commit the file's generator plus the expected hex.
-  The partial-hash scheme has a byte-order and integer-width decision inside it, and JavaScript
-  will happily produce a different, self-consistent, wrong answer.
+- ☑ ~~**A digest fixture from the Rust implementation.**~~ Done 2026-08-24, and it earned its
+  keep immediately: flipping the size prefix to big-endian produces a different, entirely
+  self-consistent set of digests, and only the cross-implementation expectations catch it. Six
+  fixtures, both sides of the 50 MiB boundary, generator committed at
+  `packages/media/src/testing/hash-fixtures.ts`.
 - 🔴 **A fixture library written by `roost-old`**, committed, for the cross-implementation test.
   Small enough to commit; it needs a managed asset, a referenced asset, a partial-hash asset,
   tags, groups, folders, a smart folder, and at least one op from the post-v1 set.

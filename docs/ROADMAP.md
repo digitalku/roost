@@ -77,8 +77,9 @@ containers where no window can open.
   copy, atomic temp+rename) and `ReferencedStorage`
 - ☐ `@roost/core` `platform`: XDG directories, reflink probing, reveal, single-instance lock
 - ☐ `@roost/core` `log`: structured logger, sinks installed by the binaries
-- ☐ Streamed BLAKE3 including the >50 MB partial scheme and `is_partial_hash`, byte-verified
-  against a digest taken from the Rust implementation
+- ☑ Streamed BLAKE3 including the >50 MB partial scheme and `is_partial_hash`, byte-verified
+  against digests taken from the Rust implementation — and the verification itself checked, by
+  flipping the size prefix to big-endian and watching the two partial-hash cases fail
 - ☐ `@roost/media`: magic-byte probing, dimensions, WebP q80 thumbnails at 256/512 as BLOBs
 - ☐ Import pipeline: discover → probe → hash → dedupe → place → journal → index
 - ☐ `@roost/library`: `Library` create/open/rebuild, manifest, import
