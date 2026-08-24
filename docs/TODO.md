@@ -16,7 +16,12 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
 before any code was written against them — ADR-0006 through ADR-0010, all Accepted. What they
 decided is in `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
 
-Still open, but none of it blocks M0:
+Electron version policy was settled the same day: **track the stable line**, exact pin,
+deliberate bumps, never outside the supported three majors (ADR-0011). M0 pins whatever is
+stable at scaffold time — **43.4.1** as of 2026-08-24 — and records the Chromium and Node
+versions that came with it.
+
+Still open, and none of it blocks M0:
 
 - 🟡 **The two path edits in `STORAGE_SPEC.md`.** The spec is binding, and this repository
   changed exactly two strings in it: `crates/core/migrations/` → `packages/core/migrations/`,
@@ -28,11 +33,6 @@ Still open, but none of it blocks M0:
   unstyled primitives for menus, dialogs, tooltips, and sliders. Which library — Radix, Ark,
   Base UI, or hand-rolled — is open. The constraint is invariant 7: no runtime network, no
   bundled webfont, nothing that ships its own design opinions. Needed by M3, not M0.
-
-- 🟡 **Electron version policy.** Pin exactly, or track the stable line? Pinning is what keeps
-  native-module ABI stable — and with four addons that now matters more than it did when this
-  question was first written down. Tracking is what keeps Chromium's security fixes arriving.
-  The answer probably differs before and after there are users. Needed by M0's `package.json`.
 
 - 🟢 **Licence and copyright.** `roost-old` is MIT, copyright Digitalku. Assumed the same here
   and written into `LICENSE`; say if this repository should differ.

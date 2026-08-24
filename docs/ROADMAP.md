@@ -177,6 +177,7 @@ have been settled, and the reason M0 can start without working around an unknown
 | Serving bytes | `roost://` through `protocol.handle`, streamed, with range support and no size ceiling. Main opens one read-only database handle to do it | ADR-0008 |
 | Native dependencies | `better-sqlite3`, `sharp`, native BLAKE3 | ADR-0009 |
 | Reflink | A native `FICLONE` addon. Node cannot answer *whether* a clone happened, and `link_method` goes in the journal, so a hint that silently falls back was not usable | ADR-0010 |
+| Electron version | Track the stable line. Exact pin in the manifest, deliberate bumps, never outside the supported three majors | ADR-0011 |
 
 Settled by the user's own choice of stack, and recorded rather than argued: the application
 shell (ADR-0001), the frontend framework (ADR-0002), and the library format, which is carried
