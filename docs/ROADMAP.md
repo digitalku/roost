@@ -73,8 +73,9 @@ containers where no window can open.
   migration runner, single-writer discipline, repositories
 - ☐ `@roost/core` `journal`: append-only writer, monthly rotation, `fsync` policy, replay engine
   with skip-unknown-op and torn-line handling
-- ☐ `@roost/core` `storage`: the `Storage` interface, `ManagedStorage` (reflink → hardlink →
-  copy, atomic temp+rename) and `ReferencedStorage`
+- ☑ `@roost/core` `storage`: the `Storage` interface, `ManagedStorage` (reflink → hardlink →
+  copy, atomic temp+rename) and `ReferencedStorage` — with a fragment of a **Rust-written
+  object store committed as a fixture**, walked and re-derived path by path
 - ☐ `@roost/core` `platform`: XDG directories, reflink probing, reveal, single-instance lock
 - ☐ `@roost/core` `log`: structured logger, sinks installed by the binaries
 - ☑ Streamed BLAKE3 including the >50 MB partial scheme and `is_partial_hash`, byte-verified

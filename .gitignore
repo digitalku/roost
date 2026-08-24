@@ -27,3 +27,4 @@ index.db-shm
 # Editor and OS
 .DS_Store
 *.log
+.tmp-test/

@@ -88,6 +88,13 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
 ### Engine (M1)
+- 🔴 **The importer records the *last* extension component, lowercased, without the dot.**
+  Verified against the Rust implementation, which stores `b.tar.gz` as `<hash>.gz` and a file
+  with no extension as a bare `<hash>` with no trailing dot. Getting this wrong puts one asset
+  at two addresses across the two implementations, and the object store cannot catch it —
+  storage is handed the extension, it does not choose it. The fixture at
+  `packages/core/src/storage/__fixtures__/rust-written-library` pins the layout; nothing yet
+  pins the *choice*, and that belongs with the import pipeline.
 - 🟡 **Check `better-sqlite3` and `sharp` the way the hashing binding was checked**: load each
   under system Node *and* under Electron, and see whether the same installed binary serves both.
   `@napi-rs/blake-hash` does, because Node-API is ABI-stable — which means an Electron bump may
