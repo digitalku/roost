@@ -66,7 +66,7 @@ The working directory is on **Btrfs**, so reflink import is testable here.
 | Electron | 43.4.1 | Pinned exactly; ADR-0011 governs when it moves |
 | ├ Chromium | 150.0.7871.224 | What the renderer's frame budget is measured against |
 | ├ Node (bundled) | **24.18.1** | The engine process runs on this |
-| └ ABI (`process.versions.modules`) | 148 | What all four native modules must be built for |
+| └ ABI (`process.versions.modules`) | 148 | What a non-Node-API native module would have to be built for |
 | Node (system) | 22.23.1 | The CLI and the tests run on this; `packages/` targets it |
 | TypeScript | 7.0.2 | The native compiler; `tsc -b` is the typecheck |
 | Vitest | 4.1.11 | |
@@ -96,10 +96,9 @@ pnpm verify           # typecheck, lint, CSS tokens, tests — everything CI run
 
 `pnpm verify` is the gate. Run it before finishing a session; if it passes, CI will too.
 
-`pnpm install` is where native modules are resolved. Four of them matter: `better-sqlite3`,
-`sharp`, and the BLAKE3 binding (ADR-0009), plus the in-repo reflink addon (ADR-0010). The first
-three publish prebuilt binaries upstream; the fourth builds its own, which is why the C++
-toolchain is worth having installed even when nothing else needs it. If a prebuild
+`pnpm install` is where native modules are resolved. Three of them matter — `better-sqlite3`,
+`sharp`, and `@napi-rs/blake-hash` (ADR-0009) — and all three publish prebuilt binaries upstream.
+Reflink needs no module at all: `COPYFILE_FICLONE_FORCE` is in Node already (ADR-0012). If a prebuild
 exists for the current Electron ABI, nothing compiles and the install is fast. If one does not,
 the install falls back to building from source — which works here, because the C++ toolchain is
 present. On a machine where it is not, that failure reads like a download error rather than a

@@ -297,13 +297,15 @@ Two implementations, deliberately asymmetric because the modes are:
 **No code outside a `Storage` implementation may construct a path from a hash.** Shard
 derivation lives in exactly one private function; callers reach it only through `locate`.
 
-Reflink needed a decision the Rust original did not: it called the `FICLONE` ioctl through a
-crate, and Node exposes no such binding. `fs.constants.COPYFILE_FICLONE` looks like one and is
-not — it is a hint that silently falls back to a full copy and reports success either way, so it
-cannot decide what `link_method` to record, and `link_method` goes in the journal. **ADR-0010
-settles it: a small native addon around the ioctl, returning true or false honestly.** A `false`
-is the ordinary answer on ext4 and moves to the next method; it is not a failure and is not
-logged as one.
+Reflink needed a second look that the Rust original did not, because Node exposes no `FICLONE`
+ioctl. `fs.constants.COPYFILE_FICLONE` looks like one and is not — it is a hint that silently
+falls back to a full copy and reports success either way, so it cannot decide what `link_method`
+to record, and `link_method` goes in the journal.
+
+**`COPYFILE_FICLONE_FORCE` can**, which is what ADR-0012 settles: it refuses rather than falling
+back — measured at `EXDEV` across filesystems and `ENOTSUP` on a same-filesystem non-CoW target —
+so success means it genuinely cloned. No native addon. A refusal is the ordinary answer on ext4
+and moves to the next rung; it is not a failure and is not logged as one.
 
 `put` deliberately does not `chmod` the placed file. Under a hardlink it is also the *user's*
 file, so tightening permissions would reach into their directory.
@@ -415,7 +417,7 @@ JSON at debug level so a problem reported days later can still be investigated.
 | DB | `better-sqlite3` + FTS5 | synchronous by design; WAL; derived cache (ADR-0003, ADR-0009) |
 | Images | `sharp` (libvips) | decode and WebP q80 thumbnails at 256 and 512 (ADR-0009) |
 | Hashing | native BLAKE3 binding, streamed | content identity; a perceptual hasher arrives with M5 |
-| Reflink | in-repo native `FICLONE` addon | Node has no binding, and the built-in hint cannot report what it did (ADR-0010) |
+| Reflink | `fs.copyFile` with `COPYFILE_FICLONE_FORCE` | Refuses rather than falling back, so `link_method` stays truthful; no addon (ADR-0012) |
 | Frontend | React 19 + TypeScript + Vite | see `docs/UI_SPEC.md` (ADR-0002) |
 | Virtualization | `@tanstack/react-virtual` | grid and list |
 | IPC types | `@roost/contract`, shared | nothing generated, nothing to drift (ADR-0007) |

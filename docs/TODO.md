@@ -13,7 +13,7 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
 ## 1. Needs a decision from the user
 
 **Nothing blocking.** The five questions the language change forced were settled on 2026-08-24,
-before any code was written against them — ADR-0006 through ADR-0010, all Accepted. What they
+before any code was written against them — ADR-0006 through ADR-0012, all Accepted. What they
 decided is in `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
 
 Electron version policy was settled the same day: **track the stable line**, exact pin,
@@ -81,7 +81,7 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   end-to-end check in both directions. Comments are stripped before the scan, or the comment
   explaining the bug would report itself.
 - ☑ ~~An `.editorconfig`.~~
-- 🟡 **The per-platform native-module CI job is deferred to M1**, where the four modules it
+- 🟡 **The per-platform native-module CI job is deferred to M1**, where the modules it
   guards actually arrive. A job that builds nothing and reports success is worse than an absent
   one. `ROADMAP.md` M0 records the deviation; the CI file carries the reason.
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
@@ -91,19 +91,20 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟡 **Check `better-sqlite3` and `sharp` the way the hashing binding was checked**: load each
   under system Node *and* under Electron, and see whether the same installed binary serves both.
   `@napi-rs/blake-hash` does, because Node-API is ABI-stable — which means an Electron bump may
-  touch only our own reflink addon rather than all four modules (ADR-0009's amendment). Verified
-  for one; assumed for none.
+  touch none of them (ADR-0009's amendment). Verified for one; assumed for none.
 - 🟡 **The per-platform native CI job now has something to guard.** `@roost/media` has its first
   native dependency, so the job deferred from M0 should land with the next one rather than at the
   end of M1.
 - 🟡 **`@roost/library` must not acquire `electron` in its dependency graph**, directly or
   transitively. A lint rule or a dependency-graph assertion belongs with the first real service,
   since the CLI is what proves the layering and the CLI is written in this milestone.
-- 🔴 **The reflink addon needs a test that measures allocation, not bytes.** Clone a file and
-  compare the filesystem's reported allocated size before and after. A reflink that quietly
-  became a full copy passes any test that only checks the two files match — which is exactly how
-  `COPYFILE_FICLONE` fools people, and the reason ADR-0010 exists. This machine is on Btrfs, so
-  the test can be written the same day as the addon.
+- 🟡 **The reflink test asserts the contract, not the allocation.** It cannot compare bytes — a
+  fallback copy produces identical bytes — and it cannot measure allocation on this container
+  either: `filefrag`, `compsize`, and `btrfs` are not installed, `du` counts shared extents once
+  per file, and Btrfs free-space accounting is too lazy to read a 512 MiB delta out of `statfs`.
+  What it asserts is that `COPYFILE_FICLONE_FORCE` reports `reflink` where the filesystem
+  supports it and **refuses** where it does not. Both sides are reachable here: the repository is
+  on Btrfs and `/tmp` is tmpfs (ADR-0012).
 - ☑ ~~**A digest fixture from the Rust implementation.**~~ Done 2026-08-24, and it earned its
   keep immediately: flipping the size prefix to big-endian produces a different, entirely
   self-consistent set of digests, and only the cross-implementation expectations catch it. Six

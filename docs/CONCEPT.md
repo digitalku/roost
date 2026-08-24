@@ -175,7 +175,7 @@ These are the differentiators worth building, not just parity items:
 | --- | --- |
 | Electron cold start eats the 1.5s budget before the app does anything | Measure from M3, the milestone that first has a window; V8 snapshot and lazy module loading are the levers, and the engine process starts in parallel with the window |
 | Synchronous SQLite blocks whatever thread it is on | The engine owns its own process; nothing that serves UI or bytes shares a thread with it (ADR-0006) |
-| Native modules make packaging fragile | Four of them, rebuilt against Electron's ABI in CI on every target. Three have upstream prebuilt binaries; the reflink addon does not, so it ships its own (ADR-0009, ADR-0010) |
+| Native modules make packaging fragile | Three of them, all with upstream prebuilt binaries, built natively per target in CI. A fourth was proposed for reflink and measured away (ADR-0009, ADR-0012) |
 | A JS engine is slower than the Rust one it replaces | Hashing, decoding, and encoding are all in native code already; what stays in JS is orchestration. Re-measure against `roost-old`'s numbers rather than guessing — that is what `BENCHMARKS.md` is for |
 | Thumbnail generation blocks the app | Dedicated worker pool with a bounded queue, never on the process that answers IPC |
 | Format breadth pulls in heavy dependencies | Optional and runtime-probed; degrade gracefully when `ffmpeg`/`poppler` are absent |

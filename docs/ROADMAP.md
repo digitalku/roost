@@ -43,8 +43,8 @@ TypeScript 7.0.2, `biome ci` clean.
 
 **The per-platform native-module build job is deferred to M1.** M0 has no native dependency, so
 the job would have built nothing and reported success — which is worse than absent, because a
-green vacuous job reads as coverage. It lands with the four modules it exists to guard
-(ADR-0009, ADR-0010), and the CI file carries a comment saying so.
+green vacuous job reads as coverage. It lands with the modules it exists to guard (ADR-0009),
+and the CI file carries a comment saying so.
 
 **Vitest runs from one root config with a glob, not per-package projects.** Per-package projects
 buy an environment per package, and every package here is `node`. The first one that is not —
@@ -203,7 +203,7 @@ have been settled, and the reason M0 can start without working around an unknown
 | IPC contract | A shared `@roost/contract` package. The rule replacing "never hand-write IPC types" is that every message is validated at the receiving end | ADR-0007 |
 | Serving bytes | `roost://` through `protocol.handle`, streamed, with range support and no size ceiling. Main opens one read-only database handle to do it | ADR-0008 |
 | Native dependencies | `better-sqlite3`, `sharp`, native BLAKE3 | ADR-0009 |
-| Reflink | A native `FICLONE` addon. Node cannot answer *whether* a clone happened, and `link_method` goes in the journal, so a hint that silently falls back was not usable | ADR-0010 |
+| Reflink | No addon. `COPYFILE_FICLONE_FORCE` refuses rather than falling back — `EXDEV` across filesystems, `ENOTSUP` on a non-CoW one — so `link_method` stays truthful with what Node already has | ADR-0012, superseding ADR-0010 |
 | Electron version | Track the stable line. Exact pin in the manifest, deliberate bumps, never outside the supported three majors | ADR-0011 |
 
 Settled by the user's own choice of stack, and recorded rather than argued: the application
@@ -211,8 +211,9 @@ shell (ADR-0001), the frontend framework (ADR-0002), and the library format, whi
 over unchanged (ADR-0003, ADR-0004). The CLI stays a first-class frontend (ADR-0005).
 
 **Two consequences land in M0 and M1 rather than M6**, because they are now known:
-- There are **four** native modules, and the reflink addon is the only one without a large
-  upstream publishing prebuilt binaries. Prebuilds are part of its M1 definition of done.
+- There are **three** native modules, all with upstream prebuilt binaries. A fourth was proposed
+  for reflink and then measured away (ADR-0012), which removes what ADR-0009 had called the
+  dependency most likely to need a compiler on a user's machine.
 - The engine is a process, so M1's `@roost/library` must run in a plain Node process with no
   Electron import anywhere in its dependency graph. The CLI is the test that this held.
 
