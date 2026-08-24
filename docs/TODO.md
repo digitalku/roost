@@ -196,9 +196,14 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   with its own engine.
 
 ### Search and organize (M2)
-- 🟡 Extract the query corpus from `roost-old`'s parser tests before starting, so the grammar is
-  reproduced rather than reinvented. A smart folder stores its query text; a query this
-  implementation cannot parse is a folder the user loses.
+- ☑ ~~Extract the query corpus from `roost-old`'s parser tests before starting.~~ Done first,
+  and it earned it: the corpus is now `packages/search/src/query.test.ts`, and two of its cases
+  are behaviours nobody would think to write down — a bare duration means *seconds*, and `<=` on
+  a date means the end of that day rather than its start.
+- 🟡 **Error positions are string indices here, not byte offsets.** The Rust parser reports
+  bytes; a caret in a text input is measured in UTF-16 code units, and a byte offset would point
+  at the wrong character from the first non-ASCII character onward. `DATA_MODEL.md` §3 says
+  "byte offset" and should be reworded when the search field lands in M3.
 - 🟢 `doctor --reclaim` must refuse when the index and the object store disagree. Reclaiming is
   permanent, and a broken index makes every object look unreferenced. A *missing referenced
   original* is deliberately not one of those disagreements — it means the user moved their own

@@ -123,9 +123,12 @@ baseline, and the cause measured rather than assumed — six times the CPU per f
 
 ## M2 — Query and organize ☐
 
-- ☐ `@roost/search`: RQL grammar, parser, SQL compiler, property test
-- ☐ Query-corpus test: queries and their expected compiled SQL, taken from the Rust
-  implementation's tests
+- ☑ `@roost/search`: RQL grammar, lexer, recursive-descent parser, SQL compiler, and the
+  property test `DATA_MODEL.md` §3 asks for — ~11,500 generated inputs, each of which must
+  either parse or raise a positioned error, and whose compiled SQL must never contain a
+  character the user typed
+- ☑ Query-corpus test, taken from the Rust implementation's own parser tests **before** a line
+  of this parser was written, so the grammar is reproduced rather than reinvented
 - ☐ FTS5 wiring through the single write path
 - ☐ Tags with groups, folders, ratings, notes, favourites
 - ☐ Smart folders (saved RQL), validated at save time and evaluated on read

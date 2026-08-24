@@ -8,6 +8,7 @@ export const ERROR_CODES = [
   "already_a_library",
   "ambiguous_hash",
   "invalid_content_hash",
+  "invalid_query",
   "invalid_timestamp",
   "io",
   "library_busy",
