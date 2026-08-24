@@ -149,8 +149,13 @@ error.
 `sharp` is the decode and encode path (ADR-0009), imported in exactly one module — `decoder.ts` —
 so that replacing it is a contained change rather than a survey. Its async API runs on libuv's
 threadpool, so image work does not occupy the engine's event loop; `UV_THREADPOOL_SIZE` is raised
-to the core count at engine start, because the default of four is a silent ceiling on import
-throughput. Measured: 623 thumbnails/sec with the pool at the core count.
+to the core count at engine start, because the default of four is a silent ceiling on it.
+Measured: 623 thumbnails/sec with the pool at the core count.
+
+**That is about `sharp` specifically**, and not a general setting. Image work does real CPU work
+on those threads; a `stat` or a `rename` does not, and widening the pool for the import
+pipeline's filesystem calls measured as no gain up to 16 in flight and a loss at 32. See
+`BENCHMARKS.md`.
 
 **Where it can run is not "everywhere" (ADR-0013).** The prebuilt `sharp` bundles its own GLib;
 the Electron binary on Linux links the system's; two type registries in one process make the

@@ -95,8 +95,11 @@ containers where no window can open.
   gradient generator `roost fixture` needs. **ADR-0013 came out of it**: `sharp`'s prebuilt
   binary segfaults inside Electron on Linux, which the CLI does not hit and M3 would have
   discovered the hard way
-- ☐ Import pipeline: discover → probe → hash → dedupe → place → journal → index
-- ☐ `@roost/library`: `Library` create/open/rebuild, manifest, import
+- ☑ Import pipeline: discover → hash → dedupe → place → probe → journal → index, with a
+  streaming walk, batch-level deduplication, and the partial-hash collision refused rather than
+  merged. Journal before index has a test: the append is stubbed to fail and the index is
+  asserted empty
+- ☑ `@roost/library`: `Library` create/open/rebuild, manifest, import, thumbnails
 - ☐ `@roost/cli`: `init`, `import`, `stats`, `rebuild`, `thumb`, `fixture`
 - ◐ **Rebuild equivalence test** mandated by the spec, wired into CI — the journal half is in
   (replaying the Rust build's 22-operation journal into an empty index lands the same state,
@@ -105,8 +108,9 @@ containers where no window can open.
   replays, and produces the same state here (`ARCHITECTURE.md` §4.5) — index and journal are
   committed and tested; the object store is committed but not yet joined to them, which needs
   the import pipeline
-- ☐ First benchmark run recorded in `docs/BENCHMARKS.md`, against the Rust baseline of
-  4,900 files/sec at 100k
+- ☑ First benchmark run recorded in `docs/BENCHMARKS.md`: **6,883 files/sec** on the Rust
+  build's own 20k fixture, against that build's 18,805 on the same corpus — 23x the stated floor,
+  and 2.7x off a baseline whose cause is measured rather than assumed
 
 **Accepts when:** `roost import ~/Pictures` indexes 10k images, `roost stats` reports them,
 thumbnail BLOBs are present in `index.db`, `originals/` has 256-or-fewer shard directories, a

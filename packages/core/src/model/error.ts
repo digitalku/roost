@@ -5,13 +5,20 @@
  * part of the interface rather than a debugging aid.
  */
 export const ERROR_CODES = [
+  "already_a_library",
+  "ambiguous_hash",
   "invalid_content_hash",
   "invalid_timestamp",
   "io",
+  "library_busy",
+  "library_too_new",
   "malformed_record",
   "migration_failed",
+  "not_a_library",
   "not_in_object_store",
+  "partial_hash_collision",
   "schema_too_new",
+  "unknown_asset",
   "unreadable_schema_version",
   "unsupported_platform",
   "remote", // an error that crossed a process boundary; see fromWire()

@@ -24,6 +24,9 @@
     },
     {
       "path": "tsconfig.scripts.json"
+    },
+    {
+      "path": "packages/library/tsconfig.tests.json"
     }
   ]
 }

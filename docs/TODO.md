@@ -93,13 +93,15 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   renaming `2026-08.jsonl` loses a month without any complaint. `roost doctor` should report
   unexpected files in `journal/`. Found while writing the journal fixture, which failed for
   exactly this reason before it was named properly.
-- 🔴 **The importer records the *last* extension component, lowercased, without the dot.**
+- ☑ ~~**The importer records the *last* extension component, lowercased, without the dot.**~~
   Verified against the Rust implementation, which stores `b.tar.gz` as `<hash>.gz` and a file
   with no extension as a bare `<hash>` with no trailing dot. Getting this wrong puts one asset
   at two addresses across the two implementations, and the object store cannot catch it —
   storage is handed the extension, it does not choose it. The fixture at
-  `packages/core/src/storage/__fixtures__/rust-written-library` pins the layout; nothing yet
-  pins the *choice*, and that belongs with the import pipeline.
+  `packages/core/src/storage/__fixtures__/rust-written-library` pinned the layout; the import
+  pipeline now pins the *choice*, with a test that imports `archive.tar.gz`, `PHOTO.PNG`, and a
+  file called `README` and asserts the three extensions land as `gz`, `png`, and the empty
+  string — and that nothing on disk ends in a dot.
 - ☑ ~~**Check `better-sqlite3` and `sharp` the way the hashing binding was checked.**~~ Two of
   three done 2026-08-24. `better-sqlite3` 13.0.3 is Node-API (`NAPI_VERSION=10`, prebuilds named
   by platform with no ABI number) and the **same installed binary loaded under Node 22.23.1
@@ -126,15 +128,26 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   self-consistent set of digests, and only the cross-implementation expectations catch it. Six
   fixtures, both sides of the 50 MiB boundary, generator committed at
   `packages/media/src/testing/hash-fixtures.ts`.
-- 🔴 **A fixture library written by `roost-old`**, committed, for the cross-implementation test.
-  Small enough to commit; it needs a managed asset, a referenced asset, a partial-hash asset,
-  tags, groups, folders, a smart folder, and at least one op from the post-v1 set.
+- 🟡 **A fixture library written by `roost-old`**, committed, for the cross-implementation test.
+  Three of its four parts are in — the object store, the journal, and the index each have their
+  own committed fixture and their own test. What is missing is one library where all three
+  belong together, which is what proves the importer's *choices* match rather than each layer's
+  format. Downgraded from blocking because the pieces are pinned; it is still worth doing whole.
 - ☑ ~~Decide how integer columns are read.~~ Settled 2026-08-24, and the premise was wrong:
   `better-sqlite3` does **not** return `bigint` past 2^53, it silently rounds. `DATA_MODEL.md` §4
   carries the measurement and the decision — read `number`, and rely on no column in this schema
   being able to approach the boundary.
-- 🟡 Journal `fsync` policy: per batch during import, bounded interval otherwise. The journal is
-  the source of truth, so a write that reaches the database but not the journal is data loss.
+- ☑ ~~Journal `fsync` policy: per batch during import.~~ One flush and one transaction per
+  window of 500. The ordering has a test now: the journal append is stubbed to fail and the index
+  is asserted empty, which only holds if the journal really does go first.
+- 🟡 **The CLI should report sizes in MiB.** The Rust CLI prints `445.3 MB` where a naive
+  `bytes / 1e6` prints `467.0 MB` for the same library. Neither is wrong and they do not
+  disagree — 445.3 MiB *is* 467.0 MB — but two implementations describing one library must not
+  look like they disagree about its size.
+- 🟢 **The import pipeline is CPU-bound on one thread**, not on the filesystem. Measured: six
+  times the Rust build's CPU per file, and flat past four files in flight. If that ever needs to
+  improve, the lever is moving hashing and probing to worker threads, not a larger queue or a
+  wider `UV_THREADPOOL_SIZE`. See `BENCHMARKS.md`.
 - 🟢 Streamed hashing must not read whole files. Assets are routinely gigabytes.
 
 - 🟡 **Packaging must carry `packages/core/migrations/`.** The migration runner reads the
@@ -229,9 +242,20 @@ repository's session log, because a lesson nobody rereads is a lesson nobody has
 7. **Cross-compiling a project with native dependencies checks the C toolchain, not your code.**
    `roost-old`'s portability job could only ever fail before it reached anything worth checking.
    Build native modules on the platform they target.
-8. **A test can pass because the code is right, or because the fixture is too small to tell.**
+8. **An integration test that imports through a package name tests the last build, not the
+   code.** `packages/*/tests/**` resolve `@roost/library` to `dist/`, so a `vitest run` after an
+   edit and before a `tsc -b` silently exercises the previous build. Five deliberate breakages
+   passed that way on 2026-08-25 and proved nothing. `vitest.config.ts` now aliases every
+   workspace package to its `src/`. `pnpm verify` typechecks first and would have caught it in
+   CI — but a bare `vitest run` is the command anyone reaches for while working.
+9. **A test can pass because the code is right, or because the fixture is too small to tell.**
    Found three times in one session, each by deliberately breaking the thing the test guarded:
    dropping the keyset tie-break changed nothing (the index supplies that order anyway),
    `PRAGMA foreign_keys = OFF` changed nothing (`better-sqlite3` sets it on regardless), and an
    unanchored `/@cursorTs/` matched `@cursorTs2` and counted the broken version as correct.
    Writing the test is half the work; breaking the code to watch it fail is the other half.
+10. **Measure before naming the cause.** The obvious reason a sequential JavaScript pipeline
+    loses to Rust is that the Rust one is parallel. It is not: `/usr/bin/time` put `roost-old`'s
+    import at 98% CPU — one core — while this build sat at 199% and still took three times as
+    long. The difference is six times the CPU *per file*, not threads. The write-up that assumed
+    otherwise was already drafted.
