@@ -1,0 +1,315 @@
+# Roost — Data Model
+
+Status: v3 · Last updated: 2026-08-24
+
+> **The authoritative document is [`STORAGE_SPEC.md`](STORAGE_SPEC.md).** It is binding:
+> directory layout, invariants, hashing, import modes, schema v1, journal format, and
+> forbidden patterns all live there. This file holds only what the spec does not cover —
+> the query language, and the plan for schema growth beyond v1.
+>
+> If this file ever contradicts `STORAGE_SPEC.md`, the spec wins and this file is the bug.
+
+## Port note (2026-08-24)
+
+Carried over from the Rust implementation at `../roost-old`, which built all of it. Nothing in
+the schema or the grammar changed when the language did, and nothing may: a library written by
+either implementation opens in the other, and a smart folder saved in one has to evaluate the
+same way in the other.
+
+So **migrations 0001–0005 are carried over verbatim**, numbers included. This repository does
+not get to consolidate them into a single v5 baseline, tempting as that is with no users yet —
+a library created by `roost-old` arrives already at schema v5 with those five rows in its
+migration bookkeeping, and a fresh baseline would either re-run against it or disagree about
+what version it is. The first migration this project authors is **0006**.
+
+The RQL section below describes a grammar that exists and is tested — in the other repository.
+Here it is a specification to be implemented in M2, and the acceptance test is a corpus of
+queries with their expected compiled SQL, taken from the Rust implementation's own tests.
+
+---
+
+## 1. Summary of the storage model
+
+For orientation only; normative text is in the spec.
+
+- **Identity is the BLAKE3 content hash.** Not a UUID, not a path. Dedupe is therefore
+  automatic: importing the same bytes twice yields one asset.
+- **`journal/YYYY-MM.jsonl` is the source of truth.** Append-only, monthly rotation.
+- **`index.db` is a derived cache.** Deletable at will; rebuilt by replaying the journal.
+- **`originals/<2-hex>/<full-hash>.<ext>`** — one shard level, 256 buckets, created lazily.
+- **Thumbnails are WebP BLOBs inside `index.db`**, never loose files.
+- **Folders are collections** joined through `asset_folders`; assets carry no path column.
+
+## 2. Schema growth plan
+
+Schema v1 in the spec is deliberately minimal — it covers M1–M3. Later milestones add
+columns and tables through **numbered migrations**, never by editing an applied migration.
+Each addition also needs a journal `op` if it stores user-authored state, otherwise it
+violates invariant 6.
+
+| Milestone | Addition | Journal op needed |
+| --- | --- | --- |
+| M2 | `assets.rating`, `assets.note`, `assets.is_favorite` | yes — `rate`, `note_set`, `favorite_set` |
+| M2 | `smart_folders(id, name, query, parent_id)` | yes — `smart_folder_*` |
+| M2 | folder rename/move/delete, asset rename, tag rename | yes — new ops, see spec notes |
+| M4 | `assets.page_count`, capability/probe results | no — derived from the file |
+| M5 | `asset_colors(hash, rank, l, a, b, ratio)` | no — derived |
+| M5 | `asset_hashes(hash, dhash, phash)` | no — derived |
+| M5 | `asset_stacks(stack_id, hash, position, is_cover)` | yes — user-authored grouping |
+| M5 | `watched_roots(path, recursive, enabled, last_scan)` | yes — configuration |
+
+Rule of thumb, and the cleanest test for whether an op is required: **if a user typed it or
+clicked it, it goes in the journal. If a machine derived it from bytes, it does not.**
+
+Derived tables (`thumbs`, `assets_fts`, colors, perceptual hashes) are rebuilt by
+re-processing `originals/`, so they stay exempt from the journal.
+
+### 2.1 Migration 0002 — M2 organize (schema v2)
+
+Landed 2026-08-21 in the Rust engine; carried over here unchanged. Published here rather than in `STORAGE_SPEC.md` because the
+specification's schema block is v1 and stays v1; growth lives in this file.
+`packages/core/tests/spec-conformance.test.ts` asserts the migration still matches
+this block, so the two cannot drift.
+
+```sql
+ALTER TABLE assets ADD COLUMN rating INTEGER
+      CHECK (rating IS NULL OR rating BETWEEN 1 AND 5);
+
+ALTER TABLE assets ADD COLUMN note TEXT;
+
+ALTER TABLE assets ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0
+      CHECK (is_favorite IN (0, 1));
+
+CREATE INDEX idx_assets_rating   ON assets(rating)      WHERE rating IS NOT NULL;
+CREATE INDEX idx_assets_favorite ON assets(is_favorite) WHERE is_favorite = 1;
+
+CREATE TABLE smart_folders (
+  id         INTEGER PRIMARY KEY,
+  parent_id  INTEGER REFERENCES smart_folders(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  query      TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_smart_folders_parent ON smart_folders(parent_id);
+```
+
+Three choices in that block are load-bearing:
+
+- **`rating IS NULL` means unrated**, which is not the same as a deliberate one
+  star. A `0` sentinel would make "show me everything I have not rated yet"
+  indistinguishable from "show me what I rated lowest".
+- **The indexes are partial.** `rating:>=4` and `is:favorite` select a small
+  minority of a large library; indexing only matching rows keeps both the index
+  size and the write cost proportional to what is actually rated.
+- **A smart folder stores its query, not its results.** It is evaluated on read,
+  so it cannot go stale, and `query` is parsed into bound parameters — never
+  concatenated into SQL.
+
+### 2.2 Migration 0003 — the keyset index (schema v3)
+
+Approved and landed 2026-08-21 in the Rust engine; carried over here unchanged.
+
+```sql
+DROP INDEX idx_assets_imported;
+
+CREATE INDEX idx_assets_imported ON assets(imported_at DESC, hash);
+```
+
+The grid pages on `(imported_at, hash)`, not on `imported_at` alone, because
+`imported_at` is **not unique** — a bulk import writes thousands of assets in
+the same second, and without a tie-break column keyset paging can show the same
+asset twice or skip it entirely. Holding that order in the index is what makes
+paging cost the same at row 900,000 as at row 100; without it SQLite sorts the
+second column itself, reading the whole table into a temporary B-tree to produce
+the first screen.
+
+It **replaces** the single-column index rather than joining it. An index on
+`(imported_at DESC, hash)` already serves any query that orders by
+`imported_at` alone, since that is its leading column, so keeping both would
+buy nothing and cost a second index to maintain on every insert. Roughly 90 MB
+at one million assets.
+
+### 2.3 Migration 0004 — tag groups (schema v4)
+
+Decided and landed 2026-08-21 in the Rust engine, after weighing it against hierarchical
+tags; carried over here unchanged.
+
+```sql
+CREATE TABLE tag_groups (
+  id         INTEGER PRIMARY KEY,
+  name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+ALTER TABLE tags ADD COLUMN group_id INTEGER
+      REFERENCES tag_groups(id) ON DELETE SET NULL;
+
+CREATE INDEX idx_tags_group ON tags(group_id) WHERE group_id IS NOT NULL;
+```
+
+**Groups organize tags; they do not nest them.** `tags.name` stays globally
+`UNIQUE COLLATE NOCASE`, so `tag:icons` names exactly one tag however many
+groups exist.
+
+That is the whole reason this was chosen over hierarchical tags. Hierarchy
+would have forced `UNIQUE(parent_id, name)`, letting `design/icons` and
+`nature/icons` coexist — and from that moment `tag:icons` is ambiguous, and
+every query either has to spell out a full path or accept an answer that mixes
+two unrelated concepts. Grouping buys the readable sidebar without buying the
+ambiguity, and it is what Eagle itself does.
+
+`ON DELETE SET NULL`, never `CASCADE`: deleting an arrangement must not delete
+the tags arranged by it, nor unpick every asset carrying them.
+
+### 2.4 Migration 0005 — grid filter indexes (schema v5)
+
+Approved and landed 2026-08-24 in the Rust engine; carried over here unchanged. See `docs/adr/0006-grid-filter-indexes.md` for the measurements and the
+options it was chosen against.
+
+```sql
+DROP INDEX idx_assets_ext;
+DROP INDEX idx_assets_rating;
+DROP INDEX idx_assets_favorite;
+
+CREATE INDEX idx_assets_ext      ON assets(ext, imported_at DESC, hash);
+
+CREATE INDEX idx_assets_rating   ON assets(rating, imported_at DESC, hash)
+                                 WHERE rating IS NOT NULL;
+
+CREATE INDEX idx_assets_favorite ON assets(is_favorite, imported_at DESC, hash)
+                                 WHERE is_favorite = 1;
+```
+
+Every grid query filters, orders by `(imported_at DESC, hash)`, and takes one screen. Given a
+single-column index on the filtered column, SQLite seeks the matches through it and sorts all
+of them in a temporary B-tree to produce two hundred — so `ext:png`, matching a fifth of the
+library, read and sorted a fifth of the library for one screen: **18.9 ms at 96,666 assets**,
+against a budget of 100 ms p95 at a million. `ANALYZE` does not change the plan; SQLite costs
+the sort but not the early exit the LIMIT allows.
+
+Carrying the sort key inside the filter index means the index is already in the order asked
+for. SQLite seeks the filtered range and walks it until the LIMIT is satisfied: **0.51 ms**,
+and the cost is now the page rather than the match set.
+
+Each index **replaces** its predecessor, whose column is the new one's leading column, so
+nothing the old index answered is lost. The partial ones stay partial for the reason §2.1
+gives.
+
+`size`, `width`, `height`, and `duration` are deliberately left unindexed. Having no index is
+why SQLite already walks the ordering index and stops at the LIMIT for those terms — which is
+the plan this migration buys everywhere else. Adding one would create the problem.
+
+## 3. Roost Query Language (RQL)
+
+The search bar and smart folders share one grammar. It compiles to SQL with **bound
+parameters only** — never string concatenation. This is user input reaching SQL, so the
+parser is fuzz-tested.
+
+Terms are gated on the schema that backs them; a term whose column does not exist yet is a
+parse error with a clear message, not a silent empty result.
+
+The grammar is frozen by compatibility, not by preference. A smart folder stores its query
+text, so a query this implementation cannot parse is a folder the user loses.
+
+**Specified — implemented in the Rust engine, and M2's job here**
+```
+tag:wood                      tag equals, case-insensitive as the schema stores it
+tag:"brand assets"            quoted values; "" escapes a quote inside one
+group:Materials               any tag in that group
+-tag:wip                      negation
+folder:Moodboards             folder and everything beneath it
+folder:Design/Icons           nested path; a bare name also resolves if unambiguous
+ext:png                       extension, with or without the dot
+size:>10mb                    byte size; kb/mb/gb are binary multiples, 1.5mb is fine
+w:>2000  h:<=1080             dimensions
+duration:>30s                 ms/s/m/h; a bare number is seconds
+created:2024-01-01..2024-12-31
+created:2024-03-01            a bare date is the whole day, not midnight exactly
+imported:>2026-01-01
+rating:>=4                    1 to 5; anything else is a parse error, not an empty result
+is:favorite is:untagged is:tagged is:rated is:unrated
+is:managed is:referenced is:partial-hash
+"free text"                   FTS5 over orig_name and tags
+```
+
+Implicit `AND` between adjacent terms; `OR` and parentheses are explicit; a leading `-`
+negates. Precedence, loosest first: `OR`, `AND`, negation, term.
+
+Four behaviours are worth stating because they are decisions, not accidents:
+
+- **A bare date covers its whole day.** `created:2024-03-01` compiles to a range ending at
+  23:59:59 UTC. Matching midnight exactly would return nothing, which is never what was
+  meant. Dates resolve in UTC because the stored timestamps are UTC.
+- **An unknown field is an error, with a byte offset.** `colour:red` does not quietly become
+  a full-text search for "colour:red" — the user asked a question this build cannot answer,
+  and an empty grid would not say so.
+- **Free text is searched as a phrase.** FTS5's `MATCH` argument is a query language of its
+  own, so raw text would let `AND`, `NEAR`, `*`, or a stray quote change or break the
+  search. Quoting the whole input is what a person typing into a search box means.
+- **Negation is total.** `-tag:wip` is `NOT (…)` over the whole library, so it includes
+  assets with no tags at all.
+- **`group:` reaches assets through the tags in the group**, since a group arranges tags
+  rather than containing assets. It was added with the groups themselves so the CLI can
+  answer "everything tagged with anything in Materials" — ADR-0005 does not let the GUI
+  have a capability the CLI lacks.
+
+**Arriving at M5**
+```
+color:#3a7fd5~15              dominant colour within CIELAB ΔE 15
+similar:<hash>                perceptual-hash neighbours
+is:duplicate
+```
+
+Implicit `AND` between terms; `OR` and parentheses supported. Grammar, parser, and SQL
+compiler live in `@roost/search`.
+
+### Notes on compiling RQL
+
+- `is:duplicate` cannot mean "same hash" — identical bytes are one asset by invariant 1.
+  It means *perceptually* near-duplicate, via `asset_hashes`, and is therefore M5.
+- `folder:` matches the folder and its descendants. The subtree is expanded to a list of
+  ids **before** compiling, by a `Folders` resolver the caller supplies, rather than by a
+  recursive CTE inside every query: a folder tree is user-made and small, and expanding it
+  keeps the compiled SQL simple and lets `@roost/search` be tested without a database. A
+  smart folder recompiles on every run, so the expansion cannot go stale.
+- `tag:` names exactly one tag, always. Tags are flat and `tags.name` is globally
+  `UNIQUE COLLATE NOCASE`; migration 0004 added groups to arrange them, deliberately
+  choosing that over hierarchy so the guarantee survives (§2.3).
+- Result paging is keyset-based on `(imported_at, hash)`, never `OFFSET`. Migration 0003
+  put that exact order in the index, so both the sort and the resume are seeks.
+- The parser is the one place user input becomes SQL, so it is property-tested rather than
+  example-tested: any input string must either produce an AST or a positioned error, and must
+  never produce SQL text containing a character the user typed.
+- `duration:` compiles today but matches nothing: `assets.duration_ms` exists in schema v1
+  and stays `NULL` until M4 fills it. The term is not gated, because the column is there —
+  the gating rule is about columns that do not exist.
+
+## 4. What a JavaScript implementation must be careful about
+
+Non-normative, and specific to this port. Each of these is a place where the Rust
+implementation got a guarantee from its type system that this one has to test for.
+
+**Integers.** `size`, `imported_at`, `created_at`, and `duration_ms` are SQLite integers, and a
+file can exceed `Number.MAX_SAFE_INTEGER` bytes only in theory — but `better-sqlite3` returns
+`BigInt` for values that do not fit a double, and only when they do not fit. A column that is
+usually `number` and occasionally `bigint` is the sort of thing that fails once, in production,
+on someone's disk image. Read integer columns through one helper that normalises, and decide
+per column which type wins.
+
+**`NULL` is not `undefined`.** The schema uses `NULL` to mean "unrated", "no note", "top-level
+folder", and the journal ops for those carry an explicit `null` rather than omitting the field
+(`STORAGE_SPEC.md` §Ops added after v1). `JSON.stringify` drops `undefined` and keeps `null`,
+so the difference between clearing a rating and not mentioning it is one keystroke in the code
+and invisible in review. Journal records are built by constructors that take `null`, never by
+spreading an object that might carry `undefined`.
+
+**`COLLATE NOCASE` is not `toLowerCase()`.** `tags.name` is unique under SQLite's `NOCASE`,
+which folds ASCII only. JavaScript's `toLowerCase` folds Unicode. Deduplicating tag names in JS
+before the insert would make `İ` and `i̇` collide in one implementation and not the other. Let
+the database decide uniqueness; never pre-fold.
+
+**Dates.** Every timestamp in the schema and the journal is unix **seconds**, UTC.
+`Date.now()` is milliseconds. RQL date terms resolve in UTC because the stored values are UTC,
+and a bare date covers its whole day — `new Date('2024-03-01')` already parses as UTC midnight,
+but `new Date(2024, 2, 1)` does not, and the two are one habit apart.
