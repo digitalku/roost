@@ -63,7 +63,7 @@ the renderer, needing a DOM environment — is what will introduce projects, in 
   the way earlier versions did. Every Node-hosted package declares `"types": ["node"]`
   explicitly, which is better documentation anyway.
 
-## M1 — Engine core ☐
+## M1 — Engine core ☑
 
 Goal: a headless CLI that can build and query a real library. **No GUI yet.**
 This milestone is deliberately GUI-free — it proves the engine independently and works in
@@ -100,23 +100,26 @@ containers where no window can open.
   merged. Journal before index has a test: the append is stubbed to fail and the index is
   asserted empty
 - ☑ `@roost/library`: `Library` create/open/rebuild, manifest, import, thumbnails
-- ☐ `@roost/cli`: `init`, `import`, `stats`, `rebuild`, `thumb`, `fixture`
-- ◐ **Rebuild equivalence test** mandated by the spec, wired into CI — the journal half is in
-  (replaying the Rust build's 22-operation journal into an empty index lands the same state,
-  derived data aside); the `originals/` half arrives with the import pipeline
-- ◐ **Cross-implementation test**: a committed fixture library written by `roost-old` opens,
-  replays, and produces the same state here (`ARCHITECTURE.md` §4.5) — index and journal are
-  committed and tested; the object store is committed but not yet joined to them, which needs
-  the import pipeline
+- ☑ `@roost/cli`: `init`, `import`, `stats`, `rebuild`, `thumb`, `fixture` — library resolution
+  the way `git` does it, results on stdout and everything else on stderr, and exit code 2 for a
+  command line that cannot be acted on against 1 for a command that tried
+- ☑ **Rebuild equivalence test** mandated by the spec, wired into CI: replaying the Rust build's
+  22-operation journal lands the same state, and a library imported here rebuilds to an identical
+  index with thumbnails correctly discarded
+- ☑ **Cross-implementation test**, and in both directions. Committed fixtures prove this build
+  reads the Rust one's object store, journal, and index. `packages/library/tests/interop.test.ts`
+  proves the reverse where `../roost-old` is built: it writes a library here, and the Rust binary
+  reads the same counts out of it, **replays its journal into a matching index**, and reports
+  nothing wrong from `doctor`. The fixture generator writes byte-identical corpora too
 - ☑ First benchmark run recorded in `docs/BENCHMARKS.md`: **6,883 files/sec** on the Rust
   build's own 20k fixture, against that build's 18,805 on the same corpus — 23x the stated floor,
   and 2.7x off a baseline whose cause is measured rather than assumed
 
-**Accepts when:** `roost import ~/Pictures` indexes 10k images, `roost stats` reports them,
-thumbnail BLOBs are present in `index.db`, `originals/` has 256-or-fewer shard directories, a
-re-import is a no-op, and both conformance tests pass. Import throughput is measured and
-recorded — if it is far off the Rust baseline, the number goes in `BENCHMARKS.md` with an
-explanation, not a shrug.
+**Accepted 2026-08-25.** 10,000 images imported and reported, 6,500 thumbnail BLOBs in
+`index.db` and no loose files, exactly 256 shard directories at one level, a re-import that
+imported nothing, and a rebuild that landed on the same 9,722 assets. Import throughput is
+recorded in `BENCHMARKS.md` with the explanation the criterion asked for: 2.7x off the Rust
+baseline, and the cause measured rather than assumed — six times the CPU per file, not threads.
 
 ## M2 — Query and organize ☐
 

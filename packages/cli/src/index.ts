@@ -1,11 +1,8 @@
 /**
- * `@roost/cli` produces the `roost` binary: a first-class frontend over the
- * same services the desktop app uses (ADR-0005). The graphical interface may
- * not grow a capability this lacks.
+ * `@roost/cli` is a first-class frontend, not a debugging aid (ADR-0005).
  *
- * It is also how the engine is exercised without Electron, which is how it runs
- * in CI and in containers where no window can open.
- *
- * Arrives with M1.
+ * M1 is deliberately GUI-free: the engine has to be provable on its own, and in
+ * a container where no window can open. Everything here goes through
+ * `@roost/library`, the same service layer the desktop shell will use.
  */
-export {};
+export { EXIT, run, type Streams } from "./run.js";

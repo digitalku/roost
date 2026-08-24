@@ -117,8 +117,12 @@ pnpm build                   # tsc -b
 pnpm clean                   # tsc -b --clean
 
 pnpm dev                                        # Electron + Vite, both watching  (M3)
-pnpm --filter @roost/cli start -- --help        #                                 (M1)
+pnpm --filter @roost/cli start -- --help        # the `roost` binary
 ```
+
+`start` runs the built binary, so `pnpm build` has to have run. That is deliberate rather than
+an oversight: there is no watch mode wired into the CLI, and a command that silently ran the
+previous build is exactly the trap `vitest.config.ts` had to be fixed for.
 
 There is no separate `--noEmit` typecheck. `tsc -b` is what validates project references, so
 build mode *is* the check, and a stale `dist/` cannot make it pass.
@@ -129,11 +133,22 @@ Working against a library:
 export ROOST_LIBRARY=~/RoostTest
 
 pnpm --filter @roost/cli start -- init "$ROOST_LIBRARY"
-pnpm --filter @roost/cli start -- import ~/Pictures
+pnpm --filter @roost/cli start -- import ~/Pictures --tag reference
 pnpm --filter @roost/cli start -- stats
-pnpm --filter @roost/cli start -- query 'tag:blue rating:>=4' --json
-pnpm --filter @roost/cli start -- doctor
+pnpm --filter @roost/cli start -- thumb
+pnpm --filter @roost/cli start -- rebuild
+
+pnpm --filter @roost/cli start -- query 'tag:blue rating:>=4' --json          # (M2)
+pnpm --filter @roost/cli start -- doctor                                     # (M2)
 ```
+
+Every command finds the library the way `git` does — `--library`, else `$ROOST_LIBRARY`, else
+the nearest one at or above the working directory — so from inside a library none of them needs
+an argument at all.
+
+Results go to stdout and everything else to stderr, so `roost stats | grep assets` works and a
+progress counter never lands in a pipe. Exit codes separate the two kinds of failure: **2** for
+a command line that cannot be acted on, **1** for a command that tried and failed.
 
 Never point these at a library you care about while the engine is under development. Journal
 writes are append-only and recoverable; a half-written migration is not.
@@ -146,6 +161,14 @@ library — which is what every benchmark in `BENCHMARKS.md` is measured against
 ```bash
 pnpm --filter @roost/cli start -- fixture ~/RoostBench --count 100000
 ```
+
+By default every file is random bytes: fast, and enough to measure hashing, placing, and
+indexing. **Nothing it writes can be thumbnailed**, which looks like a broken pipeline and is
+only ever the fixture — pass `--real-images` when the thumbnail path is what is being measured,
+and expect it to take an order of magnitude longer.
+
+The bytes match what `../roost-old` writes for the same seed, count, and size, which is what
+makes a measurement here comparable to one recorded there rather than merely similar.
 
 ## 5. Debugging
 

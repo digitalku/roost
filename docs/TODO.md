@@ -128,11 +128,13 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   self-consistent set of digests, and only the cross-implementation expectations catch it. Six
   fixtures, both sides of the 50 MiB boundary, generator committed at
   `packages/media/src/testing/hash-fixtures.ts`.
-- 🟡 **A fixture library written by `roost-old`**, committed, for the cross-implementation test.
-  Three of its four parts are in — the object store, the journal, and the index each have their
-  own committed fixture and their own test. What is missing is one library where all three
-  belong together, which is what proves the importer's *choices* match rather than each layer's
-  format. Downgraded from blocking because the pieces are pinned; it is still worth doing whole.
+- ☑ ~~**A fixture library written by `roost-old`**, committed, for the cross-implementation
+  test.~~ Answered better than asked. The three committed fixtures pin the object store, the
+  journal, and the index in the reading direction. The writing direction — which no fixture can
+  test — is `packages/library/tests/interop.test.ts`: it builds a library here and has the Rust
+  binary read its counts, replay its journal into a matching index, and run `doctor` over it.
+  **That test skips where `../roost-old` is not built, which includes CI.** It is the only check
+  in the repository that does, and it is worth knowing that a green CI run has not proved this.
 - ☑ ~~Decide how integer columns are read.~~ Settled 2026-08-24, and the premise was wrong:
   `better-sqlite3` does **not** return `bigint` past 2^53, it silently rounds. `DATA_MODEL.md` §4
   carries the measurement and the decision — read `number`, and rely on no column in this schema
@@ -140,7 +142,13 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - ☑ ~~Journal `fsync` policy: per batch during import.~~ One flush and one transaction per
   window of 500. The ordering has a test now: the journal append is stubbed to fail and the index
   is asserted empty, which only holds if the journal really does go first.
-- 🟡 **The CLI should report sizes in MiB.** The Rust CLI prints `445.3 MB` where a naive
+- ☑ ~~**The CLI should report sizes in MiB.**~~ It does, and says MiB rather than MB. Unit-tested
+  on exact strings, because a test that only checks the label passes either way.
+- 🟢 **`roost fixture --real-images` is slow enough to notice**: 10,000 images at 1200x800 took
+  247 s, against 0.13 s for 2,000 files of random bytes. It is encoder-bound and the encoder is
+  the one the thumbnail path uses, so this is honest work rather than waste — but a `--jobs` flag
+  would make a 100k benchmark corpus practical.
+- 🟢 **Superseded:** the CLI reporting sizes in MB. The Rust CLI prints `445.3 MB` where a naive
   `bytes / 1e6` prints `467.0 MB` for the same library. Neither is wrong and they do not
   disagree — 445.3 MiB *is* 467.0 MB — but two implementations describing one library must not
   look like they disagree about its size.

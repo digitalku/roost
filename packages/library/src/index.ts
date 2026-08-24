@@ -16,6 +16,11 @@ export {
   UnknownAssetError,
 } from "./error.js";
 export {
+  type FixtureOptions,
+  type FixtureReport,
+  generateFixture,
+} from "./fixture.js";
+export {
   filesPerSecond,
   type ImportFailure,
   type ImportOptions,

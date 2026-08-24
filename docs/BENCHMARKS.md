@@ -54,6 +54,38 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-08-25 — M1 acceptance, end to end
+
+`ROADMAP.md`'s own gate for M1, run through the `roost` binary rather than through a test
+harness. 10,000 synthetic images, 6.0 GiB, generated with `--real-images` so the thumbnail path
+is real work.
+
+| Step | Result |
+| --- | --- |
+| `roost import` | 9,722 imported of 10,000 scanned, 278 duplicates, 4.03 s, **2,481 files/sec** |
+| `roost import` again | **0 imported, 10,000 duplicates** — a true no-op |
+| `roost thumb` | 6,500 generated, 3,222 assets this build cannot draw, 59.7 MiB of WebP |
+| `roost stats` | 9,722 assets, 5.9 GiB, schema 5 |
+| `originals/` | **256 shard directories, 0 at a second level** |
+| Library root | exactly four entries: `index.db`, `journal`, `library.json`, `originals` |
+| Object names | every file `<64-hex>[.ext]`, no exceptions |
+| Loose thumbnail files | **none** — 6,500 rows and 59.7 MiB of BLOB inside `index.db` |
+| `roost rebuild` | 9,722 before, 9,722 after, thumbnails discarded as they must be |
+
+The 3,222 undrawable assets are the `mp4`, `pdf`, and `svg` thirds of the fixture's extension
+cycle. They import, carry tags, and have no thumbnail — which is the promise `ARCHITECTURE.md`
+§3.3 makes about a missing backend, and the first time it has been exercised at scale.
+
+**Thumbnails ran at 195/sec here against 623/sec in the micro-benchmark**, on *smaller* images.
+The difference is everything the micro-benchmark left out: reading 6 GiB off disk instead of a
+warm buffer, a 64-byte header sniff per file before the decode, and 60 MiB of BLOB inserts. It
+is the same lesson as the WASM concurrency number in the other direction — a rate is only about
+the conditions it was taken under — and it is why acceptance runs through the binary.
+
+**Import ran at 2,481 files/sec** rather than the 6,883 measured on 24 KiB files, because these
+average 640 KiB and the hash reads all of them. That is the number a real photo library will
+see, and it is still eight times the floor.
+
 ### 2026-08-25 — the import pipeline (M1)
 
 Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe. Node 22.23.1.

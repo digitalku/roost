@@ -19,5 +19,11 @@
   },
   "devDependencies": {
     "@types/node": "22.20.1"
+  },
+  "bin": {
+    "roost": "./dist/main.js"
+  },
+  "scripts": {
+    "start": "node ./dist/main.js"
   }
 }
