@@ -88,6 +88,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
 ### Engine (M1)
+- 🟢 **A journal file not named `YYYY-MM.jsonl` is invisible to replay.** That is correct — the
+  name is how replay orders months — but it is silent, and a backup tool or a curious user
+  renaming `2026-08.jsonl` loses a month without any complaint. `roost doctor` should report
+  unexpected files in `journal/`. Found while writing the journal fixture, which failed for
+  exactly this reason before it was named properly.
 - 🔴 **The importer records the *last* extension component, lowercased, without the dot.**
   Verified against the Rust implementation, which stores `b.tar.gz` as `<hash>.gz` and a file
   with no extension as a bare `<hash>` with no trailing dot. Getting this wrong puts one asset

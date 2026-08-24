@@ -6,7 +6,9 @@
  */
 export const ERROR_CODES = [
   "invalid_content_hash",
+  "invalid_timestamp",
   "io",
+  "malformed_record",
   "not_in_object_store",
   "unsupported_platform",
   "remote", // an error that crossed a process boundary; see fromWire()
@@ -101,6 +103,19 @@ export class NotInObjectStoreError extends RoostError {
 
   constructor(hash: string) {
     super("Asset is not in the object store; its path is recorded in the index", { hash });
+  }
+}
+
+/**
+ * A timestamp that cannot be a point in time. Journal records are keyed into
+ * monthly files by their own `ts`, so one that does not convert is a record
+ * with nowhere to go.
+ */
+export class InvalidTimestampError extends RoostError {
+  readonly code = "invalid_timestamp";
+
+  constructor(ts: number) {
+    super(`Not a usable unix timestamp: ${ts}`, { ts });
   }
 }
 

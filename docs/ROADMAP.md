@@ -71,8 +71,10 @@ containers where no window can open.
 
 - ☐ `@roost/core` `db`: migrations 0001–0005 carried over verbatim (`DATA_MODEL.md` port note),
   migration runner, single-writer discipline, repositories
-- ☐ `@roost/core` `journal`: append-only writer, monthly rotation, `fsync` policy, replay engine
-  with skip-unknown-op and torn-line handling
+- ☑ `@roost/core` `journal`: append-only writer, monthly rotation, `fsync` policy, replay engine
+  with skip-unknown-op and torn-line handling — guarded by a **journal written by the Rust
+  implementation carrying all 22 operations**, which every record must re-serialise to byte for
+  byte
 - ☑ `@roost/core` `storage`: the `Storage` interface, `ManagedStorage` (reflink → hardlink →
   copy, atomic temp+rename) and `ReferencedStorage` — with a fragment of a **Rust-written
   object store committed as a fixture**, walked and re-derived path by path

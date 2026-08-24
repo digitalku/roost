@@ -10,6 +10,7 @@ export {
   type ErrorDetail,
   fromWire,
   InvalidContentHashError,
+  InvalidTimestampError,
   IoError,
   isErrorCode,
   isWireError,
