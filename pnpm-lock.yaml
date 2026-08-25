@@ -32,6 +32,9 @@ importers:
       '@roost/library':
         specifier: workspace:*
         version: link:../library
+      '@roost/media':
+        specifier: workspace:*
+        version: link:../media
     devDependencies:
       '@types/node':
         specifier: 22.20.1

@@ -19,6 +19,7 @@ export const COMMANDS = [
   "favorite",
   "rename",
   "remove",
+  "doctor",
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -55,6 +56,7 @@ Commands:
   favorite  Mark assets as favourites
   rename    Change an asset's display name. The file on disk is untouched
   remove    Remove assets from the library. Originals are not deleted
+  doctor    Check a library against itself, and reclaim what nothing references
 
 Options:
 ${GLOBAL}
@@ -290,6 +292,32 @@ Usage: roost remove <ASSET>... [OPTIONS]
 
 Options:
 ${LIBRARY_FLAG}
+${GLOBAL}`,
+  doctor: `Check a library against itself.
+
+Roost keeps three copies of the truth: the journal, the index, and the bytes
+under originals/. \`roost rebuild\` proves the first two agree. This checks the
+third: objects with no row, rows with no bytes, referenced originals that moved,
+search rows for assets that are gone, and files in journal/ that replay skips.
+
+Exits 1 when it finds damage, so a scheduled run is a check rather than a report
+nobody reads. Objects nothing references are not damage — they cost space.
+
+Usage: roost doctor [OPTIONS]
+
+Options:
+${LIBRARY_FLAG}
+      --deep             Re-hash every object and compare it to its filename.
+                         The only check that catches silent corruption, and it
+                         reads the whole library
+      --reclaim          Delete the objects nothing references. Refused when the
+                         index and the object store disagree, because an orphan
+                         is only an orphan relative to the index — run
+                         \`roost rebuild\` first
+      --force            Reclaim even then, for bytes a rebuild cannot bring
+                         back. The deletion is permanent
+      --examples <N>     Print at most this many examples per problem.
+                         Default: 10
 ${GLOBAL}`,
 };
 

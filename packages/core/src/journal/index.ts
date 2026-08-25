@@ -17,4 +17,4 @@ export {
   replay,
   type SkippedLine,
 } from "./replay.js";
-export { JOURNAL_DIR, Journal, monthKey, monthsIn } from "./writer.js";
+export { JOURNAL_DIR, Journal, monthKey, monthsIn, strayFilesIn } from "./writer.js";

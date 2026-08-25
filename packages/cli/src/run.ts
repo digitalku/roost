@@ -7,6 +7,7 @@ import {
   stderrSink,
   toWire,
 } from "@roost/core";
+import { doctor } from "./commands/doctor.js";
 import { fixture } from "./commands/fixture.js";
 import { folder } from "./commands/folder.js";
 import { runImport } from "./commands/import.js";
@@ -69,6 +70,12 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   favorite: { off: { type: "boolean" } },
   rename: {},
   remove: {},
+  doctor: {
+    deep: { type: "boolean" },
+    reclaim: { type: "boolean" },
+    force: { type: "boolean" },
+    examples: { type: "string" },
+  },
 };
 
 export async function run(argv: readonly string[], streams: Streams): Promise<number> {
@@ -285,6 +292,26 @@ async function dispatch(
         return usage(streams, command, "remove needs at least one asset");
       }
       return remove(await library(), positionals, streams);
+    }
+
+    case "doctor": {
+      const examples = numberOr(text(values, "examples"), 10);
+      if (!Number.isInteger(examples) || examples < 0) {
+        return usage(streams, command, "--examples must be a whole number");
+      }
+      if (flag(values, "force") && !flag(values, "reclaim")) {
+        return usage(streams, command, "--force only means anything with --reclaim");
+      }
+      return doctor(
+        await library(),
+        {
+          deep: flag(values, "deep"),
+          reclaim: flag(values, "reclaim"),
+          force: flag(values, "force"),
+          examples,
+        },
+        streams,
+      );
     }
   }
 }

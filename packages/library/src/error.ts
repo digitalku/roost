@@ -150,3 +150,21 @@ export class UnknownSmartFolderError extends RoostError {
     super(`No smart folder called ${name}`, { name });
   }
 }
+
+/**
+ * A reclaim asked for on a report that found the index and the object store
+ * disagreeing.
+ *
+ * Reclaiming is permanent — an orphan is by definition not in the journal, so
+ * a rebuild cannot bring it back — and an orphan is only an orphan *relative to
+ * the index*. If the index is the thing that is broken, every object looks
+ * unreferenced. The answer is `roost rebuild`, which makes the question
+ * answerable again.
+ */
+export class UnsoundReclaimError extends RoostError {
+  readonly code = "unsound_reclaim";
+
+  constructor(reason: string) {
+    super(`Refusing to reclaim: ${reason}`, { reason });
+  }
+}

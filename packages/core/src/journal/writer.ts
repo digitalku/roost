@@ -54,6 +54,32 @@ export async function monthsIn(dir: string): Promise<string[]> {
 }
 
 /**
+ * Files in `dir` that replay will never read.
+ *
+ * A journal file not named `YYYY-MM.jsonl` is invisible to replay. That is
+ * correct — the name is how replay orders months — but it is *silent*, so a
+ * backup tool, an editor's `.bak`, or someone renaming a month by hand loses
+ * that month with no complaint at all. `roost doctor` reports what it finds
+ * here, which is the only place the loss is visible before a rebuild.
+ *
+ * Defined next to {@link monthsIn} on purpose: two definitions of "a journal
+ * file" would drift, and the one that drifted would be the one nobody ran.
+ */
+export async function strayFilesIn(dir: string): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw new IoError("readdir", dir, cause);
+  }
+
+  return entries
+    .filter((name) => !(name.endsWith(".jsonl") && isMonthKey(name.slice(0, -".jsonl".length))))
+    .sort();
+}
+
+/**
  * Appends records to `journal/YYYY-MM.jsonl`.
  *
  * The journal is the source of truth, so ordering is not negotiable: append

@@ -15,7 +15,8 @@
   "main": "./dist/index.js",
   "dependencies": {
     "@roost/core": "workspace:*",
-    "@roost/library": "workspace:*"
+    "@roost/library": "workspace:*",
+    "@roost/media": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.20.1"

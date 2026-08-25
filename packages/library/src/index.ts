@@ -7,6 +7,23 @@
  */
 export { discover } from "./discover.js";
 export {
+  type Corrupt,
+  check,
+  DOCTOR_PAGE,
+  type DoctorOptions,
+  type DoctorReport,
+  type DoctorStage,
+  hasDamage,
+  isClean,
+  type Missing,
+  type Orphan,
+  RECLAIM_MODES,
+  type ReclaimMode,
+  reclaim,
+  reclaimableBytes,
+  unsoundForReclaim,
+} from "./doctor.js";
+export {
   addToFolder,
   apply,
   createFolder,
@@ -50,6 +67,7 @@ export {
   UnknownFolderPathError,
   UnknownSmartFolderError,
   UnknownTagGroupError,
+  UnsoundReclaimError,
 } from "./error.js";
 export {
   type FixtureOptions,

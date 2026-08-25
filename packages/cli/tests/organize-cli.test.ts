@@ -178,6 +178,32 @@ describe("the organize commands", () => {
     expect(brokenQuery.warn.join("\n")).toContain("[invalid_query]");
   });
 
+  it("reports a healthy library, and exits 1 once there is damage", async () => {
+    expect((await ok("doctor")).join("\n")).toContain("Nothing wrong");
+
+    // Bytes gone, row still there. Exit 1 rather than 0, so a scheduled run is
+    // a check and not a report nobody reads.
+    const { rm } = await import("node:fs/promises");
+    const [hash] = hashes;
+    if (hash === undefined) throw new Error("nothing was imported");
+    const shard = hash.slice(0, 2);
+    await rm(join(root, "originals", shard, `${hash}.png`));
+
+    const damaged = capture();
+    expect(await run(["doctor", "-L", root], damaged.streams)).toBe(EXIT.failed);
+    expect(damaged.out.join("\n")).toContain("Assets whose bytes are gone: 1");
+
+    // Reclaiming acts on the index's word, and the index is exactly what this
+    // report says cannot be trusted.
+    const refused = capture();
+    expect(await run(["doctor", "-L", root, "--reclaim"], refused.streams)).toBe(EXIT.failed);
+    expect(refused.warn.join("\n")).toContain("[unsound_reclaim]");
+
+    // --force means nothing on its own, and saying so beats ignoring it.
+    const lonely = capture();
+    expect(await run(["doctor", "-L", root, "--force"], lonely.streams)).toBe(EXIT.usage);
+  });
+
   it("lets two commands spell the same flag differently", async () => {
     // `--count` is a number for fixture and a bare switch for query. One shared
     // option table could hold only one of them, and did.

@@ -28,6 +28,7 @@ export const ERROR_CODES = [
   "unknown_smart_folder",
   "unknown_tag_group",
   "unreadable_schema_version",
+  "unsound_reclaim",
   "unsupported_platform",
   "remote", // an error that crossed a process boundary; see fromWire()
 ] as const;
