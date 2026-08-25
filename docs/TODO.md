@@ -4,7 +4,7 @@ Everything known to be outstanding, in priority order. `ROADMAP.md` holds the mi
 this file holds the working list, including the small things that surface during implementation
 and would otherwise be forgotten.
 
-Last reviewed: 2026-08-24, the session that created this repository.
+Last reviewed: 2026-08-26, the session that closed M2.
 
 Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 whenever
 
@@ -88,11 +88,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
 ### Engine (M1)
-- 🟢 **A journal file not named `YYYY-MM.jsonl` is invisible to replay.** That is correct — the
-  name is how replay orders months — but it is silent, and a backup tool or a curious user
-  renaming `2026-08.jsonl` loses a month without any complaint. `roost doctor` should report
-  unexpected files in `journal/`. Found while writing the journal fixture, which failed for
-  exactly this reason before it was named properly.
+- ☑ ~~**A journal file not named `YYYY-MM.jsonl` is invisible to replay.**~~ `roost doctor`
+  reports them, and treats them as a reason to refuse `--reclaim`: a month replay cannot see is a
+  month the index does not hold, which makes every asset in it look like an orphan. Named by
+  `strayFilesIn`, next to `monthsIn`, so that "a journal file" has one definition rather than
+  two that drift.
 - ☑ ~~**The importer records the *last* extension component, lowercased, without the dot.**~~
   Verified against the Rust implementation, which stores `b.tar.gz` as `<hash>.gz` and a file
   with no extension as a bare `<hash>` with no trailing dot. Getting this wrong puts one asset
@@ -167,10 +167,9 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   §3.2 specifies it and M3 is the first milestone with a protocol handler to use it, so it is
   deliberately absent rather than scaffolded. When it lands it takes `readonly: true` and the
   same `configure` pragmas.
-- 🟢 **The M2 organize reads are deliberately absent from `Repo`**: the folder tree, tag counts,
-  tag-group listing, `find_folder_by_path`, and the `folder_is_within` cycle guard. Every `apply*`
-  is here, because replay needs all 22 operations in M1; the reads that only a sidebar uses arrive
-  with the sidebar.
+- ☑ ~~**The M2 organize reads are deliberately absent from `Repo`.**~~ Added in M2 with the
+  commands that need them: `folders`, `findFolderByPath`, `folderIsWithin`, `folderCounts`,
+  `tags`, `tagGroups`, `findTagGroupByName`, `smartFolders`, `findSmartFolderByName`.
 
 - ☑ ~~**ADR-0013 needs a decision before M3.**~~ Accepted 2026-08-25: build `sharp` from source
   against the platform's libvips on Linux, keep the prebuilt on macOS and Windows, WASM as a
@@ -183,8 +182,8 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟡 **Linux packaging carries libvips and must not carry GLib** (ADR-0013). Bundling GLib
   recreates the exact collision this decision avoids. Flatpak gets this right from its runtime;
   an AppImage or `.deb` has to be checked rather than assumed.
-- 🟡 **`roost doctor` should report which sharp build is loaded.** "Thumbnails are slow" and
-  "thumbnails crash the engine" have the same cause and no other symptom.
+- ☑ ~~**`roost doctor` should report which sharp build is loaded.**~~ It prints the `sharp` and
+  `libvips` versions on every run, shallow or deep.
 - 🟢 **BMP has no thumbnail here.** libvips 8.18.3 has no BMP loader; the Rust build's `image`
   crate did. A `.bmp` still imports and still carries tags. Pinned by a test so it stays a
   decision.
@@ -204,10 +203,25 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   bytes; a caret in a text input is measured in UTF-16 code units, and a byte offset would point
   at the wrong character from the first non-ASCII character onward. `DATA_MODEL.md` §3 says
   "byte offset" and should be reworded when the search field lands in M3.
-- 🟢 `doctor --reclaim` must refuse when the index and the object store disagree. Reclaiming is
-  permanent, and a broken index makes every object look unreferenced. A *missing referenced
-  original* is deliberately not one of those disagreements — it means the user moved their own
-  file, and counting it would block reclaiming forever.
+- ☑ ~~`doctor --reclaim` must refuse when the index and the object store disagree.~~ It does, and
+  both halves of the rule have a test: a missing object blocks the reclaim, and a moved
+  *referenced* original does not — that one says the user moved their own file, and counting it
+  would block reclaiming forever, since no rebuild returns a file someone meant to delete.
+
+- 🟡 **Free text that matches almost everything costs 22 ms at 95k assets**, against 0.16 ms for
+  a selective term. `assets_fts MATCH ?` is compiled as `a.rowid IN (SELECT rowid ...)`, and the
+  subquery materialises every matching rowid before the ordering and the limit apply. Nothing to
+  fix at this size — see `BENCHMARKS.md` — but the shape of the fix is pushing the limit into the
+  FTS side, and 1M assets is where it may start to matter.
+- 🟢 **A query that matches nothing is the worst case, not the best**: proving an empty answer
+  means walking every row. Worth saying in the UI eventually, because "searching for something
+  that is not there is slow" will otherwise be reported as a bug.
+- 🟢 **A query beginning with `-` reads as a flag** to `parseArgs` and to clap alike, so
+  `roost query -- '-tag:wip'` is the spelling. The help says so; a search *field* in M3 has no
+  such problem and should not inherit the workaround.
+- 🟡 **Smart folders have no parent in the CLI.** `createSmartFolder` takes one and the schema
+  holds one, but `roost smart create` always passes `null`. The sidebar in M3 is the first thing
+  that can show a tree, and it is where the flag should arrive.
 
 ### Shell and UI (M3)
 - 🔴 The frontend test harness goes in **before** the components, not after. `roost-old` shipped

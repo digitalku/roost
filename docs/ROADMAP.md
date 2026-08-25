@@ -1,6 +1,6 @@
 # Roost — Roadmap
 
-Status: **Draft v1** · Last updated: 2026-08-24
+Status: **Draft v1** · Last updated: 2026-08-26 · M0, M1, and M2 accepted
 
 Milestones are sequential and each ends in something demonstrable. A milestone is done only
 when its acceptance criteria pass — not when the code exists.
@@ -121,7 +121,7 @@ imported nothing, and a rebuild that landed on the same 9,722 assets. Import thr
 recorded in `BENCHMARKS.md` with the explanation the criterion asked for: 2.7x off the Rust
 baseline, and the cause measured rather than assumed — six times the CPU per file, not threads.
 
-## M2 — Query and organize ☐
+## M2 — Query and organize ☑
 
 - ☑ `@roost/search`: RQL grammar, lexer, recursive-descent parser, SQL compiler, and the
   property test `DATA_MODEL.md` §3 asks for — ~11,500 generated inputs, each of which must
@@ -129,21 +129,30 @@ baseline, and the cause measured rather than assumed — six times the CPU per f
   character the user typed
 - ☑ Query-corpus test, taken from the Rust implementation's own parser tests **before** a line
   of this parser was written, so the grammar is reproduced rather than reinvented
-- ☐ FTS5 wiring through the single write path
-- ☐ Tags with groups, folders, ratings, notes, favourites
-- ☐ Smart folders (saved RQL), validated at save time and evaluated on read
-- ☐ Journal op coverage for every user-authored mutation (invariant 9) — the full set from
-  `STORAGE_SPEC.md` §Ops added after v1
-- ☐ `roost doctor`: orphaned objects, index rows with no bytes, moved referenced originals,
+- ☑ FTS5 wiring through the single write path — landed with the index in M1, since replay needs
+  it; M2 is where it is exercised, and a rename now proves the row is rewritten rather than
+  patched
+- ☑ Tags with groups, folders, ratings, notes, favourites, in `@roost/library`'s `edit` service
+- ☑ Smart folders (saved RQL), parsed at save time and evaluated on read
+- ☑ Journal op coverage for every user-authored mutation (invariant 9) — all 22 ops, pinned by a
+  test that applies one of each and rebuilds to an identical index
+- ☑ `roost doctor`: orphaned objects, index rows with no bytes, moved referenced originals,
   stale FTS rows, `--deep` re-hash, `--reclaim` with the safety rule that reclaim refuses when
-  the index and the object store disagree
-- ☐ CLI: `query`, `smart`, `tag`, `folder`, `rate`, `note`, `favorite`, `rename`, `remove`,
+  the index and the object store disagree. Two checks the Rust build does not have: files in
+  `journal/` that replay will skip, and which `sharp` and `libvips` are loaded
+- ☑ CLI: `query`, `smart`, `tag`, `folder`, `rate`, `note`, `favorite`, `rename`, `remove`,
   `show`, `doctor`
-- ☐ Search benchmark recorded — the Rust baseline is p95 6–30 ms on 95k assets
+- ☑ Search benchmark recorded — `docs/BENCHMARKS.md`, 2026-08-26
 
 **Accepts when:** the spec's rebuild test still passes with the full op set, unknown ops are
 skipped with a warning rather than failing replay, and search p95 is under 100 ms on a
 100k-asset fixture.
+
+**Accepted 2026-08-26.** 95,001 assets, every M2 edit applied: `roost rebuild` replayed 201,003
+records in 5.1 s and landed on the same counts with every tag, rating, favourite, and folder
+membership intact; `roost doctor` found nothing wrong, shallow and deep; search p95 is 32 ms at
+its worst and 0.2 ms typical. The Rust binary read the same library, replayed its journal into a
+matching index, and agreed with this build on nine RQL queries.
 
 ## M3 — Desktop shell ☐
 

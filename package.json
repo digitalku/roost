@@ -22,6 +22,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
+    "@roost/core": "workspace:*",
+    "@roost/library": "workspace:*",
     "@types/node": "22.20.1",
     "electron": "43.4.1",
     "typescript": "7.0.2",

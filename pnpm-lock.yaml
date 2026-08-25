@@ -11,6 +11,12 @@ importers:
       '@biomejs/biome':
         specifier: 2.5.10
         version: 2.5.10
+      '@roost/core':
+        specifier: workspace:*
+        version: link:packages/core
+      '@roost/library':
+        specifier: workspace:*
+        version: link:packages/library
       '@types/node':
         specifier: 22.20.1
         version: 22.20.1

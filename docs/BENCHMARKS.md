@@ -1,6 +1,6 @@
 # Roost — Benchmarks
 
-Status: **first results in** · Last updated: 2026-08-24
+Status: **first results in** · Last updated: 2026-08-26
 
 Nothing has been measured in this implementation, because nothing has been built. What this
 file holds today is the **baseline**: the numbers the Rust implementation at `../roost-old`
@@ -53,6 +53,61 @@ target now under pressure — and it is measured from M3, the first milestone th
 rather than assumed until someone complains.
 
 ## 3. Results
+
+### 2026-08-26 — search and paging (M2)
+
+Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe. Node 22.23.1.
+95,001 assets from `roost fixture --count 100000 --seed 5`, all tagged `corpus`, with 5,000
+carrying a second tag, 3,000 rated, 1,000 favourited, and 2,000 in a folder. Warm page cache.
+`scripts/bench-search.ts`, 50 runs per query, one page of 100.
+
+| Query | Compile p95 | Run p95 | Run p50 | Hits |
+| --- | --- | --- | --- | --- |
+| `ext:png` | 0.09 ms | **0.12 ms** | 0.08 ms | 100 |
+| `tag:corpus` | 0.01 ms | 0.17 ms | 0.11 ms | 100 |
+| `tag:"oak wood"` | 0.01 ms | 0.13 ms | 0.12 ms | 100 |
+| `rating:>=4` | 0.05 ms | 0.11 ms | 0.09 ms | 100 |
+| `is:favorite` | 0.01 ms | 0.08 ms | 0.08 ms | 100 |
+| `ext:png OR ext:jpg OR ext:mp4` | 0.03 ms | 0.28 ms | 0.14 ms | 100 |
+| `tag:corpus -ext:png rating:>=1` | 0.01 ms | 0.19 ms | 0.13 ms | 100 |
+| `folder:Design` | 0.08 ms | 0.12 ms | 0.09 ms | 100 |
+| `asset-0000083` (free text, selective) | 0.01 ms | 0.16 ms | 0.12 ms | 1 |
+| `asset` (free text, matches everything) | 0.07 ms | **22.57 ms** | 21.27 ms | 100 |
+| `size:>1mb` (matches nothing) | 0.21 ms | **24.48 ms** | 21.97 ms | 0 |
+| `is:untagged` (matches nothing) | 0.04 ms | **32.33 ms** | 29.12 ms | 0 |
+
+**Against the budget.** `CONCEPT.md` §7 asks for a p95 under 100 ms. The worst query here is
+32 ms and the typical one is a fifth of a millisecond, so M2 clears it with room. The Rust
+baseline was 6–30 ms on 95k, and this sits in the same band.
+
+**What this revealed.** The cost is set by **how many rows have to be examined to fill a page,
+not by how large the library is.** Every query that fills its page of 100 from an index costs
+under 0.3 ms whatever the library holds. The three expensive ones are expensive for one reason:
+they cannot stop early.
+
+- A query matching *nothing* is the worst case, not the best. `size:>1mb` and `is:untagged` both
+  return zero rows here, and proving that means walking all 95,001. This is the opposite of the
+  intuition a search box gives, and it is worth knowing before someone reports "searching for
+  something that is not there is slow" as a bug.
+- Free text is fast when the term is selective and slow when it is not: 0.16 ms for a term one
+  asset carries, 22.57 ms for one every asset carries. The compiled form is
+  `a.rowid IN (SELECT rowid FROM assets_fts WHERE assets_fts MATCH ?)`, and the subquery
+  materialises every matching rowid before the ordering and the limit are applied. A term that
+  matches everything therefore materialises everything. Nothing to fix at this size; the note is
+  here so that the shape of the fix — pushing the limit into the FTS side — is already known if
+  1M assets makes it matter.
+
+**Paging is flat.** 200 consecutive pages of 100, keyset, never `OFFSET`: **0.22 ms p95 across
+the first ten pages and 0.29 ms across the last ten.** Page 200 costs what page 1 costs, which is
+the claim `repo.searchSql` makes about writing the cursor timestamp as one named parameter used
+twice. The Rust implementation measured 23x on page 200 of a 50,000-asset library when that same
+value was written as two parameters, so this is a number worth being able to watch move.
+
+**Rebuild and doctor, on the same library.** `roost rebuild` replayed **201,003 records in 5.1 s**
+— roughly 39,000 records per second — and landed on the same 95,001 assets, with every tag,
+rating, favourite, and folder membership intact. `roost doctor` is 0.5 s shallow and **18.9 s
+deep**, the difference being that deep re-hashes all 371 MiB. That is the price of the only check
+that sees silent corruption, and it is why it is opt-in.
 
 ### 2026-08-25 — M1 acceptance, end to end
 

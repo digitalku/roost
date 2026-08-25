@@ -6,5 +6,6 @@
     "tsBuildInfoFile": "dist-scripts/.tsbuildinfo",
     "types": ["node"]
   },
-  "include": ["scripts/**/*.ts"]
+  "include": ["scripts/**/*.ts"],
+  "references": [{ "path": "packages/core" }, { "path": "packages/library" }]
 }

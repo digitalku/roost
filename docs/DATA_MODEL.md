@@ -219,7 +219,7 @@ tag:"brand assets"            quoted values; "" escapes a quote inside one
 group:Materials               any tag in that group
 -tag:wip                      negation
 folder:Moodboards             folder and everything beneath it
-folder:Design/Icons           nested path; a bare name also resolves if unambiguous
+folder:Design/Icons           nested path; a bare name matches every folder so named
 ext:png                       extension, with or without the dot
 size:>10mb                    byte size; kb/mb/gb are binary multiples, 1.5mb is fine
 w:>2000  h:<=1080             dimensions
@@ -273,6 +273,12 @@ compiler live in `@roost/search`.
   recursive CTE inside every query: a folder tree is user-made and small, and expanding it
   keeps the compiled SQL simple and lets `@roost/search` be tested without a database. A
   smart folder recompiles on every run, so the expansion cannot go stale.
+- A **path** resolves to at most one folder — names are unique among siblings, which is what
+  makes `Design/Icons` name one thing. A **bare name** is tried only when no path matches, and
+  then it matches *every* folder with that name, subtrees included. That is deliberate and it
+  matches the Rust build: someone typing `folder:Icons` wants the folder they are looking at,
+  and refusing because a second one exists elsewhere would be a worse answer than including
+  both. Folding is ASCII-only, so it agrees with `COLLATE NOCASE` and with `tag:`.
 - `tag:` names exactly one tag, always. Tags are flat and `tags.name` is globally
   `UNIQUE COLLATE NOCASE`; migration 0004 added groups to arrange them, deliberately
   choosing that over hierarchy so the guarantee survives (§2.3).

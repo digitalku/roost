@@ -138,9 +138,24 @@ pnpm --filter @roost/cli start -- stats
 pnpm --filter @roost/cli start -- thumb
 pnpm --filter @roost/cli start -- rebuild
 
-pnpm --filter @roost/cli start -- query 'tag:blue rating:>=4' --json          # (M2)
-pnpm --filter @roost/cli start -- doctor                                     # (M2)
+pnpm --filter @roost/cli start -- query 'tag:blue rating:>=4'
+pnpm --filter @roost/cli start -- tag add --tag blue <ASSET>...
+pnpm --filter @roost/cli start -- folder create Icons --parent Design
+pnpm --filter @roost/cli start -- smart create Wooden 'tag:wood rating:>=4'
+pnpm --filter @roost/cli start -- doctor --deep
 ```
+
+An asset is named by its full hash or by any prefix that matches one asset, so
+`roost show 010b3484` is enough. `roost query --hashes` prints one hash per line for exactly
+that purpose: `roost query 'is:untagged' --hashes | xargs roost tag add --tag triage`.
+
+A query beginning with `-` reads as a flag rather than a negation — here and in the Rust build
+alike. `--` is the escape hatch, and everything after it is the query, so any other flag goes
+first: `roost query --count -- '-tag:wip'`.
+
+`roost doctor` exits **1** when it finds damage, so it can be a scheduled check rather than a
+report nobody reads. Objects nothing references are waste rather than damage; `--reclaim`
+deletes them, and refuses while the index and the object store disagree about what exists.
 
 Every command finds the library the way `git` does — `--library`, else `$ROOST_LIBRARY`, else
 the nearest one at or above the working directory — so from inside a library none of them needs
