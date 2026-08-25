@@ -224,6 +224,20 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   that can show a tree, and it is where the flag should arrive.
 
 ### Shell and UI (M3)
+- 🟡 **The dev CSP allows `'unsafe-inline'` for scripts and the packaged one does not.**
+  React Fast Refresh injects an inline preamble and Vite has no way to serve it as a file; with
+  the strict policy the window loads and then reports "can't detect preamble", which reads as a
+  plugin bug and is the CSP doing its job. `'unsafe-eval'` is refused in both. The price is that
+  an inline script would work in `pnpm dev` and fail in the packaged app — React emits none, so
+  it is theoretical, but "works in dev" is the shape of bug this project keeps finding, so the
+  packaged build has to be run before anything ships.
+- 🟡 **Nothing in CI launches a window yet.** The desktop tests drive the message loop and the
+  security policy directly, which is why `serve` takes a port instead of importing Electron —
+  but that means the sandbox is asserted as *values*, not as what Electron actually applied.
+  An end-to-end window test is what would close that, and it is what
+  `ELECTRON_SKIP_BINARY_DOWNLOAD` in CI is waiting for.
+- 🟢 **Log files are never pruned.** One file per UTC day under `logDir()`, written
+  synchronously, growing forever. A retention rule belongs with M6's packaging, not before it.
 - 🔴 The frontend test harness goes in **before** the components, not after. `roost-old` shipped
   M3 with nothing exercising the preview, the context menu, or the dialogs, and the bug that
   found the gap was invisible to TypeScript and to every test that existed.

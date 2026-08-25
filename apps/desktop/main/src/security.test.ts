@@ -53,17 +53,26 @@ describe("the content security policy", () => {
     expect(directives(policy).get("default-src")).toBe("'none'");
   });
 
-  it("never allows inline or evaluated script, dev server or not", () => {
+  it("never allows evaluated script, and never allows inline script in a packaged build", () => {
+    // `'unsafe-eval'` is refused in both builds: nothing here needs it, and a
+    // policy that permits it is not a policy.
     for (const policy of [
       contentSecurityPolicy(),
       contentSecurityPolicy("http://localhost:5173"),
     ]) {
-      expect(directives(policy).get("script-src")).not.toContain("unsafe-inline");
       expect(directives(policy).get("script-src")).not.toContain("unsafe-eval");
     }
+
+    // Inline script is a development-only concession to React Fast Refresh's
+    // preamble, which Vite has no way to serve as a file. The build a user runs
+    // does not get it, so that is the assertion which has to hold.
+    expect(directives(contentSecurityPolicy()).get("script-src")).toBe("'self'");
+    expect(directives(contentSecurityPolicy("http://x")).get("script-src")).toContain(
+      "'unsafe-inline'",
+    );
   });
 
-  it("widens exactly two directives for the dev server", () => {
+  it("widens exactly three directives for the dev server", () => {
     const packaged = directives(contentSecurityPolicy());
     const dev = directives(contentSecurityPolicy("http://localhost:5173"));
 

@@ -54,17 +54,28 @@ export const RENDERER_PRIVILEGES: RendererPrivileges = {
  * analytics, no CDN. A page that tries is a bug, and this is what makes it a
  * visible one.
  *
- * In development the Vite dev server needs to be reachable and its HMR client
- * needs a WebSocket, so `devServer` widens exactly those two directives and
- * nothing else. It is never passed in a packaged build.
+ * In development the Vite dev server needs to be reachable, its HMR client needs
+ * a WebSocket, and React Fast Refresh injects an inline preamble — so
+ * `devServer` widens `script-src`, `style-src`, and `connect-src`, and nothing
+ * else. It is never passed in a packaged build.
+ *
+ * **`'unsafe-eval'` is never allowed, in either build.** `'unsafe-inline'` for
+ * scripts is a development-only concession to the preamble, and the price is
+ * that an inline script would work in `pnpm dev` and fail in the packaged app.
+ * React emits none, so the risk is theoretical — but `TODO.md` records it,
+ * because "works in dev" is exactly the shape of bug this project keeps finding.
  */
 export function contentSecurityPolicy(devServer?: string): string {
   const dev = devServer === undefined ? "" : ` ${devServer}`;
   const socket = devServer === undefined ? "" : ` ${devServer.replace(/^http/, "ws")}`;
 
+  // Fast Refresh's preamble is an inline module script, and Vite has no way to
+  // serve it as a file. Development only, and never `'unsafe-eval'`.
+  const inlineScript = devServer === undefined ? "" : " 'unsafe-inline'";
+
   return [
     "default-src 'none'",
-    `script-src 'self'${dev}`,
+    `script-src 'self'${inlineScript}${dev}`,
     // `'unsafe-inline'` for styles only, and only because a React app sets
     // inline styles for virtualization geometry. Scripts get no such allowance.
     `style-src 'self' 'unsafe-inline'${dev}`,
