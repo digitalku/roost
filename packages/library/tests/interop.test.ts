@@ -4,7 +4,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { generateFixture, generateMissing, importInto, Library } from "@roost/library";
+import {
+  addToFolder,
+  count,
+  createFolder,
+  createSmartFolder,
+  createTagGroup,
+  generateFixture,
+  generateMissing,
+  importInto,
+  Library,
+  rate,
+  renameAsset,
+  setFavorite,
+  setNote,
+  setTagGroup,
+  tagAdd,
+} from "@roost/library";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const run = promisify(execFile);
@@ -49,6 +65,7 @@ describe.runIf(available)("a library this build wrote, opened by the Rust build"
     try {
       await importInto(library, [corpus], { tags: ["crossing"] });
       await generateMissing(library, [256]);
+      await organize(library);
     } finally {
       await library.close();
     }
@@ -57,6 +74,34 @@ describe.runIf(available)("a library this build wrote, opened by the Rust build"
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
   });
+
+  /**
+   * One of every M2 edit, so the journal carries the whole operation set.
+   *
+   * Written through the edit service rather than into the database, which is
+   * the only way the journal ends up holding them — and the journal is what the
+   * other build will read.
+   */
+  const organize = async (library: Library): Promise<void> => {
+    const hashes = library.db.repo.allHashes();
+    const some = hashes.slice(0, 5);
+    const one = hashes[0];
+    if (one === undefined) throw new Error("the fixture imported nothing");
+
+    const design = await createFolder(library, "Design", null);
+    const icons = await createFolder(library, "Icons", design);
+    await addToFolder(library, some, icons);
+
+    const group = await createTagGroup(library, "Material");
+    await tagAdd(library, some, ["oak wood"]);
+    await setTagGroup(library, ["oak wood"], group);
+
+    await rate(library, some, 4);
+    await setFavorite(library, [one], true);
+    await setNote(library, one, "carried across");
+    await renameAsset(library, one, "renamed-by-the-typescript-build.png");
+    await createSmartFolder(library, "Wooden", 'tag:"oak wood" rating:>=4', null);
+  };
 
   const oldRoost = async (...args: string[]): Promise<string> => {
     const { stdout, stderr } = await run(ROOST_OLD, [...args, "-L", root]);
@@ -86,6 +131,40 @@ describe.runIf(available)("a library this build wrote, opened by the Rust build"
     const output = await oldRoost("rebuild");
     expect(output).toContain("Index matches what it replaced");
     expect(output).not.toContain("differs");
+  });
+
+  it("answers the same RQL with the same number of matches", async () => {
+    // The grammar is frozen by compatibility, not preference: a smart folder
+    // stores its query text, so the two builds have to agree about what one
+    // means. Counts rather than rows, because only the counts are ordered the
+    // same way by definition.
+    const queries = [
+      'tag:"oak wood"',
+      "folder:Design",
+      "folder:Design/Icons",
+      "rating:>=4",
+      "is:favorite",
+      "is:untagged",
+      "ext:png OR ext:jpg",
+      'rating:>=4 -tag:"oak wood"',
+      "renamed-by-the-typescript-build",
+    ];
+
+    const ours = await Library.open(root);
+    let mine: number[];
+    try {
+      mine = queries.map((query) => count(ours, query));
+    } finally {
+      await ours.close();
+    }
+
+    for (const [index, query] of queries.entries()) {
+      const theirs = (await oldRoost("query", query, "--count")).trim();
+      expect({ query, count: Number(theirs) }).toEqual({ query, count: mine[index] });
+    }
+    // A run where every query matched nothing would pass the comparison above
+    // while proving nothing about the grammar.
+    expect(mine.filter((n) => n > 0).length).toBeGreaterThan(4);
   });
 
   it("finds nothing wrong with the object store", async () => {

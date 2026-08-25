@@ -2,7 +2,24 @@
 
 export const VERSION = "0.0.0";
 
-export const COMMANDS = ["init", "import", "stats", "rebuild", "thumb", "fixture"] as const;
+export const COMMANDS = [
+  "init",
+  "import",
+  "stats",
+  "rebuild",
+  "thumb",
+  "fixture",
+  "query",
+  "show",
+  "tag",
+  "folder",
+  "smart",
+  "rate",
+  "note",
+  "favorite",
+  "rename",
+  "remove",
+] as const;
 
 export type Command = (typeof COMMANDS)[number];
 
@@ -28,6 +45,16 @@ Commands:
   rebuild   Delete the index and rebuild it by replaying the journal
   thumb     Generate thumbnails for assets that have none
   fixture   Generate a synthetic corpus for benchmarking
+  query     Search the library with RQL
+  show      Show everything the library knows about one asset
+  tag       Add, remove, rename, or list tags, and arrange them in groups
+  folder    Create and populate folders. Folders are collections, not locations
+  smart     Save, list, and update smart folders — RQL queries under a name
+  rate      Rate assets from 1 to 5, or \`none\` to clear
+  note      Set or clear an asset's note
+  favorite  Mark assets as favourites
+  rename    Change an asset's display name. The file on disk is untouched
+  remove    Remove assets from the library. Originals are not deleted
 
 Options:
 ${GLOBAL}
@@ -110,6 +137,159 @@ Options:
                          indexing, but nothing it writes can be thumbnailed,
                          which looks like a broken pipeline and is only ever
                          the fixture
+${GLOBAL}`,
+  query: `Search the library with RQL.
+
+Adjacent terms are ANDed; \`OR\` and parentheses are explicit; a leading \`-\` negates.
+Fields: tag, folder, ext, size, w, h, duration, created, imported, rating, is.
+Anything unqualified is full-text over names and tags.
+
+Usage: roost query <QUERY>... [OPTIONS]
+
+Examples:
+  roost query 'tag:wood rating:>=4'
+  roost query 'ext:png OR ext:jpg' --limit 20
+  roost query 'is:untagged' --hashes | xargs roost tag add --tag triage
+  roost query 'size:>10mb' --count
+  roost query --count -- '-tag:wip'
+
+A query starting with \`-\` reads as a flag, here and in the Rust build alike.
+Put \`--\` before it, and every other flag before that: everything
+after \`--\` is part of the query.
+
+Options:
+${LIBRARY_FLAG}
+      --limit <N>        Stop after this many results. Default: 50
+      --count            Print the number of matches instead of the matches
+      --hashes           Print one hash per line, for piping into another command
+${GLOBAL}`,
+
+  show: `Show everything the library knows about one asset.
+
+Usage: roost show <ASSET> [OPTIONS]
+
+<ASSET> is a full hash or an unambiguous prefix.
+
+Options:
+${LIBRARY_FLAG}
+${GLOBAL}`,
+
+  tag: `Add, remove, rename, or list tags.
+
+Usage: roost tag add    --tag <TAG>... <ASSET>...
+       roost tag remove --tag <TAG>... <ASSET>...
+       roost tag rename <FROM> <TO>
+       roost tag list
+       roost tag group create <NAME>
+       roost tag group rename <NAME> <NEW_NAME>
+       roost tag group delete <NAME>
+       roost tag group add <GROUP> <TAG>...
+       roost tag group remove <TAG>...
+       roost tag group list
+
+Renaming onto an existing tag merges into it: tag names are unique, so there is
+no other outcome that both succeeds and replays to the same state.
+
+Groups arrange tags for the sidebar. They do not nest them, so \`tag:\` still
+names exactly one tag.
+
+Options:
+${LIBRARY_FLAG}
+      --tag <TAG>        Repeatable. Required by add and remove
+${GLOBAL}`,
+
+  folder: `Create and populate folders.
+
+Folders are collections, not locations: adding an asset to one moves nothing on
+disk, and deleting one deletes no assets.
+
+Usage: roost folder create <NAME> [--parent <PATH>]
+       roost folder rename <PATH> <NAME>
+       roost folder move <PATH> [--parent <PATH>]
+       roost folder delete <PATH>
+       roost folder add <PATH> <ASSET>...
+       roost folder remove <PATH> <ASSET>...
+       roost folder list
+
+A <PATH> is slash-separated, as in \`Design/Icons\`. Names are unique among
+siblings only, which is why the path and not the name is what names a folder.
+
+Options:
+${LIBRARY_FLAG}
+      --parent <PATH>    Parent folder. Without it, create and move go to the
+                         top level
+${GLOBAL}`,
+
+  smart: `Save, list, and update smart folders — RQL queries under a name.
+
+A smart folder stores its query, not its results, so it is evaluated every time
+it is read and can never go stale. The query is parsed before it is saved, so a
+typo is caught now rather than in a sidebar later.
+
+Usage: roost smart create <NAME> <QUERY>
+       roost smart update <NAME> [--rename <NAME>] [--query <QUERY>]
+       roost smart delete <NAME>
+       roost smart list
+
+Options:
+${LIBRARY_FLAG}
+      --rename <NAME>    New name for the smart folder
+      --query <QUERY>    New query for the smart folder
+${GLOBAL}`,
+
+  rate: `Rate assets from 1 to 5, or \`none\` to clear.
+
+There is no zero: an unrated asset has no rating, which is a different thing
+from one rated zero, and only one of the two is a value the schema holds.
+
+Usage: roost rate <RATING> <ASSET>... [OPTIONS]
+
+Options:
+${LIBRARY_FLAG}
+${GLOBAL}`,
+
+  note: `Set or clear an asset's note.
+
+Usage: roost note <ASSET> [TEXT]... [OPTIONS]
+
+With no text, or with --clear, the note is removed. A note of nothing but
+whitespace is removed too, rather than stored as an empty badge forever.
+
+Options:
+${LIBRARY_FLAG}
+      --clear            Remove the note
+${GLOBAL}`,
+
+  favorite: `Mark assets as favourites.
+
+Usage: roost favorite <ASSET>... [OPTIONS]
+
+Options:
+${LIBRARY_FLAG}
+      --off              Unmark instead
+${GLOBAL}`,
+
+  rename: `Change an asset's display name.
+
+The file on disk keeps its hash filename, as it always does — this changes what
+the library shows, not what is stored.
+
+Usage: roost rename <ASSET> <NAME> [OPTIONS]
+
+Options:
+${LIBRARY_FLAG}
+${GLOBAL}`,
+
+  remove: `Remove assets from the library.
+
+Index rows only. The bytes under originals/ stay where they are: reclaiming them
+is a separate, reviewable step, because deleting someone's only copy of a file
+as a side effect of a metadata edit is not a trade this project makes.
+
+Usage: roost remove <ASSET>... [OPTIONS]
+
+Options:
+${LIBRARY_FLAG}
 ${GLOBAL}`,
 };
 

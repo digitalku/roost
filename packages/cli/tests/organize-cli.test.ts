@@ -1,0 +1,189 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { EXIT, run } from "@roost/cli";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+/** Collects what a command would have printed, so no subprocess is needed. */
+function capture(): {
+  streams: Parameters<typeof run>[1];
+  out: string[];
+  warn: string[];
+} {
+  const out: string[] = [];
+  const warn: string[] = [];
+  return {
+    streams: { out: (l) => out.push(l), warn: (l) => warn.push(l), progress: () => {} },
+    out,
+    warn,
+  };
+}
+
+describe("the organize commands", () => {
+  let dir: string;
+  let root: string;
+  let hashes: string[];
+
+  /** Runs a command and asserts it succeeded, returning its stdout lines. */
+  const ok = async (...argv: string[]): Promise<string[]> => {
+    const { streams, out, warn } = capture();
+    const code = await run([...argv, "-L", root], streams);
+    expect({ code, warn }).toEqual({ code: EXIT.ok, warn: [] });
+    return out;
+  };
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "roost-organize-cli-"));
+    root = join(dir, "library");
+    const source = join(dir, "pictures");
+    await mkdir(source, { recursive: true });
+    // Bytes, not images: nothing here thumbnails, and a distinct payload per
+    // file is all the importer needs to give each one its own hash.
+    for (const [index, name] of ["alpha.png", "beta.png", "gamma.png"].entries()) {
+      await writeFile(join(source, name), `roost test payload ${index}`);
+    }
+
+    await run(["init", root], capture().streams);
+    await run(["import", source, "-L", root], capture().streams);
+    hashes = await ok("query", "", "--hashes");
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("searches, counts, and pipes hashes", async () => {
+    expect(hashes).toHaveLength(3);
+    expect(await ok("query", "ext:png", "--count")).toEqual(["3"]);
+    expect(await ok("query", "ext:jpg", "--count")).toEqual(["0"]);
+    expect(await ok("query", "ext:png", "--limit", "2")).toHaveLength(2);
+
+    // A listed row carries the hash prefix every other command accepts.
+    const [first] = await ok("query", "alpha");
+    expect(first).toContain("alpha.png");
+    expect(hashes.some((hash) => hash.startsWith((first ?? "").slice(0, 12)))).toBe(true);
+  });
+
+  it("takes a negated query after --, which otherwise reads as a flag", async () => {
+    // `-tag:wip` starts with a dash and is a flag to any argument parser, this
+    // one and the Rust build's alike. `--` is the escape hatch both offer, and
+    // the help says so because the failure otherwise looks like a parser bug.
+    await ok("tag", "add", "--tag", "wip", hashes[0] as string);
+
+    const negated = capture();
+    expect(await run(["query", "-L", root, "--count", "--", "-tag:wip"], negated.streams)).toBe(
+      EXIT.ok,
+    );
+    expect(negated.out).toEqual(["2"]);
+  });
+
+  it("tags by prefix, and finds what it tagged", async () => {
+    const prefix = (hashes[0] as string).slice(0, 10);
+    await ok("tag", "add", "--tag", "wood", "--tag", "wip", prefix);
+
+    expect(await ok("query", "tag:wood tag:wip", "--count")).toEqual(["1"]);
+    expect((await ok("tag", "list")).join("\n")).toContain("wood");
+
+    await ok("tag", "remove", "--tag", "wip", prefix);
+    expect(await ok("query", "tag:wip", "--count")).toEqual(["0"]);
+  });
+
+  it("groups tags without changing what tag: means", async () => {
+    await ok("tag", "add", "--tag", "oak wood", hashes[0] as string);
+    await ok("tag", "group", "create", "Material");
+    await ok("tag", "group", "add", "Material", "oak wood");
+
+    expect((await ok("tag", "group", "list")).join("\n")).toContain("Material");
+    expect((await ok("tag", "list")).join("\n")).toContain("Material");
+    // The group arranges the tag; it does not rename or nest it.
+    expect(await ok("query", 'tag:"oak wood"', "--count")).toEqual(["1"]);
+  });
+
+  it("puts assets in a folder and finds them through the subtree", async () => {
+    await ok("folder", "create", "Design");
+    await ok("folder", "create", "Icons", "--parent", "Design");
+    await ok("folder", "add", "Design/Icons", hashes[0] as string);
+
+    expect(await ok("query", "folder:Design", "--count")).toEqual(["1"]);
+    expect((await ok("folder", "list")).join("\n")).toContain("Icons");
+
+    await ok("folder", "remove", "Design/Icons", hashes[0] as string);
+    expect(await ok("query", "folder:Design", "--count")).toEqual(["0"]);
+  });
+
+  it("rates, favourites, notes, renames, and shows the result", async () => {
+    const prefix = (hashes[0] as string).slice(0, 10);
+    await ok("rate", "4", prefix);
+    await ok("favorite", prefix);
+    await ok("note", prefix, "needs", "a", "crop");
+    await ok("rename", prefix, "renamed.png");
+
+    const shown = (await ok("show", prefix)).join("\n");
+    expect(shown).toContain("renamed.png");
+    expect(shown).toContain("needs a crop");
+    expect(await ok("query", "rating:4 is:favorite", "--count")).toEqual(["1"]);
+
+    await ok("rate", "none", prefix);
+    await ok("favorite", "--off", prefix);
+    await ok("note", prefix, "--clear");
+    expect(await ok("query", "is:unrated -is:favorite", "--count")).toEqual(["3"]);
+  });
+
+  it("saves a query and evaluates it on every read", async () => {
+    await ok("tag", "add", "--tag", "wood", hashes[0] as string);
+    const created = await ok("smart", "create", "Wooden", "tag:wood");
+    expect(created.join("\n")).toContain("1 match now");
+
+    // Tagging a second asset changes what the saved folder holds, without the
+    // saved folder being touched. That is the whole point of storing the query.
+    await ok("tag", "add", "--tag", "wood", hashes[1] as string);
+    expect((await ok("smart", "list")).join("\n")).toContain("      2  Wooden");
+
+    await ok("smart", "update", "Wooden", "--query", "tag:wood rating:5");
+    expect((await ok("smart", "list")).join("\n")).toContain("tag:wood rating:5");
+    await ok("smart", "delete", "Wooden");
+    expect((await ok("smart", "list")).join("\n")).toContain("No smart folders yet");
+  });
+
+  it("removes index rows and says the bytes are still there", async () => {
+    const out = await ok("remove", hashes[0] as string);
+    expect(out.join("\n")).toContain("Originals were not deleted");
+    expect(await ok("query", "", "--count")).toEqual(["2"]);
+  });
+
+  it("separates a wrong command line from a command that failed", async () => {
+    // Exit 2 is "you typed something I cannot act on"; exit 1 is "I tried".
+    const missingTag = capture();
+    expect(await run(["tag", "add", hashes[0] as string, "-L", root], missingTag.streams)).toBe(
+      EXIT.usage,
+    );
+    expect(missingTag.warn.join("\n")).toContain("--tag");
+
+    const badRating = capture();
+    expect(await run(["rate", "eleven", hashes[0] as string, "-L", root], badRating.streams)).toBe(
+      EXIT.usage,
+    );
+
+    const badSubcommand = capture();
+    expect(await run(["folder", "frobnicate", "-L", root], badSubcommand.streams)).toBe(EXIT.usage);
+
+    const unknownAsset = capture();
+    expect(await run(["show", "ffffffffff", "-L", root], unknownAsset.streams)).toBe(EXIT.failed);
+    expect(unknownAsset.warn.join("\n")).toContain("[unknown_asset]");
+
+    const brokenQuery = capture();
+    expect(
+      await run(["smart", "create", "Broken", "rating:>=", "-L", root], brokenQuery.streams),
+    ).toBe(EXIT.failed);
+    expect(brokenQuery.warn.join("\n")).toContain("[invalid_query]");
+  });
+
+  it("lets two commands spell the same flag differently", async () => {
+    // `--count` is a number for fixture and a bare switch for query. One shared
+    // option table could hold only one of them, and did.
+    const corpus = join(dir, "corpus");
+    const { streams } = capture();
+    expect(await run(["fixture", corpus, "--count", "4", "--seed", "7"], streams)).toBe(EXIT.ok);
+    expect(await ok("query", "", "--count")).toEqual(["3"]);
+  });
+});

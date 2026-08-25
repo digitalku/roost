@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { exitQuietlyOnBrokenPipe } from "./pipe.js";
 import { run } from "./run.js";
 
 /**
@@ -8,6 +9,8 @@ import { run } from "./run.js";
  * is dropped entirely when one is not: a log file does not want ten thousand
  * copies of a counter, and a pipe does not want them at all.
  */
+exitQuietlyOnBrokenPipe([process.stdout, process.stderr], (code) => process.exit(code));
+
 const interactive = process.stderr.isTTY === true;
 const CLEAR = "\r[K";
 
