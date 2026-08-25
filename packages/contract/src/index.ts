@@ -4,10 +4,61 @@
  *
  * It is imported by main, preload, the renderer, and the engine, so it depends
  * on nothing — not on `@roost/core`, not on a Node built-in, not on the DOM.
- * Anything that cannot be structured-cloned does not belong in it, and neither
- * do bytes (ADR-0008).
+ * That is enforced by the compiler rather than asked for in review: this is the
+ * one package with no `@types/node` (`CLAUDE.md` §6).
  *
- * Arrives with M3, which is the first milestone with two processes to talk to
- * each other.
+ * Anything `structuredClone` cannot carry does not belong here, and neither do
+ * bytes — those travel over `roost://` (ADR-0008).
  */
-export {};
+export {
+  bad,
+  type Checked,
+  isRecord,
+  ok,
+  readBoolean,
+  readHash,
+  readHashArray,
+  readInteger,
+  readNonEmpty,
+  readNullable,
+  readOneOf,
+  readString,
+  readStringArray,
+  within,
+} from "./checked.js";
+export {
+  type LibraryStats,
+  type LibrarySummary,
+  STORAGE_MODES,
+  type StorageMode,
+  type WireProblem,
+} from "./dto.js";
+export {
+  checkEventEnvelope,
+  checkReplyEnvelope,
+  checkRequestEnvelope,
+  type EventEnvelope,
+  type Message,
+  type ReplyEnvelope,
+  type RequestEnvelope,
+} from "./envelope.js";
+export {
+  checkEvent,
+  EVENT_TYPES,
+  EVENT_VALIDATORS,
+  type Event,
+  type EventOf,
+  type EventType,
+  isEventType,
+} from "./event.js";
+export {
+  checkRequest,
+  isRequestType,
+  REQUEST_TYPES,
+  REQUEST_VALIDATORS,
+  type Request,
+  type RequestOf,
+  type RequestType,
+  type ResponseOf,
+  type Responses,
+} from "./request.js";
