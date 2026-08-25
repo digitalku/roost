@@ -89,6 +89,35 @@ export interface AssetDetail {
   readonly folders: string[];
 }
 
+/** One row of the folder tree. */
+export interface FolderRow {
+  readonly id: number;
+  readonly parentId: number | null;
+  readonly name: string;
+}
+
+/** A saved query, and where it sits in the smart-folder tree. */
+export interface SmartFolderRow {
+  readonly id: number;
+  readonly parentId: number | null;
+  readonly name: string;
+  readonly query: string;
+}
+
+/** A group arranges tags; it does not contain assets. */
+export interface TagGroupRow {
+  readonly id: number;
+  readonly name: string;
+}
+
+/** A tag, how many assets carry it, and the group it is arranged under. */
+export interface TagRow {
+  readonly name: string;
+  readonly count: number;
+  /** `null` for a tag in no group. */
+  readonly group: string | null;
+}
+
 /**
  * The only place in the workspace where SQL is written and executed
  * (invariant 3).
@@ -611,6 +640,134 @@ export class Repo {
       `SELECT count(*) AS n FROM assets_fts f
         WHERE NOT EXISTS (SELECT 1 FROM assets a WHERE a.rowid = f.rowid)`,
     );
+  }
+
+  // --- Folders, tags, and saved queries -------------------------------------
+  //
+  // The reads a navigation pane needs. They arrive with the commands that show
+  // a tree rather than with replay, which never reads anything back.
+
+  folder(id: number): FolderRow | undefined {
+    return this.#s("SELECT id, parent_id AS parentId, name FROM folders WHERE id = ?").get(id) as
+      | FolderRow
+      | undefined;
+  }
+
+  /**
+   * The whole folder tree, in the order a sidebar lists it.
+   *
+   * Ordered by `sort_order`, then name, then id — which is a display order and
+   * **not** a topological one. A caller that needs parents before children has
+   * to arrange that itself; the tree is small enough to walk in memory, which
+   * is the point of returning all of it in one statement.
+   */
+  folders(): FolderRow[] {
+    return this.#s(
+      "SELECT id, parent_id AS parentId, name FROM folders ORDER BY sort_order, name, id",
+    ).all() as FolderRow[];
+  }
+
+  /**
+   * Resolves `["Design", "Icons"]` to a folder id, one segment at a time.
+   *
+   * Folder names are unique only among siblings, so a bare name is ambiguous in
+   * a deep tree; walking the path is what makes `folder:Design/Icons` name
+   * exactly one folder. An empty path resolves to nothing rather than to the
+   * root, because there is no root row to return.
+   */
+  findFolderByPath(path: readonly string[]): number | undefined {
+    let parent: number | null = null;
+    for (const segment of path) {
+      // `IS ?` rather than `= ?`: a top-level folder has a NULL parent, and
+      // `= NULL` is never true.
+      const row = this.#s("SELECT id FROM folders WHERE name = ? AND parent_id IS ?").get(
+        segment,
+        parent,
+      ) as { id: number } | undefined;
+      if (row === undefined) return undefined;
+      parent = row.id;
+    }
+    return parent ?? undefined;
+  }
+
+  /**
+   * Whether `id` is `ancestor` or lies beneath it.
+   *
+   * Guards `folder_move`: moving a folder into its own subtree detaches that
+   * subtree from the root, leaving it unreachable in the sidebar and
+   * undeletable through it.
+   */
+  folderIsWithin(id: number, ancestor: number): boolean {
+    const row = this.#s(
+      `WITH RECURSIVE subtree(id) AS (
+           SELECT @ancestor
+           UNION
+           SELECT f.id FROM folders f JOIN subtree s ON f.parent_id = s.id
+       )
+       SELECT id FROM subtree WHERE id = @id`,
+    ).get({ ancestor, id }) as { id: number } | undefined;
+    return row !== undefined;
+  }
+
+  /**
+   * How many assets each folder holds **directly**.
+   *
+   * Direct membership only: a parent does not inherit its children's counts.
+   * A caller that wants a subtree total sums it from the tree it already has,
+   * rather than paying for a recursive query per folder.
+   */
+  folderCounts(): Map<number, number> {
+    const rows = this.#s(
+      "SELECT folder_id AS folderId, count(hash) AS n FROM asset_folders GROUP BY folder_id",
+    ).all() as { folderId: number; n: number }[];
+    return new Map(rows.map((row) => [row.folderId, row.n]));
+  }
+
+  /** Every tag, with its asset count and its group. */
+  tags(): TagRow[] {
+    return this.#s(
+      `SELECT t.name AS name, count(at.hash) AS count, g.name AS "group"
+         FROM tags t
+         LEFT JOIN asset_tags at ON at.tag_id = t.id
+         LEFT JOIN tag_groups g ON g.id = t.group_id
+        GROUP BY t.id
+        ORDER BY t.name`,
+    ).all() as TagRow[];
+  }
+
+  tagGroups(): TagGroupRow[] {
+    return this.#s(
+      "SELECT id, name FROM tag_groups ORDER BY sort_order, name, id",
+    ).all() as TagGroupRow[];
+  }
+
+  /** `tag_groups.name` is UNIQUE COLLATE NOCASE, so this matches case-insensitively. */
+  findTagGroupByName(name: string): TagGroupRow | undefined {
+    return this.#s("SELECT id, name FROM tag_groups WHERE name = ?").get(name) as
+      | TagGroupRow
+      | undefined;
+  }
+
+  smartFolders(): SmartFolderRow[] {
+    return this.#s(
+      `SELECT id, parent_id AS parentId, name, query FROM smart_folders
+        ORDER BY sort_order, name, id`,
+    ).all() as SmartFolderRow[];
+  }
+
+  /**
+   * The oldest smart folder called `name`.
+   *
+   * Smart-folder names are not unique — nothing in the schema makes them so,
+   * and two saved queries may legitimately share a name in different parts of
+   * the tree. `ORDER BY id` makes the answer the first one created rather than
+   * whichever row SQLite happened to reach first.
+   */
+  findSmartFolderByName(name: string): SmartFolderRow | undefined {
+    return this.#s(
+      `SELECT id, parent_id AS parentId, name, query FROM smart_folders
+        WHERE name = ? ORDER BY id LIMIT 1`,
+    ).get(name) as SmartFolderRow | undefined;
   }
 
   // --- Search ---------------------------------------------------------------

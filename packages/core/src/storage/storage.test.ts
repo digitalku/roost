@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { NotInObjectStoreError, parseContentHash } from "../model/index.js";
+import { tmpfsDir } from "../testing/mounts.js";
 import { ManagedStorage } from "./managed.js";
 import { ReferencedStorage } from "./referenced.js";
 import { normalizeExt } from "./types.js";
@@ -144,7 +145,10 @@ describe("ManagedStorage, on a real filesystem", () => {
   });
 
   it("falls to a plain copy across filesystems, and never calls it a reflink", async (ctx) => {
-    const crossDir = await mkdtemp(join(tmpdir(), "roost-cross-"));
+    // A tmpfs mount rather than `os.tmpdir()`: `$TMPDIR` can point at the same
+    // filesystem the library is on, and then this test skips itself and reads
+    // as coverage it is not providing.
+    const crossDir = await tmpfsDir("roost-cross-");
     try {
       if ((await stat(crossDir)).dev === (await stat(lib)).dev) {
         // Only one filesystem here, so there is nothing to cross. Skipped

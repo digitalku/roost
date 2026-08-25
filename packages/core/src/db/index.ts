@@ -14,11 +14,15 @@ export {
 export {
   type AssetDetail,
   type AssetSummary,
+  type FolderRow,
   lastCursor,
   type OriginalRecord,
   Repo,
+  type SmartFolderRow,
   type Stats,
   searchSql,
+  type TagGroupRow,
+  type TagRow,
   type ThumbnailTarget,
   withoutDerived,
 } from "./repo.js";

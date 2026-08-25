@@ -7,8 +7,11 @@
 export const ERROR_CODES = [
   "already_a_library",
   "ambiguous_hash",
+  "empty_name",
+  "folder_cycle",
   "invalid_content_hash",
   "invalid_query",
+  "invalid_rating",
   "invalid_timestamp",
   "io",
   "library_busy",
@@ -20,6 +23,10 @@ export const ERROR_CODES = [
   "partial_hash_collision",
   "schema_too_new",
   "unknown_asset",
+  "unknown_folder",
+  "unknown_folder_path",
+  "unknown_smart_folder",
+  "unknown_tag_group",
   "unreadable_schema_version",
   "unsupported_platform",
   "remote", // an error that crossed a process boundary; see fromWire()

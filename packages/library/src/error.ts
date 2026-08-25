@@ -82,3 +82,71 @@ export class AmbiguousHashError extends RoostError {
     super(`${needle} matches more than one asset — use a longer prefix`, { needle });
   }
 }
+
+/**
+ * A name that is empty, or nothing but whitespace.
+ *
+ * `what` names the kind of thing — a tag, a folder, a query — because the
+ * message is read by someone who typed one of several things on one line.
+ */
+export class EmptyNameError extends RoostError {
+  readonly code = "empty_name";
+
+  constructor(what: string) {
+    super(`A ${what} needs a name`, { what });
+  }
+}
+
+export class InvalidRatingError extends RoostError {
+  readonly code = "invalid_rating";
+
+  constructor(value: number) {
+    super(`Rating must be between 1 and 5, or cleared; ${value} is neither`, { value });
+  }
+}
+
+export class UnknownFolderError extends RoostError {
+  readonly code = "unknown_folder";
+
+  constructor(id: number) {
+    super(`No folder has id ${id}`, { id });
+  }
+}
+
+export class UnknownFolderPathError extends RoostError {
+  readonly code = "unknown_folder_path";
+
+  constructor(path: string) {
+    super(`No folder at ${path}`, { path });
+  }
+}
+
+/**
+ * A folder move that would put a folder inside its own subtree.
+ *
+ * Refused rather than repaired: the cycle detaches the subtree from the root,
+ * where nothing can reach it — including whatever would have to undo it.
+ */
+export class FolderCycleError extends RoostError {
+  readonly code = "folder_cycle";
+
+  constructor(id: number, parent: number) {
+    super(`Folder ${id} cannot be moved into ${parent}, which is inside it`, { id, parent });
+  }
+}
+
+export class UnknownTagGroupError extends RoostError {
+  readonly code = "unknown_tag_group";
+
+  constructor(name: string) {
+    super(`No tag group called ${name}`, { name });
+  }
+}
+
+export class UnknownSmartFolderError extends RoostError {
+  readonly code = "unknown_smart_folder";
+
+  constructor(name: string) {
+    super(`No smart folder called ${name}`, { name });
+  }
+}

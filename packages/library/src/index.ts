@@ -7,19 +7,56 @@
  */
 export { discover } from "./discover.js";
 export {
+  addToFolder,
+  apply,
+  createFolder,
+  createSmartFolder,
+  createTagGroup,
+  deleteFolder,
+  deleteSmartFolder,
+  deleteTagGroup,
+  MAX_RATING,
+  moveFolder,
+  rate,
+  removeAssets,
+  removeFromFolder,
+  renameAsset,
+  renameFolder,
+  renameTagGroup,
+  resolveAsset,
+  resolveFolder,
+  resolveSmartFolder,
+  resolveTagGroup,
+  setFavorite,
+  setNote,
+  setTagGroup,
+  tagAdd,
+  tagRemove,
+  tagRename,
+  updateSmartFolder,
+} from "./edit.js";
+export {
   AlreadyALibraryError,
   AmbiguousHashError,
+  EmptyNameError,
+  FolderCycleError,
+  InvalidRatingError,
   LibraryBusyError,
   LibraryTooNewError,
   NotALibraryError,
   PartialHashCollisionError,
   UnknownAssetError,
+  UnknownFolderError,
+  UnknownFolderPathError,
+  UnknownSmartFolderError,
+  UnknownTagGroupError,
 } from "./error.js";
 export {
   type FixtureOptions,
   type FixtureReport,
   generateFixture,
 } from "./fixture.js";
+export { childrenById, descendants } from "./folder-tree.js";
 export {
   filesPerSecond,
   type ImportFailure,
@@ -39,4 +76,20 @@ export {
   readManifest,
   writeManifest,
 } from "./manifest.js";
+export {
+  compileFor,
+  count,
+  list,
+  matches,
+  pageOf,
+  pages,
+  search,
+} from "./search.js";
+export {
+  type FolderEntry,
+  readSidebar,
+  type Sidebar,
+  type SmartFolderEntry,
+  type TagEntry,
+} from "./sidebar.js";
 export { generateMissing, type ThumbnailReport } from "./thumbnails.js";

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { UnsupportedPlatformError } from "../model/index.js";
+import { tmpfsDir } from "../testing/mounts.js";
 import { reflinkSupported } from "./caps.js";
 import { APP_NAME, cacheDir, configDir, dataDir, logDir, resolveXdg, stateDir } from "./dirs.js";
 import { acquireLockAt, lockPathFor } from "./lock.js";
@@ -176,7 +177,17 @@ describe("probing for reflink support", () => {
   it.runIf(onLinux)("says no on tmpfs, which has no copy-on-write", async () => {
     // `COPYFILE_FICLONE_FORCE` refuses rather than falling back, which is the
     // whole basis of ADR-0012. The plain hint would report success here.
-    expect(await reflinkSupported(dir)).toBe("no");
+    //
+    // Not `os.tmpdir()`: that follows `$TMPDIR`, and pointing it at the Btrfs
+    // this repository sits on is an ordinary thing for a developer to do —
+    // which turns this check red for a reason that has nothing to do with the
+    // code. The mount table is what actually knows.
+    const onTmpfs = await tmpfsDir("roost-caps-");
+    try {
+      expect(await reflinkSupported(onTmpfs)).toBe("no");
+    } finally {
+      await rm(onTmpfs, { recursive: true, force: true });
+    }
   });
 
   it.runIf(onLinux)("says yes on the Btrfs this repository sits on", async () => {
