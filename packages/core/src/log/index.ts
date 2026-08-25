@@ -10,7 +10,11 @@
  *
  * Logs never leave the machine. There is no remote sink, no batching queue, and
  * no place to add one (invariant 10).
+ *
+ * The sinks that touch a filesystem live in `./file.js`, so that this module —
+ * which loads in every process — pulls in no `node:fs` behind it.
  */
+export { type ClosableSink, fileSink, filterSink, teeSink } from "./file.js";
 
 /** Ordered from most to least verbose. */
 export const LOG_LEVELS = ["trace", "debug", "info", "warn", "error"] as const;

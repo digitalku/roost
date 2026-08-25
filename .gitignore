@@ -8,6 +8,10 @@ build/
 # Electron packaging
 release/
 apps/desktop/**/dist/
+# The renderer is built by Vite; tsc only typechecks it, and emits declarations
+# it has no consumer for.
+apps/desktop/renderer/dist-types/
+apps/desktop/renderer/dist-config/
 
 # Native module build artefacts
 prebuilds/

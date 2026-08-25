@@ -1,0 +1,17 @@
+{
+  "name": "@roost/desktop-engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The utilityProcess that hosts one Library and answers the contract's requests (ADR-0006).",
+  "license": "MIT",
+  "main": "./dist/engine.js",
+  "dependencies": {
+    "@roost/contract": "workspace:*",
+    "@roost/core": "workspace:*",
+    "@roost/library": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1"
+  }
+}

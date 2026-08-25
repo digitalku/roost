@@ -10,6 +10,8 @@
  * Anything `structuredClone` cannot carry does not belong here, and neither do
  * bytes — those travel over `roost://` (ADR-0008).
  */
+
+export type { Outcome, RoostBridge } from "./bridge.js";
 export {
   bad,
   type Checked,

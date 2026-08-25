@@ -1,0 +1,13 @@
+{
+  "name": "@roost/desktop-preload",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The contextBridge surface, and nothing else. CommonJS, because a sandboxed preload cannot be ESM.",
+  "license": "MIT",
+  "main": "./dist/preload.js",
+  "devDependencies": {
+    "@roost/contract": "workspace:*",
+    "@types/node": "22.20.1",
+    "electron": "43.4.1"
+  }
+}

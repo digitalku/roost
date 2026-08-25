@@ -1,0 +1,170 @@
+/*
+ * The application frame. Components bring their own files; this is the shell
+ * they sit in, and the reset that makes a desktop app not look like a page.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  /* A desktop app: text is not selectable unless something opts in. */
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 1px;
+}
+
+.app {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  height: 100%;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8);
+  text-align: center;
+}
+
+.panel h1 {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--leading-lg);
+  font-weight: 600;
+}
+
+.panel p {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--text-muted);
+}
+
+.field {
+  display: flex;
+  gap: var(--space-2);
+  width: min(640px, 100%);
+}
+
+.field input {
+  flex: 1;
+  height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  user-select: text;
+}
+
+.field input:focus-visible {
+  border-color: var(--border-focus);
+}
+
+button {
+  height: var(--control-height);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  cursor: default;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-overlay);
+}
+
+button[data-variant="primary"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+button[data-variant="primary"]:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+button:disabled {
+  color: var(--text-subtle);
+}
+
+.problem {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger-text);
+  background: var(--danger-1);
+  font-size: var(--text-sm);
+  user-select: text;
+}
+
+.problem code {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.counts {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: var(--space-1) var(--space-6);
+  margin: 0;
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.counts dt {
+  color: var(--text-muted);
+}
+
+.counts dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  /* Compared vertically, so tabular figures. */
+  font-variant-numeric: tabular-nums;
+}
+
+.status {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  height: var(--row-height);
+  padding: 0 var(--gutter);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.status .path {
+  font-family: var(--font-mono);
+  color: var(--text-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

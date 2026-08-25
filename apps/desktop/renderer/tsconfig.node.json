@@ -1,0 +1,13 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist-config",
+    "tsBuildInfoFile": "dist-config/.tsbuildinfo",
+    "emitDeclarationOnly": true,
+    "moduleResolution": "bundler",
+    "module": "preserve",
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts"]
+}

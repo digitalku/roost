@@ -23,6 +23,21 @@
       "path": "packages/cli"
     },
     {
+      "path": "apps/desktop/engine"
+    },
+    {
+      "path": "apps/desktop/preload"
+    },
+    {
+      "path": "apps/desktop/main"
+    },
+    {
+      "path": "apps/desktop/renderer"
+    },
+    {
+      "path": "apps/desktop/renderer/tsconfig.node.json"
+    },
+    {
       "path": "tsconfig.scripts.json"
     },
     {

@@ -1,0 +1,169 @@
+/*
+ * Every design token, declared once (UI_SPEC.md §2).
+ *
+ * `pnpm check:css` fails on a `var(--token)` nothing declares here. CSS has no
+ * undefined-variable error — the declaration is silently dropped — and one such
+ * typo in roost-old made the preview pane fully transparent while it was still
+ * covering the grid. The check is in place before the first component.
+ *
+ * Components use the semantic tokens. A component that reaches for `--gray-4`
+ * directly is a review failure; it reaches for `--surface-raised`.
+ */
+
+:root {
+  /* Achromatic ramp. 0 is the page in dark, 12 is the page in light. */
+  --gray-0: #14110f;
+  --gray-1: #1b1815;
+  --gray-2: #221e1a;
+  --gray-3: #2b2621;
+  --gray-4: #3a332c;
+  --gray-5: #4c443b;
+  --gray-6: #635a4f;
+  --gray-7: #7d7364;
+  --gray-8: #9a8f7f;
+  --gray-9: #b7ac9c;
+  --gray-10: #d5ccbe;
+  --gray-11: #ebe4da;
+  --gray-12: #faf7f2;
+
+  /* Exactly one hue: focus, selection, and primary actions. Nothing else. */
+  --accent-1: #17302f;
+  --accent-2: #1f4a47;
+  --accent-3: #2c6a65;
+  --accent-4: #3a8b84;
+  --accent-5: #4faaa1;
+  --accent-6: #6cc5bc;
+
+  --danger-1: #3a1714;
+  --danger-2: #7a2b23;
+  --danger-3: #c04b3d;
+  --danger-4: #e0796b;
+
+  --warning-1: #3a2e12;
+  --warning-2: #7d6420;
+  --warning-3: #c79a2e;
+  --warning-4: #e2bd66;
+
+  /* 4px base. Nothing uses a raw pixel value except a 1px border. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --space-10: 64px;
+  --space-11: 80px;
+  --space-12: 96px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* No webfont: invariant 7 forbids the request, and chrome does not need one. */
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  --text-xs: 11px;
+  --leading-xs: 16px;
+  --text-sm: 12px;
+  --leading-sm: 18px;
+  --text-base: 13px;
+  --leading-base: 20px;
+  --text-md: 15px;
+  --leading-md: 22px;
+  --text-lg: 18px;
+  --leading-lg: 26px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+
+  /* Density re-declares a handful of tokens, never a conditional class name. */
+  --row-height: 28px;
+  --control-height: 28px;
+  --gutter: var(--space-3);
+}
+
+:root[data-density="compact"] {
+  --row-height: 22px;
+  --control-height: 24px;
+  --gutter: var(--space-2);
+}
+
+:root[data-theme="dark"] {
+  --bg: var(--gray-0);
+  --surface: var(--gray-1);
+  --surface-raised: var(--gray-2);
+  --surface-overlay: var(--gray-3);
+
+  --border: var(--gray-3);
+  --border-strong: var(--gray-5);
+  --border-focus: var(--accent-5);
+
+  --text: var(--gray-12);
+  --text-muted: var(--gray-9);
+  --text-subtle: var(--gray-7);
+  --text-inverse: var(--gray-0);
+
+  --select-bg: var(--accent-2);
+  --select-border: var(--accent-5);
+  --select-text: var(--gray-12);
+
+  --accent: var(--accent-4);
+  --accent-hover: var(--accent-5);
+  --accent-text: var(--gray-0);
+
+  --danger: var(--danger-3);
+  --danger-text: var(--gray-12);
+  --warning: var(--warning-3);
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 50%);
+}
+
+/* The same design with the ramp reversed, not an afterthought. */
+:root[data-theme="light"] {
+  --bg: var(--gray-12);
+  --surface: var(--gray-11);
+  --surface-raised: var(--gray-10);
+  --surface-overlay: var(--gray-12);
+
+  --border: var(--gray-9);
+  --border-strong: var(--gray-7);
+  --border-focus: var(--accent-3);
+
+  --text: var(--gray-0);
+  --text-muted: var(--gray-5);
+  --text-subtle: var(--gray-6);
+  --text-inverse: var(--gray-12);
+
+  --select-bg: var(--accent-6);
+  --select-border: var(--accent-3);
+  --select-text: var(--gray-0);
+
+  --accent: var(--accent-3);
+  --accent-hover: var(--accent-2);
+  --accent-text: var(--gray-12);
+
+  --danger: var(--danger-2);
+  --danger-text: var(--gray-12);
+  --warning: var(--warning-2);
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 12%);
+  --shadow-2: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+/*
+ * Collapsed through the token, so no component needs to know about it.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+  }
+}

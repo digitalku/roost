@@ -1,0 +1,17 @@
+{
+  "name": "@roost/desktop-main",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Electron main: the window, the menus, the roost:// protocol, and the route to the engine.",
+  "license": "MIT",
+  "main": "./dist/main.js",
+  "dependencies": {
+    "@roost/contract": "workspace:*",
+    "@roost/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "electron": "43.4.1"
+  }
+}

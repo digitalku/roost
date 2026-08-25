@@ -10,8 +10,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Nothing in CI launches a window yet, and the binary is ~150 MB per run.
-  # This is removed by M3, which is the first milestone that starts Electron.
+  # M3 has started and the app runs, but nothing in *CI* launches a window yet:
+  # the desktop tests drive the message loop and the security policy directly,
+  # which is the point of `serve` taking a port rather than importing Electron.
+  # The binary is ~150 MB per run, so it stays skipped until an end-to-end
+  # window test needs it. Electron's *types* install either way.
   ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
 
 jobs:

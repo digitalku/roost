@@ -35,6 +35,11 @@ export default defineConfig({
     include: [
       "packages/*/src/**/*.test.ts",
       "packages/*/tests/**/*.test.ts",
+      // The desktop app's processes are packages too, and their tests run in
+      // plain Node: `serve` takes a port rather than importing Electron, so the
+      // message loop is testable without starting a browser.
+      "apps/desktop/*/src/**/*.test.ts",
+      "apps/desktop/*/tests/**/*.test.ts",
       "scripts/**/*.test.mjs",
     ],
     // Packages that have not been written yet have no tests, and that is not a
