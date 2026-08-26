@@ -1,4 +1,10 @@
-/** The one place command names, flags, and their descriptions are written. */
+/**
+ * The one place command names, flags, and their descriptions are written.
+ *
+ * Every string below is a template literal, so a backtick inside one has to be
+ * escaped. An unescaped one ends the string and the error is a parse failure
+ * two hundred lines further down, which says nothing about the cause.
+ */
 
 export const VERSION = "0.0.0";
 
@@ -66,10 +72,17 @@ Run \`roost <COMMAND> --help\` for the options a command takes.`;
 const PER_COMMAND: Readonly<Record<Command, string>> = {
   init: `Create a new library.
 
+A library is a folder ending in .roost, the way an Eagle library ends in
+.library — one object in a file manager rather than a directory of hashes. The
+suffix is added if it is missing, so \`roost init ~/Photos\` and
+\`roost init ~/Photos.roost\` create the same thing. The path actually used is
+printed.
+
 Usage: roost init <PATH> [OPTIONS]
 
 Options:
-      --name <NAME>      Display name. Defaults to the directory's own name
+      --name <NAME>      Display name. Defaults to the folder's own name,
+                         without the suffix
 ${GLOBAL}`,
 
   import: `Import files and directories into a library.

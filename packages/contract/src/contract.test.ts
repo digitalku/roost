@@ -7,6 +7,10 @@ import { checkRequest, REQUEST_TYPES } from "./request.js";
 
 describe("validating a request", () => {
   it("accepts what the renderer is meant to send", () => {
+    expect(checkRequest({ type: "library:create", parent: "/home/you", name: "Holiday" })).toEqual({
+      ok: true,
+      value: { type: "library:create", parent: "/home/you", name: "Holiday" },
+    });
     expect(checkRequest({ type: "library:open", path: "/libraries/one" })).toEqual({
       ok: true,
       value: { type: "library:open", path: "/libraries/one" },
@@ -74,6 +78,8 @@ describe("validating a request", () => {
       "library:current",
       "library:close",
       "library:stats",
+      "dialog:openLibrary",
+      "dialog:chooseLocation",
     ]);
   });
 });

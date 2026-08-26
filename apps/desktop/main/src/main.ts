@@ -1,4 +1,4 @@
-import type { Event, Request } from "@roost/contract";
+import type { Event, Request, RequestType } from "@roost/contract";
 import { checkRequest } from "@roost/contract";
 import {
   type ClosableSink,
@@ -12,7 +12,7 @@ import {
   stderrSink,
   teeSink,
 } from "@roost/core";
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { Engine, EngineGoneError, EngineProblem } from "./engine.js";
 import { createWindow } from "./window.js";
 
@@ -111,6 +111,9 @@ async function route(engine: Engine, payload: unknown): Promise<unknown> {
   // debugging this path wants. The payload is not logged: it holds paths.
   log.debug("request", { type: request.type });
   try {
+    if (ANSWERED_HERE.has(request.type)) {
+      return { ok: true, value: await answerHere(request) };
+    }
     return { ok: true, value: await engine.request(request) };
   } catch (error) {
     if (error instanceof EngineProblem || error instanceof EngineGoneError) {
@@ -119,6 +122,45 @@ async function route(engine: Engine, payload: unknown): Promise<unknown> {
     log.error("request failed in main", { request: request.type });
     return { ok: false, problem: { code: "remote", message: "request failed", detail: {} } };
   }
+}
+
+/**
+ * The requests main answers itself.
+ *
+ * A dialog belongs to a window and the engine has none, so these cannot be
+ * forwarded. They are still requests rather than a second channel, because the
+ * renderer having exactly one way to ask for anything is worth more than the
+ * tidiness of main holding no handlers at all.
+ */
+const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
+  "dialog:openLibrary",
+  "dialog:chooseLocation",
+]);
+
+async function answerHere(request: Request): Promise<string | null> {
+  const forOpening = request.type === "dialog:openLibrary";
+
+  const options = {
+    title: forOpening ? "Open library" : "Choose a location",
+    buttonLabel: forOpening ? "Open" : "Choose",
+    // `createDirectory` only where a new library is going: on the open side it
+    // offers to make a folder that could not be a library yet.
+    properties: forOpening
+      ? (["openDirectory"] as const)
+      : (["openDirectory", "createDirectory"] as const),
+    defaultPath: app.getPath("pictures"),
+  };
+
+  // Attached to the window, so it is modal to Roost rather than to the desktop.
+  const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const chosen =
+    parent === undefined
+      ? await dialog.showOpenDialog({ ...options, properties: [...options.properties] })
+      : await dialog.showOpenDialog(parent, { ...options, properties: [...options.properties] });
+
+  // Cancelling is an outcome, not a failure: the renderer shows what it had.
+  if (chosen.canceled) return null;
+  return chosen.filePaths[0] ?? null;
 }
 
 /** Re-emits an engine event to every open window. */

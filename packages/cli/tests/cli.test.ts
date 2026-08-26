@@ -72,7 +72,11 @@ describe("the command line", () => {
   });
 
   it("carries a library through init, import, stats, thumb, and rebuild", async () => {
-    const root = join(dir, "library");
+    // What is typed, and where it actually lands: a library is a folder ending
+    // in .roost, and the CLI adds the suffix so that it and the window agree
+    // about where one library is (ADR-0014).
+    const asked = join(dir, "library");
+    const root = `${asked}.roost`;
     const corpus = join(dir, "corpus");
 
     const fixture = capture();
@@ -85,8 +89,11 @@ describe("the command line", () => {
     expect(fixture.out.join("\n")).toContain("Generated 12 files");
 
     const init = capture();
-    expect(await run(["init", root, "--name", "Demo"], init.streams)).toBe(EXIT.ok);
+    expect(await run(["init", asked, "--name", "Demo"], init.streams)).toBe(EXIT.ok);
     expect(init.out.join("\n")).toContain('Created library "Demo"');
+    // The suffix is added, and the path actually used is printed — a command
+    // that creates something other than what was typed has to say so (ADR-0014).
+    expect(init.out.join("\n")).toContain(root);
     // The manifest is what makes a directory a library, and the format version
     // is part of it.
     const manifest: unknown = JSON.parse(await readFile(join(root, "library.json"), "utf8"));
@@ -118,7 +125,7 @@ describe("the command line", () => {
   });
 
   it("finds the library from inside it, the way git does", async () => {
-    const root = join(dir, "library");
+    const root = join(dir, "library.roost");
     await run(["init", root], capture().streams);
 
     const previous = process.cwd();
@@ -139,5 +146,11 @@ describe("the command line", () => {
     const again = capture();
     expect(await run(["init", root], again.streams)).toBe(EXIT.failed);
     expect(again.warn.join("\n")).toContain("[already_a_library]");
+
+    // Adding the suffix is idempotent, so the suffixed spelling of the same
+    // intent has to collide with it rather than make a second library.
+    const suffixed = capture();
+    expect(await run(["init", `${root}.roost`], suffixed.streams)).toBe(EXIT.failed);
+    expect(suffixed.warn.join("\n")).toContain("[already_a_library]");
   });
 });

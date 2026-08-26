@@ -130,8 +130,11 @@ build mode *is* the check, and a stale `dist/` cannot make it pass.
 Working against a library:
 
 ```bash
-export ROOST_LIBRARY=~/RoostTest
+export ROOST_LIBRARY=~/RoostTest.roost
 
+# A library is a folder ending in .roost (ADR-0014). The suffix is added if it
+# is missing, and the path actually used is printed, so `init ~/RoostTest` and
+# `init ~/RoostTest.roost` create the same directory.
 pnpm --filter @roost/cli start -- init "$ROOST_LIBRARY"
 pnpm --filter @roost/cli start -- import ~/Pictures --tag reference
 pnpm --filter @roost/cli start -- stats

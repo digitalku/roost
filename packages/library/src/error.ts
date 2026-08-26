@@ -168,3 +168,17 @@ export class UnsoundReclaimError extends RoostError {
     super(`Refusing to reclaim: ${reason}`, { reason });
   }
 }
+
+/**
+ * A library name that would mean something to the filesystem.
+ *
+ * Refused rather than sanitised: a name quietly turned into a different name is
+ * a library the user cannot find again.
+ */
+export class InvalidLibraryNameError extends RoostError {
+  readonly code = "invalid_library_name";
+
+  constructor(name: string, reason: string) {
+    super(`"${name}" cannot be a library name: ${reason}`, { name, reason });
+  }
+}

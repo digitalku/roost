@@ -1,7 +1,7 @@
-import { basename, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { LibraryStats, LibrarySummary, Request, ResponseOf } from "@roost/contract";
 import { logger } from "@roost/core";
-import { Library } from "@roost/library";
+import { Library, libraryDirectory, libraryNameFromPath } from "@roost/library";
 
 /**
  * One library, and the requests that reach it.
@@ -32,11 +32,11 @@ export class EngineHost {
         return this.#open(await Library.open(resolve(request.path), { exclusive: true }));
 
       case "library:create": {
-        const path = resolve(request.path);
-        // An empty name is allowed on the wire and resolved here, the way the
-        // CLI resolves it: the directory's own name is what someone who left
-        // the field alone meant.
-        const name = request.name.trim() === "" ? basename(path) : request.name;
+        // `<parent>/<name>.roost`, composed here because this is the side with
+        // a filesystem — and validated here, because a name a person typed is
+        // about to become a path (ADR-0014).
+        const path = libraryDirectory(resolve(request.parent), request.name);
+        const name = libraryNameFromPath(path);
         return this.#open(await Library.create(path, name, { exclusive: true }));
       }
 
@@ -49,6 +49,13 @@ export class EngineHost {
 
       case "library:stats":
         return statsOf(this.#require());
+
+      case "dialog:openLibrary":
+      case "dialog:chooseLocation":
+        // A dialog belongs to a window and this process has none. Main answers
+        // these before forwarding; one arriving here is a routing bug, and it
+        // fails loudly rather than returning a plausible null.
+        throw new Error(`${request.type} is answered by main, not by the engine`);
     }
   }
 

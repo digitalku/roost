@@ -57,6 +57,7 @@ export {
   AmbiguousHashError,
   EmptyNameError,
   FolderCycleError,
+  InvalidLibraryNameError,
   InvalidRatingError,
   LibraryBusyError,
   LibraryTooNewError,
@@ -94,6 +95,14 @@ export {
   readManifest,
   writeManifest,
 } from "./manifest.js";
+export {
+  checkLibraryName,
+  hasLibrarySuffix,
+  LIBRARY_SUFFIX,
+  libraryDirectory,
+  libraryNameFromPath,
+  withLibrarySuffix,
+} from "./naming.js";
 export {
   compileFor,
   count,

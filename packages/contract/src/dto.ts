@@ -13,6 +13,16 @@
  * (ADR-0008); a `Uint8Array` in this file is a review failure.
  */
 
+/**
+ * What a library directory is called: `<Name>.roost` (ADR-0014).
+ *
+ * Declared here as well as in `@roost/library` because the renderer needs it to
+ * show what it is about to create, and this package is the only one it may
+ * import. The engine asserts the two agree — two constants that must match and
+ * cannot import each other need a test, not a comment.
+ */
+export const LIBRARY_SUFFIX = ".roost";
+
 /** Whether an asset's bytes were copied into the library or left where they are. */
 export const STORAGE_MODES = ["managed", "referenced"] as const;
 export type StorageMode = (typeof STORAGE_MODES)[number];

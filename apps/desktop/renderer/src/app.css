@@ -64,7 +64,46 @@ body {
 .field {
   display: flex;
   gap: var(--space-2);
+  align-items: center;
   width: min(640px, 100%);
+}
+
+.field-label {
+  flex: 0 0 auto;
+  width: 5rem;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* The chosen directory: shown, never typed, so it reads rather than edits. */
+.chosen {
+  flex: 1;
+  overflow: hidden;
+  height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--control-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.panel code {
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
 }
 
 .field input {

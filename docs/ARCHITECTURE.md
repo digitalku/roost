@@ -251,6 +251,12 @@ Events (engine → renderer): `import:progress`, `job:progress`, `library:change
 `asset:updated`, `thumbnail:ready`. They travel the same port and are re-emitted by main to the
 window; the renderer subscribes through the same typed surface.
 
+**Two requests are answered by main itself**: `dialog:openLibrary` and
+`dialog:chooseLocation`. A dialog belongs to a window and the engine has none, so they cannot
+be forwarded. They stay requests rather than becoming a second channel, because the renderer
+having exactly one way to ask for anything is worth more than main holding no handlers at all
+(ADR-0014).
+
 Three rules the contract enforces rather than documents:
 - **Every payload is validated at the receiving end.** Types vanish at runtime; the sandbox is
   only worth having if the process behind it distrusts what comes through.

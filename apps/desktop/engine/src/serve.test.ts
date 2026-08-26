@@ -2,6 +2,8 @@ import { mkdtemp, readdir, readlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReplyEnvelope, Request } from "@roost/contract";
+import { LIBRARY_SUFFIX as WIRE_SUFFIX } from "@roost/contract";
+import { LIBRARY_SUFFIX } from "@roost/library";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost } from "./host.js";
 import type { Port } from "./port.js";
@@ -90,17 +92,43 @@ describe("the engine's message loop", () => {
     expect(port.started).toBe(true);
   });
 
+  it("agrees with the contract about what a library folder is called", () => {
+    // Two constants that must match and cannot import each other: the contract
+    // may not depend on `@roost/library`, and the renderer may not import
+    // anything else. This process depends on both, so this is the only place
+    // the two can be compared (ADR-0014).
+    expect(WIRE_SUFFIX).toBe(LIBRARY_SUFFIX);
+  });
+
+  it("refuses a name a filesystem would read as something else", async () => {
+    // The name is about to become a path, and the engine is the side with a
+    // filesystem — so it checks, rather than trusting that the window did.
+    for (const name of ["..", "a/b", ".hidden"]) {
+      const reply = await ask(9, { type: "library:create", parent: dir, name });
+      expect({ name, ok: reply?.ok }).toEqual({ name, ok: false });
+      expect(reply).toMatchObject({ problem: { code: "invalid_library_name" } });
+    }
+  });
+
   it("creates a library and answers with what the window shows", async () => {
-    const root = join(dir, "Made By The Window");
-    const reply = await ask(1, { type: "library:create", path: root, name: "" });
+    const reply = await ask(1, {
+      type: "library:create",
+      parent: dir,
+      name: "Made By The Window",
+    });
 
     expect(reply?.ok).toBe(true);
     expect(reply).toMatchObject({
       id: 1,
       ok: true,
-      // An empty name resolves to the directory's own, which is what someone
-      // who left the field alone meant.
-      value: { root, name: "Made By The Window", formatVersion: 1, schemaVersion: 5 },
+      // The suffix is added here, on the side that has a filesystem: the
+      // renderer sends a location and a name and never joins them (ADR-0014).
+      value: {
+        root: join(dir, "Made By The Window.roost"),
+        name: "Made By The Window",
+        formatVersion: 1,
+        schemaVersion: 5,
+      },
     });
   });
 
@@ -141,12 +169,12 @@ describe("the engine's message loop", () => {
   });
 
   it("holds one library at a time, and lets go of the one it replaced", async () => {
-    const first = join(dir, "first");
-    const second = join(dir, "second");
-    await ask(1, { type: "library:create", path: first, name: "First" });
+    const first = join(dir, "First.roost");
+    const second = join(dir, "Second.roost");
+    await ask(1, { type: "library:create", parent: dir, name: "First" });
     expect(await openFilesUnder(first)).not.toEqual([]);
 
-    await ask(2, { type: "library:create", path: second, name: "Second" });
+    await ask(2, { type: "library:create", parent: dir, name: "Second" });
 
     expect(await ask(3, { type: "library:current" })).toMatchObject({
       ok: true,
@@ -159,14 +187,13 @@ describe("the engine's message loop", () => {
   });
 
   it("reports nothing open once it is closed", async () => {
-    await ask(1, { type: "library:create", path: join(dir, "closed"), name: "Closed" });
+    await ask(1, { type: "library:create", parent: dir, name: "Closed" });
     expect(await ask(2, { type: "library:close" })).toEqual({ id: 2, ok: true, value: null });
     expect(await ask(3, { type: "library:current" })).toEqual({ id: 3, ok: true, value: null });
   });
 
   it("maps the counts field by field rather than spreading them", async () => {
-    const root = join(dir, "counted");
-    await ask(1, { type: "library:create", path: root, name: "Counted" });
+    await ask(1, { type: "library:create", parent: dir, name: "Counted" });
 
     const reply = await ask(2, { type: "library:stats" });
 

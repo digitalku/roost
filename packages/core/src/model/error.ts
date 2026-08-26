@@ -10,6 +10,7 @@ export const ERROR_CODES = [
   "empty_name",
   "folder_cycle",
   "invalid_content_hash",
+  "invalid_library_name",
   "invalid_query",
   "invalid_rating",
   "invalid_timestamp",

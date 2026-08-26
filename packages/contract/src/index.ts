@@ -29,6 +29,7 @@ export {
   within,
 } from "./checked.js";
 export {
+  LIBRARY_SUFFIX,
   type LibraryStats,
   type LibrarySummary,
   STORAGE_MODES,

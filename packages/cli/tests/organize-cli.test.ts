@@ -34,7 +34,7 @@ describe("the organize commands", () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "roost-organize-cli-"));
-    root = join(dir, "library");
+    root = join(dir, "library.roost");
     const source = join(dir, "pictures");
     await mkdir(source, { recursive: true });
     // Bytes, not images: nothing here thumbnails, and a distinct payload per
