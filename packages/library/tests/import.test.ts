@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseContentHash, shardOf } from "@roost/core";
-import { generateMissing, importInto, Library, PartialHashCollisionError } from "@roost/library";
+import {
+  count,
+  generateMissing,
+  importInto,
+  Library,
+  PartialHashCollisionError,
+} from "@roost/library";
 import { GRID_SIZE, gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -119,6 +125,42 @@ describe("importing", () => {
       names.push(...(await readdir(join(library.root, "originals", shard))));
     expect(names.some((n) => n.endsWith("."))).toBe(false);
     expect(names.filter((n) => !n.includes(".")).length).toBe(1);
+  });
+
+  it("stores a file it knows nothing about, rather than refusing it", async () => {
+    // A Roost library is not only a media collection. Anything imports, carries
+    // tags, and is searchable by name; what a format decides is whether there
+    // is a thumbnail and whether the preview can draw it, and neither is a
+    // condition of being in the library (`CONCEPT.md` §5).
+    const files = ["notes.txt", "model.blend", "archive.zip", "Makefile"];
+    for (const [index, name] of files.entries()) {
+      await writeFile(join(source, name), `contents ${index}`);
+    }
+
+    const report = await importInto(library, [source], { tags: ["assorted"] });
+
+    expect(report.imported).toBe(files.length);
+    expect(report.failed).toEqual([]);
+    expect(count(library, "tag:assorted")).toBe(files.length);
+
+    // The extension is recorded as it was found, and a file without one gets
+    // an empty extension rather than being skipped.
+    const extensions = library.db.repo
+      .allHashes()
+      .map((hash) => library.db.repo.assetDetail(hash)?.ext)
+      .sort();
+    expect(extensions).toEqual(["", "blend", "txt", "zip"]);
+
+    // Findable by name, which is the whole point of it being in the library.
+    for (const name of files) {
+      expect(count(library, name.split(".")[0] ?? name)).toBe(1);
+    }
+
+    // Nothing drawable, and that is reported as unsupported rather than as a
+    // failure: a file Roost cannot draw is one the desktop's own handler opens.
+    const thumbnails = await generateMissing(library, [GRID_SIZE]);
+    expect(thumbnails).toMatchObject({ generated: 0, unsupported: files.length, failed: [] });
+    expect(library.stats().assets).toBe(files.length);
   });
 
   it("applies the run's tags to everything it imported", async () => {

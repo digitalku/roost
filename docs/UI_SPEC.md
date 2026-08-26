@@ -280,6 +280,10 @@ the grid is permitted, and it happens off-screen when the derive queue is keepin
 - The thumbnail is `<img loading="lazy" decoding="async" src="roost://thumb/…@256">`. Image
   bytes never pass through React state, and the missing-thumbnail placeholder is drawn from
   `onError`.
+- **The placeholder is a first-class cell, not a broken one.** A library is not only media
+  (`CONCEPT.md` §5), so a `.blend` or a `.zip` is an ordinary member of the grid: the extension
+  set in the monospace stack, legible at the smallest zoom, over the surface colour — never a
+  broken-image glyph and never an empty box.
 
 **Selection model.** Click selects; `Ctrl`-click toggles; `Shift`-click extends from the anchor;
 drag on the background marquee-selects; `Ctrl+A` selects the loaded set and says so, because

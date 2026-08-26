@@ -9,8 +9,9 @@ Status: **Draft v2** · Last updated: 2026-08-24
 
 ## 1. The one-sentence pitch
 
-**Roost is where your visual files land, get organized, and stay findable — fully offline,
-fully yours, and fast enough to scroll a million images without stutter.**
+**Roost is where your files land, get organized, and stay findable — tuned for images and
+video, open to everything else, fully offline, fully yours, and fast enough to scroll a million
+assets without stutter.**
 
 ## 2. Why this exists
 
@@ -29,7 +30,8 @@ Linux users today fall back to a pile of compromises:
 | Obsidian + folders | No visual grid, no image search |
 | Plain filesystem | Works until ~5k files, then discovery collapses |
 
-Roost fills that hole: an offline-first app that treats *visual* assets as first-class citizens.
+Roost fills that hole: an offline-first app that treats visual assets as first-class citizens —
+and everything else as a citizen, because a reference folder is never only images.
 
 ## 3. Principles
 
@@ -65,6 +67,21 @@ order.
   lock-in. Is the loudest advocate if we get storage format right.
 
 ## 5. Scope
+
+**What a library may hold: anything.** A file Roost cannot draw still imports, still carries
+tags, folders, a rating, and a note, still turns up in search, and still deduplicates against
+everything else. The format decides whether there is a thumbnail and whether the preview can
+render it — never whether the file belongs. What Roost cannot draw, the desktop's own handler
+opens (`UI_SPEC.md` §7).
+
+**The optimisation is media, and that is not a hedge.** Thumbnails, the masonry grid, the
+preview pane, dimensions, duration, and perceptual hashing are all built for images and video,
+and the performance targets in §7 are stated against them. A `.blend` in a Roost library is an
+organised, findable, deduplicated `.blend`. It is not a rendered one, and it is not going to be.
+
+The engine has held this shape since M1: `unknown` is a format like any other, and its kind is
+`other` rather than an error. `packages/library/tests/import.test.ts` pins it against a `.txt`,
+a `.blend`, a `.zip`, and a file with no extension at all.
 
 ### 5.1 Feature parity map (vs Eagle)
 
@@ -114,6 +131,8 @@ Legend: **M** = must have (v1.0) · **S** = should have · **C** = could have ·
 - S — Fonts: TTF/OTF/WOFF specimen rendering
 - S — RAW photos: CR2, NEF, ARW, DNG
 - S — Design files: PSD, XCF, AI (thumbnail via embedded preview)
+- M — **Anything else: the thumbnail if there is one, the metadata, and Open externally.** A
+  format Roost cannot draw is not a dead end
 - C — 3D: GLB, OBJ, STL
 - W — Live Figma/Sketch rendering
 
@@ -131,7 +150,9 @@ Legend: **M** = must have (v1.0) · **S** = should have · **C** = could have ·
 - Not a photo *editor*. No retouching, no filters, no layers.
 - Not a cloud service. No sync server, no sharing links, no accounts.
 - Not a DAM for teams. Multi-user, permissions, and check-in/check-out are out of scope.
-- Not a file manager replacement. We do not aim to browse arbitrary filesystems.
+- Not a file manager replacement. A library holds what was imported into it; Roost does not
+  browse arbitrary filesystems. Accepting any file is not the same as replacing the thing that
+  browses every file.
 - No telemetry, no crash reporting phone-home, no auto-update that talks to us silently.
 - Not a web app. The renderer runs against a local engine over a private protocol; it is not
   going to be hosted, and no code should be written to keep that door open.
