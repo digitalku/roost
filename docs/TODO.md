@@ -238,9 +238,15 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   `ELECTRON_SKIP_BINARY_DOWNLOAD` in CI is waiting for.
 - 🟢 **Log files are never pruned.** One file per UTC day under `logDir()`, written
   synchronously, growing forever. A retention rule belongs with M6's packaging, not before it.
-- 🔴 The frontend test harness goes in **before** the components, not after. `roost-old` shipped
-  M3 with nothing exercising the preview, the context menu, or the dialogs, and the bug that
-  found the gap was invisible to TypeScript and to every test that existed.
+- ☑ ~~The frontend test harness goes in **before** the components, not after.~~ In place with
+  the first screen it covers: `vitest` with two projects so only the renderer gets a DOM, a fake
+  `window.roost` installed at the same seam the real one occupies, and thirteen tests driving the
+  picker and the creator the way a person does. Verified by breaking three things and watching
+  the right tests fail.
+- 🟡 **A native dialog cannot be clicked by a script.** The folder chooser is answered by the
+  fake bridge in a component test, and the twenty lines in main that open it are covered by
+  nothing. That is the remaining gap in this flow, and an Electron end-to-end driver is what
+  would close it.
 - 🟡 Sandbox assertions as tests, not as configuration reviewed once.
 - 🟡 A short `Cache-Control` on the thumbnail 404. The grid learns a thumbnail is absent by
   asking, which is right; `roost-old` measured it re-asking on every scroll back over a folder

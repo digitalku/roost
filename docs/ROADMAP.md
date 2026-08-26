@@ -158,14 +158,17 @@ matching index, and agreed with this build on nine RQL queries.
 
 Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not be slow.
 
-- ☐ Electron app: main, preload, renderer, and the engine `utilityProcess` (ADR-0006)
-- ☐ `@roost/contract` and the typed `window.roost` surface (ADR-0007); validation on the
-  receiving end, both directions
-- ☐ Sandbox hardening verified: `contextIsolation`, `nodeIntegration: false`, `sandbox: true`,
-  CSP, navigation and `window.open` denied, and a test that asserts each one
+- ☑ Electron app: main, preload, renderer, and the engine `utilityProcess` (ADR-0006)
+- ◐ `@roost/contract` and the typed `window.roost` surface (ADR-0007); validation on the
+  receiving end, both directions — the machinery and the library lifecycle are in; members
+  arrive with the features that need them
+- ◐ Sandbox hardening verified: `contextIsolation`, `nodeIntegration: false`, `sandbox: true`,
+  CSP, navigation and `window.open` denied, and a test that asserts each one — asserted as
+  values, which is not yet the same as asserting what Electron applied
 - ☐ `roost://` protocol: `thumb/<hash>@256|512` from the read-only connection,
   `original/<hash>` streamed with range support (ADR-0008)
-- ☐ Library picker and creator; single-instance lock taken on open
+- ☑ Library picker and creator; single-instance lock taken on open. A library is a folder
+  called `<Name>.roost` (ADR-0014)
 - ☐ Virtualized grid: masonry and uniform, keyset paging, the cell contract from `UI_SPEC.md` §6
 - ☐ Sidebar: places, folders with subtree counts, smart folders, grouped tags — each row
   carrying the RQL that selects it
@@ -174,9 +177,10 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ☐ Preview pane: image, video, audio, external fallback; arrow keys move selection with it
 - ☐ Search field with RQL validation, autocomplete, and the positioned parse error
 - ☐ Import by drag & drop and by dialog, with live progress in the status bar
-- ☐ CSS token check wired into the build **before the first component**
-- ☐ Frontend test harness — the thing `roost-old` never had, and the reason a transparent panel
-  shipped. Component tests for the grid contract, the preview, and the inspector
+- ☑ CSS token check wired into the build **before the first component**
+- ◐ Frontend test harness — the thing `roost-old` never had, and the reason a transparent panel
+  shipped. In place before the first component; the grid, the preview, and the inspector get
+  their tests as they arrive
 - ☐ Scroll benchmark mode: frame percentiles, refusing to report when the window is not
   composited
 - ☐ Cold-start measurement from process launch to interactive grid

@@ -27,24 +27,51 @@ const alias = Object.fromEntries(
   ]),
 );
 
+/**
+ * Two projects, because the renderer needs a DOM and nothing else may have one.
+ *
+ * A single `environment: "happy-dom"` would give the engine and the CLI a
+ * `window` they must never have, and a test that accidentally used one would
+ * pass here and fail in the process that actually runs it.
+ */
 export default defineConfig({
   resolve: { alias },
   test: {
-    // Unit tests live next to the code they cover (`CLAUDE.md` §6). Integration
-    // tests get `tests/` in the package they exercise.
-    include: [
-      "packages/*/src/**/*.test.ts",
-      "packages/*/tests/**/*.test.ts",
-      // The desktop app's processes are packages too, and their tests run in
-      // plain Node: `serve` takes a port rather than importing Electron, so the
-      // message loop is testable without starting a browser.
-      "apps/desktop/*/src/**/*.test.ts",
-      "apps/desktop/*/tests/**/*.test.ts",
-      "scripts/**/*.test.mjs",
-    ],
     // Packages that have not been written yet have no tests, and that is not a
     // failure — it is the milestone plan.
     passWithNoTests: true,
-    environment: "node",
+    projects: [
+      {
+        resolve: { alias },
+        test: {
+          name: "node",
+          environment: "node",
+          passWithNoTests: true,
+          // Unit tests live next to the code they cover (`CLAUDE.md` §6).
+          // Integration tests get `tests/` in the package they exercise.
+          include: [
+            "packages/*/src/**/*.test.ts",
+            "packages/*/tests/**/*.test.ts",
+            // The desktop app's processes are packages too, and their tests run
+            // in plain Node: `serve` takes a port rather than importing
+            // Electron, so the message loop is testable without a browser.
+            "apps/desktop/{main,preload,engine}/src/**/*.test.ts",
+            "apps/desktop/{main,preload,engine}/tests/**/*.test.ts",
+            "scripts/**/*.test.mjs",
+          ],
+        },
+      },
+      {
+        resolve: { alias },
+        test: {
+          name: "renderer",
+          environment: "happy-dom",
+          passWithNoTests: true,
+          globals: false,
+          setupFiles: ["./apps/desktop/renderer/src/testing/setup.ts"],
+          include: ["apps/desktop/renderer/src/**/*.test.{ts,tsx}"],
+        },
+      },
+    ],
   },
 });
