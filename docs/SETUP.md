@@ -15,7 +15,8 @@ Correct it in the same change if M0 lands differently.
 | Node.js | 22 LTS | The system runtime for the CLI and for tests. **Not** Electron's Node, which is 24.18.1 at Electron 43 — `packages/` targets the lower of the two (ADR-0011 §5) |
 | pnpm | 10+ | Workspace manager of record. `corepack enable` is enough |
 | git | any | |
-| A C++ toolchain | `gcc-c++`, `make`, `python3` | Only needed when a native module has no prebuilt binary for Electron's ABI |
+| A C++ toolchain | `gcc-c++`, `make`, `python3` | `sharp` is built from source on Linux, always — see below |
+| libvips headers | `vips-devel` 8.15+ | What that source build links against (ADR-0013). **Linux only, and not optional there** |
 | Electron runtime libs | nss, gtk3, libX11, alsa | Needed to open a window, not to run tests |
 
 Optional, and each one degrades gracefully when absent:
@@ -30,10 +31,38 @@ Optional, and each one degrades gracefully when absent:
 
 ```bash
 sudo dnf install -y nodejs npm gcc-c++ make python3 \
+                    vips-devel \
                     nss gtk3 libX11 alsa-lib \
                     ffmpeg-free
 corepack enable
 ```
+
+### Why `sharp` is built from source on Linux
+
+`pnpm install` runs `scripts/build-sharp.mjs` from `postinstall`, and on Linux that compiles
+`sharp` against the libvips the system supplies. It is not an optimisation. The prebuilt
+`@img/sharp-linux-x64` statically bundles GLib; Electron dynamically links the system GLib; two
+GLibs in one process means two GObject type registries, and the first decode inside Electron
+calls through a null function pointer and takes the whole engine down. ADR-0013 has the
+backtrace and the numbers.
+
+The build takes about half a minute and only runs when the binary is missing, so a second
+`pnpm install` is fast. macOS and Windows skip it and keep the prebuilt — there is no system
+GLib there to collide with.
+
+```bash
+pnpm build:native     # the same build on its own, after a manual node_modules edit
+node --experimental-strip-types scripts/probe-native.ts --both
+```
+
+The probe is what confirms it worked. It reports `(source build)` or `(prebuilt build)` under
+each runtime, because both report libvips 8.18.3 and the version cannot tell them apart.
+`roost doctor` prints the same thing on every run.
+
+If `vips-devel` is absent, `postinstall` fails and says so. That is deliberate: a build that
+quietly keeps the prebuilt is a build that quietly segfaults later, in the engine, with no
+message. `ROOST_SKIP_SHARP_BUILD=1` exists for a CI job that only type-checks, and it prints a
+warning saying what it just gave up.
 
 ### State of this container, probed 2026-08-24
 

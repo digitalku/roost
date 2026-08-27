@@ -61,9 +61,30 @@ export function isRenderable(format: Format): boolean {
 /** WebP quality, as `STORAGE_SPEC.md` specifies. */
 export const WEBP_QUALITY = 80;
 
-/** Which decoder is loaded, for `roost doctor` and for bug reports. */
-export function decoderVersions(): { sharp: string; libvips: string } {
-  return { sharp: sharp.versions.sharp, libvips: sharp.versions.vips };
+/**
+ * Which decoder is loaded, for `roost doctor` and for bug reports.
+ *
+ * `build` is the part that matters on Linux and the part a version number
+ * cannot tell you: the prebuilt binary and a source build report the same
+ * libvips 8.18.3, and only one of them survives a decode under Electron
+ * (ADR-0013). The answer comes from the loaded shared objects rather than from
+ * a flag, because a flag records what was intended.
+ */
+export function decoderVersions(): { sharp: string; libvips: string; build: DecoderBuild } {
+  return { sharp: sharp.versions.sharp, libvips: sharp.versions.vips, build: decoderBuild() };
+}
+
+/** Where the loaded `sharp` binary came from. */
+export type DecoderBuild = "source" | "prebuilt" | "unknown";
+
+function decoderBuild(): DecoderBuild {
+  // `getReport()` is typed as a bare `object`, so the shape has to be asserted.
+  // `sharedObjects` is a documented member of the diagnostic report, and it is
+  // read defensively here in case a future runtime drops it.
+  const objects = process.report.getReport() as { sharedObjects?: readonly string[] };
+  const binary = objects.sharedObjects?.find((object) => /[/\\]sharp-[^/\\]+\.node$/.test(object));
+  if (binary === undefined) return "unknown";
+  return binary.includes("@img") ? "prebuilt" : "source";
 }
 
 /**

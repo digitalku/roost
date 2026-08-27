@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isRenderable, sniff } from "./index.js";
+import { decoderVersions, isRenderable, sniff } from "./index.js";
 import { probe } from "./probe.js";
 import { gradient, gradientPixels, SYNTHETIC_FORMATS } from "./synth.js";
 import { GRID_SIZE, generateThumbnails, PREVIEW_SIZE } from "./thumbnail.js";
@@ -161,5 +161,20 @@ describe("synthetic images", () => {
     const seen = new Set<string>();
     for (let seed = 0; seed < 3000; seed += 1) seen.add(digest(gradientPixels(32, 32, seed)));
     expect(seen.size).toBe(3000);
+  });
+});
+
+describe("which sharp binary is loaded", () => {
+  it("is a source build on Linux and the prebuilt everywhere else", () => {
+    // ADR-0013. On Linux the prebuilt bundles its own GLib, collides with the
+    // one Electron links, and takes the engine down on the first decode; the
+    // source build links the same GLib and survives. Both report libvips
+    // 8.18.3, so the version cannot tell them apart and this can.
+    //
+    // What this really guards is the `postinstall` hook: `pnpm install`
+    // replaces the sharp package and deletes `src/build`, and a missing source
+    // build does not fail — it silently falls back to the binary that
+    // segfaults. Under Node, where these tests run, it segfaults nowhere.
+    expect(decoderVersions().build).toBe(process.platform === "linux" ? "source" : "prebuilt");
   });
 });

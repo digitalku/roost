@@ -174,16 +174,18 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - ☑ ~~**ADR-0013 needs a decision before M3.**~~ Accepted 2026-08-25: build `sharp` from source
   against the platform's libvips on Linux, keep the prebuilt on macOS and Windows, WASM as a
   documented 6x-slower fallback. What it leaves behind is M6 work, below.
-- 🟡 **The Linux app build must compile `sharp` from source** (ADR-0013). It needs `vips-devel`,
-  `node-addon-api`, and `node-gyp`, and it needs the prebuilt `@img/*` packages **absent** —
-  `SHARP_FORCE_GLOBAL_LIBVIPS=1` on its own does not produce a source build in sharp 0.35, and a
-  build that quietly keeps the prebuilt is a build that quietly segfaults. M6, and the CI native
-  job is what will catch getting it wrong.
-- 🟡 **Linux packaging carries libvips and must not carry GLib** (ADR-0013). Bundling GLib
+- ☑ ~~**The Linux app build must compile `sharp` from source** (ADR-0013).~~ Done 2026-08-27:
+  `scripts/build-sharp.mjs`, wired to the root `postinstall` because `pnpm install` deletes the
+  build. `probe-native --both` now passes under Electron. The prebuilt `@img/*` packages did
+  **not** have to be removed — sharp tries the source build first — but that makes a missing
+  source build a silent fallback rather than an error, so the build script, `decoderVersions()`,
+  and a test each assert which binary actually loaded. ADR-0013 has the correction.
+- 🟡 **Linux packaging carries libvips and must not carry GLib** (ADR-0013). M6. Bundling GLib
   recreates the exact collision this decision avoids. Flatpak gets this right from its runtime;
   an AppImage or `.deb` has to be checked rather than assumed.
 - ☑ ~~**`roost doctor` should report which sharp build is loaded.**~~ It prints the `sharp` and
-  `libvips` versions on every run, shallow or deep.
+  `libvips` versions on every run, shallow or deep, and since 2026-08-27 the word that the
+  versions cannot carry: `source`, `prebuilt`, or `unknown`, read from the loaded shared objects.
 - 🟢 **BMP has no thumbnail here.** libvips 8.18.3 has no BMP loader; the Rust build's `image`
   crate did. A `.bmp` still imports and still carries tags. Pinned by a test so it stays a
   decision.

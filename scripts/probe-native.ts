@@ -84,7 +84,15 @@ const MODULES: { name: string; probe: () => string | Promise<string> }[] = [
       if (meta.format !== "webp" || meta.width !== 64) {
         throw new Error(`round-trip produced ${meta.format} ${meta.width}px`);
       }
-      return `libvips ${vips}, decoded and encoded a ${thumb.length} B webp`;
+      // Which binary, not only which version: the prebuilt and a source build
+      // both say libvips 8.18.3, and on Linux only one of them survives this
+      // decode under Electron (ADR-0013). Reporting it means a passing run
+      // still says what it proved.
+      const report = process.report.getReport() as { sharedObjects?: readonly string[] };
+      const binary = report.sharedObjects?.find((o) => /[/\\]sharp-[^/\\]+\.node$/.test(o));
+      const build =
+        binary === undefined ? "unknown" : binary.includes("@img") ? "prebuilt" : "source";
+      return `libvips ${vips} (${build} build), decoded and encoded a ${thumb.length} B webp`;
     },
   },
   {

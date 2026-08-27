@@ -10,7 +10,9 @@
   },
   "packageManager": "pnpm@11.22.0",
   "scripts": {
+    "postinstall": "node scripts/build-sharp.mjs",
     "build": "tsc -b",
+    "build:native": "node scripts/build-sharp.mjs",
     "typecheck": "tsc -b",
     "clean": "tsc -b --clean",
     "check": "biome check --write",
@@ -28,6 +30,8 @@
     "@roost/library": "workspace:*",
     "@types/node": "22.20.1",
     "electron": "43.4.1",
+    "node-addon-api": "^8.9.2",
+    "node-gyp": "^13.0.1",
     "typescript": "7.0.2",
     "vitest": "4.1.11"
   }

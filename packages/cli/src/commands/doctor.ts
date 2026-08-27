@@ -62,7 +62,7 @@ function print(report: DoctorReport, examples: number, out: (line: string) => vo
   // Which decoder is loaded, always: "thumbnails are slow" and "thumbnails
   // crash the engine" have the same cause and no other symptom.
   const versions = decoderVersions();
-  out(`  sharp ${versions.sharp}, libvips ${versions.libvips}`);
+  out(`  sharp ${versions.sharp} (${versions.build} build), libvips ${versions.libvips}`);
   if (!report.deep) out("  shallow run — pass --deep to re-hash every object");
 
   if (isClean(report)) {

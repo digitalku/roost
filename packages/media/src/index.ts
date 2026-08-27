@@ -7,7 +7,13 @@
  * Optional backends are runtime-probed, never hard dependencies: an asset whose
  * decoder is missing still imports, with no thumbnail rather than an error.
  */
-export { decoderVersions, isRenderable, type Thumbnail, WEBP_QUALITY } from "./decoder.js";
+export {
+  type DecoderBuild,
+  decoderVersions,
+  isRenderable,
+  type Thumbnail,
+  WEBP_QUALITY,
+} from "./decoder.js";
 export {
   FORMATS,
   type Format,
