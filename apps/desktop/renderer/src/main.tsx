@@ -5,6 +5,7 @@ import "./tokens.css";
 import "./app.css";
 import "./grid/grid.css";
 import "./sidebar/sidebar.css";
+import "./search/search.css";
 
 const root = document.getElementById("root");
 if (root === null) throw new Error("index.html has no #root");

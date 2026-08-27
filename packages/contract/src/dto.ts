@@ -141,3 +141,24 @@ export interface WireSidebar {
   readonly smartFolders: readonly SidebarRow[];
   readonly tags: readonly SidebarRow[];
 }
+
+/**
+ * Whether a query parses, and where it stopped if it did not.
+ *
+ * The parse error crosses as a message and a position rather than as a
+ * `WireProblem`, because it is not a failure: a half-typed query is the normal
+ * state of a search field, and the field draws a caret under it rather than an
+ * error state (`UI_SPEC.md` §5).
+ *
+ * `at` is a **JavaScript string index**, not a byte offset. The Rust
+ * implementation reports bytes; a caret in a text input is measured in UTF-16
+ * code units, and a byte offset points at the wrong character the moment a
+ * query contains anything outside ASCII.
+ */
+export interface QueryCheck {
+  readonly ok: boolean;
+  /** `null` when the query parses. */
+  readonly message: string | null;
+  /** `null` when the failure has nowhere to point — an empty query does not. */
+  readonly at: number | null;
+}

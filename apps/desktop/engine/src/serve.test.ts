@@ -340,6 +340,40 @@ describe("the engine's message loop", () => {
     }
   });
 
+  it("counts what a query matches, separately from paging it", async () => {
+    await libraryOf(4);
+    expect(await ask(1, { type: "assets:count", query: "" })).toMatchObject({ value: 4 });
+    expect(await ask(2, { type: "assets:count", query: "ext:txt" })).toMatchObject({ value: 4 });
+    expect(await ask(3, { type: "assets:count", query: "ext:png" })).toMatchObject({ value: 0 });
+  });
+
+  it("answers a half-typed query without calling it a failure", async () => {
+    await libraryOf(1);
+    // `UI_SPEC.md` §5: a half-typed query is the normal state of a search
+    // field. A rejected request would make the renderer read it as a fault and
+    // show an error state over the grid.
+    const reply = await ask(1, { type: "query:check", query: "ext:png rating:9" });
+    expect(reply?.ok).toBe(true);
+
+    const value = (reply as { value: { ok: boolean; message: string; at: number | null } }).value;
+    expect(value.ok).toBe(false);
+    expect(value.message).toBe("Ratings run from 1 to 5, not 9");
+    // A caret needs somewhere to point, and it points at the term that is
+    // wrong rather than at the start of the query.
+    expect(value.at).toBe(8);
+  });
+
+  it("accepts a query that matches nothing, which is not the same as invalid", async () => {
+    await libraryOf(1);
+    for (const query of ["", "ext:png", "folder:Nonexistent", "tag:nobody"]) {
+      const reply = await ask(1, { type: "query:check", query });
+      expect({ query, value: (reply as { value: unknown }).value }).toEqual({
+        query,
+        value: { ok: true, message: null, at: null },
+      });
+    }
+  });
+
   it("maps the counts field by field rather than spreading them", async () => {
     await ask(1, { type: "library:create", parent: dir, name: "Counted" });
 

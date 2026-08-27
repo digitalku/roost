@@ -6,6 +6,7 @@ import { Grid } from "./grid/Grid.js";
 import type { GridMode } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
+import { SearchField } from "./search/SearchField.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
 
 /**
@@ -244,8 +245,11 @@ const EMPTY_LIBRARY = "Nothing in this library yet.";
 const NOTHING_MATCHED = "Nothing matches this query.";
 
 /** `1,234 assets · 3 selected`, with the second half only when there is one. */
-function summaryLine(assets: number, selected: number): string {
-  const total = `${assets.toLocaleString()} ${assets === 1 ? "asset" : "assets"}`;
+function summaryLine(assets: number | undefined, selected: number): string {
+  const total =
+    assets === undefined
+      ? "counting…"
+      : `${assets.toLocaleString()} ${assets === 1 ? "asset" : "assets"}`;
   return selected === 0 ? total : `${total} · ${selected.toLocaleString()} selected`;
 }
 
@@ -297,6 +301,7 @@ function LibraryView({
    */
   const [query, setQuery] = useState("");
   const [sidebar, setSidebar] = useState<WireSidebar | undefined>();
+  const [matches, setMatches] = useState<number | undefined>();
   // One store for the life of the view. A new one per render would drop the
   // selection on every keystroke, and every cell's subscription with it.
   const selection = useMemo(() => new SelectionStore(), []);
@@ -315,6 +320,34 @@ function LibraryView({
       if (outcome.ok) setSidebar(outcome.value);
     })();
   }, [generation]);
+
+  /*
+   * The match count is separate work from a page — a page is one screen and a
+   * count is every row — so it is asked for once per query rather than once
+   * per scroll. `generation` is a trigger here, not a value the body reads.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  useEffect(() => {
+    let current = true;
+    setMatches(undefined);
+    void (async () => {
+      const outcome = await invoke({ type: "assets:count", query });
+      if (current && outcome.ok) setMatches(outcome.value);
+    })();
+    return () => {
+      current = false;
+    };
+  }, [query, generation]);
+
+  const applyQuery = useCallback(
+    (picked: string) => {
+      // The selection goes with the query: what was selected is no longer on
+      // screen (`UI_SPEC.md` §4.2).
+      selection.clear();
+      setQuery(picked);
+    },
+    [selection],
+  );
   // The library's problem outranks the grid's: a library that failed to open
   // explains an empty grid, and showing both would say the same thing twice.
   const showing = problem ?? paging.problem;
@@ -329,6 +362,7 @@ function LibraryView({
     <div className="app app-library">
       <header className="bar">
         <h1 className="bar-title">{opened.summary.name}</h1>
+        <SearchField query={query} onApply={applyQuery} matches={matches} />
         <div className="bar-actions">
           <button
             type="button"
@@ -351,18 +385,10 @@ function LibraryView({
       </header>
 
       <div className="workspace">
-        {sidebar !== undefined && (
-          <Sidebar
-            sidebar={sidebar}
-            query={query}
-            onPick={(picked) => {
-              // Replaces the query (`UI_SPEC.md` §4.2). The selection goes with
-              // it: what was selected is no longer on screen.
-              selection.clear();
-              setQuery(picked);
-            }}
-          />
-        )}
+        {/* Clicking a row replaces the query (`UI_SPEC.md` §4.2), and the search
+            field shows what it was replaced with — one source of truth for what
+            is on screen, and it is a string the user can read and edit. */}
+        {sidebar !== undefined && <Sidebar sidebar={sidebar} query={query} onPick={applyQuery} />}
         {paging.assets.length === 0 && paging.done ? (
           <p className="grid-empty">{query === "" ? EMPTY_LIBRARY : NOTHING_MATCHED}</p>
         ) : (
@@ -379,7 +405,7 @@ function LibraryView({
       <footer className="status">
         {/* One text node, so what the status bar says is one readable string
             rather than four fragments a screen reader has to reassemble. */}
-        <span>{summaryLine(opened.stats.assets, count)}</span>
+        <span>{summaryLine(query === "" ? opened.stats.assets : matches, count)}</span>
         <span className="path">{opened.summary.root}</span>
       </footer>
       {showing !== undefined && <Problem problem={showing} />}

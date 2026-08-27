@@ -1,0 +1,73 @@
+/* The RQL field (UI_SPEC.md §5). */
+
+.search {
+  position: relative;
+  flex: 1;
+  max-width: 640px;
+}
+
+.search-input {
+  width: 100%;
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  /* Monospace so the caret under a parse error lines up by counting characters
+     rather than by measuring pixels. */
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.search-input::placeholder {
+  color: var(--text-subtle);
+}
+
+.search-input[aria-invalid] {
+  border-color: var(--danger);
+}
+
+.search-matches {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+/*
+ * Under the field, overlaying whatever is beneath: the toolbar is a fixed row,
+ * and pushing the grid down every time a query is half-typed would make the
+ * whole window jump as someone types.
+ */
+.search-error {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--control-height) + var(--space-1));
+  left: 0;
+  right: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-2);
+}
+
+.search-caret {
+  margin: 0;
+  overflow: hidden;
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  white-space: pre;
+}
+
+.search-message {
+  color: var(--text);
+  font-size: var(--text-sm);
+}

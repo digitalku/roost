@@ -58,6 +58,9 @@ describe("opening a library", () => {
       // else would ask for a page.
       "assets:page",
       "library:sidebar",
+      // The status bar's match count, asked once per query rather than once
+      // per scroll.
+      "assets:count",
     ]);
   });
 
@@ -461,7 +464,8 @@ describe("the navigation pane, in the window", () => {
 
     await user.click(screen.getByRole("button", { name: "Favorites" }));
     // What was selected is no longer on screen, and a count that survives the
-    // filter is a count of things nobody can see.
-    expect(await screen.findByText("9 assets")).toBeDefined();
+    // filter is a count of things nobody can see. The total becomes the match
+    // count, because the grid is no longer showing the whole library.
+    expect(await screen.findByText("1 asset")).toBeDefined();
   });
 });

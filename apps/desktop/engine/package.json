@@ -9,7 +9,8 @@
   "dependencies": {
     "@roost/contract": "workspace:*",
     "@roost/core": "workspace:*",
-    "@roost/library": "workspace:*"
+    "@roost/library": "workspace:*",
+    "@roost/search": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.20.1"

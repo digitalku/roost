@@ -178,7 +178,9 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ☐ Inspector: preview, metadata, tags, rating, favourite, note, all editable, every edit
   reading the record back rather than trusting what it sent
 - ☐ Preview pane: image, video, audio, external fallback; arrow keys move selection with it
-- ☐ Search field with RQL validation, autocomplete, and the positioned parse error
+- ◐ Search field with RQL validation, autocomplete, and the positioned parse error — validation,
+  the caret, the 250ms idle, and the match count are in; autocomplete, chips, and "save as smart
+  folder" are in `TODO.md`
 - ☐ Import by drag & drop and by dialog, with live progress in the status bar
 - ☑ CSS token check wired into the build **before the first component**
 - ◐ Frontend test harness — the thing `roost-old` never had, and the reason a transparent panel

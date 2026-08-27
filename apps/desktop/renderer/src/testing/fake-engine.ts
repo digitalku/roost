@@ -54,6 +54,14 @@ export interface FakeEngineOptions {
   readonly byQuery?: Readonly<Record<string, readonly AssetCard[]>>;
   /** The navigation pane. Absent means an empty one. */
   readonly sidebar?: WireSidebar;
+  /**
+   * Queries the engine would refuse to parse, and where each one stopped.
+   *
+   * Spelled out for the same reason as {@link FakeEngineOptions.byQuery}: this
+   * file implements no grammar, and one that guessed would let a test believe
+   * something about RQL that is not true.
+   */
+  readonly invalid?: Readonly<Record<string, { message: string; at: number | null }>>;
 }
 
 const EMPTY_SIDEBAR: WireSidebar = { places: [], folders: [], smartFolders: [], tags: [] };
@@ -201,6 +209,25 @@ export class FakeEngine {
           return problem("remote", "No library is open", {});
         }
         return ok({ ...EMPTY_STATS, ...this.#options.stats });
+
+      case "query:check": {
+        const bad = this.#options.invalid?.[request.query];
+        return ok(
+          bad === undefined
+            ? { ok: true, message: null, at: null }
+            : { ok: false, message: bad.message, at: bad.at },
+        );
+      }
+
+      case "assets:count": {
+        if (this.#open === undefined) return problem("remote", "No library is open", {});
+        const rows = this.#rowsFor(request.query);
+        return rows === undefined
+          ? problem("remote", "the fake engine was not told what this query answers", {
+              query: request.query,
+            })
+          : ok(rows.length);
+      }
 
       case "assets:page": {
         if (this.#open === undefined) {

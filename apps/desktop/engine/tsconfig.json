@@ -8,8 +8,17 @@
   },
   "include": ["src/**/*"],
   "references": [
-    { "path": "../../../packages/contract" },
-    { "path": "../../../packages/core" },
-    { "path": "../../../packages/library" }
+    {
+      "path": "../../../packages/contract"
+    },
+    {
+      "path": "../../../packages/core"
+    },
+    {
+      "path": "../../../packages/library"
+    },
+    {
+      "path": "../../../packages/search"
+    }
   ]
 }

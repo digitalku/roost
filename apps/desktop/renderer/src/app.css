@@ -204,7 +204,8 @@ button:disabled {
 }
 
 .bar-title {
-  flex: 1;
+  flex: 0 1 auto;
+  max-width: 240px;
   margin: 0;
   overflow: hidden;
   font-size: var(--text-md);

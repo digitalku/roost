@@ -34,6 +34,7 @@ export {
   LIBRARY_SUFFIX,
   type LibraryStats,
   type LibrarySummary,
+  type QueryCheck,
   type SidebarRow,
   STORAGE_MODES,
   type StorageMode,

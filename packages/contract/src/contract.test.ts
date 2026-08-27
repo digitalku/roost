@@ -80,6 +80,8 @@ describe("validating a request", () => {
       "library:stats",
       "library:sidebar",
       "assets:page",
+      "assets:count",
+      "query:check",
       "dialog:openLibrary",
       "dialog:chooseLocation",
     ]);

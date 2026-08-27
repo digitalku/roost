@@ -287,6 +287,17 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
     state is also waiting for.
   - **Smart-folder match counts** (§4.1). Every read would run every saved query; the count
     arrives with the search field's count, which is the thing that makes it cheap enough.
+- 🟡 **The search field validates but does not suggest.** What `UI_SPEC.md` §5 still describes:
+  - **Autocomplete**: field names first, then values once a field is typed — `tag:` offers tags,
+    `folder:` offers folders, `ext:` offers the extensions actually present. The vocabulary is
+    `@roost/search`'s (`FLAGS`, `NAME_FIELDS`, `NUMERIC_FIELDS`) and the values are the
+    library's, so it is one more request rather than a table in the renderer.
+  - **Chips**, as an optional view of the parsed AST. The string stays the source of truth,
+    which means the engine has to hand back the AST as well as a verdict.
+  - **Save as smart folder** from the field, which is where a saved query naturally comes from.
+  - **Ctrl-click a sidebar row to add a term** (§4.2). It belongs here rather than in the
+    sidebar: the compound query has to be visible and editable in the field to be honest, and
+    joining two queries with an implicit `AND` is grammar work that belongs in `@roost/search`.
 - 🟢 **The grid's frame budget is asserted by construction, not measured.** The re-render count
   is a test, and the layout is a binary search per column; neither is a frame percentile. The
   scroll benchmark mode is what turns this into a number, and it is still an M3 item.

@@ -3,6 +3,7 @@ import type {
   AssetPage,
   LibraryStats,
   LibrarySummary,
+  QueryCheck,
   Request,
   ResponseOf,
   SidebarRow,
@@ -11,12 +12,15 @@ import type {
 } from "@roost/contract";
 import { type Cursor, lastCursor, logger, parseContentHash, type SearchHit } from "@roost/core";
 import {
+  compileFor,
   Library,
   libraryDirectory,
   libraryNameFromPath,
+  matches,
   pageOf,
   readSidebar,
 } from "@roost/library";
+import { QueryError } from "@roost/search";
 
 /**
  * One library, and the requests that reach it.
@@ -70,6 +74,12 @@ export class EngineHost {
 
       case "assets:page":
         return this.#page(request.query, request.limit, request.after);
+
+      case "assets:count":
+        return matches(this.#require(), request.query);
+
+      case "query:check":
+        return check(this.#require(), request.query);
 
       case "dialog:openLibrary":
       case "dialog:chooseLocation":
@@ -271,4 +281,30 @@ function sidebarOf(library: Library): WireSidebar {
       }),
     ),
   };
+}
+
+/**
+ * Whether a query parses, without running it.
+ *
+ * A parse failure is **not** an error here: a half-typed query is the normal
+ * state of a search field, and answering with a rejected request would make the
+ * renderer read a failure as a fault. Anything that is not a `QueryError` still
+ * throws — a library that cannot be read is a fault.
+ *
+ * The empty query is checked without the compiler, because it has no term to
+ * parse and means the whole library.
+ */
+function check(library: Library, query: string): QueryCheck {
+  if (query.trim() === "") return { ok: true, message: null, at: null };
+  try {
+    // Compiled, not merely parsed: `folder:` resolves against this library's
+    // tree, so `folder:Nonexistent` has to reach the compiler to be judged —
+    // and it is *valid*, matching nothing, which is a distinction a parser
+    // alone cannot make.
+    compileFor(library, query);
+    return { ok: true, message: null, at: null };
+  } catch (error) {
+    if (!(error instanceof QueryError)) throw error;
+    return { ok: false, message: error.message, at: error.at ?? null };
+  }
 }

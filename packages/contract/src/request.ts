@@ -9,7 +9,14 @@ import {
   readString,
   within,
 } from "./checked.js";
-import type { AssetPage, LibraryStats, LibrarySummary, WireCursor, WireSidebar } from "./dto.js";
+import type {
+  AssetPage,
+  LibraryStats,
+  LibrarySummary,
+  QueryCheck,
+  WireCursor,
+  WireSidebar,
+} from "./dto.js";
 
 /**
  * Every request the renderer can make, and what each one answers with.
@@ -55,6 +62,23 @@ export type Request =
       readonly after: WireCursor | null;
     }
   /**
+   * How many assets a query matches.
+   *
+   * Separate from a page because it is separate work: a page is one screen and
+   * a count is every row. The status bar asks for it once per query, not once
+   * per scroll.
+   */
+  | { readonly type: "assets:count"; readonly query: string }
+  /**
+   * Whether a query parses, and where it stopped.
+   *
+   * The renderer cannot answer this itself: the grammar lives in
+   * `@roost/search`, and the renderer's only import is the contract. A half
+   * typed query is checked here rather than being sent to the grid and
+   * bouncing (`UI_SPEC.md` §5).
+   */
+  | { readonly type: "query:check"; readonly query: string }
+  /**
    * Ask the user for an existing library directory.
    *
    * Answered by **main**, not the engine: a dialog belongs to a window, and the
@@ -85,6 +109,8 @@ export interface Responses {
   "library:stats": LibraryStats;
   "library:sidebar": WireSidebar;
   "assets:page": AssetPage;
+  "assets:count": number;
+  "query:check": QueryCheck;
   /** `null` when the user cancelled, which is an outcome rather than a failure. */
   "dialog:openLibrary": string | null;
   "dialog:chooseLocation": string | null;
@@ -138,6 +164,16 @@ export const REQUEST_VALIDATORS: {
 
     return ok({ type: "assets:page", query: query.value, limit: limit.value, after: after.value });
   },
+  "assets:count": (source) => {
+    const query = readString(source, "query");
+    return query.ok ? ok({ type: "assets:count", query: query.value }) : query;
+  },
+
+  "query:check": (source) => {
+    const query = readString(source, "query");
+    return query.ok ? ok({ type: "query:check", query: query.value }) : query;
+  },
+
   "dialog:openLibrary": () => ok({ type: "dialog:openLibrary" }),
   "dialog:chooseLocation": () => ok({ type: "dialog:chooseLocation" }),
 };

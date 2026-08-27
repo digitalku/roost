@@ -47,6 +47,9 @@ importers:
       '@roost/library':
         specifier: workspace:*
         version: link:../../../packages/library
+      '@roost/search':
+        specifier: workspace:*
+        version: link:../../../packages/search
     devDependencies:
       '@types/node':
         specifier: 22.20.1
