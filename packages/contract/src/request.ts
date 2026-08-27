@@ -9,6 +9,7 @@ import {
   readInteger,
   readNonEmpty,
   readNullable,
+  readOneOf,
   readString,
   readStringArray,
   within,
@@ -18,10 +19,13 @@ import type {
   LibraryStats,
   LibrarySummary,
   QueryCheck,
+  StorageMode,
   WireAssetDetail,
   WireCursor,
+  WireImportReport,
   WireSidebar,
 } from "./dto.js";
+import { STORAGE_MODES } from "./dto.js";
 
 /**
  * Every request the renderer can make, and what each one answers with.
@@ -132,6 +136,26 @@ export type Request =
    */
   | { readonly type: "asset:openExternally"; readonly hash: string }
   /**
+   * Import files and directories into the open library.
+   *
+   * Paths, not bytes: the renderer gets a path for a dropped file from the
+   * preload and never reads one. Directories are walked by the engine, which
+   * is the side with a filesystem.
+   *
+   * Originals are never moved, modified, or deleted (`STORAGE_SPEC.md`
+   * invariant 8), and in `referenced` mode nothing is written into the user's
+   * directories at all.
+   */
+  | {
+      readonly type: "import:paths";
+      readonly paths: readonly string[];
+      readonly mode: StorageMode;
+      /** Applied to everything imported in this run. */
+      readonly tags: readonly string[];
+    }
+  /** Ask the user for files and folders to import. Answered by main. */
+  | { readonly type: "dialog:chooseImport" }
+  /**
    * Ask the user for an existing library directory.
    *
    * Answered by **main**, not the engine: a dialog belongs to a window, and the
@@ -181,6 +205,9 @@ export interface Responses {
   "asset:tagRemove": null;
   /** `false` when the desktop had no handler for it. */
   "asset:openExternally": boolean;
+  "import:paths": WireImportReport;
+  /** `null` when the user cancelled; an empty array is not a thing a dialog returns. */
+  "dialog:chooseImport": readonly string[] | null;
   /** `null` when the user cancelled, which is an outcome rather than a failure. */
   "dialog:openLibrary": string | null;
   "dialog:chooseLocation": string | null;
@@ -304,6 +331,22 @@ export const REQUEST_VALIDATORS: {
     const hash = readHash(source, "hash");
     return hash.ok ? ok({ type: "asset:openExternally", hash: hash.value }) : hash;
   },
+
+  "import:paths": (source) => {
+    const paths = readStringArray(source, "paths");
+    if (!paths.ok) return paths;
+    if (paths.value.length === 0) return bad("paths: expected at least one");
+    if (paths.value.some((path) => path.trim() === "")) {
+      return bad("paths: expected non-empty strings");
+    }
+    const mode = readOneOf(source, "mode", STORAGE_MODES);
+    if (!mode.ok) return mode;
+    const tags = readStringArray(source, "tags");
+    if (!tags.ok) return tags;
+    return ok({ type: "import:paths", paths: paths.value, mode: mode.value, tags: tags.value });
+  },
+
+  "dialog:chooseImport": () => ok({ type: "dialog:chooseImport" }),
 
   "dialog:openLibrary": () => ok({ type: "dialog:openLibrary" }),
   "dialog:chooseLocation": () => ok({ type: "dialog:chooseLocation" }),

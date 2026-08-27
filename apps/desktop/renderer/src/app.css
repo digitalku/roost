@@ -253,6 +253,37 @@ button:disabled {
   font-size: var(--text-sm);
 }
 
+/* One row per running job (UI_SPEC.md §3). A button when it can be dismissed,
+   which is every state except the running one. */
+.status-job {
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+/*
+ * The whole window is the drop target, and it says so only while something is
+ * over it. `pointer-events: none` so the overlay cannot swallow the drop it is
+ * announcing.
+ */
+.dropzone {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--border-focus);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  color: var(--text);
+  font-size: var(--text-lg);
+  pointer-events: none;
+}
+
 .status .path {
   font-family: var(--font-mono);
   color: var(--text-subtle);

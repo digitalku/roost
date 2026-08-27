@@ -520,6 +520,91 @@ describe("the engine's message loop", () => {
     expect(reply?.ok).toBe(false);
   });
 
+  it("imports what it is given, and reports what it did", async () => {
+    const source = join(dir, "loose");
+    await mkdir(source, { recursive: true });
+    for (let i = 0; i < 3; i += 1) await writeFile(join(source, `file-${i}.txt`), `body ${i}`);
+    const root = join(dir, `Imported${LIBRARY_SUFFIX}`);
+    const library = await Library.create(root, "Imported");
+    await library.close();
+    await ask(1, { type: "library:open", path: root });
+
+    const reply = await ask(2, {
+      type: "import:paths",
+      paths: [source],
+      mode: "managed",
+      tags: [],
+    });
+    const report = (reply as { value: Record<string, unknown> }).value;
+
+    // The timings are dropped on purpose: they are a benchmark's business, and
+    // a window that showed them would invite reading one run as a measurement.
+    expect(Object.keys(report).sort()).toEqual(
+      [
+        "bytes",
+        "duplicates",
+        "elapsedMs",
+        "failed",
+        "imported",
+        "partialCollisions",
+        "partialDuplicates",
+        "scanned",
+        "thumbnails",
+      ].sort(),
+    );
+    expect(report["imported"]).toBe(3);
+    expect(report["failed"]).toEqual([]);
+
+    // Re-importing is the ordinary case, not a failure: identical bytes have
+    // one address (`STORAGE_SPEC.md` invariant 1).
+    const again = await ask(3, {
+      type: "import:paths",
+      paths: [source],
+      mode: "managed",
+      tags: [],
+    });
+    expect((again as { value: Record<string, unknown> }).value).toMatchObject({
+      imported: 0,
+      duplicates: 3,
+    });
+  });
+
+  it("reports progress, and announces the change once at the end", async () => {
+    const source = join(dir, "progress");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "one.txt"), "one");
+    const root = join(dir, `Progressed${LIBRARY_SUFFIX}`);
+    const library = await Library.create(root, "Progressed");
+    await library.close();
+    await ask(1, { type: "library:open", path: root });
+
+    const eventsOf = (type: string): unknown[] =>
+      port.sent.filter(
+        (message) =>
+          typeof message === "object" &&
+          message !== null &&
+          "event" in message &&
+          (message as { event: { type: string } }).event.type === type,
+      );
+    const changedBefore = eventsOf("library:changed").length;
+
+    await ask(2, { type: "import:paths", paths: [source], mode: "managed", tags: [] });
+
+    // One final progress event however small the run, so a status bar showing
+    // an import always ends up showing what it ended on.
+    expect(eventsOf("import:progress").length).toBeGreaterThanOrEqual(1);
+    // And exactly one `library:changed`, not one per file: the window re-reads
+    // the counts, the sidebar and the match count on it, and doing that per
+    // file would be an import that spends its time redrawing.
+    expect(eventsOf("library:changed").length).toBe(changedBefore + 1);
+  });
+
+  it("refuses to open a file picker, because it has no window", async () => {
+    await libraryOf(1);
+    const reply = await ask(1, { type: "dialog:chooseImport" });
+    expect(reply?.ok).toBe(false);
+  });
+
   it("maps the counts field by field rather than spreading them", async () => {
     await ask(1, { type: "library:create", parent: dir, name: "Counted" });
 

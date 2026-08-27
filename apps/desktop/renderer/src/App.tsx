@@ -6,6 +6,8 @@ import { Grid } from "./grid/Grid.js";
 import type { GridMode } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
+import { DropZone } from "./import/DropZone.js";
+import { type Importing, useImport } from "./import/useImport.js";
 import { Inspector } from "./inspector/Inspector.js";
 import { PreviewPane } from "./preview/PreviewPane.js";
 import { SearchField } from "./search/SearchField.js";
@@ -61,13 +63,30 @@ export function App(): React.JSX.Element {
     if (creating) nameField.current?.focus();
   }, [creating]);
 
+  /**
+   * The asset count as of the last read.
+   *
+   * A ref rather than reading it back out of `opened` inside a state updater:
+   * an updater must be pure, and deciding whether to bump another piece of
+   * state inside one is exactly the impurity React is entitled to run twice.
+   */
+  const lastCount = useRef<number | undefined>(undefined);
+
   const readStats = useCallback(async (summary: LibrarySummary, sameLibrary = false) => {
     const stats = await invoke({ type: "library:stats" });
     if (!stats.ok) return setProblem(stats.problem);
+
+    // A different asset count means rows were added or removed — by an import
+    // here, by another window, or by the CLI — and the grid's pages are then
+    // wrong rather than merely stale. Anything that leaves the count alone (a
+    // rating, a note, a tag) does not throw them away.
+    const rowsChanged = !sameLibrary || lastCount.current !== stats.value.assets;
+    lastCount.current = stats.value.assets;
+
     setProblem(undefined);
     setOpened({ summary, stats: stats.value });
     setRevision((n) => n + 1);
-    if (!sameLibrary) setGeneration((n) => n + 1);
+    if (rowsChanged) setGeneration((n) => n + 1);
   }, []);
 
   // Whatever the engine already holds. A window reopened after a reload finds
@@ -142,6 +161,7 @@ export function App(): React.JSX.Element {
         generation={generation}
         revision={revision}
         onClose={() => void close()}
+        onImported={() => void readStats(opened.summary)}
         problem={problem}
       />
     );
@@ -255,6 +275,57 @@ function Frame({
   );
 }
 
+/**
+ * One row for the running job, and one for what it did (`UI_SPEC.md` §3, §8).
+ *
+ * Progress lives in the status bar rather than in a toast, because a toast is
+ * for something that has finished — an import of ninety thousand files is not
+ * a notification, it is a state the window is in.
+ */
+function ImportStatus({ importing }: { readonly importing: Importing }): React.JSX.Element | null {
+  if (importing.running) {
+    const progress = importing.progress;
+    // No percentage: the total is not known until the walk finishes, and a bar
+    // that fills to an estimate and then jumps back is worse than a count. The
+    // thumbnails are a second phase of the same run and say so.
+    const said =
+      progress === undefined
+        ? "Importing…"
+        : progress.thumbnails > 0
+          ? `Thumbnails… ${progress.thumbnails.toLocaleString()} of ${progress.imported.toLocaleString()}`
+          : `Importing… ${progress.scanned.toLocaleString()} scanned`;
+    return <span className="status-job">{said}</span>;
+  }
+
+  if (importing.problem !== undefined) {
+    return (
+      <button type="button" className="status-job" onClick={importing.dismiss}>
+        Import failed: {importing.problem.message} [{importing.problem.code}]
+      </button>
+    );
+  }
+
+  const report = importing.report;
+  if (report === undefined) return null;
+  const parts = [
+    `${report.imported.toLocaleString()} imported`,
+    ...(report.duplicates + report.partialDuplicates > 0
+      ? // Not a failure: identical bytes have one address (invariant 1), so
+        // re-importing a folder is the ordinary case.
+        [`${(report.duplicates + report.partialDuplicates).toLocaleString()} already here`]
+      : []),
+    ...(report.failed.length + report.partialCollisions > 0
+      ? [`${(report.failed.length + report.partialCollisions).toLocaleString()} failed`]
+      : []),
+  ];
+
+  return (
+    <button type="button" className="status-job" onClick={importing.dismiss}>
+      {parts.join(" · ")}
+    </button>
+  );
+}
+
 const EMPTY_LIBRARY = "Nothing in this library yet.";
 const NOTHING_MATCHED = "Nothing matches this query.";
 
@@ -299,12 +370,15 @@ function LibraryView({
   generation,
   revision,
   onClose,
+  onImported,
   problem,
 }: {
   readonly opened: Opened;
   readonly generation: number;
   readonly revision: number;
   readonly onClose: () => void;
+  /** An import added rows, so the grid throws its pages away and starts again. */
+  readonly onImported: () => void;
   readonly problem: WireProblem | undefined;
 }): React.JSX.Element {
   const [mode, setMode] = useState<GridMode>("masonry");
@@ -378,6 +452,10 @@ function LibraryView({
   const focused = selection.focused;
   const [previewing, setPreviewing] = useState(false);
 
+  // An import changes the counts, the sidebar, and what the grid holds, so it
+  // is the one thing in the window that has to reset the paging as well.
+  const importing = useImport(onImported);
+
   /**
    * Steps the preview through the loaded list.
    *
@@ -417,6 +495,18 @@ function LibraryView({
           >
             Uniform
           </button>
+          <button
+            type="button"
+            disabled={importing.running}
+            onClick={() => {
+              void (async () => {
+                const chosen = await invoke({ type: "dialog:chooseImport" });
+                if (chosen.ok && chosen.value !== null) importing.start(chosen.value);
+              })();
+            }}
+          >
+            Import…
+          </button>
           <button type="button" onClick={onClose}>
             Close library
           </button>
@@ -445,10 +535,13 @@ function LibraryView({
         <Inspector hash={focused} generation={revision} />
       </div>
 
+      <DropZone onDrop={importing.start} />
+
       <footer className="status">
         {/* One text node, so what the status bar says is one readable string
             rather than four fragments a screen reader has to reassemble. */}
         <span>{summaryLine(query === "" ? opened.stats.assets : matches, count)}</span>
+        <ImportStatus importing={importing} />
         <span className="path">{opened.summary.root}</span>
       </footer>
       {showing !== undefined && <Problem problem={showing} />}

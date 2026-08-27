@@ -298,12 +298,18 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   - **Ctrl-click a sidebar row to add a term** (§4.2). It belongs here rather than in the
     sidebar: the compound query has to be visible and editable in the field to be honest, and
     joining two queries with an implicit `AND` is grammar work that belongs in `@roost/search`.
+- 🟡 **The window imports in managed mode with no tags, and cannot say otherwise.** The request
+  carries both — the CLI has had `--mode` and `--tag` since M1 — and what is missing is where to
+  put them: the mode belongs in a preference (the application config that window state is also
+  waiting for) and the tags in an import dialog that does not exist yet.
 - 🟡 **A filtered grid does not re-page when an edit changes what matches.** The window keeps
   two counters: a library `generation`, which throws the grid's pages away, and a `revision`,
   which every derived read follows. Without the split, one keystroke in the note field would
   re-page the grid from row one and throw the scroll position away — but the cost is that
   tagging the asset under `is:untagged` leaves it on screen until the query is re-applied. The
-  fix is a targeted update (drop the row, keep the scroll), not a reload.
+  fix is a targeted update (drop the row, keep the scroll), not a reload. A **changed asset
+  count** does re-page, because "the library went from empty to twelve" is a visibly wrong grid
+  rather than a stale one.
 - 🟡 **An edit applies to the focused asset, not to the selection.** The contract already takes
   `hashes`, and the engine already writes one journal batch for all of them; what is missing is
   the interface for it — a multi-selection inspector has to show what the assets *share* and

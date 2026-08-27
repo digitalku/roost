@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type {
   AssetKind,
   AssetPage,
+  ImportProgress,
   LibraryStats,
   LibrarySummary,
   QueryCheck,
@@ -10,6 +11,7 @@ import type {
   SidebarRow,
   WireAssetDetail,
   WireCursor,
+  WireImportReport,
   WireSidebar,
 } from "@roost/contract";
 import {
@@ -24,6 +26,9 @@ import {
 } from "@roost/core";
 import {
   compileFor,
+  generateMissing,
+  type ImportReport,
+  importInto,
   Library,
   libraryDirectory,
   libraryNameFromPath,
@@ -128,6 +133,10 @@ export class EngineHost {
       case "asset:tagRemove":
         return this.#edit(() => tagRemove(this.#require(), hashes(request.hashes), request.tags));
 
+      case "import:paths":
+        return this.#import(request.paths, request.mode, request.tags);
+
+      case "dialog:chooseImport":
       case "asset:openExternally":
 
       case "dialog:openLibrary":
@@ -169,6 +178,49 @@ export class EngineHost {
       next: last === undefined ? null : { importedAt: last.importedAt, hash: last.hash },
     };
   }
+
+  /**
+   * Imports paths, reporting progress as it goes.
+   *
+   * Progress is throttled to one event per {@link PROGRESS_EVERY} files rather
+   * than one per file. A bulk import runs at hundreds of files a second and
+   * every event is a `structuredClone` across two process boundaries; a status
+   * bar cannot show more than a few a second, and the ones in between would
+   * cost the import measurably.
+   *
+   * `library:changed` is announced once at the end, not per file: it makes the
+   * window re-read the counts, the sidebar, and the match count, and doing that
+   * per file would be an import that spends its time redrawing.
+   */
+  async #import(
+    paths: readonly string[],
+    mode: StorageMode,
+    tags: readonly string[],
+  ): Promise<WireImportReport> {
+    const library = this.#require();
+    let announced = 0;
+
+    const report = await importInto(library, paths, { mode, tags: [...tags] }, (_path, running) => {
+      if (running.scanned - announced < PROGRESS_EVERY) return;
+      announced = running.scanned;
+      this.onProgress?.(progressOf(running, 0));
+    });
+    this.onProgress?.(progressOf(report, 0));
+
+    // Thumbnails are part of the same run here, unlike the CLI, where `import`
+    // and `thumb` are separate commands. A headless import into a library
+    // nobody is looking at should not pay for pictures; an import someone is
+    // watching produces a screen of placeholders without them.
+    const thumbnails = await generateMissing(library, undefined, undefined, (running) => {
+      this.onProgress?.(progressOf(report, running.generated));
+    });
+
+    this.onChanged?.();
+    return reportOf(report, thumbnails.generated);
+  }
+
+  /** Called while an import runs. Set by `serve`, like {@link onChanged}. */
+  onProgress: ((progress: ImportProgress) => void) | undefined;
 
   /**
    * Runs one edit and announces that the library changed.
@@ -421,4 +473,43 @@ function storageMode(value: string): StorageMode {
     throw new Error(`unknown storage mode in the index: ${value}`);
   }
   return value;
+}
+
+/**
+ * How many files pass before another progress event is sent.
+ *
+ * `CONCEPT.md` §7 asks for at least 300 imports a second, so this is roughly
+ * three events a second at the target rate — faster than a status bar can be
+ * read and slow enough to cost nothing.
+ */
+const PROGRESS_EVERY = 100;
+
+function progressOf(report: ImportReport, thumbnails: number): ImportProgress {
+  return {
+    scanned: report.scanned,
+    imported: report.imported,
+    duplicates: report.duplicates + report.partialDuplicates,
+    failed: report.failed.length + report.partialCollisions,
+    thumbnails,
+  };
+}
+
+/**
+ * The report, mapped field by field.
+ *
+ * The timings are dropped on purpose: they are a benchmark's business, and a
+ * window that showed them would invite reading one run as a measurement.
+ */
+function reportOf(report: ImportReport, thumbnails: number): WireImportReport {
+  return {
+    scanned: report.scanned,
+    imported: report.imported,
+    duplicates: report.duplicates,
+    partialDuplicates: report.partialDuplicates,
+    partialCollisions: report.partialCollisions,
+    bytes: report.bytes,
+    thumbnails,
+    elapsedMs: Math.round(report.elapsed),
+    failed: report.failed.map((failure) => ({ path: failure.path, reason: failure.reason })),
+  };
 }

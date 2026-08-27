@@ -1,6 +1,7 @@
 import type {
   AssetCard,
   AssetPage,
+  ImportProgress,
   LibraryStats,
   LibrarySummary,
   Outcome,
@@ -8,11 +9,12 @@ import type {
   RequestOf,
   RequestType,
   ResponseOf,
-  RoostBridge,
   WireAssetDetail,
+  WireImportReport,
   WireProblem,
   WireSidebar,
 } from "@roost/contract";
+import type { WindowBridge } from "../bridge.js";
 
 /**
  * A `window.roost` a test can control.
@@ -67,7 +69,26 @@ export interface FakeEngineOptions {
   readonly details?: readonly WireAssetDetail[];
   /** What `asset:openExternally` answers with. */
   readonly opensExternally?: boolean;
+  /** What `dialog:chooseImport` answers with. `null` is a cancelled dialog. */
+  readonly importDialog?: readonly string[] | null;
+  /** What an import reports, and the progress it emits on the way. */
+  readonly importReport?: Partial<WireImportReport>;
+  /** Rows an import adds to what the empty query answers with. */
+  readonly importAdds?: readonly AssetCard[];
+  readonly importProgress?: readonly ImportProgress[];
 }
+
+const EMPTY_REPORT: WireImportReport = {
+  scanned: 0,
+  imported: 0,
+  duplicates: 0,
+  partialDuplicates: 0,
+  partialCollisions: 0,
+  bytes: 0,
+  thumbnails: 0,
+  elapsedMs: 0,
+  failed: [],
+};
 
 /** A detail with everything filled in, so a test spells out only what it means. */
 export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): WireAssetDetail {
@@ -141,6 +162,8 @@ export class FakeEngine {
   readonly #libraries = new Map<string, FakeLibrary>();
   /** Mutable: an edit changes what the next read answers with. */
   readonly details = new Map<string, WireAssetDetail>();
+  /** Mutable: an import adds rows, newest first. */
+  assets: readonly AssetCard[];
   #open: LibrarySummary | undefined;
   #listeners = new Set<(event: unknown) => void>();
 
@@ -148,10 +171,11 @@ export class FakeEngine {
     this.#options = options;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);
     for (const detail of options.details ?? []) this.details.set(detail.hash, detail);
+    this.assets = options.assets ?? [];
   }
 
   /** The bridge the renderer will find on `window`. */
-  bridge(): RoostBridge {
+  bridge(): WindowBridge {
     return {
       invoke: <T extends RequestType>(request: RequestOf<T>): Promise<Outcome<ResponseOf<T>>> =>
         // Cast because the answer is chosen by the request's own type, which is
@@ -162,6 +186,9 @@ export class FakeEngine {
         this.#listeners.add(listener);
         return () => this.#listeners.delete(listener);
       },
+      // A dropped `File` carries no path; in a test it carries whatever the
+      // test put on it, which is the only way to stand in for the preload.
+      pathForFile: (file: File): string => droppedPaths.get(file) ?? "",
     };
   }
 
@@ -196,7 +223,7 @@ export class FakeEngine {
 
   /** The rows a query answers with, or `undefined` if it was never taught one. */
   #rowsFor(query: string): readonly AssetCard[] | undefined {
-    if (query.trim() === "") return this.#options.assets ?? [];
+    if (query.trim() === "") return this.assets;
     return this.#options.byQuery?.[query];
   }
 
@@ -260,7 +287,9 @@ export class FakeEngine {
         if (this.#open === undefined) {
           return problem("remote", "No library is open", {});
         }
-        return ok({ ...EMPTY_STATS, ...this.#options.stats });
+        // The asset count follows what an import actually added, because the
+        // window decides whether to re-page the grid from it.
+        return ok({ ...EMPTY_STATS, assets: this.assets.length, ...this.#options.stats });
 
       case "asset:detail":
         return ok(this.details.get(request.hash) ?? null);
@@ -307,6 +336,26 @@ export class FakeEngine {
 
       case "asset:openExternally":
         return ok(this.#options.opensExternally ?? true);
+
+      case "dialog:chooseImport":
+        return ok(this.#options.importDialog ?? null);
+
+      case "import:paths": {
+        if (this.#open === undefined) return problem("remote", "No library is open", {});
+        // Emitted before the reply, the way the engine does: the reply is what
+        // ends the run, so progress that arrived after it would never be seen.
+        for (const step of this.#options.importProgress ?? []) {
+          this.emit({ type: "import:progress", ...step });
+        }
+        this.assets = [...(this.#options.importAdds ?? []), ...this.assets];
+        this.emit({ type: "library:changed" });
+        return ok({
+          ...EMPTY_REPORT,
+          scanned: request.paths.length,
+          imported: request.paths.length,
+          ...this.#options.importReport,
+        });
+      }
 
       case "query:check": {
         const bad = this.#options.invalid?.[request.query];
@@ -378,6 +427,23 @@ function ok(value: unknown): Outcome<unknown> {
 
 function problem(code: string, message: string, detail: WireProblem["detail"]): Outcome<unknown> {
   return { ok: false, problem: { code, message, detail } };
+}
+
+/**
+ * Paths for files a test drops on the window.
+ *
+ * The real one comes from `webUtils.getPathForFile` in the preload, which has
+ * no meaning for a `File` a test constructed. {@link droppedFile} is how a test
+ * says where its file pretends to live.
+ */
+const droppedPaths = new WeakMap<File, string>();
+
+/** A `File` that answers `pathForFile` with `path`. */
+export function droppedFile(path: string): File {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const file = new File([], name);
+  droppedPaths.set(file, path);
+  return file;
 }
 
 /** Installs a bridge on `window` for the duration of a test. */

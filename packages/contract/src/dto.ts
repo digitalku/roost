@@ -215,3 +215,57 @@ export interface WireAssetDetail {
   /** Slash-separated folder paths this asset is in. */
   readonly folders: readonly string[];
 }
+
+/** One file that could not be imported, and why. */
+export interface WireImportFailure {
+  readonly path: string;
+  readonly reason: string;
+}
+
+/**
+ * What an import did.
+ *
+ * `duplicates` is not a failure: deduplication is structural — identical bytes
+ * have one address (`STORAGE_SPEC.md` invariant 1) — so re-importing a folder
+ * is the ordinary case, and the number is here to say so rather than to warn.
+ *
+ * The timings are deliberately absent. They are a benchmark's business, and a
+ * window that showed them would invite reading a single run as a measurement.
+ */
+export interface WireImportReport {
+  readonly scanned: number;
+  readonly imported: number;
+  readonly duplicates: number;
+  /** Probable duplicates: a partial hash matched, and the bytes were unreachable. */
+  readonly partialDuplicates: number;
+  /** Refused: a partial hash matched an existing asset but the bytes did not. */
+  readonly partialCollisions: number;
+  readonly bytes: number;
+  /**
+   * Thumbnails generated for what was imported.
+   *
+   * Part of the same run rather than a separate step, because the grid an
+   * import produces is otherwise a screen of placeholders. The CLI keeps them
+   * apart — `roost import` then `roost thumb` — because a headless import into
+   * a library nobody is looking at should not pay for pictures.
+   */
+  readonly thumbnails: number;
+  readonly elapsedMs: number;
+  readonly failed: readonly WireImportFailure[];
+}
+
+/**
+ * How far an import has got.
+ *
+ * Counts only — no path. A progress event fires per file, a bulk import is
+ * hundreds of thousands of them, and a string per event is a string per file
+ * crossing two process boundaries for a status bar nobody reads at that speed.
+ */
+export interface ImportProgress {
+  readonly scanned: number;
+  readonly imported: number;
+  readonly duplicates: number;
+  readonly failed: number;
+  /** Non-zero once the import is done and the thumbnails are being made. */
+  readonly thumbnails: number;
+}

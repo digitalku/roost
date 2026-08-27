@@ -62,22 +62,6 @@ export function useAssetPages(query: string, generation: number): Paging {
    */
   const listing = useRef(0);
 
-  /*
-   * The dependencies here are the *trigger*, not values the body reads: a new
-   * query or a new library is what makes the rows already held wrong rather
-   * than merely incomplete.
-   */
-  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
-  useEffect(() => {
-    listing.current += 1;
-    inFlight.current = false;
-    finished.current = false;
-    cursor.current = null;
-    setAssets([]);
-    setDone(false);
-    setProblem(undefined);
-  }, [query, generation]);
-
   const more = useCallback(() => {
     if (inFlight.current || finished.current) return;
     inFlight.current = true;
@@ -115,11 +99,30 @@ export function useAssetPages(query: string, generation: number): Paging {
     })();
   }, [query]);
 
-  // The first page is not the caller's job: a grid with no rows has nothing to
-  // scroll, so nothing would ever ask for one.
+  /*
+   * The dependencies here are the *trigger*, not values the body reads: a new
+   * query or a new library is what makes the rows already held wrong rather
+   * than merely incomplete.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
-    if (assets.length === 0 && !finished.current && !inFlight.current) more();
-  }, [assets.length, more]);
+    listing.current += 1;
+    inFlight.current = false;
+    finished.current = false;
+    cursor.current = null;
+    setAssets([]);
+    setDone(false);
+    setProblem(undefined);
+
+    /*
+     * The first page is asked for here, in the same effect that clears the
+     * rows — not from a separate one watching `assets.length`. An empty
+     * listing that becomes empty again leaves that length at zero, so the
+     * effect would not re-run: an empty library that has just been imported
+     * into would go on saying it was empty, which is exactly what it did.
+     */
+    more();
+  }, [query, generation, more]);
 
   return { assets, done, loading, problem, more };
 }

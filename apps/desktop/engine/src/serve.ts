@@ -36,6 +36,9 @@ export function serve(port: Port, host: EngineHost = new EngineHost()): Server {
   host.onChanged = () => {
     port.postMessage({ event: { type: "library:changed" } } satisfies EventEnvelope);
   };
+  host.onProgress = (progress) => {
+    port.postMessage({ event: { type: "import:progress", ...progress } } satisfies EventEnvelope);
+  };
 
   port.on("message", (message) => {
     const envelope = checkRequestEnvelope(message.data);

@@ -183,7 +183,9 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ◐ Search field with RQL validation, autocomplete, and the positioned parse error — validation,
   the caret, the 250ms idle, and the match count are in; autocomplete, chips, and "save as smart
   folder" are in `TODO.md`
-- ☐ Import by drag & drop and by dialog, with live progress in the status bar
+- ☑ Import by drag & drop and by dialog, with live progress in the status bar. Thumbnails are
+  generated in the same run, unlike the CLI's two commands, because the grid an import produces
+  is otherwise a screen of placeholders. Referenced mode and per-run tags are in `TODO.md`
 - ☑ CSS token check wired into the build **before the first component**
 - ◐ Frontend test harness — the thing `roost-old` never had, and the reason a transparent panel
   shipped. In place before the first component; the grid, the preview, and the inspector get

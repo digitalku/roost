@@ -17,9 +17,15 @@ import { checkEvent } from "@roost/contract";
  * and the rule is that a message is checked at the end that receives it.
  */
 
+/**
+ * What the preload actually exposes: the contract's surface, plus the one
+ * member whose type only exists where there is a DOM (`BridgeExtras`).
+ */
+export type WindowBridge = RoostBridge & { pathForFile(file: File): string };
+
 declare global {
   interface Window {
-    readonly roost?: RoostBridge;
+    readonly roost?: WindowBridge;
   }
 }
 
@@ -27,7 +33,7 @@ declare global {
  * Missing only when the page is open somewhere that is not the app — a browser
  * pointed at the dev server, which is a real thing to do by accident.
  */
-export function bridge(): RoostBridge {
+export function bridge(): WindowBridge {
   const found = window.roost;
   if (found === undefined) {
     throw new Error("window.roost is missing: this page is not running inside Roost");
@@ -50,4 +56,16 @@ export function onEvent(listener: (event: Event) => void): () => void {
     // A payload that does not validate is dropped in silence here on purpose:
     // the renderer has no log sink, and main already logged what it forwarded.
   });
+}
+
+/**
+ * Where a file the user dropped on the window lives.
+ *
+ * A `File` from a drop has carried no path since Electron 32, and the renderer
+ * has no `node:path` and no `fs` — so this is the preload's answer, not a
+ * derivation. An empty string means the drop carried something that is not a
+ * file on disk (a URL, text from another application), which is not an import.
+ */
+export function pathForFile(file: File): string {
+  return bridge().pathForFile(file);
 }

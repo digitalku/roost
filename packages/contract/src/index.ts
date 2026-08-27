@@ -33,6 +33,7 @@ export {
   type AssetCard,
   type AssetKind,
   type AssetPage,
+  type ImportProgress,
   LIBRARY_SUFFIX,
   type LibraryStats,
   type LibrarySummary,
@@ -42,6 +43,8 @@ export {
   type StorageMode,
   type WireAssetDetail,
   type WireCursor,
+  type WireImportFailure,
+  type WireImportReport,
   type WireProblem,
   type WireSidebar,
 } from "./dto.js";

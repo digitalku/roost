@@ -90,6 +90,8 @@ describe("validating a request", () => {
       "asset:tagAdd",
       "asset:tagRemove",
       "asset:openExternally",
+      "import:paths",
+      "dialog:chooseImport",
       "dialog:openLibrary",
       "dialog:chooseLocation",
     ]);
@@ -202,6 +204,61 @@ describe("validating an envelope", () => {
     ).toEqual({
       ok: false,
       reason: "problem: detail.nested: expected a string, number, boolean, or null",
+    });
+  });
+
+  it("carries an import's progress as counts and nothing else", () => {
+    // A progress event fires per hundred files and a bulk import is hundreds
+    // of thousands of them; a path per event is a string per event crossing two
+    // process boundaries for a status bar nobody reads at that speed.
+    expect(
+      checkEvent({
+        type: "import:progress",
+        scanned: 100,
+        imported: 98,
+        duplicates: 2,
+        failed: 0,
+        thumbnails: 0,
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        type: "import:progress",
+        scanned: 100,
+        imported: 98,
+        duplicates: 2,
+        failed: 0,
+        thumbnails: 0,
+      },
+    });
+
+    expect(checkEvent({ type: "import:progress", scanned: 1, imported: 1, duplicates: 0 })).toEqual(
+      {
+        ok: false,
+        reason: "import:progress: failed: expected a safe integer",
+      },
+    );
+    // A path smuggled in does not ride along: the value is built here, field
+    // by field, rather than being the caller's object with a type over it.
+    const smuggled = checkEvent({
+      type: "import:progress",
+      scanned: 1,
+      imported: 1,
+      duplicates: 0,
+      failed: 0,
+      thumbnails: 0,
+      path: "/home/you/secret",
+    });
+    expect(smuggled).toEqual({
+      ok: true,
+      value: {
+        type: "import:progress",
+        scanned: 1,
+        imported: 1,
+        duplicates: 0,
+        failed: 0,
+        thumbnails: 0,
+      },
     });
   });
 

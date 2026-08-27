@@ -190,11 +190,13 @@ function isSummary(value: unknown): value is { root: string } {
 const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "dialog:openLibrary",
   "dialog:chooseLocation",
+  "dialog:chooseImport",
   "asset:openExternally",
 ]);
 
-async function answerHere(request: Request): Promise<string | boolean | null> {
+async function answerHere(request: Request): Promise<string | boolean | readonly string[] | null> {
   if (request.type === "asset:openExternally") return openExternally(request.hash);
+  if (request.type === "dialog:chooseImport") return chooseImport();
 
   const forOpening = request.type === "dialog:openLibrary";
 
@@ -219,6 +221,31 @@ async function answerHere(request: Request): Promise<string | boolean | null> {
   // Cancelling is an outcome, not a failure: the renderer shows what it had.
   if (chosen.canceled) return null;
   return chosen.filePaths[0] ?? null;
+}
+
+/**
+ * Files and folders to import.
+ *
+ * Both at once — `openFile` and `openDirectory` together — because "import this
+ * folder and those three loose files" is one gesture, and making it two dialogs
+ * would be a menu structure standing in for a file picker.
+ */
+async function chooseImport(): Promise<readonly string[] | null> {
+  const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const options = {
+    title: "Import",
+    buttonLabel: "Import",
+    properties: ["openFile", "openDirectory", "multiSelections"] as const,
+    defaultPath: app.getPath("pictures"),
+  };
+
+  const chosen =
+    parent === undefined
+      ? await dialog.showOpenDialog({ ...options, properties: [...options.properties] })
+      : await dialog.showOpenDialog(parent, { ...options, properties: [...options.properties] });
+
+  // Cancelling is an outcome, not a failure.
+  return chosen.canceled || chosen.filePaths.length === 0 ? null : chosen.filePaths;
 }
 
 /**
