@@ -1,5 +1,6 @@
 import type { AssetCard } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { benchTarget } from "../bench/bench.js";
 import { AssetCell, cellId } from "./AssetCell.js";
 import { type Direction, type GridMode, layout, moveFocus, visibleTiles } from "./layout.js";
 import { FOCUSED, SELECTED, type SelectionStore } from "./selection.js";
@@ -64,6 +65,13 @@ export function Grid({
 
   // Width and height come from the element, so the grid reflows with the window
   // and with the sidebar rather than from a media query guessing at both.
+  // The scroll benchmark drives whatever actually scrolls, which is this
+  // element and not the window.
+  useEffect(() => {
+    benchTarget(viewport.current);
+    return () => benchTarget(null);
+  }, []);
+
   useEffect(() => {
     const element = viewport.current;
     if (element === null) return;

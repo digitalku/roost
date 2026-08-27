@@ -1,6 +1,6 @@
 # Roost — Benchmarks
 
-Status: **first results in** · Last updated: 2026-08-26
+Status: **first results in** · Last updated: 2026-08-28
 
 Nothing has been measured in this implementation, because nothing has been built. What this
 file holds today is the **baseline**: the numbers the Rust implementation at `../roost-old`
@@ -53,6 +53,64 @@ target now under pressure — and it is measured from M3, the first milestone th
 rather than assumed until someone complains.
 
 ## 3. Results
+
+### 2026-08-28 — cold start and scroll frames (M3 acceptance)
+
+Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe. Electron 43.4.1 on
+Wayland, 120 Hz display. 100,000 assets from `roost fixture --count 100000 --size 2048`,
+imported managed, none of them renderable — so every cell is a placeholder at 1:1 and the grid
+is doing layout and virtualization rather than decoding pictures.
+`node scripts/bench-window.mjs <LIBRARY>`, four runs.
+
+**Cold start — process launch to a grid with rows in it**
+
+| Run | ms | of which, opening the library |
+| --- | --- | --- |
+| 1 | 833 | 124 |
+| 2 | 763 | — |
+| 3 | 786 | — |
+| 4 | 874 | — |
+
+**Budget is 1,500 ms** (`CONCEPT.md` §7). Between 763 and 874, so roughly half of it, on a
+library at the target size. Opening the library itself is ~120 ms of that; the rest is
+Chromium.
+
+**Scroll — driven at 40 px per frame for five seconds**
+
+| Run | fps | steady | median | p95 | p99 | worst | hitches | over 60fps |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 110.6 | 120 Hz | 8.3 ms | 16.7 | 16.7 | 30.4 | 7.9% | 5.2% |
+| 2 | 113.2 | 120 Hz | 8.3 ms | 16.6 | 16.7 | 31.9 | 5.6% | 4.9% |
+| 3 | 114.2 | 120 Hz | 8.3 ms | 16.6 | 16.7 | 16.9 | 5.1% | 3.3% |
+| 4 | 96.0 | 119 Hz | 8.3 ms | 16.7 | 24.9 | 33.3 | 23.5% | 15.0% |
+
+**Budget is 60fps.** The worst of four runs held 96, and the median frame never left 8.3 ms.
+
+#### What it revealed
+
+**Reading frames against 60 on a 120 Hz screen is a measurement bug, and the first run had it.**
+The benchmark originally counted a dropped frame as any interval over 16.67 ms and reported
+13.29% "dropped" — while running at 98 fps. At 120 Hz a skipped vsync *is* 16.7 ms, and against
+a 60fps budget that reads as on-time; against the panel it is a miss. It now reports both, and
+the rate the run actually held, derived from the median interval. A run that is *uniformly*
+slower shows up in that rate rather than in the hitch count, which is the honest place for it —
+nothing hitched, the whole run was slower.
+
+**The variance between runs is larger than the headroom looks.** Run 4 held 96 fps with 23.5%
+hitches against runs 2 and 3 at 114 with 5%. Four runs on a machine that is also compiling
+TypeScript is not a controlled measurement; what the numbers support is "comfortably past 60",
+not a defended figure to three digits.
+
+**The benchmark refuses rather than reporting a throttled window**, and that refusal fired
+first: Chromium throttles `requestAnimationFrame` for a hidden or occluded window, and the
+numbers from one are not slow — they are meaningless. `roost-old` recorded 0.25% dropped frames
+while flinging through 79,800 assets, and a throttled run reporting 200 ms frames would read as
+a catastrophic regression against it.
+
+**Cold start is Chromium's, not the library's.** Opening 100,000 assets costs ~120 ms of the
+~800; the engine's `utilityProcess` is started before the window so its cost overlaps
+(ADR-0006). The number to watch as M4 adds work is the difference between this and the same
+measurement on an empty library, which was 699 ms.
 
 ### 2026-08-26 — search and paging (M2)
 

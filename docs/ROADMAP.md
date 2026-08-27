@@ -190,12 +190,19 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ◐ Frontend test harness — the thing `roost-old` never had, and the reason a transparent panel
   shipped. In place before the first component; the grid, the preview, and the inspector get
   their tests as they arrive
-- ☐ Scroll benchmark mode: frame percentiles, refusing to report when the window is not
-  composited
-- ☐ Cold-start measurement from process launch to interactive grid
+- ☑ Scroll benchmark mode: frame percentiles, refusing to report when the window is not
+  composited. `node scripts/bench-window.mjs <LIBRARY>`
+- ☑ Cold-start measurement from process launch to interactive grid — the same script, because
+  the two share a window and neither is worth a second launch
 
 **Accepts when:** a 100k-asset library opens in under 1.5s and scrolls at 60fps, both measured
 rather than eyeballed, and the sandbox assertions pass.
+
+**Measured 2026-08-28** on 100,000 assets: cold start **763–874 ms** against the 1,500 ms
+budget, and **96–114 fps** on a 120 Hz display with the median frame never leaving 8.3 ms.
+`docs/BENCHMARKS.md` has the runs and what they revealed. **The sandbox assertions are still
+asserted as values rather than as what Electron applied** (`TODO.md` §M3), so the third
+condition is not yet met and M3 stays open on it.
 
 ## M4 — Format breadth ☐
 

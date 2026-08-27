@@ -1,6 +1,7 @@
 import type { LibraryStats, LibrarySummary, WireProblem, WireSidebar } from "@roost/contract";
 import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
 import { Grid } from "./grid/Grid.js";
 import type { GridMode } from "./grid/layout.js";
@@ -451,6 +452,12 @@ function LibraryView({
   // and the panel shows the one the ring is on (`UI_SPEC.md` §6).
   const focused = selection.focused;
   const [previewing, setPreviewing] = useState(false);
+
+  // The end of cold start: not when the window opened, not when the engine
+  // replied, but when there is a grid with rows in it (`ROADMAP.md` M3).
+  useEffect(() => {
+    if (paging.assets.length > 0) markFirstPaint();
+  }, [paging.assets.length]);
 
   // An import changes the counts, the sidebar, and what the grid holds, so it
   // is the one thing in the window that has to reset the paging as well.
