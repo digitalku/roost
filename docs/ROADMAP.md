@@ -154,7 +154,7 @@ membership intact; `roost doctor` found nothing wrong, shallow and deep; search 
 its worst and 0.2 ms typical. The Rust binary read the same library, replayed its journal into a
 matching index, and agreed with this build on nine RQL queries.
 
-## M3 — Desktop shell ☐
+## M3 — Desktop shell ☑
 
 Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not be slow.
 
@@ -162,9 +162,10 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ◐ `@roost/contract` and the typed `window.roost` surface (ADR-0007); validation on the
   receiving end, both directions — the machinery and the library lifecycle are in; members
   arrive with the features that need them
-- ◐ Sandbox hardening verified: `contextIsolation`, `nodeIntegration: false`, `sandbox: true`,
-  CSP, navigation and `window.open` denied, and a test that asserts each one — asserted as
-  values, which is not yet the same as asserting what Electron applied
+- ☑ Sandbox hardening verified: `contextIsolation`, `nodeIntegration: false`, `sandbox: true`,
+  CSP, navigation and `window.open` denied — asserted as values by
+  `apps/desktop/main/src/security.test.ts`, and asserted against a **running window** by
+  `node scripts/check-sandbox.mjs`, which reads the policy Electron actually served
 - ☑ `roost://` protocol: `thumb/<hash>@256|512` from the read-only connection,
   `original/<hash>` streamed with range support (ADR-0008). Ranges are asserted by test but
   have not yet been exercised by a `<video>` — there is no real video fixture until M4
@@ -198,11 +199,15 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 **Accepts when:** a 100k-asset library opens in under 1.5s and scrolls at 60fps, both measured
 rather than eyeballed, and the sandbox assertions pass.
 
-**Measured 2026-08-28** on 100,000 assets: cold start **763–874 ms** against the 1,500 ms
-budget, and **96–114 fps** on a 120 Hz display with the median frame never leaving 8.3 ms.
-`docs/BENCHMARKS.md` has the runs and what they revealed. **The sandbox assertions are still
-asserted as values rather than as what Electron applied** (`TODO.md` §M3), so the third
-condition is not yet met and M3 stays open on it.
+**Accepted 2026-08-28.** On 100,000 assets: cold start **763–874 ms** against the 1,500 ms
+budget, and **96–114 fps** on a 120 Hz display with the median frame never leaving 8.3 ms —
+`docs/BENCHMARKS.md` has the runs and what they revealed. The sandbox now passes sixteen checks
+against a running window, verified by weakening three settings and watching four of them fail.
+
+What M3 does **not** include is written down rather than left to be discovered: the list view,
+the zoom control, marquee selection, autocomplete, chips, sidebar collapsing and
+drag-to-reparent, the library switcher, and 1:1 zoom in the preview are all in `TODO.md` §M3
+with the reason each one waited.
 
 ## M4 — Format breadth ☐
 

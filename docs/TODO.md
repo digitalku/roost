@@ -233,11 +233,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   an inline script would work in `pnpm dev` and fail in the packaged app — React emits none, so
   it is theoretical, but "works in dev" is the shape of bug this project keeps finding, so the
   packaged build has to be run before anything ships.
-- 🟡 **Nothing in CI launches a window yet.** The desktop tests drive the message loop and the
-  security policy directly, which is why `serve` takes a port instead of importing Electron —
-  but that means the sandbox is asserted as *values*, not as what Electron actually applied.
-  An end-to-end window test is what would close that, and it is what
-  `ELECTRON_SKIP_BINARY_DOWNLOAD` in CI is waiting for.
+- 🟡 **Nothing in CI launches a window yet.** `scripts/check-sandbox.mjs` and
+  `scripts/bench-window.mjs` both drive a real window and both are run by hand. They are not in
+  `pnpm verify` because they need Electron's binary and a session that composites — which is
+  also what `ELECTRON_SKIP_BINARY_DOWNLOAD` in CI is waiting for. The scripts exist; the job
+  does not.
 - 🟢 **Log files are never pruned.** One file per UTC day under `logDir()`, written
   synchronously, growing forever. A retention rule belongs with M6's packaging, not before it.
 - ☑ ~~The frontend test harness goes in **before** the components, not after.~~ In place with
@@ -249,7 +249,13 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   fake bridge in a component test, and the twenty lines in main that open it are covered by
   nothing. That is the remaining gap in this flow, and an Electron end-to-end driver is what
   would close it.
-- 🟡 Sandbox assertions as tests, not as configuration reviewed once.
+- ☑ ~~Sandbox assertions as tests, not as configuration reviewed once.~~ `check-sandbox.mjs`,
+  2026-08-28: sixteen checks against a running window, including the CSP header Electron
+  actually served rather than the one `security.ts` computes. Two of the first three checks
+  written turned out to be wrong about the *measurement* rather than about the sandbox — `eval`
+  cannot be tested over CDP because DevTools is exempt from the page's policy, and `<webview>`
+  is a tag Chromium knows, so what `webviewTag: false` withholds is the API and not the
+  element. Verified by weakening three settings and watching four checks fail.
 - ☑ ~~A short `Cache-Control` on the thumbnail 404.~~ `public, max-age=10`, added with the
   protocol on 2026-08-27: long enough to absorb a scroll back over a folder of videos, short
   enough not to outlive an import generating thumbnails while someone watches.
