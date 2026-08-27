@@ -4,6 +4,7 @@ import {
   type ClosableSink,
   fileSink,
   filterSink,
+  isContentHash,
   isLogLevel,
   type LogLevel,
   logger,
@@ -12,7 +13,7 @@ import {
   stderrSink,
   teeSink,
 } from "@roost/core";
-import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from "electron";
 import { AssetServer } from "./assets.js";
 import { Engine, EngineGoneError, EngineProblem } from "./engine.js";
 import { ROOST_SCHEME, ROOST_SCHEME_PRIVILEGES } from "./security.js";
@@ -189,9 +190,12 @@ function isSummary(value: unknown): value is { root: string } {
 const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "dialog:openLibrary",
   "dialog:chooseLocation",
+  "asset:openExternally",
 ]);
 
-async function answerHere(request: Request): Promise<string | null> {
+async function answerHere(request: Request): Promise<string | boolean | null> {
+  if (request.type === "asset:openExternally") return openExternally(request.hash);
+
   const forOpening = request.type === "dialog:openLibrary";
 
   const options = {
@@ -215,6 +219,30 @@ async function answerHere(request: Request): Promise<string | null> {
   // Cancelling is an outcome, not a failure: the renderer shows what it had.
   if (chosen.canceled) return null;
   return chosen.filePaths[0] ?? null;
+}
+
+/**
+ * Hands an asset to whatever application the desktop associates with it.
+ *
+ * `shell.openPath` rather than `@roost/core`'s `openExternally`: that one
+ * shells out to `xdg-open` and refuses on anything but Linux, which is right
+ * for the CLI and wrong here — Electron already knows how to do this on three
+ * platforms, and main is the process that has it.
+ *
+ * The path never reaches the renderer. It asks by hash and learns only whether
+ * something opened.
+ */
+async function openExternally(hash: string): Promise<boolean> {
+  // Checked again here even though the contract already did: this is the value
+  // that becomes a filesystem lookup, and it is one line.
+  if (!isContentHash(hash)) return false;
+  const path = await assets.locate(hash);
+  if (path === undefined) return false;
+
+  // `shell.openPath` resolves to "" on success and to a message on failure.
+  const failure = await shell.openPath(path);
+  if (failure !== "") log.warn("the desktop could not open an asset", { reason: failure });
+  return failure === "";
 }
 
 /** Re-emits an engine event to every open window. */

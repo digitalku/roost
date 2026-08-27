@@ -298,6 +298,17 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   - **Ctrl-click a sidebar row to add a term** (§4.2). It belongs here rather than in the
     sidebar: the compound query has to be visible and editable in the field to be honest, and
     joining two queries with an implicit `AND` is grammar work that belongs in `@roost/search`.
+- 🟡 **A filtered grid does not re-page when an edit changes what matches.** The window keeps
+  two counters: a library `generation`, which throws the grid's pages away, and a `revision`,
+  which every derived read follows. Without the split, one keystroke in the note field would
+  re-page the grid from row one and throw the scroll position away — but the cost is that
+  tagging the asset under `is:untagged` leaves it on screen until the query is re-applied. The
+  fix is a targeted update (drop the row, keep the scroll), not a reload.
+- 🟡 **An edit applies to the focused asset, not to the selection.** The contract already takes
+  `hashes`, and the engine already writes one journal batch for all of them; what is missing is
+  the interface for it — a multi-selection inspector has to show what the assets *share* and
+  what differs, and "3 assets · mixed ratings" is a design question `UI_SPEC.md` §3 does not
+  answer yet.
 - 🟢 **The grid's frame budget is asserted by construction, not measured.** The re-render count
   is a test, and the layout is a binary search per column; neither is a frame percentile. The
   scroll benchmark mode is what turns this into a number, and it is still an M3 item.

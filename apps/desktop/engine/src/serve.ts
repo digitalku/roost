@@ -31,6 +31,12 @@ export interface Server {
 }
 
 export function serve(port: Port, host: EngineHost = new EngineHost()): Server {
+  // The host announces a mutation; the port is what carries it. Wired here so
+  // the host holds no message plumbing and can be driven straight from a test.
+  host.onChanged = () => {
+    port.postMessage({ event: { type: "library:changed" } } satisfies EventEnvelope);
+  };
+
   port.on("message", (message) => {
     const envelope = checkRequestEnvelope(message.data);
     if (!envelope.ok) {

@@ -7,10 +7,20 @@ import type {
   Request,
   ResponseOf,
   SidebarRow,
+  WireAssetDetail,
   WireCursor,
   WireSidebar,
 } from "@roost/contract";
-import { type Cursor, lastCursor, logger, parseContentHash, type SearchHit } from "@roost/core";
+import {
+  type AssetDetail,
+  type ContentHash,
+  type Cursor,
+  lastCursor,
+  logger,
+  parseContentHash,
+  type SearchHit,
+  type StorageMode,
+} from "@roost/core";
 import {
   compileFor,
   Library,
@@ -18,7 +28,13 @@ import {
   libraryNameFromPath,
   matches,
   pageOf,
+  rate,
   readSidebar,
+  renameAsset,
+  setFavorite,
+  setNote,
+  tagAdd,
+  tagRemove,
 } from "@roost/library";
 import { QueryError } from "@roost/search";
 
@@ -81,6 +97,37 @@ export class EngineHost {
       case "query:check":
         return check(this.#require(), request.query);
 
+      case "asset:detail": {
+        const found = this.#require().db.repo.assetDetail(parseContentHash(request.hash));
+        return found === undefined ? null : detailOf(found);
+      }
+
+      case "asset:rate":
+        return this.#edit(() => rate(this.#require(), hashes(request.hashes), request.rating));
+
+      case "asset:favorite":
+        return this.#edit(() =>
+          setFavorite(this.#require(), hashes(request.hashes), request.favorite),
+        );
+
+      case "asset:note":
+        return this.#edit(() =>
+          setNote(this.#require(), parseContentHash(request.hash), request.note),
+        );
+
+      case "asset:rename":
+        return this.#edit(() =>
+          renameAsset(this.#require(), parseContentHash(request.hash), request.name),
+        );
+
+      case "asset:tagAdd":
+        return this.#edit(() => tagAdd(this.#require(), hashes(request.hashes), request.tags));
+
+      case "asset:tagRemove":
+        return this.#edit(() => tagRemove(this.#require(), hashes(request.hashes), request.tags));
+
+      case "asset:openExternally":
+
       case "dialog:openLibrary":
       case "dialog:chooseLocation":
         // A dialog belongs to a window and this process has none. Main answers
@@ -120,6 +167,30 @@ export class EngineHost {
       next: last === undefined ? null : { importedAt: last.importedAt, hash: last.hash },
     };
   }
+
+  /**
+   * Runs one edit and announces that the library changed.
+   *
+   * Announced **after** the edit, so a window that re-reads on the event reads
+   * the state the edit produced. The answer is `null` on purpose: `UI_SPEC.md`
+   * asks each edit to read the record back rather than trust what it sent, and
+   * an edit that returned its own idea of the new state would be exactly the
+   * trust it is avoiding — the engine normalises a name, drops an
+   * all-whitespace note, and deduplicates tags on the way through.
+   */
+  async #edit(run: () => Promise<void>): Promise<null> {
+    await run();
+    this.onChanged?.();
+    return null;
+  }
+
+  /**
+   * Called after every mutation, so the window can re-read what it shows.
+   *
+   * Set by `serve`, which owns the port. The host holds no message plumbing —
+   * that is what lets it be driven straight from a test.
+   */
+  onChanged: (() => void) | undefined;
 
   /** Releases whatever is open. Safe to call when nothing is. */
   async close(): Promise<void> {
@@ -307,4 +378,44 @@ function check(library: Library, query: string): QueryCheck {
     if (!(error instanceof QueryError)) throw error;
     return { ok: false, message: error.message, at: error.at ?? null };
   }
+}
+
+/** Content hashes, re-checked at the engine's own boundary (ADR-0007). */
+function hashes(values: readonly string[]): ContentHash[] {
+  return values.map(parseContentHash);
+}
+
+/**
+ * One asset, mapped field by field onto the wire shape.
+ *
+ * `storageMode` is narrowed rather than passed through: the column is a string
+ * and the wire says it is one of two values, so this is where a third one would
+ * be caught instead of reaching a renderer that switches on it.
+ */
+function detailOf(detail: AssetDetail): WireAssetDetail {
+  return {
+    hash: detail.hash,
+    name: detail.origName,
+    ext: detail.ext,
+    size: detail.size,
+    width: detail.width,
+    height: detail.height,
+    storageMode: storageMode(detail.storageMode),
+    refPath: detail.refPath,
+    isPartialHash: detail.isPartialHash,
+    createdAt: detail.createdAt,
+    importedAt: detail.importedAt,
+    rating: detail.rating,
+    note: detail.note,
+    isFavorite: detail.isFavorite,
+    tags: detail.tags,
+    folders: detail.folders,
+  };
+}
+
+function storageMode(value: string): StorageMode {
+  if (value !== "managed" && value !== "referenced") {
+    throw new Error(`unknown storage mode in the index: ${value}`);
+  }
+  return value;
 }

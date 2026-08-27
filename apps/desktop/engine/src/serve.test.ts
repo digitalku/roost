@@ -39,11 +39,27 @@ class FakePort implements Port {
     this.#listener?.({ data });
     // The handler is async; one macrotask is enough for a reply that never
     // touches the disk, and the loop covers the ones that do.
-    for (let tick = 0; tick < 50 && this.sent.length === before; tick += 1) {
+    for (let tick = 0; tick < 50 && this.replies(before).length === 0; tick += 1) {
       await new Promise((resolve) => setTimeout(resolve, 2));
     }
-    return this.sent[before] as ReplyEnvelope | undefined;
+    return this.replies(before)[0];
   }
+
+  /**
+   * The replies sent since `from`, skipping events.
+   *
+   * An edit announces `library:changed` before it answers, so the next message
+   * on the port after a request is not necessarily its reply.
+   */
+  replies(from = 0): ReplyEnvelope[] {
+    return this.sent
+      .slice(from)
+      .filter((message): message is ReplyEnvelope => isRecord(message) && "id" in message);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 /**
@@ -372,6 +388,126 @@ describe("the engine's message loop", () => {
         value: { ok: true, message: null, at: null },
       });
     }
+  });
+
+  it("reads one asset back with everything the inspector shows", async () => {
+    await libraryOf(1);
+    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+
+    const reply = await ask(2, { type: "asset:detail", hash });
+    const value = (reply as { value: Record<string, unknown> }).value;
+
+    // Every field of the wire shape, and no field the contract never declared:
+    // the two types are allowed to differ, and this is the place that notices.
+    expect(Object.keys(value).sort()).toEqual(
+      [
+        "createdAt",
+        "ext",
+        "folders",
+        "hash",
+        "height",
+        "importedAt",
+        "isFavorite",
+        "isPartialHash",
+        "name",
+        "note",
+        "rating",
+        "refPath",
+        "size",
+        "storageMode",
+        "tags",
+        "width",
+      ].sort(),
+    );
+    expect(value["rating"]).toBeNull();
+    expect(value["isFavorite"]).toBe(false);
+    expect(value["tags"]).toEqual([]);
+  });
+
+  it("answers with null for an asset the library does not hold", async () => {
+    await libraryOf(1);
+    // A selection can outlive the asset it points at. An empty inspector is
+    // the right answer to that, not an error dialog.
+    const reply = await ask(1, { type: "asset:detail", hash: "f".repeat(64) });
+    expect(reply).toEqual({ id: 1, ok: true, value: null });
+  });
+
+  it("applies each edit and lets the reader see what the engine made of it", async () => {
+    await libraryOf(1);
+    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const detail = async (): Promise<Record<string, unknown>> => {
+      const reply = await ask(99, { type: "asset:detail", hash });
+      return (reply as { value: Record<string, unknown> }).value;
+    };
+
+    expect(await ask(2, { type: "asset:rate", hashes: [hash], rating: 4 })).toMatchObject({
+      ok: true,
+      value: null,
+    });
+    expect((await detail())["rating"]).toBe(4);
+
+    await ask(3, { type: "asset:favorite", hashes: [hash], favorite: true });
+    expect((await detail())["isFavorite"]).toBe(true);
+
+    // The engine drops an all-whitespace note rather than storing one: a note
+    // badge that is on forever and says nothing is worse than no badge.
+    await ask(4, { type: "asset:note", hash, note: "   " });
+    expect((await detail())["note"]).toBeNull();
+    await ask(5, { type: "asset:note", hash, note: "  keep this  " });
+    expect((await detail())["note"]).toBe("keep this");
+
+    await ask(6, { type: "asset:tagAdd", hashes: [hash], tags: ["Wood", " wood "] });
+    // Deduplicated and trimmed on the way through, which is exactly why an
+    // edit answers with `null` and the inspector re-reads.
+    expect((await detail())["tags"]).toEqual(["Wood"]);
+
+    await ask(7, { type: "asset:tagRemove", hashes: [hash], tags: ["wood"] });
+    expect((await detail())["tags"]).toEqual([]);
+
+    await ask(8, { type: "asset:rename", hash, name: "  Renamed.txt  " });
+    expect((await detail())["name"]).toBe("Renamed.txt");
+  });
+
+  it("refuses a rating the schema will not hold", async () => {
+    await libraryOf(1);
+    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+
+    const reply = await ask(2, { type: "asset:rate", hashes: [hash], rating: 9 });
+    expect(reply).toMatchObject({ ok: false, problem: { code: "invalid_rating" } });
+  });
+
+  it("announces that the library changed, once per edit", async () => {
+    await libraryOf(1);
+    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+
+    const events = (): unknown[] =>
+      port.sent.filter(
+        (message) =>
+          typeof message === "object" &&
+          message !== null &&
+          "event" in message &&
+          (message as { event: { type: string } }).event.type === "library:changed",
+      );
+    const before = events().length;
+
+    await ask(2, { type: "asset:rate", hashes: [hash], rating: 3 });
+
+    // Everything derived — the counts, the sidebar, the grid — is re-read from
+    // this. An edit that changed the library silently would leave all three
+    // showing the state before it.
+    expect(events().length).toBe(before + 1);
+  });
+
+  it("refuses to open a file itself, because it has no desktop", async () => {
+    await libraryOf(1);
+    const reply = await ask(1, { type: "asset:openExternally", hash: "a".repeat(64) });
+    // Main answers this one. Reaching the engine is a routing bug, and it
+    // fails loudly rather than returning a plausible false.
+    expect(reply?.ok).toBe(false);
   });
 
   it("maps the counts field by field rather than spreading them", async () => {

@@ -38,6 +38,7 @@ export {
   type SidebarRow,
   STORAGE_MODES,
   type StorageMode,
+  type WireAssetDetail,
   type WireCursor,
   type WireProblem,
   type WireSidebar,

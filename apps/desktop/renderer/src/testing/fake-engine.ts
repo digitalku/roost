@@ -9,6 +9,7 @@ import type {
   RequestType,
   ResponseOf,
   RoostBridge,
+  WireAssetDetail,
   WireProblem,
   WireSidebar,
 } from "@roost/contract";
@@ -62,6 +63,34 @@ export interface FakeEngineOptions {
    * something about RQL that is not true.
    */
   readonly invalid?: Readonly<Record<string, { message: string; at: number | null }>>;
+  /** Assets the inspector can read, by hash. */
+  readonly details?: readonly WireAssetDetail[];
+  /** What `asset:openExternally` answers with. */
+  readonly opensExternally?: boolean;
+}
+
+/** A detail with everything filled in, so a test spells out only what it means. */
+export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): WireAssetDetail {
+  const card = fakeAsset(index);
+  return {
+    hash: card.hash,
+    name: card.name,
+    ext: card.ext,
+    size: card.size,
+    width: card.width,
+    height: card.height,
+    storageMode: "managed",
+    refPath: null,
+    isPartialHash: false,
+    createdAt: null,
+    importedAt: card.importedAt,
+    rating: null,
+    note: null,
+    isFavorite: false,
+    tags: [],
+    folders: [],
+    ...over,
+  };
 }
 
 const EMPTY_SIDEBAR: WireSidebar = { places: [], folders: [], smartFolders: [], tags: [] };
@@ -109,12 +138,15 @@ export class FakeEngine {
 
   readonly #options: FakeEngineOptions;
   readonly #libraries = new Map<string, FakeLibrary>();
+  /** Mutable: an edit changes what the next read answers with. */
+  readonly details = new Map<string, WireAssetDetail>();
   #open: LibrarySummary | undefined;
   #listeners = new Set<(event: unknown) => void>();
 
   constructor(options: FakeEngineOptions = {}) {
     this.#options = options;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);
+    for (const detail of options.details ?? []) this.details.set(detail.hash, detail);
   }
 
   /** The bridge the renderer will find on `window`. */
@@ -140,6 +172,25 @@ export class FakeEngine {
   /** Whether a library exists at `root` in this fake filesystem. */
   has(root: string): boolean {
     return this.#libraries.has(root);
+  }
+
+  /**
+   * Applies an edit and announces the change, the way the engine does.
+   *
+   * The answer is `null`: every edit reads back rather than trusting what it
+   * sent, and a fake that returned the new state would let a component pass
+   * while skipping the re-read.
+   */
+  #mutate(
+    hashes: readonly string[],
+    change: (detail: WireAssetDetail) => WireAssetDetail,
+  ): Outcome<unknown> {
+    for (const hash of hashes) {
+      const found = this.details.get(hash);
+      if (found !== undefined) this.details.set(hash, change(found));
+    }
+    this.emit({ type: "library:changed" });
+    return ok(null);
   }
 
   /** The rows a query answers with, or `undefined` if it was never taught one. */
@@ -209,6 +260,52 @@ export class FakeEngine {
           return problem("remote", "No library is open", {});
         }
         return ok({ ...EMPTY_STATS, ...this.#options.stats });
+
+      case "asset:detail":
+        return ok(this.details.get(request.hash) ?? null);
+
+      case "asset:rate":
+        return this.#mutate(request.hashes, (detail) => ({ ...detail, rating: request.rating }));
+
+      case "asset:favorite":
+        return this.#mutate(request.hashes, (detail) => ({
+          ...detail,
+          isFavorite: request.favorite,
+        }));
+
+      case "asset:note": {
+        // The engine drops an all-whitespace note; the fake does too, because a
+        // component test that relied on the difference would be testing a fake
+        // that is kinder than the thing it stands for.
+        const trimmed = request.note === null ? null : request.note.trim();
+        return this.#mutate([request.hash], (detail) => ({
+          ...detail,
+          note: trimmed === "" ? null : trimmed,
+        }));
+      }
+
+      case "asset:rename":
+        return this.#mutate([request.hash], (detail) => ({
+          ...detail,
+          name: request.name.trim(),
+        }));
+
+      case "asset:tagAdd":
+        return this.#mutate(request.hashes, (detail) => ({
+          ...detail,
+          tags: [...new Set([...detail.tags, ...request.tags.map((tag) => tag.trim())])],
+        }));
+
+      case "asset:tagRemove": {
+        const gone = new Set(request.tags.map((tag) => tag.trim().toLowerCase()));
+        return this.#mutate(request.hashes, (detail) => ({
+          ...detail,
+          tags: detail.tags.filter((tag) => !gone.has(tag.toLowerCase())),
+        }));
+      }
+
+      case "asset:openExternally":
+        return ok(this.#options.opensExternally ?? true);
 
       case "query:check": {
         const bad = this.#options.invalid?.[request.query];

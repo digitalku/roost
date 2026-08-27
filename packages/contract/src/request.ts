@@ -3,10 +3,14 @@ import {
   type Checked,
   isRecord,
   ok,
+  readBoolean,
   readHash,
+  readHashArray,
   readInteger,
   readNonEmpty,
+  readNullable,
   readString,
+  readStringArray,
   within,
 } from "./checked.js";
 import type {
@@ -14,6 +18,7 @@ import type {
   LibraryStats,
   LibrarySummary,
   QueryCheck,
+  WireAssetDetail,
   WireCursor,
   WireSidebar,
 } from "./dto.js";
@@ -79,6 +84,54 @@ export type Request =
    */
   | { readonly type: "query:check"; readonly query: string }
   /**
+   * Everything the inspector shows about one asset.
+   *
+   * `null` rather than a failure when the hash is not in the library: a
+   * selection can outlive the asset it points at — another window removed it,
+   * or a rebuild dropped a row — and an empty inspector is the right answer to
+   * that, not an error dialog.
+   */
+  | { readonly type: "asset:detail"; readonly hash: string }
+  /**
+   * Set or clear a rating on every selected asset.
+   *
+   * `null` clears. Not zero: unrated and rated-zero are different states in the
+   * schema, and a wire that could not say so would lose the difference
+   * (`DATA_MODEL.md`).
+   */
+  | {
+      readonly type: "asset:rate";
+      readonly hashes: readonly string[];
+      readonly rating: number | null;
+    }
+  | {
+      readonly type: "asset:favorite";
+      readonly hashes: readonly string[];
+      readonly favorite: boolean;
+    }
+  /** `null` clears the note, and so does an all-whitespace one. */
+  | { readonly type: "asset:note"; readonly hash: string; readonly note: string | null }
+  /** Renames what the library shows. Nothing under `originals/` is touched. */
+  | { readonly type: "asset:rename"; readonly hash: string; readonly name: string }
+  | {
+      readonly type: "asset:tagAdd";
+      readonly hashes: readonly string[];
+      readonly tags: readonly string[];
+    }
+  | {
+      readonly type: "asset:tagRemove";
+      readonly hashes: readonly string[];
+      readonly tags: readonly string[];
+    }
+  /**
+   * Hand an asset to the desktop's own handler.
+   *
+   * Answered by **main**: it needs `shell.openPath`, and the engine has no
+   * desktop. `CONCEPT.md` §5 — a library holds anything, so a format Roost
+   * cannot draw must not be a dead end.
+   */
+  | { readonly type: "asset:openExternally"; readonly hash: string }
+  /**
    * Ask the user for an existing library directory.
    *
    * Answered by **main**, not the engine: a dialog belongs to a window, and the
@@ -111,6 +164,23 @@ export interface Responses {
   "assets:page": AssetPage;
   "assets:count": number;
   "query:check": QueryCheck;
+  "asset:detail": WireAssetDetail | null;
+  /**
+   * Every edit answers with `null` and the inspector re-reads.
+   *
+   * `UI_SPEC.md` asks each edit to read the record back rather than trust what
+   * it sent, and an edit that returned its own idea of the new state would be
+   * exactly the trust it is avoiding — the engine normalises names, drops an
+   * all-whitespace note, and deduplicates tags.
+   */
+  "asset:rate": null;
+  "asset:favorite": null;
+  "asset:note": null;
+  "asset:rename": null;
+  "asset:tagAdd": null;
+  "asset:tagRemove": null;
+  /** `false` when the desktop had no handler for it. */
+  "asset:openExternally": boolean;
   /** `null` when the user cancelled, which is an outcome rather than a failure. */
   "dialog:openLibrary": string | null;
   "dialog:chooseLocation": string | null;
@@ -172,6 +242,67 @@ export const REQUEST_VALIDATORS: {
   "query:check": (source) => {
     const query = readString(source, "query");
     return query.ok ? ok({ type: "query:check", query: query.value }) : query;
+  },
+
+  "asset:detail": (source) => {
+    const hash = readHash(source, "hash");
+    return hash.ok ? ok({ type: "asset:detail", hash: hash.value }) : hash;
+  },
+
+  "asset:rate": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    if (!hashes.ok) return hashes;
+    const rating = readNullable(source, "rating", readInteger);
+    if (!rating.ok) return rating;
+    // The range is checked by the engine, which owns `MAX_RATING`. What is
+    // checked here is that it is an integer or an explicit null — the shape,
+    // not the rule.
+    return ok({ type: "asset:rate", hashes: hashes.value, rating: rating.value });
+  },
+
+  "asset:favorite": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    if (!hashes.ok) return hashes;
+    const favorite = readBoolean(source, "favorite");
+    if (!favorite.ok) return favorite;
+    return ok({ type: "asset:favorite", hashes: hashes.value, favorite: favorite.value });
+  },
+
+  "asset:note": (source) => {
+    const hash = readHash(source, "hash");
+    if (!hash.ok) return hash;
+    const note = readNullable(source, "note", readString);
+    if (!note.ok) return note;
+    return ok({ type: "asset:note", hash: hash.value, note: note.value });
+  },
+
+  "asset:rename": (source) => {
+    const hash = readHash(source, "hash");
+    if (!hash.ok) return hash;
+    const name = readNonEmpty(source, "name");
+    if (!name.ok) return name;
+    return ok({ type: "asset:rename", hash: hash.value, name: name.value });
+  },
+
+  "asset:tagAdd": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    if (!hashes.ok) return hashes;
+    const tags = readStringArray(source, "tags");
+    if (!tags.ok) return tags;
+    return ok({ type: "asset:tagAdd", hashes: hashes.value, tags: tags.value });
+  },
+
+  "asset:tagRemove": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    if (!hashes.ok) return hashes;
+    const tags = readStringArray(source, "tags");
+    if (!tags.ok) return tags;
+    return ok({ type: "asset:tagRemove", hashes: hashes.value, tags: tags.value });
+  },
+
+  "asset:openExternally": (source) => {
+    const hash = readHash(source, "hash");
+    return hash.ok ? ok({ type: "asset:openExternally", hash: hash.value }) : hash;
   },
 
   "dialog:openLibrary": () => ok({ type: "dialog:openLibrary" }),

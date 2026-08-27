@@ -38,18 +38,33 @@ body {
   height: 100%;
 }
 
-/* The sidebar and the grid, side by side. The inspector takes the third
-   column when it arrives. */
+/*
+ * Sidebar, grid, inspector.
+ *
+ * The columns are declared from what is actually present rather than from a
+ * fixed template, because two of the three come and go: the sidebar is absent
+ * for the first frame after a library opens, and the inspector renders nothing
+ * at all when nothing is focused (UI_SPEC.md §3).
+ */
 .workspace {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  display: flex;
   min-height: 0;
 }
 
-/* A library with no sidebar yet — the first frame after it opens. */
-.workspace:has(> .grid:first-child),
-.workspace:has(> .grid-empty:first-child) {
-  grid-template-columns: minmax(0, 1fr);
+.workspace > .sidebar {
+  flex: 0 0 240px;
+}
+
+.workspace > .inspector {
+  flex: 0 0 280px;
+}
+
+/* The grid takes what is left. `min-width: 0` because a flex item's default
+   `min-width: auto` would let its content push the panels off screen. */
+.workspace > .grid,
+.workspace > .grid-empty {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* Bar, grid, status. The grid is the only row that may grow. */

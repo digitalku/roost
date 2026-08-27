@@ -6,6 +6,7 @@ import { Grid } from "./grid/Grid.js";
 import type { GridMode } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
+import { Inspector } from "./inspector/Inspector.js";
 import { SearchField } from "./search/SearchField.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
 
@@ -36,11 +37,21 @@ export function App(): React.JSX.Element {
   const [location, setLocation] = useState<string | undefined>();
   const nameField = useRef<HTMLInputElement>(null);
   /**
-   * Bumped whenever the rows already held became wrong rather than merely
-   * incomplete — a different library, or an edit the engine announced. The grid
-   * restarts its paging on it.
+   * Two counters, because two things go stale at different rates.
+   *
+   * `generation` changes when a **different library** is open, and the grid
+   * throws its pages away on it. `revision` changes on every edit the engine
+   * announces, and everything derived — the counts, the sidebar, the match
+   * count, the inspector — re-reads on it.
+   *
+   * Keeping them apart is what stops a keystroke in the note field from
+   * re-paging the grid from row one and throwing the scroll position away.
+   * The cost is that a *filtered* grid does not drop an asset that has just
+   * stopped matching; `TODO.md` §M3 records it, and the fix is a targeted
+   * update rather than a reload.
    */
   const [generation, setGeneration] = useState(0);
+  const [revision, setRevision] = useState(0);
 
   // Focus moved deliberately, in the frame after the form appears, rather than
   // with `autoFocus`: this form opens in response to a click, so putting the
@@ -49,12 +60,13 @@ export function App(): React.JSX.Element {
     if (creating) nameField.current?.focus();
   }, [creating]);
 
-  const readStats = useCallback(async (summary: LibrarySummary) => {
+  const readStats = useCallback(async (summary: LibrarySummary, sameLibrary = false) => {
     const stats = await invoke({ type: "library:stats" });
     if (!stats.ok) return setProblem(stats.problem);
     setProblem(undefined);
     setOpened({ summary, stats: stats.value });
-    setGeneration((n) => n + 1);
+    setRevision((n) => n + 1);
+    if (!sameLibrary) setGeneration((n) => n + 1);
   }, []);
 
   // Whatever the engine already holds. A window reopened after a reload finds
@@ -72,7 +84,7 @@ export function App(): React.JSX.Element {
     () =>
       onEvent((event) => {
         if (event.type === "library:changed" && opened !== undefined) {
-          void readStats(opened.summary);
+          void readStats(opened.summary, true);
         }
       }),
     [opened, readStats],
@@ -127,6 +139,7 @@ export function App(): React.JSX.Element {
       <LibraryView
         opened={opened}
         generation={generation}
+        revision={revision}
         onClose={() => void close()}
         problem={problem}
       />
@@ -283,11 +296,13 @@ function Problem({ problem }: { readonly problem: WireProblem }): React.JSX.Elem
 function LibraryView({
   opened,
   generation,
+  revision,
   onClose,
   problem,
 }: {
   readonly opened: Opened;
   readonly generation: number;
+  readonly revision: number;
   readonly onClose: () => void;
   readonly problem: WireProblem | undefined;
 }): React.JSX.Element {
@@ -319,7 +334,7 @@ function LibraryView({
       const outcome = await invoke({ type: "library:sidebar" });
       if (outcome.ok) setSidebar(outcome.value);
     })();
-  }, [generation]);
+  }, [revision]);
 
   /*
    * The match count is separate work from a page — a page is one screen and a
@@ -337,7 +352,7 @@ function LibraryView({
     return () => {
       current = false;
     };
-  }, [query, generation]);
+  }, [query, revision]);
 
   const applyQuery = useCallback(
     (picked: string) => {
@@ -357,6 +372,9 @@ function LibraryView({
   // another" register as a change at all.
   useSyncExternalStore(selection.subscribeRevision, selection.revision);
   const count = selection.size;
+  // The inspector follows focus, not selection: a `Shift`-click selects a run
+  // and the panel shows the one the ring is on (`UI_SPEC.md` §6).
+  const focused = selection.focused;
 
   return (
     <div className="app app-library">
@@ -400,6 +418,7 @@ function LibraryView({
             onMore={paging.more}
           />
         )}
+        <Inspector hash={focused} generation={revision} />
       </div>
 
       <footer className="status">

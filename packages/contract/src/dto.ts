@@ -162,3 +162,37 @@ export interface QueryCheck {
   /** `null` when the failure has nowhere to point — an empty query does not. */
   readonly at: number | null;
 }
+
+/**
+ * Everything the inspector shows about one asset.
+ *
+ * Deliberately a second declaration of what `@roost/core` already knows
+ * (ADR-0007): adding a column to `assets` has to be a decision about the wire
+ * rather than a side effect of one about the schema. `origName` becomes `name`
+ * here, because the wire calls it what the interface draws.
+ *
+ * `rating` is `null` for unrated, which is **not** the same as zero
+ * (`DATA_MODEL.md`): zero is a deliberate "bad", and the control must be able
+ * to express the difference.
+ */
+export interface WireAssetDetail {
+  readonly hash: string;
+  readonly name: string;
+  readonly ext: string;
+  readonly size: number;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly storageMode: StorageMode;
+  /** Where a referenced original lives; `null` for a managed one. */
+  readonly refPath: string | null;
+  readonly isPartialHash: boolean;
+  /** The source file's mtime, unix seconds. `null` when it was not readable. */
+  readonly createdAt: number | null;
+  readonly importedAt: number;
+  readonly rating: number | null;
+  readonly note: string | null;
+  readonly isFavorite: boolean;
+  readonly tags: readonly string[];
+  /** Slash-separated folder paths this asset is in. */
+  readonly folders: readonly string[];
+}

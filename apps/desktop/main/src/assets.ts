@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
-import { logger, ManagedStorage, ReadOnlyIndex } from "@roost/core";
+import { type ContentHash, logger, ManagedStorage, ReadOnlyIndex } from "@roost/core";
 import { formatFromExtension, mediaTypeOf } from "@roost/media/serving";
 import { contentRange, parseRange, type Slice } from "./range.js";
 import { parseRoostUrl, type Route } from "./route.js";
@@ -41,6 +41,32 @@ export class AssetServer {
   detach(): void {
     this.#open?.index.close();
     this.#open = undefined;
+  }
+
+  /**
+   * Where one asset's bytes are on disk, or `undefined`.
+   *
+   * The other thing main needs a library for: handing a file to the desktop's
+   * own handler (`CONCEPT.md` §5). It reuses this connection rather than
+   * opening a second one, for the same reason ADR-0008 allows only one.
+   *
+   * Not a `Response`, so it is deliberately outside `handle` — a path is
+   * something main acts on, never something the renderer receives.
+   */
+  async locate(hash: ContentHash): Promise<string | undefined> {
+    const open = this.#open;
+    if (open === undefined) return undefined;
+    const record = open.index.findOriginal(hash);
+    if (record === undefined) return undefined;
+
+    const path =
+      record.storageMode === "referenced" ? record.refPath : open.storage.locate(hash, record.ext);
+    if (path === null) return undefined;
+    try {
+      return (await stat(path)).isFile() ? path : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   async handle(request: Request): Promise<Response> {
