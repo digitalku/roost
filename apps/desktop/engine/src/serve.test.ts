@@ -292,6 +292,54 @@ describe("the engine's message loop", () => {
     expect(reply?.ok).toBe(false);
   });
 
+  it("gives every sidebar row the query that selects it", async () => {
+    await libraryOf(1);
+    const reply = await ask(1, { type: "library:sidebar" });
+    const value = (reply as { value: Record<string, { query: string; name: string }[]> }).value;
+
+    expect(Object.keys(value).sort()).toEqual(["folders", "places", "smartFolders", "tags"]);
+    // `UI_SPEC.md` §4.1: the renderer never assembles RQL, so a row without a
+    // query is a row it cannot act on.
+    for (const rows of Object.values(value)) {
+      for (const row of rows) expect(typeof row.query).toBe("string");
+    }
+
+    const places = value["places"] ?? [];
+    expect(places.map((place) => place.name)).toEqual([
+      "All assets",
+      "Recent",
+      "Favorites",
+      "Untagged",
+    ]);
+    // "All assets" is the empty string — the engine's word for the whole
+    // library — and not a term in the grammar.
+    expect(places[0]?.query).toBe("");
+    expect(places[2]?.query).toBe("is:favorite");
+    // Recent is a real date, because RQL has no relative one and the grammar is
+    // frozen by cross-implementation compatibility.
+    expect(places[1]?.query).toMatch(/^imported:>\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("sends every place query as something the engine can actually run", async () => {
+    // A row carrying a query nobody ever ran is a row that fails on click. Each
+    // one is sent straight back through `assets:page`.
+    await libraryOf(2);
+    const sidebar = await ask(1, { type: "library:sidebar" });
+    const places = (sidebar as { value: { places: { query: string }[] } }).value.places;
+
+    let id = 10;
+    for (const place of places) {
+      id += 1;
+      const reply = await ask(id, {
+        type: "assets:page",
+        query: place.query,
+        limit: 5,
+        after: null,
+      });
+      expect({ query: place.query, ok: reply?.ok }).toEqual({ query: place.query, ok: true });
+    }
+  });
+
   it("maps the counts field by field rather than spreading them", async () => {
     await ask(1, { type: "library:create", parent: dir, name: "Counted" });
 

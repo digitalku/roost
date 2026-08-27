@@ -9,7 +9,7 @@ import {
   readString,
   within,
 } from "./checked.js";
-import type { AssetPage, LibraryStats, LibrarySummary, WireCursor } from "./dto.js";
+import type { AssetPage, LibraryStats, LibrarySummary, WireCursor, WireSidebar } from "./dto.js";
 
 /**
  * Every request the renderer can make, and what each one answers with.
@@ -38,6 +38,8 @@ export type Request =
   | { readonly type: "library:close" }
   /** The counts behind the library view. */
   | { readonly type: "library:stats" }
+  /** The navigation pane: places, folders, smart folders, tags. */
+  | { readonly type: "library:sidebar" }
   /**
    * One page of the grid.
    *
@@ -81,6 +83,7 @@ export interface Responses {
   "library:current": LibrarySummary | null;
   "library:close": null;
   "library:stats": LibraryStats;
+  "library:sidebar": WireSidebar;
   "assets:page": AssetPage;
   /** `null` when the user cancelled, which is an outcome rather than a failure. */
   "dialog:openLibrary": string | null;
@@ -113,6 +116,7 @@ export const REQUEST_VALIDATORS: {
   "library:current": () => ok({ type: "library:current" }),
   "library:close": () => ok({ type: "library:close" }),
   "library:stats": () => ok({ type: "library:stats" }),
+  "library:sidebar": () => ok({ type: "library:sidebar" }),
 
   "assets:page": (source) => {
     // An empty query is legal and means the whole library, so this is

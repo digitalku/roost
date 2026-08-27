@@ -78,6 +78,7 @@ describe("validating a request", () => {
       "library:current",
       "library:close",
       "library:stats",
+      "library:sidebar",
       "assets:page",
       "dialog:openLibrary",
       "dialog:chooseLocation",

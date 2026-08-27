@@ -1,0 +1,107 @@
+/* The navigation pane (UI_SPEC.md §4.1). */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  overflow-y: auto;
+  padding: var(--space-3) 0;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.sidebar-heading {
+  margin: 0;
+  padding: 0 var(--space-3);
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sidebar-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sidebar-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  width: 100%;
+  height: var(--row-height);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+/*
+ * The folder tree's indentation, in CSS so the spacing token stays the one
+ * source of it. Eight steps: a path may be far deeper, and past this there
+ * would be no room left for a name.
+ */
+.sidebar-row[data-depth="1"] {
+  padding-left: calc(var(--space-3) * 2);
+}
+.sidebar-row[data-depth="2"] {
+  padding-left: calc(var(--space-3) * 3);
+}
+.sidebar-row[data-depth="3"] {
+  padding-left: calc(var(--space-3) * 4);
+}
+.sidebar-row[data-depth="4"] {
+  padding-left: calc(var(--space-3) * 5);
+}
+.sidebar-row[data-depth="5"] {
+  padding-left: calc(var(--space-3) * 6);
+}
+.sidebar-row[data-depth="6"] {
+  padding-left: calc(var(--space-3) * 7);
+}
+.sidebar-row[data-depth="7"] {
+  padding-left: calc(var(--space-3) * 8);
+}
+.sidebar-row[data-depth="8"] {
+  padding-left: calc(var(--space-3) * 9);
+}
+
+.sidebar-row:hover {
+  background: var(--surface-raised);
+}
+
+.sidebar-row[data-current] {
+  background: var(--select-bg);
+  color: var(--select-text);
+}
+
+.sidebar-label {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sidebar-count {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  /* Compared vertically down a column, so tabular figures. */
+  font-variant-numeric: tabular-nums;
+}
+
+.sidebar-row[data-current] .sidebar-count {
+  color: var(--select-text);
+}

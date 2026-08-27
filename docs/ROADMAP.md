@@ -172,8 +172,9 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
   called `<Name>.roost` (ADR-0014)
 - ☑ Virtualized grid: masonry and uniform, keyset paging, the cell contract from `UI_SPEC.md` §6.
   The list view, the zoom control, marquee selection, and hover-in-the-store are in `TODO.md`
-- ☐ Sidebar: places, folders with subtree counts, smart folders, grouped tags — each row
-  carrying the RQL that selects it
+- ☑ Sidebar: places, folders with subtree counts, smart folders, grouped tags — each row
+  carrying the RQL that selects it. Collapsing, drag-to-reparent, and the library switcher are
+  in `TODO.md`
 - ☐ Inspector: preview, metadata, tags, rating, favourite, note, all editable, every edit
   reading the record back rather than trusting what it sent
 - ☐ Preview pane: image, video, audio, external fallback; arrow keys move selection with it

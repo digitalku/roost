@@ -97,6 +97,29 @@ export class EmptyNameError extends RoostError {
   }
 }
 
+/**
+ * A folder name that would make its own path unaddressable.
+ *
+ * `folder:` addresses a folder by its slash-separated path
+ * (`DATA_MODEL.md` §3), so a folder *named* `Design/Icons` at the top level and
+ * a folder called `Icons` inside `Design` produce the same query string —
+ * clicking either in the sidebar selects whichever the compiler resolves first.
+ * Found by driving the real window, and rejected at the point a name is
+ * authored rather than at the point it is queried.
+ *
+ * Replay does **not** check this: a library written before the rule, or by
+ * another implementation, must still rebuild. The rule binds new names only.
+ */
+export class AmbiguousFolderNameError extends RoostError {
+  readonly code = "ambiguous_folder_name";
+
+  constructor(name: string) {
+    super(`A folder name cannot contain "/": "${name}" would be unaddressable by folder:`, {
+      name,
+    });
+  }
+}
+
 export class InvalidRatingError extends RoostError {
   readonly code = "invalid_rating";
 

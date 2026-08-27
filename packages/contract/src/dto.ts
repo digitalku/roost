@@ -111,3 +111,33 @@ export interface AssetPage {
   /** `null` when this was the last page, so the grid stops asking. */
   readonly next: WireCursor | null;
 }
+
+/**
+ * One row of the navigation pane.
+ *
+ * **Every row carries the RQL that selects it** (`UI_SPEC.md` §4.1), built in
+ * `@roost/library`. The renderer never assembles a query string: a frontend
+ * concatenating `tag:Some Name` would be a second, worse implementation of the
+ * grammar, and it is the decision that keeps the search field honest — what it
+ * shows is what is actually being asked.
+ */
+export interface SidebarRow {
+  /** Unique within its section, and stable enough to key a list on. */
+  readonly id: string;
+  readonly name: string;
+  readonly query: string;
+  /** `null` where a count would be a second query nobody asked for. */
+  readonly count: number | null;
+  /** How deep in the folder tree, for indentation. Zero everywhere else. */
+  readonly depth: number;
+  /** The group a tag belongs to, or `null`. Groups are shown in order. */
+  readonly group: string | null;
+}
+
+/** The navigation pane, in the order it is drawn. */
+export interface WireSidebar {
+  readonly places: readonly SidebarRow[];
+  readonly folders: readonly SidebarRow[];
+  readonly smartFolders: readonly SidebarRow[];
+  readonly tags: readonly SidebarRow[];
+}

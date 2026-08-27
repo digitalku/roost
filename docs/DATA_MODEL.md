@@ -220,6 +220,7 @@ group:Materials               any tag in that group
 -tag:wip                      negation
 folder:Moodboards             folder and everything beneath it
 folder:Design/Icons           nested path; a bare name matches every folder so named
+                              (a folder name may therefore not contain "/")
 ext:png                       extension, with or without the dot
 size:>10mb                    byte size; kb/mb/gb are binary multiples, 1.5mb is fine
 w:>2000  h:<=1080             dimensions

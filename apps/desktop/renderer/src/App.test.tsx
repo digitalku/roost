@@ -53,9 +53,11 @@ describe("opening a library", () => {
       "dialog:openLibrary",
       "library:open",
       "library:stats",
-      // The grid asks for its first page as soon as there is a library: a grid
-      // with no rows has nothing to scroll, so nothing else would ask.
+      // The grid's first page and the navigation pane, both as soon as there
+      // is a library: a grid with no rows has nothing to scroll, so nothing
+      // else would ask for a page.
       "assets:page",
+      "library:sidebar",
     ]);
   });
 
@@ -326,5 +328,140 @@ describe("the library view", () => {
     await open(0);
     expect(await screen.findByText("Nothing in this library yet.")).toBeDefined();
     expect(screen.queryByRole("listbox")).toBeNull();
+  });
+});
+
+describe("the navigation pane, in the window", () => {
+  const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+  beforeEach(() => {
+    for (const [name, value] of [
+      ["clientWidth", 1000],
+      ["clientHeight", 800],
+    ] as const) {
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value });
+    }
+  });
+
+  it("sends a row's own query to the grid, and shows what came back", async () => {
+    // `UI_SPEC.md` §4.1 and §4.2: the row carries the RQL, clicking it replaces
+    // the query, and there is no filter state the query string does not know
+    // about. The fake engine refuses a query it was not taught, so this passes
+    // only if the exact string the row carried is the one that was sent.
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      byQuery: { 'tag:"brand assets"': [fakeAsset(100), fakeAsset(101)] },
+      sidebar: {
+        places: [{ id: "all", name: "All assets", query: "", count: null, depth: 0, group: null }],
+        folders: [],
+        smartFolders: [],
+        tags: [
+          {
+            id: "tag:brand",
+            name: "brand assets",
+            // Quoted by `@roost/library`, which is the point: the renderer
+            // would not have known to.
+            query: 'tag:"brand assets"',
+            count: 2,
+            depth: 0,
+            group: null,
+          },
+        ],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(9));
+
+    await user.click(await screen.findByRole("button", { name: "brand assets 2" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(2));
+
+    const pages = engine.seen.filter((request) => request.type === "assets:page");
+    expect(pages.at(-1)).toMatchObject({ query: 'tag:"brand assets"' });
+    expect(
+      screen.getByRole("button", { name: "brand assets 2" }).getAttribute("aria-current"),
+    ).toBe("true");
+  });
+
+  it("says nothing matched, rather than showing an empty library", async () => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      byQuery: { "is:favorite": [] },
+      sidebar: {
+        places: [
+          { id: "all", name: "All assets", query: "", count: null, depth: 0, group: null },
+          {
+            id: "favorites",
+            name: "Favorites",
+            query: "is:favorite",
+            count: null,
+            depth: 0,
+            group: null,
+          },
+        ],
+        folders: [],
+        smartFolders: [],
+        tags: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(9));
+
+    await user.click(screen.getByRole("button", { name: "Favorites" }));
+    // A library with nine assets and a filter that matches none of them is not
+    // an empty library, and saying so would be a lie the user has to debug.
+    expect(await screen.findByText("Nothing matches this query.")).toBeDefined();
+  });
+
+  it("drops the selection when the query changes", async () => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      byQuery: { "is:favorite": [fakeAsset(50)] },
+      sidebar: {
+        places: [
+          { id: "all", name: "All assets", query: "", count: null, depth: 0, group: null },
+          {
+            id: "favorites",
+            name: "Favorites",
+            query: "is:favorite",
+            count: null,
+            depth: 0,
+            group: null,
+          },
+        ],
+        folders: [],
+        smartFolders: [],
+        tags: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(9));
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    expect(await screen.findByText("9 assets · 1 selected")).toBeDefined();
+
+    await user.click(screen.getByRole("button", { name: "Favorites" }));
+    // What was selected is no longer on screen, and a count that survives the
+    // filter is a count of things nobody can see.
+    expect(await screen.findByText("9 assets")).toBeDefined();
   });
 });

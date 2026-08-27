@@ -38,6 +38,20 @@ body {
   height: 100%;
 }
 
+/* The sidebar and the grid, side by side. The inspector takes the third
+   column when it arrives. */
+.workspace {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 0;
+}
+
+/* A library with no sidebar yet — the first frame after it opens. */
+.workspace:has(> .grid:first-child),
+.workspace:has(> .grid-empty:first-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* Bar, grid, status. The grid is the only row that may grow. */
 .app-library {
   /* `minmax(0, …)` on the middle row: without it the grid's content sets the

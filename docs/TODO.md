@@ -268,6 +268,25 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   - **Hover in the store.** Hover is CSS-only, which is right until something outside the cell
     has to know what is under the pointer — the inspector's preview-on-hover is the first thing
     that will.
+- ☑ ~~**A folder name containing `/` made its own path ambiguous.**~~ Found on 2026-08-27 by
+  driving the real window: a top-level folder literally named `Design/Icons` and an `Icons`
+  inside `Design` both compile to `folder:"Design/Icons"`, so the sidebar highlighted the wrong
+  row and neither folder was reliably addressable from the CLI. Rejected now where a name is
+  *authored* — replay still accepts one, because a library written before the rule must still
+  rebuild.
+- 🟡 **The sidebar draws what it is given and nothing more.** What `UI_SPEC.md` §4 describes and
+  it does not do yet:
+  - **Collapsing.** Folder branches and tag groups are always expanded. A library with two
+    hundred tags is a very long pane.
+  - **Drag to reorder and re-parent** a folder. `moveFolder` exists and refuses a cycle; what is
+    missing is the drag.
+  - **Ctrl-click to add a term** (§4.2). Clicking replaces the query; compounding needs the
+    search field, because the compound query has to be visible and editable to be honest.
+  - **The library switcher** at the top, and with it "Open library…" from inside an open
+    library. It needs the recent-libraries list, which needs the application config that window
+    state is also waiting for.
+  - **Smart-folder match counts** (§4.1). Every read would run every saved query; the count
+    arrives with the search field's count, which is the thing that makes it cheap enough.
 - 🟢 **The grid's frame budget is asserted by construction, not measured.** The re-render count
   is a test, and the layout is a binary search per column; neither is a frame percentile. The
   scroll benchmark mode is what turns this into a number, and it is still an M3 item.

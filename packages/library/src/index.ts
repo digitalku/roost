@@ -54,6 +54,7 @@ export {
 } from "./edit.js";
 export {
   AlreadyALibraryError,
+  AmbiguousFolderNameError,
   AmbiguousHashError,
   EmptyNameError,
   FolderCycleError,
@@ -114,6 +115,7 @@ export {
 } from "./search.js";
 export {
   type FolderEntry,
+  type PlaceEntry,
   readSidebar,
   type Sidebar,
   type SmartFolderEntry,

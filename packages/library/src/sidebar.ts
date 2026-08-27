@@ -1,7 +1,7 @@
 import type { FolderRow } from "@roost/core";
 import { quoteValue } from "@roost/search";
 import { childrenById, descendants } from "./folder-tree.js";
-import type { Library } from "./library.js";
+import { type Library, nowUnix } from "./library.js";
 
 /**
  * Everything a navigation pane shows, in one read.
@@ -12,6 +12,19 @@ import type { Library } from "./library.js";
  * frontend building `tag:Some Name` by concatenation would be a second, worse
  * implementation of the grammar; `quoteValue` is the one that exists.
  */
+
+/**
+ * A fixed row at the top of the navigation pane.
+ *
+ * These carry a query like every other row, for the same reason: the renderer
+ * never assembles RQL. "All assets" carries the empty string, which is the
+ * engine's word for the whole library rather than a term in the grammar.
+ */
+export interface PlaceEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly query: string;
+}
 
 export interface FolderEntry {
   readonly id: number;
@@ -42,6 +55,7 @@ export interface SmartFolderEntry {
 }
 
 export interface Sidebar {
+  readonly places: PlaceEntry[];
   readonly folders: FolderEntry[];
   readonly tags: TagEntry[];
   readonly smartFolders: SmartFolderEntry[];
@@ -74,7 +88,34 @@ export function readSidebar(library: Library): Sidebar {
     count: tag.count,
   }));
 
-  return { folders, tags, smartFolders: repo.smartFolders() };
+  return { places: places(), folders, tags, smartFolders: repo.smartFolders() };
+}
+
+/** How far back "Recent" reaches, in days (`UI_SPEC.md` §4.1). */
+const RECENT_DAYS = 7;
+
+/**
+ * The fixed rows.
+ *
+ * "Recent" is a **date computed here**, not a relative term in the grammar.
+ * RQL has no `imported:>7d`, and adding one would be a grammar change — the
+ * grammar is frozen by cross-implementation compatibility (`CONCEPT.md` §1.1),
+ * so a query that says the same thing in both implementations is the one to
+ * send. The consequence is that the query goes stale at midnight UTC; the
+ * sidebar is re-read whenever the library changes, and a day-old boundary on a
+ * seven-day window is not a wrong answer.
+ *
+ * "Trash" is absent until M6, because a row that filters nothing is worse than
+ * no row.
+ */
+function places(): PlaceEntry[] {
+  const since = new Date((nowUnix() - RECENT_DAYS * 86_400) * 1000).toISOString().slice(0, 10);
+  return [
+    { id: "all", name: "All assets", query: "" },
+    { id: "recent", name: "Recent", query: `imported:>${since}` },
+    { id: "favorites", name: "Favorites", query: "is:favorite" },
+    { id: "untagged", name: "Untagged", query: "is:untagged" },
+  ];
 }
 
 /** Depth past which a folder path is treated as corrupt rather than deep. */

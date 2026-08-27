@@ -5,10 +5,18 @@ import type {
   LibrarySummary,
   Request,
   ResponseOf,
+  SidebarRow,
   WireCursor,
+  WireSidebar,
 } from "@roost/contract";
 import { type Cursor, lastCursor, logger, parseContentHash, type SearchHit } from "@roost/core";
-import { Library, libraryDirectory, libraryNameFromPath, pageOf } from "@roost/library";
+import {
+  Library,
+  libraryDirectory,
+  libraryNameFromPath,
+  pageOf,
+  readSidebar,
+} from "@roost/library";
 
 /**
  * One library, and the requests that reach it.
@@ -56,6 +64,9 @@ export class EngineHost {
 
       case "library:stats":
         return statsOf(this.#require());
+
+      case "library:sidebar":
+        return sidebarOf(this.#require());
 
       case "assets:page":
         return this.#page(request.query, request.limit, request.after);
@@ -192,5 +203,72 @@ function cardOf(hit: SearchHit): AssetPage["assets"][number] {
     importedAt: hit.importedAt,
     rating: hit.rating,
     isFavorite: hit.isFavorite,
+  };
+}
+
+/**
+ * The navigation pane, mapped onto one row shape.
+ *
+ * Four sections that are four different types in `@roost/library` become one
+ * type on the wire, because the renderer draws them the same way and a row that
+ * differs per section would be four components instead of one. The depth and
+ * the group are what the sections actually vary by.
+ */
+function sidebarOf(library: Library): WireSidebar {
+  const sidebar = readSidebar(library);
+  const depths = new Map<number, number>();
+  for (const folder of sidebar.folders) {
+    // The rows arrive parents-first, so a parent's depth is known by the time
+    // its children are read. A folder whose parent is missing is corruption,
+    // and it lands at the root rather than disappearing.
+    depths.set(folder.id, folder.parentId === null ? 0 : (depths.get(folder.parentId) ?? 0) + 1);
+  }
+
+  return {
+    places: sidebar.places.map(
+      (place): SidebarRow => ({
+        id: place.id,
+        name: place.name,
+        query: place.query,
+        // No count: it would be one query per place on every sidebar read, and
+        // nothing in `UI_SPEC.md` §4.1 shows one.
+        count: null,
+        depth: 0,
+        group: null,
+      }),
+    ),
+    folders: sidebar.folders.map(
+      (folder): SidebarRow => ({
+        id: `folder:${folder.id}`,
+        name: folder.name,
+        query: folder.query,
+        count: folder.count,
+        depth: depths.get(folder.id) ?? 0,
+        group: null,
+      }),
+    ),
+    smartFolders: sidebar.smartFolders.map(
+      (smart): SidebarRow => ({
+        id: `smart:${smart.id}`,
+        name: smart.name,
+        query: smart.query,
+        // A match count would mean running every saved query on every read.
+        // `UI_SPEC.md` §4.1 asks for one; it arrives with the search field,
+        // which is what makes a count cheap enough to want.
+        count: null,
+        depth: 0,
+        group: null,
+      }),
+    ),
+    tags: sidebar.tags.map(
+      (tag): SidebarRow => ({
+        id: `tag:${tag.name}`,
+        name: tag.name,
+        query: tag.query,
+        count: tag.count,
+        depth: 0,
+        group: tag.group,
+      }),
+    ),
   };
 }

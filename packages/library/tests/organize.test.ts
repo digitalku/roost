@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type ContentHash, DEFAULT_PAGE_LIMIT, withoutDerived } from "@roost/core";
+import { type ContentHash, DEFAULT_PAGE_LIMIT, IndexSink, withoutDerived } from "@roost/core";
 import {
+  AmbiguousFolderNameError,
   addToFolder,
   count,
   createFolder,
@@ -20,6 +21,7 @@ import {
   readSidebar,
   removeAssets,
   renameAsset,
+  renameFolder,
   resolveAsset,
   resolveFolder,
   resolveTagGroup,
@@ -121,6 +123,34 @@ describe("organizing a library", () => {
     expect(count(library, "folder:Icons")).toBe(1);
     // A folder nobody created is an empty answer, not an error.
     expect(count(library, "folder:Nonexistent")).toBe(0);
+  });
+
+  it("refuses a folder name that would make its own path ambiguous", async () => {
+    // Found by driving the real window: a top-level folder literally named
+    // `Design/Icons` and an `Icons` inside `Design` both compile to
+    // `folder:"Design/Icons"`, so the sidebar highlighted the wrong row and
+    // neither folder was reliably addressable from the CLI.
+    const design = await createFolder(library, "Design", null);
+    await expect(createFolder(library, "Design/Icons", null)).rejects.toBeInstanceOf(
+      AmbiguousFolderNameError,
+    );
+    await expect(renameFolder(library, design, "a/b")).rejects.toBeInstanceOf(
+      AmbiguousFolderNameError,
+    );
+    // The name is still trimmed and still may not be empty; only the separator
+    // is new.
+    await expect(createFolder(library, "  ", null)).rejects.toBeInstanceOf(EmptyNameError);
+  });
+
+  it("still replays a folder name an older library recorded", async () => {
+    // The rule binds names as they are authored, not as they are read. A
+    // library written before it — or by the Rust implementation — must still
+    // rebuild, so the sink and replay do not check.
+    const sink = new IndexSink(library.db);
+    library.db.transaction(() => {
+      sink.apply({ ts: 1, op: "folder_create", id: 900, parent: null, name: "Design/Icons" });
+    });
+    expect(library.db.repo.folders().some((row) => row.name === "Design/Icons")).toBe(true);
   });
 
   it("refuses to move a folder into its own subtree", async () => {

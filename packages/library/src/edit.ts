@@ -1,6 +1,7 @@
 import { type ContentHash, IndexSink, type JournalRecord, logger, type Op } from "@roost/core";
 import { parse } from "@roost/search";
 import {
+  AmbiguousFolderNameError,
   AmbiguousHashError,
   EmptyNameError,
   FolderCycleError,
@@ -96,6 +97,20 @@ function cleanName(name: string, what: string): string {
   const trimmed = name.trim();
   if (trimmed === "") throw new EmptyNameError(what);
   return trimmed;
+}
+
+/**
+ * A folder name, which may not contain the path separator.
+ *
+ * See {@link AmbiguousFolderNameError}: a top-level folder called `Design/Icons`
+ * and an `Icons` inside `Design` compile to the same `folder:` query, so one of
+ * them is unreachable through the sidebar and neither is reliably reachable
+ * from the CLI.
+ */
+function cleanFolderName(name: string): string {
+  const clean = cleanName(name, "folder");
+  if (clean.includes("/")) throw new AmbiguousFolderNameError(clean);
+  return clean;
 }
 
 function cleanNames(names: readonly string[], what: string): string[] {
@@ -276,7 +291,7 @@ export async function createFolder(
   name: string,
   parent: number | null,
 ): Promise<number> {
-  const clean = cleanName(name, "folder");
+  const clean = cleanFolderName(name);
   if (parent !== null) requireFolder(library, parent);
   const id = library.db.repo.nextFolderId();
   await apply(library, [{ op: "folder_create", id, parent, name: clean }]);
@@ -285,7 +300,7 @@ export async function createFolder(
 
 export async function renameFolder(library: Library, id: number, name: string): Promise<void> {
   requireFolder(library, id);
-  return apply(library, [{ op: "folder_rename", id, name: cleanName(name, "folder") }]);
+  return apply(library, [{ op: "folder_rename", id, name: cleanFolderName(name) }]);
 }
 
 /** Moves a folder under `parent`, or to the top level when `parent` is `null`. */

@@ -34,10 +34,12 @@ export {
   LIBRARY_SUFFIX,
   type LibraryStats,
   type LibrarySummary,
+  type SidebarRow,
   STORAGE_MODES,
   type StorageMode,
   type WireCursor,
   type WireProblem,
+  type WireSidebar,
 } from "./dto.js";
 export {
   checkEventEnvelope,

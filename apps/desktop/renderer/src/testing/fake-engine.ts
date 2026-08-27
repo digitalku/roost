@@ -10,6 +10,7 @@ import type {
   ResponseOf,
   RoostBridge,
   WireProblem,
+  WireSidebar,
 } from "@roost/contract";
 
 /**
@@ -40,9 +41,22 @@ export interface FakeEngineOptions {
   readonly existing?: readonly FakeLibrary[];
   /** Counts every library reports. */
   readonly stats?: Partial<LibraryStats>;
-  /** What the grid pages through, newest first. */
+  /** What the grid pages through for the empty query, newest first. */
   readonly assets?: readonly AssetCard[];
+  /**
+   * What a given RQL query answers with.
+   *
+   * Spelled out per query rather than interpreted: a fake that answered RQL
+   * with a substring match would let a component test pass while believing
+   * something about a language this file does not implement. A query with no
+   * entry here fails, which is what a query the engine cannot parse does too.
+   */
+  readonly byQuery?: Readonly<Record<string, readonly AssetCard[]>>;
+  /** The navigation pane. Absent means an empty one. */
+  readonly sidebar?: WireSidebar;
 }
+
+const EMPTY_SIDEBAR: WireSidebar = { places: [], folders: [], smartFolders: [], tags: [] };
 
 /**
  * An asset with everything a cell needs and nothing a test has to spell out.
@@ -120,6 +134,12 @@ export class FakeEngine {
     return this.#libraries.has(root);
   }
 
+  /** The rows a query answers with, or `undefined` if it was never taught one. */
+  #rowsFor(query: string): readonly AssetCard[] | undefined {
+    if (query.trim() === "") return this.#options.assets ?? [];
+    return this.#options.byQuery?.[query];
+  }
+
   #answer(request: Request): Outcome<unknown> {
     this.seen.push(request);
 
@@ -170,6 +190,12 @@ export class FakeEngine {
         this.#open = undefined;
         return ok(null);
 
+      case "library:sidebar":
+        if (this.#open === undefined) {
+          return problem("remote", "No library is open", {});
+        }
+        return ok(this.#options.sidebar ?? EMPTY_SIDEBAR);
+
       case "library:stats":
         if (this.#open === undefined) {
           return problem("remote", "No library is open", {});
@@ -180,15 +206,13 @@ export class FakeEngine {
         if (this.#open === undefined) {
           return problem("remote", "No library is open", {});
         }
-        // Only the empty query, deliberately. A fake that answered RQL with a
-        // substring match would let a component test pass while believing
-        // something about a language this file does not implement.
-        if (request.query.trim() !== "") {
-          return problem("remote", "the fake engine has no query language", {
+        const rows = this.#rowsFor(request.query);
+        if (rows === undefined) {
+          return problem("remote", "the fake engine was not told what this query answers", {
             query: request.query,
           });
         }
-        return ok(pageOf(this.#options.assets ?? [], request.limit, request.after));
+        return ok(pageOf(rows, request.limit, request.after));
       }
     }
   }

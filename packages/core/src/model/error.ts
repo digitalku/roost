@@ -6,6 +6,7 @@
  */
 export const ERROR_CODES = [
   "already_a_library",
+  "ambiguous_folder_name",
   "ambiguous_hash",
   "empty_name",
   "folder_cycle",

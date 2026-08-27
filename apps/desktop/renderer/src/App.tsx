@@ -1,4 +1,4 @@
-import type { LibraryStats, LibrarySummary, WireProblem } from "@roost/contract";
+import type { LibraryStats, LibrarySummary, WireProblem, WireSidebar } from "@roost/contract";
 import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { invoke, onEvent } from "./bridge.js";
@@ -6,6 +6,7 @@ import { Grid } from "./grid/Grid.js";
 import type { GridMode } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
+import { Sidebar } from "./sidebar/Sidebar.js";
 
 /**
  * The window, at the point where it can open a library and say what is in it.
@@ -239,6 +240,9 @@ function Frame({
   );
 }
 
+const EMPTY_LIBRARY = "Nothing in this library yet.";
+const NOTHING_MATCHED = "Nothing matches this query.";
+
 /** `1,234 assets · 3 selected`, with the second half only when there is one. */
 function summaryLine(assets: number, selected: number): string {
   const total = `${assets.toLocaleString()} ${assets === 1 ? "asset" : "assets"}`;
@@ -284,10 +288,33 @@ function LibraryView({
   readonly problem: WireProblem | undefined;
 }): React.JSX.Element {
   const [mode, setMode] = useState<GridMode>("masonry");
+  /**
+   * What is on screen, as one string.
+   *
+   * `UI_SPEC.md` §4.2: there is no separate filter state the search field does
+   * not know about. A sidebar row hands over its query and this is where it
+   * lands; when the search field arrives, it edits this same string.
+   */
+  const [query, setQuery] = useState("");
+  const [sidebar, setSidebar] = useState<WireSidebar | undefined>();
   // One store for the life of the view. A new one per render would drop the
   // selection on every keystroke, and every cell's subscription with it.
   const selection = useMemo(() => new SelectionStore(), []);
-  const paging = useAssetPages("", generation);
+  const paging = useAssetPages(query, generation);
+
+  /*
+   * Re-read whenever the library changes: the counts are derived, and a stale
+   * count beside a live grid is worse than no count. `generation` is the
+   * trigger rather than a value the body reads, which is why it looks
+   * unnecessary from the outside.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  useEffect(() => {
+    void (async () => {
+      const outcome = await invoke({ type: "library:sidebar" });
+      if (outcome.ok) setSidebar(outcome.value);
+    })();
+  }, [generation]);
   // The library's problem outranks the grid's: a library that failed to open
   // explains an empty grid, and showing both would say the same thing twice.
   const showing = problem ?? paging.problem;
@@ -323,17 +350,31 @@ function LibraryView({
         </div>
       </header>
 
-      {paging.assets.length === 0 && paging.done ? (
-        <p className="grid-empty">Nothing in this library yet.</p>
-      ) : (
-        <Grid
-          assets={paging.assets}
-          mode={mode}
-          target={240}
-          selection={selection}
-          onMore={paging.more}
-        />
-      )}
+      <div className="workspace">
+        {sidebar !== undefined && (
+          <Sidebar
+            sidebar={sidebar}
+            query={query}
+            onPick={(picked) => {
+              // Replaces the query (`UI_SPEC.md` §4.2). The selection goes with
+              // it: what was selected is no longer on screen.
+              selection.clear();
+              setQuery(picked);
+            }}
+          />
+        )}
+        {paging.assets.length === 0 && paging.done ? (
+          <p className="grid-empty">{query === "" ? EMPTY_LIBRARY : NOTHING_MATCHED}</p>
+        ) : (
+          <Grid
+            assets={paging.assets}
+            mode={mode}
+            target={240}
+            selection={selection}
+            onMore={paging.more}
+          />
+        )}
+      </div>
 
       <footer className="status">
         {/* One text node, so what the status bar says is one readable string
