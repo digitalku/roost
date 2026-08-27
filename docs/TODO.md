@@ -250,9 +250,9 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   nothing. That is the remaining gap in this flow, and an Electron end-to-end driver is what
   would close it.
 - 🟡 Sandbox assertions as tests, not as configuration reviewed once.
-- 🟡 A short `Cache-Control` on the thumbnail 404. The grid learns a thumbnail is absent by
-  asking, which is right; `roost-old` measured it re-asking on every scroll back over a folder
-  of videos.
+- ☑ ~~A short `Cache-Control` on the thumbnail 404.~~ `public, max-age=10`, added with the
+  protocol on 2026-08-27: long enough to absorb a scroll back over a folder of videos, short
+  enough not to outlive an import generating thumbnails while someone watches.
 - 🟡 Window state — size, position, last library — has nowhere to live until there is an
   application config (`~/.config/roost/`). Recent libraries and the default import mode need the
   same place.

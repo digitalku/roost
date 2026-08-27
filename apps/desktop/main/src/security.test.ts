@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { contentSecurityPolicy, isAllowedNavigation, RENDERER_PRIVILEGES } from "./security.js";
+import {
+  contentSecurityPolicy,
+  isAllowedNavigation,
+  RENDERER_PRIVILEGES,
+  ROOST_SCHEME,
+  ROOST_SCHEME_PRIVILEGES,
+} from "./security.js";
 
 describe("the renderer's privileges", () => {
   it("grants none of them", () => {
@@ -107,5 +113,33 @@ describe("navigation", () => {
   it("refuses anything that is not a URL at all", () => {
     expect(isAllowedNavigation("", "http://localhost:5173/")).toBe(false);
     expect(isAllowedNavigation("not a url", "http://localhost:5173/")).toBe(false);
+  });
+});
+
+describe("how roost: is registered", () => {
+  it("is standard, secure, and streamed, and nothing more", () => {
+    // `stream` is the one that carries ADR-0008's argument: without it a
+    // `<video>` asks for the whole file and the streaming is wasted. `standard`
+    // is what makes `thumb` and `original` parse as hosts and what CSP's
+    // `roost:` source matches.
+    expect(ROOST_SCHEME).toBe("roost");
+    expect(ROOST_SCHEME_PRIVILEGES).toEqual({
+      standard: true,
+      secure: true,
+      stream: true,
+      supportFetchAPI: false,
+      corsEnabled: false,
+      bypassCSP: false,
+      allowServiceWorkers: false,
+    });
+  });
+
+  it("is allowed by the policy exactly where the ADR says it is", () => {
+    const policy = contentSecurityPolicy();
+    const directives = policy.split("; ").filter((d) => d.includes("roost:"));
+    // Bytes go to <img> and <video>. A script or a stylesheet arriving over
+    // this scheme would be a feature nobody asked for, and `supportFetchAPI`
+    // being off is the other half of the same statement.
+    expect(directives.map((d) => d.split(" ")[0])).toEqual(["img-src", "media-src"]);
   });
 });

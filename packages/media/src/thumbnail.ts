@@ -1,28 +1,17 @@
 import { isRenderable, renderThumbnails, type Thumbnail } from "./decoder.js";
 import { sniffFile } from "./probe.js";
-
-/**
- * The size the grid renders, generated for every asset up front.
- */
-export const GRID_SIZE = 256;
-
-/**
- * The size the detail panel renders, generated on first use.
- *
- * The Rust build measured it at 24.2 KB against the grid size's 9.4 KB — 72% of
- * the total — for an image only ever needed for the one asset someone is
- * looking at. Generating it eagerly would put roughly 34 GB in `index.db` at a
- * million assets, most of it previews nobody opens.
- */
-export const PREVIEW_SIZE = 512;
-
-/** Longest-edge sizes the schema's `thumbs.size` column expects. */
-export const THUMBNAIL_SIZES = [GRID_SIZE, PREVIEW_SIZE] as const;
-
-/** The sizes generated for every asset without being asked. */
-export const EAGER_SIZES = [GRID_SIZE] as const;
+import { EAGER_SIZES } from "./serving.js";
 
 export { isRenderable, type Thumbnail, WEBP_QUALITY } from "./decoder.js";
+// The sizes live in `serving.ts`, which the protocol handler imports without a
+// decoder attached. They are re-exported here so that `@roost/media` still
+// answers for them and no caller has to know where they moved.
+export {
+  EAGER_SIZES,
+  GRID_SIZE,
+  PREVIEW_SIZE,
+  THUMBNAIL_SIZES,
+} from "./serving.js";
 
 /**
  * Generates thumbnails for a file, or returns none.

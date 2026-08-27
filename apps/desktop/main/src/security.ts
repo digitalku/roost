@@ -41,6 +41,44 @@ export const RENDERER_PRIVILEGES: RendererPrivileges = {
   webviewTag: false,
 };
 
+/** The scheme that serves asset bytes (ADR-0008). */
+export const ROOST_SCHEME = "roost";
+
+/**
+ * How `roost:` is registered, spelled out for the same reason the renderer's
+ * privileges are.
+ *
+ * `standard` gives the scheme an origin, which is what lets `thumb` and
+ * `original` parse as hosts and what CSP's `roost:` source matches. `stream` is
+ * what makes a `<video>` issue range requests instead of asking for the whole
+ * file — without it, ADR-0008's reason for streaming originals does not apply.
+ * `secure` keeps the renderer from treating asset bytes as mixed content.
+ *
+ * `supportFetchAPI` and `corsEnabled` stay **off**. The CSP lists `roost:` in
+ * `img-src` and `media-src` and nowhere else, so a page fetching asset bytes as
+ * data is a feature nobody asked for; leaving these off means the two documents
+ * agree rather than merely not contradicting each other.
+ */
+export interface SchemePrivileges {
+  readonly standard: boolean;
+  readonly secure: boolean;
+  readonly stream: boolean;
+  readonly supportFetchAPI: boolean;
+  readonly corsEnabled: boolean;
+  readonly bypassCSP: boolean;
+  readonly allowServiceWorkers: boolean;
+}
+
+export const ROOST_SCHEME_PRIVILEGES: SchemePrivileges = {
+  standard: true,
+  secure: true,
+  stream: true,
+  supportFetchAPI: false,
+  corsEnabled: false,
+  bypassCSP: false,
+  allowServiceWorkers: false,
+};
+
 /**
  * The Content-Security-Policy header served to the renderer.
  *

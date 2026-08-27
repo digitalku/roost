@@ -11,6 +11,7 @@ export {
   type Param,
   type SearchHit,
 } from "./query.js";
+export { READ_ONLY_OPTIONS, ReadOnlyIndex } from "./reader.js";
 export {
   type AssetDetail,
   type AssetSummary,

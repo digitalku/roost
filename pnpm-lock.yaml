@@ -60,6 +60,9 @@ importers:
       '@roost/core':
         specifier: workspace:*
         version: link:../../../packages/core
+      '@roost/media':
+        specifier: workspace:*
+        version: link:../../../packages/media
     devDependencies:
       '@types/node':
         specifier: 22.20.1

@@ -12,8 +12,10 @@ import {
   stderrSink,
   teeSink,
 } from "@roost/core";
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, protocol } from "electron";
+import { AssetServer } from "./assets.js";
 import { Engine, EngineGoneError, EngineProblem } from "./engine.js";
+import { ROOST_SCHEME, ROOST_SCHEME_PRIVILEGES } from "./security.js";
 import { createWindow } from "./window.js";
 
 /**
@@ -46,6 +48,18 @@ const REQUEST_CHANNEL = "roost:request";
 const EVENT_CHANNEL = "roost:event";
 
 /**
+ * Serves `roost://`, and must be told which library to serve.
+ *
+ * The scheme has to be declared before the app is ready — after that, Chromium
+ * has already decided what `roost:` is — so this happens at module scope rather
+ * than inside `whenReady`.
+ */
+const assets = new AssetServer();
+protocol.registerSchemesAsPrivileged([
+  { scheme: ROOST_SCHEME, privileges: { ...ROOST_SCHEME_PRIVILEGES } },
+]);
+
+/**
  * A second launch raises the first window rather than opening a second one.
  *
  * Two windows would each mint folder ids from their own view of the index, and
@@ -70,6 +84,7 @@ if (!app.requestSingleInstanceLock()) {
     // Chromium's, which is the only part of cold start this can influence
     // (ADR-0006).
     engine.start();
+    protocol.handle(ROOST_SCHEME, (request) => assets.handle(request));
     ipcMain.handle(REQUEST_CHANNEL, (_source, payload: unknown) => route(engine, payload));
     createWindow();
 
@@ -82,6 +97,9 @@ if (!app.requestSingleInstanceLock()) {
     // The engine holds the library's lock and its buffered journal, so it is
     // stopped before the process leaves — not left to be killed.
     engine.stop();
+    // The read-only connection is main's, not the engine's, so stopping the
+    // engine does not close it.
+    assets.detach();
     if (process.platform !== "darwin") app.quit();
   });
 
@@ -114,7 +132,9 @@ async function route(engine: Engine, payload: unknown): Promise<unknown> {
     if (ANSWERED_HERE.has(request.type)) {
       return { ok: true, value: await answerHere(request) };
     }
-    return { ok: true, value: await engine.request(request) };
+    const value = await engine.request(request);
+    followLibrary(request, value);
+    return { ok: true, value };
   } catch (error) {
     if (error instanceof EngineProblem || error instanceof EngineGoneError) {
       return { ok: false, problem: error.problem };
@@ -122,6 +142,40 @@ async function route(engine: Engine, payload: unknown): Promise<unknown> {
     log.error("request failed in main", { request: request.type });
     return { ok: false, problem: { code: "remote", message: "request failed", detail: {} } };
   }
+}
+
+/**
+ * Keeps the byte server pointed at whichever library the engine just opened.
+ *
+ * Main learns this from the engine's *reply* rather than from an event, because
+ * the reply is what carries the root and because the ordering then needs no
+ * thought: the renderer cannot have asked for a thumbnail before it knows a
+ * library is open, and it knows that from this same reply.
+ */
+function followLibrary(request: Request, value: unknown): void {
+  if (request.type === "library:close") {
+    assets.detach();
+    return;
+  }
+  if (request.type !== "library:open" && request.type !== "library:create") return;
+
+  const root = isSummary(value) ? value.root : undefined;
+  if (root === undefined) return;
+  try {
+    assets.attach(root);
+  } catch (error) {
+    // A library the engine opened but whose index main cannot read is a broken
+    // library, not a broken request. The window works; thumbnails 404.
+    log.error("could not open the index for serving bytes", {
+      message: error instanceof Error ? error.message : "unknown",
+    });
+  }
+}
+
+function isSummary(value: unknown): value is { root: string } {
+  return (
+    typeof value === "object" && value !== null && typeof Reflect.get(value, "root") === "string"
+  );
 }
 
 /**

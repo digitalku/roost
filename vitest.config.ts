@@ -20,12 +20,23 @@ const packages = readdirSync(fileURLToPath(new URL("./packages", import.meta.url
   .filter((entry) => entry.isDirectory())
   .map((entry) => entry.name);
 
-const alias = Object.fromEntries(
-  packages.map((name) => [
-    `@roost/${name}`,
-    fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url)),
-  ]),
-);
+const root = fileURLToPath(new URL(".", import.meta.url));
+
+/**
+ * The array form, because a subpath export needs a pattern rather than a key.
+ *
+ * `@roost/media/serving` is a real entry point — the decoder-free half of that
+ * package, so the protocol handler can have the format table without loading
+ * sharp — and an exact-match alias cannot express it. The pattern comes first:
+ * Vite takes the first entry that matches.
+ */
+const alias = [
+  { find: /^@roost\/([^/]+)\/(.+)$/, replacement: `${root}packages/$1/src/$2.ts` },
+  ...packages.map((name) => ({
+    find: `@roost/${name}`,
+    replacement: `${root}packages/${name}/src/index.ts`,
+  })),
+];
 
 /**
  * Two projects, because the renderer needs a DOM and nothing else may have one.

@@ -130,8 +130,11 @@ the same library, which the single-instance lock (§6) is for.
 
 Readers are free: WAL allows concurrent readers, and the main process opens exactly one
 **read-only** connection for the `roost://` protocol (§4.3). That connection is the only place
-outside the engine that touches SQLite at all, it is created by a `ThumbnailReader` factory in
-`@roost/core`, and it may not be given a write statement.
+outside the engine that touches SQLite at all. It is `ReadOnlyIndex` in `@roost/core` — ADR-0008
+proposed the name `ThumbnailReader`, and it answers where an original lives as well, because
+`roost://original/<hash>` needs the same connection and a second one would be a second
+exception. It exposes two lookups and no way to write, and SQLite refuses a write on it
+regardless, which is what a test asserts rather than the flag that asks for it.
 
 ### 3.3 `@roost/media` (`packages/media`)
 Everything that touches file bytes:

@@ -165,8 +165,9 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ◐ Sandbox hardening verified: `contextIsolation`, `nodeIntegration: false`, `sandbox: true`,
   CSP, navigation and `window.open` denied, and a test that asserts each one — asserted as
   values, which is not yet the same as asserting what Electron applied
-- ☐ `roost://` protocol: `thumb/<hash>@256|512` from the read-only connection,
-  `original/<hash>` streamed with range support (ADR-0008)
+- ☑ `roost://` protocol: `thumb/<hash>@256|512` from the read-only connection,
+  `original/<hash>` streamed with range support (ADR-0008). Ranges are asserted by test but
+  have not yet been exercised by a `<video>` — there is no real video fixture until M4
 - ☑ Library picker and creator; single-instance lock taken on open. A library is a folder
   called `<Name>.roost` (ADR-0014)
 - ☐ Virtualized grid: masonry and uniform, keyset paging, the cell contract from `UI_SPEC.md` §6
