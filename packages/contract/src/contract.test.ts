@@ -3,7 +3,7 @@ import { readHash, readHashArray, readOneOf } from "./checked.js";
 import { STORAGE_MODES } from "./dto.js";
 import { checkEventEnvelope, checkReplyEnvelope, checkRequestEnvelope } from "./envelope.js";
 import { checkEvent } from "./event.js";
-import { checkRequest, REQUEST_TYPES } from "./request.js";
+import { checkRequest, MAX_PAGE_LIMIT, REQUEST_TYPES } from "./request.js";
 
 describe("validating a request", () => {
   it("accepts what the renderer is meant to send", () => {
@@ -78,9 +78,63 @@ describe("validating a request", () => {
       "library:current",
       "library:close",
       "library:stats",
+      "assets:page",
       "dialog:openLibrary",
       "dialog:chooseLocation",
     ]);
+  });
+});
+
+describe("validating a page of the grid", () => {
+  const page = (over: Record<string, unknown>): ReturnType<typeof checkRequest> =>
+    checkRequest({ type: "assets:page", query: "", limit: 100, after: null, ...over });
+
+  it("accepts an empty query, which means the whole library", () => {
+    expect(page({})).toEqual({
+      ok: true,
+      value: { type: "assets:page", query: "", limit: 100, after: null },
+    });
+  });
+
+  it("takes a cursor back only in the shape it handed one out", () => {
+    const cursor = { importedAt: 1_700_000_000, hash: "a".repeat(64) };
+    expect(page({ after: cursor })).toEqual({
+      ok: true,
+      value: { type: "assets:page", query: "", limit: 100, after: cursor },
+    });
+
+    // Every field of it, checked. A cursor is used in a keyset predicate, and
+    // the renderer is the process this build assumes may be compromised.
+    expect(page({ after: { importedAt: 1, hash: "not-a-hash" } })).toEqual({
+      ok: false,
+      reason: "assets:page: after: hash: expected 64 lowercase hex characters",
+    });
+    expect(page({ after: { hash: "a".repeat(64) } })).toEqual({
+      ok: false,
+      reason: "assets:page: after: importedAt: expected a safe integer",
+    });
+    expect(page({ after: "resume-please" })).toEqual({
+      ok: false,
+      reason: "assets:page: after: expected null or an object",
+    });
+  });
+
+  it("bounds the limit rather than clamping it", () => {
+    // A renderer asking for a million rows is a bug. Answering it politely
+    // would hide the bug behind a slow window.
+    expect(page({ limit: 0 })).toEqual({
+      ok: false,
+      reason: `assets:page: limit: expected 1 to ${MAX_PAGE_LIMIT}`,
+    });
+    expect(page({ limit: MAX_PAGE_LIMIT + 1 })).toEqual({
+      ok: false,
+      reason: `assets:page: limit: expected 1 to ${MAX_PAGE_LIMIT}`,
+    });
+    expect(page({ limit: 1.5 })).toEqual({
+      ok: false,
+      reason: "assets:page: limit: expected a safe integer",
+    });
+    expect(page({ limit: MAX_PAGE_LIMIT }).ok).toBe(true);
   });
 });
 

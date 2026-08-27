@@ -1,0 +1,117 @@
+/*
+ * The grid (UI_SPEC.md §6).
+ *
+ * Cells are positioned with `transform`, not with `top`/`left`: a transform is
+ * a compositor property, so moving a cell does not invalidate layout for the
+ * four hundred beside it. Their geometry comes from the layout module as inline
+ * styles, because it is arithmetic that changes per cell and per resize —
+ * everything that does *not* change per cell is here.
+ */
+
+.grid {
+  position: relative;
+  overflow-y: auto;
+  overflow-x: hidden;
+  height: 100%;
+  padding: var(--gutter);
+  background: var(--bg);
+  /* The scrollbar is the only thing in the app that may overlay content. */
+  scrollbar-gutter: stable;
+}
+
+.grid:focus-visible {
+  outline-offset: -2px;
+}
+
+.grid-canvas {
+  position: relative;
+  width: 100%;
+}
+
+.cell {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-radius: var(--radius-md);
+  /* No transition on transform: a resize would animate four hundred cells. */
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.cell-thumb {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+/*
+ * The placeholder, drawn underneath rather than swapped in on error.
+ *
+ * A library holds anything (CONCEPT.md §5), so a .blend and a .zip are ordinary
+ * members of the grid: the extension, in the monospace stack, legible at the
+ * smallest zoom. It sits behind the image, so a thumbnail that has not arrived
+ * and one that never will look the same and neither needs a re-render to draw.
+ */
+.cell-kind {
+  position: absolute;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cell-image {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  /* Covers the placeholder when it loads, and paints nothing when it 404s. */
+  background: var(--surface-raised);
+  object-fit: cover;
+}
+
+.cell-image:not([src]),
+.cell-image[src=""] {
+  display: none;
+}
+
+.cell-name {
+  overflow: hidden;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cell[data-selected] .cell-thumb {
+  box-shadow: 0 0 0 2px var(--select-border);
+}
+
+.cell[data-selected] .cell-name {
+  color: var(--select-text);
+  background: var(--select-bg);
+}
+
+.cell[data-focused] {
+  outline-color: var(--border-focus);
+}
+
+/* Nothing is on screen yet, and that is a state rather than a blank grid. */
+.grid-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-subtle);
+}

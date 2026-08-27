@@ -170,7 +170,8 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
   have not yet been exercised by a `<video>` — there is no real video fixture until M4
 - ☑ Library picker and creator; single-instance lock taken on open. A library is a folder
   called `<Name>.roost` (ADR-0014)
-- ☐ Virtualized grid: masonry and uniform, keyset paging, the cell contract from `UI_SPEC.md` §6
+- ☑ Virtualized grid: masonry and uniform, keyset paging, the cell contract from `UI_SPEC.md` §6.
+  The list view, the zoom control, marquee selection, and hover-in-the-store are in `TODO.md`
 - ☐ Sidebar: places, folders with subtree counts, smart folders, grouped tags — each row
   carrying the RQL that selects it
 - ☐ Inspector: preview, metadata, tags, rating, favourite, note, all editable, every edit

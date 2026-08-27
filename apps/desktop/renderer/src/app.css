@@ -38,6 +38,13 @@ body {
   height: 100%;
 }
 
+/* Bar, grid, status. The grid is the only row that may grow. */
+.app-library {
+  /* `minmax(0, …)` on the middle row: without it the grid's content sets the
+     row height and the scroll container never scrolls, it just gets taller. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 .panel {
   display: flex;
   flex-direction: column;
@@ -168,24 +175,39 @@ button:disabled {
   color: var(--text-muted);
 }
 
-.counts {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: var(--space-1) var(--space-6);
-  margin: 0;
-  font-size: var(--text-sm);
-  text-align: left;
+/*
+ * The bar above the grid. The sidebar and the inspector take the space either
+ * side of it later; this is the row that survives both.
+ */
+.bar {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+  height: var(--space-9);
+  padding: 0 var(--gutter);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 
-.counts dt {
-  color: var(--text-muted);
+.bar-title {
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--text-md);
+  line-height: var(--leading-md);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.counts dd {
-  margin: 0;
-  font-family: var(--font-mono);
-  /* Compared vertically, so tabular figures. */
-  font-variant-numeric: tabular-nums;
+.bar-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.bar-actions button[data-active] {
+  border-color: var(--select-border);
+  background: var(--select-bg);
+  color: var(--select-text);
 }
 
 .status {

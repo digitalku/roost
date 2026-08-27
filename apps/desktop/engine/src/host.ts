@@ -1,7 +1,14 @@
 import { resolve } from "node:path";
-import type { LibraryStats, LibrarySummary, Request, ResponseOf } from "@roost/contract";
-import { logger } from "@roost/core";
-import { Library, libraryDirectory, libraryNameFromPath } from "@roost/library";
+import type {
+  AssetPage,
+  LibraryStats,
+  LibrarySummary,
+  Request,
+  ResponseOf,
+  WireCursor,
+} from "@roost/contract";
+import { type Cursor, lastCursor, logger, parseContentHash, type SearchHit } from "@roost/core";
+import { Library, libraryDirectory, libraryNameFromPath, pageOf } from "@roost/library";
 
 /**
  * One library, and the requests that reach it.
@@ -50,6 +57,9 @@ export class EngineHost {
       case "library:stats":
         return statsOf(this.#require());
 
+      case "assets:page":
+        return this.#page(request.query, request.limit, request.after);
+
       case "dialog:openLibrary":
       case "dialog:chooseLocation":
         // A dialog belongs to a window and this process has none. Main answers
@@ -57,6 +67,37 @@ export class EngineHost {
         // fails loudly rather than returning a plausible null.
         throw new Error(`${request.type} is answered by main, not by the engine`);
     }
+  }
+
+  /**
+   * One page of the grid, and where the next one starts.
+   *
+   * A short page is the last page. Saying so with `next: null` saves the grid a
+   * round trip that would cost a statement to learn what the row count already
+   * said — the same rule `pages()` uses in `@roost/library`.
+   *
+   * A malformed RQL query throws from the compiler, which is the answer: the
+   * search field wants the parse error, not an empty grid that looks like a
+   * library with nothing in it.
+   */
+  #page(query: string, limit: number, after: WireCursor | null): AssetPage {
+    const library = this.#require();
+    // `parseContentHash` rather than a cast: the contract already checked the
+    // shape, and this is the engine checking it again at its own boundary —
+    // which is the boundary ADR-0007 says matters.
+    const cursor: Cursor | undefined =
+      after === null
+        ? undefined
+        : { importedAt: after.importedAt, hash: parseContentHash(after.hash) };
+
+    // Spread rather than assigned: `exactOptionalPropertyTypes` makes an
+    // explicit `after: undefined` a different thing from an absent one.
+    const hits = pageOf(library, query, { limit, ...(cursor && { after: cursor }) });
+    const last = hits.length < limit ? undefined : lastCursor(hits);
+    return {
+      assets: hits.map(cardOf),
+      next: last === undefined ? null : { importedAt: last.importedAt, hash: last.hash },
+    };
   }
 
   /** Releases whatever is open. Safe to call when nothing is. */
@@ -130,5 +171,26 @@ function statsOf(library: Library): LibraryStats {
     favorites: counts.favorites,
     notes: counts.notes,
     thumbnails: counts.thumbnails,
+  };
+}
+
+/**
+ * One row, mapped field by field onto the wire shape.
+ *
+ * `origName` becomes `name`: the wire calls it what the grid draws, and the
+ * column keeps the name that says it is the user's original (ADR-0007 — the
+ * duplication is the boundary).
+ */
+function cardOf(hit: SearchHit): AssetPage["assets"][number] {
+  return {
+    hash: hit.hash,
+    name: hit.origName,
+    ext: hit.ext,
+    size: hit.size,
+    width: hit.width,
+    height: hit.height,
+    importedAt: hit.importedAt,
+    rating: hit.rating,
+    isFavorite: hit.isFavorite,
   };
 }

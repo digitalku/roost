@@ -1,8 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App.js";
-import { FakeEngine, install } from "./testing/fake-engine.js";
+import { FakeEngine, fakeAsset, install } from "./testing/fake-engine.js";
 
 /**
  * The picker and the creator, driven the way a person drives them.
@@ -44,7 +44,7 @@ describe("opening a library", () => {
     await user.click(await screen.findByRole("button", { name: "Open library…" }));
 
     expect(await screen.findByRole("heading", { name: "Holiday Photos" })).toBeDefined();
-    expect(screen.getByText("1,234")).toBeDefined();
+    expect(screen.getByText("1,234 assets")).toBeDefined();
     expect(screen.getByText("/home/you/Holiday Photos.roost")).toBeDefined();
     // The dialog is asked first and the library second: the renderer never
     // invents a path.
@@ -53,6 +53,9 @@ describe("opening a library", () => {
       "dialog:openLibrary",
       "library:open",
       "library:stats",
+      // The grid asks for its first page as soon as there is a library: a grid
+      // with no rows has nothing to scroll, so nothing else would ask.
+      "assets:page",
     ]);
   });
 
@@ -184,7 +187,7 @@ describe("a library that is already open", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Open library…" }));
-    await screen.findByText("3");
+    await screen.findByText("3 assets");
 
     const before = engine.seen.filter((request) => request.type === "library:stats").length;
     engine.emit({ type: "library:changed" });
@@ -211,5 +214,117 @@ describe("a library that is already open", () => {
 
     expect(await screen.findByRole("button", { name: "Open library…" })).toBeDefined();
     expect(screen.getByText("No library open")).toBeDefined();
+  });
+});
+
+describe("the library view", () => {
+  const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+  const open = async (assets: number) => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets },
+      assets: Array.from({ length: assets }, (_, i) => fakeAsset(i)),
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+    return { engine, user };
+  };
+
+  beforeEach(() => {
+    // happy-dom does no layout, so a grid measured off the element would be
+    // one column of nothing.
+    for (const [name, value] of [
+      ["clientWidth", 1000],
+      ["clientHeight", 800],
+    ] as const) {
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value });
+    }
+  });
+
+  it("shows the grid once a library is open", async () => {
+    await open(12);
+    expect(await screen.findByRole("listbox", { name: "Assets" })).toBeDefined();
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+    // Every cell once. A grid that asked for the first page again after the
+    // last one would show the same twelve rows three times over, which is what
+    // it did before `paging.ts` learned to stop.
+    const hashes = screen.getAllByRole("option").map((cell) => cell.getAttribute("data-hash"));
+    expect(new Set(hashes).size).toBe(12);
+  });
+
+  it("asks for the next page as the scroll approaches the bottom, and then stops", async () => {
+    const { engine } = await open(250);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+
+    const pages = (): number =>
+      engine.seen.filter((request) => request.type === "assets:page").length;
+    // One page for a screen of grid, and no speculative second: 250 rows are
+    // several screens deep, and fetching them all up front is what keyset
+    // paging exists to avoid.
+    expect(pages()).toBe(1);
+
+    const grid = screen.getByRole("listbox");
+    // Measured off the canvas rather than guessed: a fixed offset lands
+    // wherever the layout happens to put things, and a scroll past the end
+    // shows nothing at all.
+    const toBottom = (): void => {
+      const canvas = grid.querySelector<HTMLElement>(".grid-canvas");
+      const height = Number.parseInt(canvas?.style.height ?? "0", 10);
+      Object.defineProperty(grid, "scrollTop", {
+        configurable: true,
+        value: Math.max(0, height - 800),
+      });
+      act(() => {
+        grid.dispatchEvent(new Event("scroll", { bubbles: true }));
+      });
+    };
+
+    toBottom();
+    await waitFor(() => expect(pages()).toBe(2));
+    toBottom();
+    // Three pages covers 250 rows; the third is short, which ends it.
+    await waitFor(() => expect(pages()).toBe(3));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));
+
+    toBottom();
+    // A fourth request would mean the grid ignored the `next: null` it was sent.
+    expect(pages()).toBe(3);
+  });
+
+  it("counts the selection in the status bar", async () => {
+    const { user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    expect(await screen.findByText("12 assets · 1 selected")).toBeDefined();
+
+    await user.keyboard("{Shift>}");
+    await user.click(screen.getAllByRole("option")[4] as HTMLElement);
+    await user.keyboard("{/Shift}");
+    expect(await screen.findByText("12 assets · 5 selected")).toBeDefined();
+  });
+
+  it("switches between masonry and uniform without losing the rows", async () => {
+    const { user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+
+    await user.click(screen.getByRole("button", { name: "Uniform" }));
+    expect(screen.getAllByRole("option")).toHaveLength(12);
+    // A uniform grid gives every cell one shape; masonry does not.
+    const heights = new Set(
+      screen.getAllByRole("option").map((cell) => (cell as HTMLElement).style.height),
+    );
+    expect(heights.size).toBe(1);
+  });
+
+  it("says so when a library holds nothing, rather than showing an empty grid", async () => {
+    await open(0);
+    expect(await screen.findByText("Nothing in this library yet.")).toBeDefined();
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 });

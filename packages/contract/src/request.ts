@@ -1,5 +1,15 @@
-import { bad, type Checked, isRecord, ok, readNonEmpty, within } from "./checked.js";
-import type { LibraryStats, LibrarySummary } from "./dto.js";
+import {
+  bad,
+  type Checked,
+  isRecord,
+  ok,
+  readHash,
+  readInteger,
+  readNonEmpty,
+  readString,
+  within,
+} from "./checked.js";
+import type { AssetPage, LibraryStats, LibrarySummary, WireCursor } from "./dto.js";
 
 /**
  * Every request the renderer can make, and what each one answers with.
@@ -29,6 +39,20 @@ export type Request =
   /** The counts behind the library view. */
   | { readonly type: "library:stats" }
   /**
+   * One page of the grid.
+   *
+   * `query` is RQL, or empty for the whole library — the engine decides what
+   * empty means, because two frontends deciding separately is how they come to
+   * disagree. `after` is a cursor a previous page handed back, or `null` to
+   * start at the newest asset.
+   */
+  | {
+      readonly type: "assets:page";
+      readonly query: string;
+      readonly limit: number;
+      readonly after: WireCursor | null;
+    }
+  /**
    * Ask the user for an existing library directory.
    *
    * Answered by **main**, not the engine: a dialog belongs to a window, and the
@@ -57,6 +81,7 @@ export interface Responses {
   "library:current": LibrarySummary | null;
   "library:close": null;
   "library:stats": LibraryStats;
+  "assets:page": AssetPage;
   /** `null` when the user cancelled, which is an outcome rather than a failure. */
   "dialog:openLibrary": string | null;
   "dialog:chooseLocation": string | null;
@@ -88,9 +113,50 @@ export const REQUEST_VALIDATORS: {
   "library:current": () => ok({ type: "library:current" }),
   "library:close": () => ok({ type: "library:close" }),
   "library:stats": () => ok({ type: "library:stats" }),
+
+  "assets:page": (source) => {
+    // An empty query is legal and means the whole library, so this is
+    // `readString` rather than `readNonEmpty`.
+    const query = readString(source, "query");
+    if (!query.ok) return query;
+
+    const limit = readInteger(source, "limit");
+    if (!limit.ok) return limit;
+    // A limit is bounded at both ends here rather than clamped, because a
+    // renderer asking for a million rows is a bug and answering it politely
+    // would hide the bug behind a slow window.
+    if (limit.value < 1 || limit.value > MAX_PAGE_LIMIT) {
+      return bad(`limit: expected 1 to ${MAX_PAGE_LIMIT}`);
+    }
+
+    const after = readCursor(source["after"]);
+    if (!after.ok) return within("after", after);
+
+    return ok({ type: "assets:page", query: query.value, limit: limit.value, after: after.value });
+  },
   "dialog:openLibrary": () => ok({ type: "dialog:openLibrary" }),
   "dialog:chooseLocation": () => ok({ type: "dialog:chooseLocation" }),
 };
+
+/**
+ * The most rows one request may ask for.
+ *
+ * Not a performance guess: `DEFAULT_PAGE_LIMIT` is 100, a screen of grid with
+ * room to scroll into, and this is two orders above it. Anything larger is a
+ * caller that meant to page and did not.
+ */
+export const MAX_PAGE_LIMIT = 10_000;
+
+/** A cursor as it arrives: `null`, or the two fields a previous page handed out. */
+function readCursor(value: unknown): Checked<WireCursor | null> {
+  if (value === null) return ok(null);
+  if (!isRecord(value)) return bad("expected null or an object");
+  const importedAt = readInteger(value, "importedAt");
+  if (!importedAt.ok) return importedAt;
+  const hash = readHash(value, "hash");
+  if (!hash.ok) return hash;
+  return ok({ importedAt: importedAt.value, hash: hash.value });
+}
 
 export const REQUEST_TYPES = Object.keys(REQUEST_VALIDATORS) as RequestType[];
 

@@ -29,11 +29,14 @@ export {
   within,
 } from "./checked.js";
 export {
+  type AssetCard,
+  type AssetPage,
   LIBRARY_SUFFIX,
   type LibraryStats,
   type LibrarySummary,
   STORAGE_MODES,
   type StorageMode,
+  type WireCursor,
   type WireProblem,
 } from "./dto.js";
 export {
@@ -57,6 +60,7 @@ export {
 export {
   checkRequest,
   isRequestType,
+  MAX_PAGE_LIMIT,
   REQUEST_TYPES,
   REQUEST_VALIDATORS,
   type Request,

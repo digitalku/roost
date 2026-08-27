@@ -1,4 +1,6 @@
 import type {
+  AssetCard,
+  AssetPage,
   LibraryStats,
   LibrarySummary,
   Outcome,
@@ -38,6 +40,29 @@ export interface FakeEngineOptions {
   readonly existing?: readonly FakeLibrary[];
   /** Counts every library reports. */
   readonly stats?: Partial<LibraryStats>;
+  /** What the grid pages through, newest first. */
+  readonly assets?: readonly AssetCard[];
+}
+
+/**
+ * An asset with everything a cell needs and nothing a test has to spell out.
+ *
+ * `importedAt` descends with the index so that the fake's paging order matches
+ * the real one — newest first — and a cursor means the same thing in both.
+ */
+export function fakeAsset(index: number, over: Partial<AssetCard> = {}): AssetCard {
+  return {
+    hash: index.toString(16).padStart(64, "0"),
+    name: `asset-${index}.png`,
+    ext: "png",
+    size: 1024 + index,
+    width: 800,
+    height: 600,
+    importedAt: 2_000_000_000 - index,
+    rating: null,
+    isFavorite: false,
+    ...over,
+  };
 }
 
 const EMPTY_STATS: LibraryStats = {
@@ -150,8 +175,42 @@ export class FakeEngine {
           return problem("remote", "No library is open", {});
         }
         return ok({ ...EMPTY_STATS, ...this.#options.stats });
+
+      case "assets:page": {
+        if (this.#open === undefined) {
+          return problem("remote", "No library is open", {});
+        }
+        // Only the empty query, deliberately. A fake that answered RQL with a
+        // substring match would let a component test pass while believing
+        // something about a language this file does not implement.
+        if (request.query.trim() !== "") {
+          return problem("remote", "the fake engine has no query language", {
+            query: request.query,
+          });
+        }
+        return ok(pageOf(this.#options.assets ?? [], request.limit, request.after));
+      }
     }
   }
+}
+
+/** Keyset paging over a plain array, the way the engine does it over SQLite. */
+function pageOf(
+  assets: readonly AssetCard[],
+  limit: number,
+  after: { readonly importedAt: number; readonly hash: string } | null,
+): AssetPage {
+  const start = after === null ? 0 : assets.findIndex((asset) => asset.hash === after.hash) + 1;
+  const slice = assets.slice(start, start + limit);
+  const last = slice[slice.length - 1];
+  return {
+    assets: slice,
+    // A short page is the last page, which is the rule the grid stops on.
+    next:
+      slice.length < limit || last === undefined
+        ? null
+        : { importedAt: last.importedAt, hash: last.hash },
+  };
 }
 
 function summarize(library: FakeLibrary): LibrarySummary {

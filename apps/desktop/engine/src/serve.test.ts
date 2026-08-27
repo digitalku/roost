@@ -1,9 +1,9 @@
-import { mkdtemp, readdir, readlink, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReplyEnvelope, Request } from "@roost/contract";
 import { LIBRARY_SUFFIX as WIRE_SUFFIX } from "@roost/contract";
-import { LIBRARY_SUFFIX } from "@roost/library";
+import { importInto, LIBRARY_SUFFIX, Library } from "@roost/library";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost } from "./host.js";
 import type { Port } from "./port.js";
@@ -190,6 +190,106 @@ describe("the engine's message loop", () => {
     await ask(1, { type: "library:create", parent: dir, name: "Closed" });
     expect(await ask(2, { type: "library:close" })).toEqual({ id: 2, ok: true, value: null });
     expect(await ask(3, { type: "library:current" })).toEqual({ id: 3, ok: true, value: null });
+  });
+
+  /**
+   * A library with `count` distinct files in it, opened through the host.
+   *
+   * Built with `@roost/library` and then handed over, because the engine has no
+   * import request yet — the grid arrives before the import UI does.
+   */
+  const libraryOf = async (count: number): Promise<void> => {
+    const source = join(dir, "source");
+    await mkdir(source, { recursive: true });
+    for (let i = 0; i < count; i += 1) {
+      await writeFile(join(source, `file-${i}.txt`), `contents ${i}`);
+    }
+    const root = join(dir, `Paged${LIBRARY_SUFFIX}`);
+    const library = await Library.create(root, "Paged");
+    try {
+      await importInto(library, [source]);
+    } finally {
+      await library.close();
+    }
+    await ask(100, { type: "library:open", path: root });
+  };
+
+  const pageOfHits = (reply: ReplyEnvelope | undefined): { names: string[]; next: unknown } => {
+    const value = (reply as { value: { assets: { name: string }[]; next: unknown } }).value;
+    return { names: value.assets.map((a) => a.name), next: value.next };
+  };
+
+  it("pages the grid by cursor, and says when there is no next page", async () => {
+    await libraryOf(5);
+
+    const first = await ask(1, { type: "assets:page", query: "", limit: 2, after: null });
+    const firstPage = pageOfHits(first);
+    expect(firstPage.names).toHaveLength(2);
+    expect(firstPage.next).not.toBeNull();
+
+    const second = await ask(2, {
+      type: "assets:page",
+      query: "",
+      limit: 2,
+      after: firstPage.next as { importedAt: number; hash: string },
+    });
+    const secondPage = pageOfHits(second);
+    expect(secondPage.names).toHaveLength(2);
+    // No overlap: a cursor resumes after the last row, it does not repeat it.
+    expect(new Set([...firstPage.names, ...secondPage.names]).size).toBe(4);
+
+    const third = await ask(3, {
+      type: "assets:page",
+      query: "",
+      limit: 2,
+      after: secondPage.next as { importedAt: number; hash: string },
+    });
+    // A short page is the last page, and saying so saves the grid a round trip
+    // that would only confirm what the row count already said.
+    expect(pageOfHits(third)).toEqual({ names: expect.any(Array), next: null });
+    expect(pageOfHits(third).names).toHaveLength(1);
+  });
+
+  it("sends the grid only the fields a cell draws, and never bytes", async () => {
+    await libraryOf(1);
+    const reply = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const [card] = (reply as { value: { assets: Record<string, unknown>[] } }).value.assets;
+
+    // Invariant 12: a thumbnail reaches the window over `roost://`, never in a
+    // message. A field added here that carried bytes would pass every other
+    // test in this file.
+    expect(Object.keys(card ?? {}).sort()).toEqual([
+      "ext",
+      "hash",
+      "height",
+      "importedAt",
+      "isFavorite",
+      "name",
+      "rating",
+      "size",
+      "width",
+    ]);
+  });
+
+  it("treats an empty query as the whole library and RQL as a filter", async () => {
+    await libraryOf(3);
+
+    const all = await ask(1, { type: "assets:page", query: "", limit: 10, after: null });
+    expect(pageOfHits(all).names).toHaveLength(3);
+
+    const txt = await ask(2, { type: "assets:page", query: "ext:txt", limit: 10, after: null });
+    expect(pageOfHits(txt).names).toHaveLength(3);
+
+    const none = await ask(3, { type: "assets:page", query: "ext:png", limit: 10, after: null });
+    expect(pageOfHits(none)).toEqual({ names: [], next: null });
+  });
+
+  it("answers a malformed query with the parse error rather than an empty grid", async () => {
+    await libraryOf(1);
+    // An empty grid would look like a library with nothing in it. The search
+    // field needs to be able to say where the query went wrong.
+    const reply = await ask(1, { type: "assets:page", query: "rating:>>", limit: 10, after: null });
+    expect(reply?.ok).toBe(false);
   });
 
   it("maps the counts field by field rather than spreading them", async () => {

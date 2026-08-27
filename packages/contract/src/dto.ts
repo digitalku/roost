@@ -68,3 +68,46 @@ export interface WireProblem {
   readonly message: string;
   readonly detail: Readonly<Record<string, string | number | boolean | null>>;
 }
+
+/**
+ * Where a listing resumes.
+ *
+ * Keyset paging, never an offset (`DATA_MODEL.md`): a cursor costs the same at
+ * row 900,000 as at row 100, and the grid scrolls through both. The renderer
+ * never builds one — it sends back what the previous page handed it.
+ */
+export interface WireCursor {
+  readonly importedAt: number;
+  readonly hash: string;
+}
+
+/**
+ * One asset, as much of it as a grid cell draws.
+ *
+ * `width` and `height` are `| null` rather than optional, because that is what
+ * the column holds: absent for anything not probed as an image or a video. The
+ * grid needs them to reserve a cell's shape before the thumbnail arrives, which
+ * is the difference between laying out once and reflowing on every load
+ * (`UI_SPEC.md` §6).
+ *
+ * No thumbnail here, and there never will be one: the cell asks for
+ * `roost://thumb/<hash>@256` and the bytes never enter a message (invariant 12).
+ */
+export interface AssetCard {
+  readonly hash: string;
+  readonly name: string;
+  readonly ext: string;
+  readonly size: number;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly importedAt: number;
+  readonly rating: number | null;
+  readonly isFavorite: boolean;
+}
+
+/** One page of the grid, and where the next one starts. */
+export interface AssetPage {
+  readonly assets: readonly AssetCard[];
+  /** `null` when this was the last page, so the grid stops asking. */
+  readonly next: WireCursor | null;
+}

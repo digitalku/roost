@@ -1,7 +1,11 @@
 import type { LibraryStats, LibrarySummary, WireProblem } from "@roost/contract";
 import { LIBRARY_SUFFIX } from "@roost/contract";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { invoke, onEvent } from "./bridge.js";
+import { Grid } from "./grid/Grid.js";
+import type { GridMode } from "./grid/layout.js";
+import { useAssetPages } from "./grid/paging.js";
+import { SelectionStore } from "./grid/selection.js";
 
 /**
  * The window, at the point where it can open a library and say what is in it.
@@ -29,6 +33,12 @@ export function App(): React.JSX.Element {
   const [name, setName] = useState("");
   const [location, setLocation] = useState<string | undefined>();
   const nameField = useRef<HTMLInputElement>(null);
+  /**
+   * Bumped whenever the rows already held became wrong rather than merely
+   * incomplete — a different library, or an edit the engine announced. The grid
+   * restarts its paging on it.
+   */
+  const [generation, setGeneration] = useState(0);
 
   // Focus moved deliberately, in the frame after the form appears, rather than
   // with `autoFocus`: this form opens in response to a click, so putting the
@@ -42,6 +52,7 @@ export function App(): React.JSX.Element {
     if (!stats.ok) return setProblem(stats.problem);
     setProblem(undefined);
     setOpened({ summary, stats: stats.value });
+    setGeneration((n) => n + 1);
   }, []);
 
   // Whatever the engine already holds. A window reopened after a reload finds
@@ -111,16 +122,12 @@ export function App(): React.JSX.Element {
 
   if (opened !== undefined) {
     return (
-      <Frame summary={opened.summary}>
-        <section className="panel">
-          <h1>{opened.summary.name}</h1>
-          <Counts stats={opened.stats} />
-          <button type="button" onClick={() => void close()}>
-            Close library
-          </button>
-          {problem !== undefined && <Problem problem={problem} />}
-        </section>
-      </Frame>
+      <LibraryView
+        opened={opened}
+        generation={generation}
+        onClose={() => void close()}
+        problem={problem}
+      />
     );
   }
 
@@ -232,6 +239,12 @@ function Frame({
   );
 }
 
+/** `1,234 assets · 3 selected`, with the second half only when there is one. */
+function summaryLine(assets: number, selected: number): string {
+  const total = `${assets.toLocaleString()} ${assets === 1 ? "asset" : "assets"}`;
+  return selected === 0 ? total : `${total} · ${selected.toLocaleString()} selected`;
+}
+
 /**
  * What the folder will be called.
  *
@@ -252,28 +265,83 @@ function Problem({ problem }: { readonly problem: WireProblem }): React.JSX.Elem
   );
 }
 
-/** The counts a library reports, in the order `roost stats` prints them. */
-function Counts({ stats }: { readonly stats: LibraryStats }): React.JSX.Element {
-  const rows: readonly (readonly [string, number])[] = [
-    ["Assets", stats.assets],
-    ["Managed", stats.managed],
-    ["Referenced", stats.referenced],
-    ["Tags", stats.tags],
-    ["Folders", stats.folders],
-    ["Smart folders", stats.smartFolders],
-    ["Rated", stats.rated],
-    ["Favourites", stats.favorites],
-    ["Thumbnails", stats.thumbnails],
-  ];
+/**
+ * A library, open: the grid, and a status bar that says what is in it.
+ *
+ * The paging, the selection, and the layout are the grid's; this is the shell
+ * around them. The sidebar and the inspector are the rest of M3 and will take
+ * the space either side.
+ */
+function LibraryView({
+  opened,
+  generation,
+  onClose,
+  problem,
+}: {
+  readonly opened: Opened;
+  readonly generation: number;
+  readonly onClose: () => void;
+  readonly problem: WireProblem | undefined;
+}): React.JSX.Element {
+  const [mode, setMode] = useState<GridMode>("masonry");
+  // One store for the life of the view. A new one per render would drop the
+  // selection on every keystroke, and every cell's subscription with it.
+  const selection = useMemo(() => new SelectionStore(), []);
+  const paging = useAssetPages("", generation);
+  // The library's problem outranks the grid's: a library that failed to open
+  // explains an empty grid, and showing both would say the same thing twice.
+  const showing = problem ?? paging.problem;
+
+  // Subscribed for the wake, not for the value: the count is read straight off
+  // the store below, and a revision counter is what makes "deselect one, select
+  // another" register as a change at all.
+  useSyncExternalStore(selection.subscribeRevision, selection.revision);
+  const count = selection.size;
 
   return (
-    <dl className="counts">
-      {rows.map(([label, value]) => (
-        <div key={label} style={{ display: "contents" }}>
-          <dt>{label}</dt>
-          <dd>{value.toLocaleString()}</dd>
+    <div className="app app-library">
+      <header className="bar">
+        <h1 className="bar-title">{opened.summary.name}</h1>
+        <div className="bar-actions">
+          <button
+            type="button"
+            data-active={mode === "masonry" || undefined}
+            onClick={() => setMode("masonry")}
+          >
+            Masonry
+          </button>
+          <button
+            type="button"
+            data-active={mode === "uniform" || undefined}
+            onClick={() => setMode("uniform")}
+          >
+            Uniform
+          </button>
+          <button type="button" onClick={onClose}>
+            Close library
+          </button>
         </div>
-      ))}
-    </dl>
+      </header>
+
+      {paging.assets.length === 0 && paging.done ? (
+        <p className="grid-empty">Nothing in this library yet.</p>
+      ) : (
+        <Grid
+          assets={paging.assets}
+          mode={mode}
+          target={240}
+          selection={selection}
+          onMore={paging.more}
+        />
+      )}
+
+      <footer className="status">
+        {/* One text node, so what the status bar says is one readable string
+            rather than four fragments a screen reader has to reassemble. */}
+        <span>{summaryLine(opened.stats.assets, count)}</span>
+        <span className="path">{opened.summary.root}</span>
+      </footer>
+      {showing !== undefined && <Problem problem={showing} />}
+    </div>
   );
 }

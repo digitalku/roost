@@ -256,6 +256,21 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟡 Window state — size, position, last library — has nowhere to live until there is an
   application config (`~/.config/roost/`). Recent libraries and the default import mode need the
   same place.
+- 🟡 **The grid landed without four things `UI_SPEC.md` §6 describes**, and each is a decision
+  rather than an omission to discover later:
+  - **The list view.** §6 names three views; masonry and uniform are built, and the list is a
+    different component rather than a third layout — columns, sorting, and a header row.
+  - **The zoom control.** The cell target is fixed at 240px. The layout already takes it as a
+    parameter, so this is a control and a stored preference, and the preference needs the
+    application config that window state is also waiting for.
+  - **Marquee selection.** Dragging on the background clears the selection today rather than
+    sweeping one. The store has every operation it needs; what is missing is the drag.
+  - **Hover in the store.** Hover is CSS-only, which is right until something outside the cell
+    has to know what is under the pointer — the inspector's preview-on-hover is the first thing
+    that will.
+- 🟢 **The grid's frame budget is asserted by construction, not measured.** The re-render count
+  is a test, and the layout is a binary search per column; neither is a frame percentile. The
+  scroll benchmark mode is what turns this into a number, and it is still an M3 item.
 - 🟢 The app icon. `roost-old` shipped a flat generated square and never replaced it.
 
 ### Deferred by design

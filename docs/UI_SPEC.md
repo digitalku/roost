@@ -278,8 +278,11 @@ the grid is permitted, and it happens off-screen when the derive queue is keepin
 - No context provider whose value changes on scroll wraps the grid.
 - Scroll and resize handlers are throttled to animation frames and never `setState` per event.
 - The thumbnail is `<img loading="lazy" decoding="async" src="roost://thumb/…@256">`. Image
-  bytes never pass through React state, and the missing-thumbnail placeholder is drawn from
-  `onError`.
+  bytes never pass through React state, and the placeholder is drawn **underneath** the image
+  rather than swapped in from `onError` — a handler would need a piece of state per cell, and
+  the state would have to be reset every time the cell is recycled to a different asset. Drawn
+  underneath, a thumbnail that has not arrived and one that never will look the same, and
+  neither costs a render.
 - **The placeholder is a first-class cell, not a broken one.** A library is not only media
   (`CONCEPT.md` §5), so a `.blend` or a `.zip` is an ordinary member of the grid: the extension
   set in the monospace stack, legible at the smallest zoom, over the surface colour — never a
