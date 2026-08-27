@@ -62,7 +62,8 @@ body {
 /* The grid takes what is left. `min-width: 0` because a flex item's default
    `min-width: auto` would let its content push the panels off screen. */
 .workspace > .grid,
-.workspace > .grid-empty {
+.workspace > .grid-empty,
+.workspace > .preview {
   flex: 1 1 auto;
   min-width: 0;
 }

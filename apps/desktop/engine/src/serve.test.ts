@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, readdir, readlink, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReplyEnvelope, Request } from "@roost/contract";
-import { LIBRARY_SUFFIX as WIRE_SUFFIX } from "@roost/contract";
+import { ASSET_KINDS as WIRE_KINDS, LIBRARY_SUFFIX as WIRE_SUFFIX } from "@roost/contract";
+import { KINDS } from "@roost/core";
 import { importInto, LIBRARY_SUFFIX, Library } from "@roost/library";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost } from "./host.js";
@@ -404,6 +405,7 @@ describe("the engine's message loop", () => {
       [
         "createdAt",
         "ext",
+        "kind",
         "folders",
         "hash",
         "height",
@@ -423,6 +425,14 @@ describe("the engine's message loop", () => {
     expect(value["rating"]).toBeNull();
     expect(value["isFavorite"]).toBe(false);
     expect(value["tags"]).toEqual([]);
+  });
+
+  it("agrees with @roost/core about what an asset broadly is", async () => {
+    // Two vocabularies that must match and cannot import each other: the
+    // contract may not depend on `@roost/core`, and the renderer may not import
+    // anything else. This process depends on both (ADR-0007, and the same
+    // argument ADR-0014 made about the library suffix).
+    expect([...WIRE_KINDS]).toEqual([...KINDS]);
   });
 
   it("answers with null for an asset the library does not hold", async () => {

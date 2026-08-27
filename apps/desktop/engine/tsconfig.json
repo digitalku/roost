@@ -19,6 +19,9 @@
     },
     {
       "path": "../../../packages/search"
+    },
+    {
+      "path": "../../../packages/media"
     }
   ]
 }

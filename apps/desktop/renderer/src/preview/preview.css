@@ -1,0 +1,68 @@
+/* The preview pane (UI_SPEC.md §7). Fills the content region, not the window:
+   the sidebar and the inspector stay where they are, so closing it does not
+   move everything else. */
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.preview:focus-visible {
+  outline-offset: -2px;
+}
+
+.preview-bar {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  height: var(--row-height);
+  padding: 0 var(--gutter);
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-name {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.preview-stage {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--gutter);
+}
+
+/* Fit to the pane. `max-*` rather than `width: 100%` so a small image is shown
+   at its own size instead of being blown up into mush. */
+.preview-media {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.preview-audio {
+  width: 100%;
+  max-width: 480px;
+}
+
+.preview-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: center;
+  max-width: 320px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.preview-fallback .inspector-preview {
+  width: 100%;
+}

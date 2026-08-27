@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App.js";
-import { FakeEngine, fakeAsset, install } from "./testing/fake-engine.js";
+import { FakeEngine, fakeAsset, fakeDetail, install } from "./testing/fake-engine.js";
 
 /**
  * The picker and the creator, driven the way a person drives them.
@@ -467,5 +467,89 @@ describe("the navigation pane, in the window", () => {
     // filter is a count of things nobody can see. The total becomes the match
     // count, because the grid is no longer showing the whole library.
     expect(await screen.findByText("1 asset")).toBeDefined();
+  });
+});
+
+describe("the preview, in the window", () => {
+  const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+  beforeEach(() => {
+    for (const [name, value] of [
+      ["clientWidth", 1000],
+      ["clientHeight", 800],
+    ] as const) {
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value });
+    }
+  });
+
+  const open = async () => {
+    const assets = Array.from({ length: 6 }, (_, i) => fakeAsset(i));
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: assets.length },
+      assets,
+      details: assets.map((_, i) => fakeDetail(i, { name: `asset-${i}.png` })),
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(6));
+    return { engine, user, assets };
+  };
+
+  it("opens on Enter and closes on Escape, leaving the grid where it was", async () => {
+    const { user } = await open();
+    await user.click(screen.getAllByRole("option")[2] as HTMLElement);
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByRole("dialog")).toBeDefined();
+    expect(screen.queryByRole("listbox")).toBeNull();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getAllByRole("option")).toHaveLength(6);
+  });
+
+  it("opens on a double-click", async () => {
+    const { user } = await open();
+    await user.dblClick(screen.getAllByRole("option")[1] as HTMLElement);
+    expect(await screen.findByRole("dialog")).toBeDefined();
+  });
+
+  it("changes the selection as it steps, so the inspector follows", async () => {
+    // `UI_SPEC.md` §7. In `roost-old` stepping did not move the selection, and
+    // a note could be written onto the wrong asset while the preview showed
+    // another one.
+    const { user } = await open();
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog");
+
+    expect(await screen.findByRole("img", { name: "asset-0.png" })).toBeDefined();
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(await screen.findByRole("img", { name: "asset-2.png" })).toBeDefined();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // The selection moved with it, which is what "stepping changes the
+    // selection" has to mean once the preview is closed again.
+    expect(screen.getByText("6 assets · 1 selected")).toBeDefined();
+    expect(screen.getByRole("listbox").getAttribute("aria-activedescendant")).toContain(
+      fakeAsset(2).hash,
+    );
+  });
+
+  it("stops at the ends rather than wrapping", async () => {
+    const { user } = await open();
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    await user.keyboard("{Enter}");
+    await screen.findByRole("img", { name: "asset-0.png" });
+
+    await user.keyboard("{ArrowLeft}{ArrowLeft}");
+    // A wrap here is a jump of thousands of rows, which is not what an arrow
+    // key means anywhere else.
+    expect(await screen.findByRole("img", { name: "asset-0.png" })).toBeDefined();
   });
 });

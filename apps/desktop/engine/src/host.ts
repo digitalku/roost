@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type {
+  AssetKind,
   AssetPage,
   LibraryStats,
   LibrarySummary,
@@ -36,6 +37,7 @@ import {
   tagAdd,
   tagRemove,
 } from "@roost/library";
+import { formatFromExtension, kindOf } from "@roost/media/serving";
 import { QueryError } from "@roost/search";
 
 /**
@@ -397,6 +399,7 @@ function detailOf(detail: AssetDetail): WireAssetDetail {
     hash: detail.hash,
     name: detail.origName,
     ext: detail.ext,
+    kind: kindOf(formatFromExtension(detail.ext)) satisfies AssetKind,
     size: detail.size,
     width: detail.width,
     height: detail.height,

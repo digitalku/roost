@@ -7,6 +7,7 @@ import "./grid/grid.css";
 import "./sidebar/sidebar.css";
 import "./search/search.css";
 import "./inspector/inspector.css";
+import "./preview/preview.css";
 
 const root = document.getElementById("root");
 if (root === null) throw new Error("index.html has no #root");

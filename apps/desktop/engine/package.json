@@ -10,6 +10,7 @@
     "@roost/contract": "workspace:*",
     "@roost/core": "workspace:*",
     "@roost/library": "workspace:*",
+    "@roost/media": "workspace:*",
     "@roost/search": "workspace:*"
   },
   "devDependencies": {

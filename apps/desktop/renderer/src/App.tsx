@@ -7,6 +7,7 @@ import type { GridMode } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
 import { Inspector } from "./inspector/Inspector.js";
+import { PreviewPane } from "./preview/PreviewPane.js";
 import { SearchField } from "./search/SearchField.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
 
@@ -375,6 +376,26 @@ function LibraryView({
   // The inspector follows focus, not selection: a `Shift`-click selects a run
   // and the panel shows the one the ring is on (`UI_SPEC.md` §6).
   const focused = selection.focused;
+  const [previewing, setPreviewing] = useState(false);
+
+  /**
+   * Steps the preview through the loaded list.
+   *
+   * `selection.click` rather than `selection.focus`, because stepping **changes
+   * the selection** (`UI_SPEC.md` §7): in `roost-old` it did not, and a note
+   * could be written onto the wrong asset while the preview showed another.
+   */
+  const step = useCallback(
+    (delta: -1 | 1) => {
+      const order = paging.assets.map((asset) => asset.hash);
+      const at = focused === undefined ? -1 : order.indexOf(focused);
+      const next = order[at + delta];
+      // Stops at the ends rather than wrapping. A wrap here is a jump of
+      // thousands of rows, which is not what an arrow key means anywhere else.
+      if (next !== undefined) selection.click(next);
+    },
+    [paging.assets, focused, selection],
+  );
 
   return (
     <div className="app app-library">
@@ -407,7 +428,9 @@ function LibraryView({
             field shows what it was replaced with — one source of truth for what
             is on screen, and it is a string the user can read and edit. */}
         {sidebar !== undefined && <Sidebar sidebar={sidebar} query={query} onPick={applyQuery} />}
-        {paging.assets.length === 0 && paging.done ? (
+        {previewing && focused !== undefined ? (
+          <PreviewPane hash={focused} onClose={() => setPreviewing(false)} onStep={step} />
+        ) : paging.assets.length === 0 && paging.done ? (
           <p className="grid-empty">{query === "" ? EMPTY_LIBRARY : NOTHING_MATCHED}</p>
         ) : (
           <Grid
@@ -416,6 +439,7 @@ function LibraryView({
             target={240}
             selection={selection}
             onMore={paging.more}
+            onOpen={() => setPreviewing(true)}
           />
         )}
         <Inspector hash={focused} generation={revision} />

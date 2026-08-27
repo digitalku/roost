@@ -178,7 +178,8 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ☑ Inspector: preview, metadata, tags, rating, favourite, note, all editable, every edit
   reading the record back rather than trusting what it sent. Proven through the window and then
   through a `roost rebuild`: every edit the GUI made survived deleting the index
-- ☐ Preview pane: image, video, audio, external fallback; arrow keys move selection with it
+- ☑ Preview pane: image, video, audio, external fallback; arrow keys move selection with it.
+  Zoom-to-1:1 and drag-to-pan are in `TODO.md`; PDF page-through and font specimens are M4
 - ◐ Search field with RQL validation, autocomplete, and the positioned parse error — validation,
   the caret, the 250ms idle, and the match count are in; autocomplete, chips, and "save as smart
   folder" are in `TODO.md`

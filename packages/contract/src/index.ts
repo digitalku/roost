@@ -29,7 +29,9 @@ export {
   within,
 } from "./checked.js";
 export {
+  ASSET_KINDS,
   type AssetCard,
+  type AssetKind,
   type AssetPage,
   LIBRARY_SUFFIX,
   type LibraryStats,

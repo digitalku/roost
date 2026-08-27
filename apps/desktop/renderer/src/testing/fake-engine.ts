@@ -76,6 +76,7 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     hash: card.hash,
     name: card.name,
     ext: card.ext,
+    kind: "image",
     size: card.size,
     width: card.width,
     height: card.height,

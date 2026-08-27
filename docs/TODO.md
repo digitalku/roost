@@ -309,6 +309,13 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   the interface for it — a multi-selection inspector has to show what the assets *share* and
   what differs, and "3 assets · mixed ratings" is a design question `UI_SPEC.md` §3 does not
   answer yet.
+- 🟡 **The preview fits the pane and stops there.** `UI_SPEC.md` §7 also asks for click-to-toggle
+  1:1 and drag-to-pan on an image, which is the difference between looking at a photograph and
+  checking one. It needs a transform and a gesture, not a new request.
+- 🟡 **Video range requests are still unexercised by a `<video>`.** The preview asks for
+  `roost://original/<hash>` and the protocol answers ranges down to the byte, tested both ways —
+  but the thing they exist for is a player seeking, and there is still no real video fixture in
+  the container (§2 above).
 - 🟢 **The grid's frame budget is asserted by construction, not measured.** The re-render count
   is a test, and the layout is a binary search per column; neither is a frame percentile. The
   scroll benchmark mode is what turns this into a number, and it is still an M3 item.

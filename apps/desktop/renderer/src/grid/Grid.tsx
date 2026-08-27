@@ -114,29 +114,34 @@ export function Grid({
    * moved off screen, one scroll — which is the other half of what an arrow key
    * means.
    */
-  useEffect(
-    () =>
-      selection.subscribeRevision(() => {
-        const element = viewport.current;
-        const hash = selection.focused;
-        if (element === null) return;
-        if (hash === undefined) {
-          element.removeAttribute("aria-activedescendant");
-          return;
-        }
-        element.setAttribute("aria-activedescendant", cellId(hash));
+  useEffect(() => {
+    const paint = (): void => {
+      const element = viewport.current;
+      const hash = selection.focused;
+      if (element === null) return;
+      if (hash === undefined) {
+        element.removeAttribute("aria-activedescendant");
+        return;
+      }
+      element.setAttribute("aria-activedescendant", cellId(hash));
 
-        const tile = grid.order.find((candidate) => candidate.hash === hash);
-        if (tile === undefined) return;
-        const visibleTop = element.scrollTop;
-        const visibleBottom = visibleTop + element.clientHeight;
-        if (tile.y < visibleTop) element.scrollTop = tile.y;
-        else if (tile.y + tile.height > visibleBottom) {
-          element.scrollTop = tile.y + tile.height - element.clientHeight;
-        }
-      }),
-    [grid, selection],
-  );
+      const tile = grid.order.find((candidate) => candidate.hash === hash);
+      if (tile === undefined) return;
+      const visibleTop = element.scrollTop;
+      const visibleBottom = visibleTop + element.clientHeight;
+      if (tile.y < visibleTop) element.scrollTop = tile.y;
+      else if (tile.y + tile.height > visibleBottom) {
+        element.scrollTop = tile.y + tile.height - element.clientHeight;
+      }
+    };
+
+    // Painted once as well as on every change: the grid is unmounted while the
+    // preview is open, and on the way back the focus it left with has to be on
+    // the element and in view — which is also what makes stepping through the
+    // preview leave the grid scrolled to where it ended up.
+    paint();
+    return selection.subscribeRevision(paint);
+  }, [grid, selection]);
 
   const tiles = useMemo(
     () => visibleTiles(grid, top, top + Math.max(height, 1), OVERSCAN),
@@ -160,6 +165,16 @@ export function Grid({
       else selection.click(hash);
     },
     [selection],
+  );
+
+  const onDoubleClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      // The pointer-down that preceded this already selected and focused the
+      // cell, so opening is all that is left to do.
+      const hash = hashAt(event.target);
+      if (hash !== undefined) onOpen?.(hash);
+    },
+    [onOpen],
   );
 
   const onKeyDown = useCallback(
@@ -204,6 +219,7 @@ export function Grid({
       ref={viewport}
       onScroll={onScroll}
       onPointerDown={onPointerDown}
+      onDoubleClick={onDoubleClick}
       onKeyDown={onKeyDown}
       role="listbox"
       aria-multiselectable

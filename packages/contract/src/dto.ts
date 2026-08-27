@@ -27,6 +27,19 @@ export const LIBRARY_SUFFIX = ".roost";
 export const STORAGE_MODES = ["managed", "referenced"] as const;
 export type StorageMode = (typeof STORAGE_MODES)[number];
 
+/**
+ * What an asset broadly is, which is what selects the preview (`UI_SPEC.md` §7).
+ *
+ * Declared here as well as in `@roost/core` because the renderer needs it and
+ * this package is the only one it may import — the same duplication ADR-0007
+ * calls the boundary. The engine asserts the two agree.
+ *
+ * `other` is not a failure. A format Roost cannot draw still imports, still
+ * carries tags, and opens in the application that owns it.
+ */
+export const ASSET_KINDS = ["image", "video", "audio", "document", "font", "other"] as const;
+export type AssetKind = (typeof ASSET_KINDS)[number];
+
 /** What the window shows about the library it has open. */
 export interface LibrarySummary {
   readonly root: string;
@@ -179,6 +192,12 @@ export interface WireAssetDetail {
   readonly hash: string;
   readonly name: string;
   readonly ext: string;
+  /**
+   * Decided by the engine from the format table, not from the extension in the
+   * renderer: `@roost/media` owns that table, and a second copy of it here
+   * would disagree the first time a format is added.
+   */
+  readonly kind: AssetKind;
   readonly size: number;
   readonly width: number | null;
   readonly height: number | null;
