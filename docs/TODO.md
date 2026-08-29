@@ -264,11 +264,9 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   same place.
 - 🟡 **The grid landed without four things `UI_SPEC.md` §6 describes**, and each is a decision
   rather than an omission to discover later:
-  - **The list view.** §6 names three views; masonry and uniform are built, and the list is a
-    different component rather than a third layout — columns, sorting, and a header row.
-  - **The zoom control.** The cell target is fixed at 240px. The layout already takes it as a
-    parameter, so this is a control and a stored preference, and the preference needs the
-    application config that window state is also waiting for.
+  - **The list view and the zoom control** are both now part of ADR-0018 below, which gave them
+    the place in the interface they were missing. Neither was built for the same reason: a
+    two-button toggle had nowhere to put them.
   - **Marquee selection.** Dragging on the background clears the selection today rather than
     sweeping one. The store has every operation it needs; what is missing is the drag.
   - **Hover in the store.** Hover is CSS-only, which is right until something outside the cell
@@ -347,6 +345,32 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   is a test, and the layout is a binary search per column; neither is a frame percentile. The
   scroll benchmark mode is what turns this into a number, and it is still an M3 item.
 - 🟢 The app icon. `roost-old` shipped a flat generated square and never replaced it.
+
+### The view menu (ADR-0018, decided 2026-08-30)
+
+Accepted on 2026-08-30, and the work splits in three. Only the first is one sitting.
+
+- 🔴 **The menu itself: Icons, Compact, Details, and Zoom.** `ViewMenu` replaces the two-button
+  toggle. Icons is today's `uniform` renamed; **Match image proportions** is today's `masonry`,
+  demoted from a peer view to a checkbox under Icons. Compact is new and cheap — `layout.ts` is
+  already column-based. `Ctrl+1..3` select the views and push the sidebar and inspector toggles
+  to `F9` and `F4`.
+  - **Details needs no engine work at all**, which was the surprise when this was costed:
+    `searchSql` already selects `origName`, `ext`, `size`, `width`, `height`, `importedAt`,
+    `rating`, and `isFavorite` on every row of every page. Every column the table wants is
+    already arriving in the renderer and being thrown away.
+  - `GridMode` stops being one union. The view and the proportion flag are two pieces of state,
+    and only Icons reads the second.
+- 🟡 **Sort By.** Not a menu item — a migration and a bench run per key. The application has one
+  order, `imported_at DESC, hash`, and keyset paging plus all four composite indexes in migration
+  0005 are built on it. Each key needs its own index *per filter*, its own cursor, and a
+  `searchSql` that stops hardcoding one predicate — including the trap the function's own comment
+  records: the order is mixed, so a row-value comparison silently skips rows.
+- 🟢 **Group By.** Last. A group header can fall across a keyset page boundary, and a count per
+  group is a second aggregate query.
+- 🟡 **The chosen view, the zoom target, and the sort want to be per-library settings** — a photo
+  library and a library of design files want different defaults. Until that lands the menu holds
+  its state in memory and forgets it when the window closes.
 
 ### Format breadth (M4) — done 2026-08-29
 

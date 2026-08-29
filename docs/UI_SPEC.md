@@ -39,11 +39,11 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────┐
-│  Toolbar   [☰] [ search — RQL ................ ] [view][sort][zoom] [+]    │
+│  Toolbar   [☰] [ search — RQL ................ ]        [view ▾]     [+]    │
 ├──────────────┬──────────────────────────────────────────┬──────────────────┤
 │              │                                          │                  │
 │   Sidebar    │              Content                     │    Inspector     │
-│              │   masonry · grid · list · preview        │                  │
+│              │   icons · compact · details · preview    │                  │
 │  ┌────────┐  │                                          │   selection      │
 │  │library │  │                                          │   details and    │
 │  └────────┘  │                                          │   edits          │
@@ -62,9 +62,9 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 | Region | Width | Collapsible | Notes |
 | --- | --- | --- | --- |
 | Toolbar | full | no | Fixed height. Search is the widest thing in it. |
-| Sidebar | 220–420px, drag to resize | yes, `⌘/Ctrl+1` | Remembers width and collapsed state per library. |
-| Content | fills | no | Hosts exactly one of: masonry, grid, list, preview. |
-| Inspector | 280–480px, drag to resize | yes, `⌘/Ctrl+2` | Renders nothing when the selection is empty — not an empty shell. |
+| Sidebar | 220–420px, drag to resize | yes, `F9` | Remembers width and collapsed state per library. |
+| Content | fills | no | Hosts exactly one of: icons, compact, details, preview. |
+| Inspector | 280–480px, drag to resize | yes, `F4` | Renders nothing when the selection is empty — not an empty shell. |
 | Status bar | full | no | Counts on the left, background jobs on the right. |
 
 **The preview is a pane, not a lightbox.** It replaces the content region, leaving the sidebar
@@ -169,14 +169,12 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `LibraryPicker` | full screen | — | First run and library switching. Recent list, create, open |
 | `Toolbar` | toolbar | — | Composes the four below |
 | `SearchField` | toolbar | draft text | RQL input; §5 |
-| `ViewSwitcher` | toolbar | — | masonry · grid · list |
-| `SortMenu` | toolbar | — | Field + direction |
-| `ZoomSlider` | toolbar | — | Target cell width, 120–400px, snapped |
+| `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, sort, grouping. ADR-0018 |
 | `NavTree` | sidebar | expansion | One component for folders and smart folders; §4.2 |
 | `TagList` | sidebar | expansion | Grouped, with counts |
-| `AssetGrid` | content | scroll, pages | Virtualized; §6. Masonry and uniform are one component |
+| `AssetGrid` | content | scroll, pages | Virtualized; §6. Icons and compact are one component |
 | `AssetCell` | content | — | `memo`, primitive props only |
-| `AssetList` | content | scroll, pages | Table view; same paging hook |
+| `AssetList` | content | scroll, pages | Details view; same paging hook |
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
 | `Inspector` | inspector | field drafts | Renders nothing on empty selection |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
@@ -260,12 +258,33 @@ widest.
 This is the performance-critical surface. `ARCHITECTURE.md` §4.6 and `CLAUDE.md` §8 carry the
 rules; this section is the component contract that implements them.
 
-**Three views, one paging hook.** Masonry (default), uniform square grid, and list. They share
-the keyset paging described in `DATA_MODEL.md` and differ only in layout.
+**Three views and a modifier, one paging hook.** The view control is a menu in the file
+manager idiom rather than a row of layout buttons — ADR-0018 carries the reasoning and the
+menu's exact shape. Every view shares the keyset paging described in `DATA_MODEL.md` and
+differs only in layout.
 
-**Masonry layout.** Cells take their height from the asset's own aspect ratio and pack into the
-shortest column. Column count derives from the container width and the zoom target; the
-filename is a reserved band under the thumbnail, never an overlay on it. An asset with no
+| View | `Ctrl+1..3` | Layout |
+| --- | --- | --- |
+| **Icons** (default) | `Ctrl+1` | Square cells, filled row-major so result order reads left to right |
+| **Compact** | `Ctrl+2` | A small thumbnail with the name beside it, flowing down a column and wrapping to the next |
+| **Details** | `Ctrl+3` | A table with a header row: name, size, kind, dimensions, imported |
+
+**Match image proportions**, a checkbox under Icons, is the masonry layout. It is a property of
+how an icon is shaped rather than a fourth view, because that is what it always was — and it is
+the only layout here that does not crop, which matters in an application for looking at
+pictures. Cells take their height from the asset's own aspect ratio and pack into the shortest
+column.
+
+**Zoom** is the cell target, 120–400px, snapped. `layout()` has taken it as a parameter since
+M3; the menu is the first thing to pass anything but a constant.
+
+**Sort By** and **Group By** are in the menu because that is where a person looks for them, and
+neither is a renderer change: the application has exactly one order — `imported_at DESC, hash` —
+and keyset paging plus every composite index in migration 0005 is built on it. Each sort key
+needs its own index per filter and its own cursor. See ADR-0018.
+
+**Common to every view.** Column count derives from the container width and the zoom target;
+the filename is a reserved band under the thumbnail, never an overlay on it. An asset with no
 recorded dimensions is laid out at 1:1 and re-laid out once metadata arrives — the only reflow
 the grid is permitted, and it happens off-screen when the derive queue is keeping up.
 
@@ -356,7 +375,8 @@ becomes a preference in M6.
 | --- | --- |
 | `Ctrl+F` / `/` | Focus search |
 | `Escape` | Clear search focus · close preview · close menu · clear selection, in that order |
-| `Ctrl+1` / `Ctrl+2` | Toggle sidebar · inspector |
+| `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Icons · Compact · Details (ADR-0018) |
+| `F9` / `F4` | Toggle sidebar · inspector |
 | `Ctrl+O` | Open library |
 | `Ctrl+I` | Import files… |
 | `Ctrl+Shift+I` | Import folder… |

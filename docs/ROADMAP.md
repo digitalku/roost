@@ -293,6 +293,16 @@ not draw, all settled before any of them was written against:
 | PDF | pdfium compiled to WebAssembly. One instance per process, and a page is single-use — `render()` closes it | ADR-0016 |
 | Video and audio | The system's `ffmpeg` and `ffprobe`, probed once per session. Bundling stays open for M6, where packaging is decided | ADR-0017 |
 
+**One more on 2026-08-30, from using the window rather than from planning it:**
+
+| Question | Outcome | Record |
+| --- | --- | --- |
+| The view control | A menu in the file manager idiom — Icons, Compact, Details, Zoom, Sort By, Group By — replacing the masonry/uniform toggle. Masonry becomes a checkbox under Icons rather than a peer view or a deletion: it is the only layout that does not crop | ADR-0018 |
+
+**M5 and M6 are deferred**, at the user's request on 2026-08-30: feature work first, and both
+milestones get planned once the feature set has settled. Nothing below them is cancelled; the
+order is.
+
 Settled by the user's own choice of stack, and recorded rather than argued: the application
 shell (ADR-0001), the frontend framework (ADR-0002), and the library format, which is carried
 over unchanged (ADR-0003, ADR-0004). The CLI stays a first-class frontend (ADR-0005).
