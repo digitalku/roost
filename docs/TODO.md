@@ -4,7 +4,8 @@ Everything known to be outstanding, in priority order. `ROADMAP.md` holds the mi
 this file holds the working list, including the small things that surface during implementation
 and would otherwise be forgotten.
 
-Last reviewed: 2026-08-29, the session that closed M4.
+Last reviewed: 2026-08-30. M5 and M6 are deferred at the user's request — feature work first,
+and those two milestones get planned once the feature set has settled.
 
 Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 whenever
 
@@ -315,11 +316,26 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   fix is a targeted update (drop the row, keep the scroll), not a reload. A **changed asset
   count** does re-page, because "the library went from empty to twelve" is a visibly wrong grid
   rather than a stale one.
-- 🟡 **An edit applies to the focused asset, not to the selection.** The contract already takes
-  `hashes`, and the engine already writes one journal batch for all of them; what is missing is
-  the interface for it — a multi-selection inspector has to show what the assets *share* and
-  what differs, and "3 assets · mixed ratings" is a design question `UI_SPEC.md` §3 does not
-  answer yet.
+- 🔴 **An edit applies to the focused asset, not to the selection. Next up.** Reported from real
+  use on 2026-08-30: select several assets, add a tag, and it lands on one of them. Everything
+  below the interface is already right — `asset:tagAdd`, `asset:tagRemove`, `asset:rate`, and
+  `asset:favorite` all take `hashes` as an array, and the engine writes one journal batch for
+  however many arrive. The renderer is the whole of the bug: `App.tsx` passes `selection.focused`
+  to the inspector and nothing else, and four call sites in `Inspector.tsx` wrap that one hash in
+  a single-element array. `App.tsx` even carries a comment saying the inspector follows focus
+  rather than selection, so this is a decision to revisit and not an oversight to patch.
+
+  Two pieces, and the second is the reason this was left:
+  - **The wiring.** The inspector takes the selection, the four call sites send all of it, and a
+    zero-selection state stays what it is today.
+  - **The design, which `UI_SPEC.md` §3 does not answer yet.** A multi-selection inspector has to
+    say what the assets *share* and what differs: which tags all of them carry against tags only
+    some carry, "3 assets · mixed ratings", a name field with nothing sensible to show. Removing a
+    tag two of three assets have needs to mean something unambiguous. `UI_SPEC.md` §3 gets the
+    answer in the same change, per the rule at the top of §6 of `CLAUDE.md`.
+
+  Worth pinning with a test the moment it works: the current behaviour would pass any test that
+  only asserts "the tag was added".
 - 🟡 **The preview fits the pane and stops there.** `UI_SPEC.md` §7 also asks for click-to-toggle
   1:1 and drag-to-pan on an image, which is the difference between looking at a photograph and
   checking one. It needs a transform and a gesture, not a new request.
