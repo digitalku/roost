@@ -299,6 +299,9 @@ not draw, all settled before any of them was written against:
 | --- | --- | --- |
 | The view control | A menu in the file manager idiom — Icons, Compact, Details, Zoom, Sort By, Group By — replacing the masonry/uniform toggle. Masonry becomes a checkbox under Icons rather than a peer view or a deletion: it is the only layout that does not crop | ADR-0018 |
 
+| Where settings live | `settings.json` inside `<Name>.roost`, which is the default; `stateDir()` and `configDir()` hold only what cannot live in a library — the recent list that finds one, window geometry, and the theme the picker is drawn in | ADR-0019 |
+| Windows | Several windows onto one library. Several libraries at once is refused for now, and the work it would need is named | ADR-0020 |
+
 **M5 and M6 are deferred**, at the user's request on 2026-08-30: feature work first, and both
 milestones get planned once the feature set has settled. Nothing below them is cancelled; the
 order is.

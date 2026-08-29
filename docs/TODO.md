@@ -30,10 +30,22 @@ Still open, and none of it blocks M0:
   contains, so nothing about the format moved. Flagged here rather than assumed, because a
   binding document does not get edited quietly. See the port note at the top of the spec.
 
-- 🟡 **Unstyled component primitives.** `UI_SPEC.md` §3 builds every component in-repo on top of
-  unstyled primitives for menus, dialogs, tooltips, and sliders. Which library — Radix, Ark,
-  Base UI, or hand-rolled — is open. The constraint is invariant 7: no runtime network, no
-  bundled webfont, nothing that ships its own design opinions. Needed by M3, not M0.
+- 🔴 **Unstyled component primitives — now blocking two features, not zero.** `UI_SPEC.md` §3
+  builds every component in-repo on top of unstyled primitives for menus, dialogs, tooltips, and
+  sliders. Which library — Radix, Ark, Base UI, or hand-rolled — is still open. The constraint is
+  invariant 7: no runtime network, no bundled webfont, nothing that ships its own design
+  opinions. It was "needed by M3" and nothing needed it; as of 2026-08-30 the view menu
+  (ADR-0018) and the asset context menu both do, and a menu is the hardest of the four to
+  hand-roll correctly — focus trapping, roving focus, typeahead, submenu timing, and placement
+  that flips near a screen edge. There is a second question underneath: an Electron native
+  `Menu.popup()` gets the platform's own menu and its accessibility for free, but main would
+  have to know the menu's contents, which is business logic in the process invariant 4 keeps
+  empty. Needs an ADR.
+
+- ☑ ~~**Where configuration lives.**~~ Settled 2026-08-30 by ADR-0019: `settings.json` inside
+  the library is the default, and `stateDir()`/`configDir()` hold only what cannot live in one.
+  The binding layout in `STORAGE_SPEC.md` gained its fifth entry with the user's approval — the
+  only change this repository has made to it.
 
 - 🟢 **Licence and copyright.** `roost-old` is MIT, copyright Digitalku. Assumed the same here
   and written into `LICENSE`; say if this repository should differ.
@@ -345,6 +357,33 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   is a test, and the layout is a binary search per column; neither is a frame percentile. The
   scroll benchmark mode is what turns this into a number, and it is still an M3 item.
 - 🟢 The app icon. `roost-old` shipped a flat generated square and never replaced it.
+
+### Settings, windows, and the picker (ADR-0019 and ADR-0020, decided 2026-08-30)
+
+- 🔴 **The recent-libraries list, and with it the first application state file.** The cheapest
+  thing on this list and the one that unblocks the most. Both documents already decided its
+  shape: `UI_SPEC.md` §3's `LibraryPicker` row says "Recent list, create, open", and `dirs.ts`
+  names it in the doc comment for `stateDir()`. Nothing in the renderer says "recent" today.
+  - Each entry is validated when it is drawn. A library may have been moved or deleted, and a
+    recent list pointing at nothing is worse than no recent list.
+  - Pin, and remove-from-list. A recent list nobody can prune becomes noise.
+- 🟡 **`settings.json` in the library** (ADR-0019). Reads tolerate absence, damage, unknown keys,
+  and wrong types by falling back per setting. Writes tolerate failure silently — a library on
+  read-only media must not raise a dialog when somebody changes the zoom. Unknown keys survive a
+  write, for the same reason unknown journal ops are skipped rather than dropped.
+  - **`dirs.ts`'s doc comment becomes wrong** the moment this lands: it says a library holds
+    `originals/`, `index.db`, `journal/`, and `library.json` "and nothing else". Correct it in
+    the same change.
+  - The CLI reads the same file, so the two frontends do not disagree about how a library is
+    configured (ADR-0005).
+- 🟡 **`Ctrl+N` — a second window onto the same library** (ADR-0020). `broadcast()` is already
+  plural and `createWindow()` already exists; what is missing is the command and per-window
+  geometry in `stateDir()`. Switching library moves every window: a window is a view, not a
+  session.
+- 🟢 **Several libraries at once is refused, not forgotten.** If it is ever wanted, it starts at
+  the protocol: `roost://thumb/<hash>@256` names no library, so two open libraries make the URL
+  ambiguous. That is an ADR-0008 amendment, several read-only handles in main, and an engine
+  story. Written down so the cost is not rediscovered.
 
 ### The view menu (ADR-0018, decided 2026-08-30)
 

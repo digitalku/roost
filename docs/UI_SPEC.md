@@ -377,6 +377,7 @@ becomes a preference in M6.
 | `Escape` | Clear search focus · close preview · close menu · clear selection, in that order |
 | `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Icons · Compact · Details (ADR-0018) |
 | `F9` / `F4` | Toggle sidebar · inspector |
+| `Ctrl+N` | New window onto the same library (ADR-0020) |
 | `Ctrl+O` | Open library |
 | `Ctrl+I` | Import files… |
 | `Ctrl+Shift+I` | Import folder… |

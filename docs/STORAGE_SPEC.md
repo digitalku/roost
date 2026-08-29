@@ -41,8 +41,17 @@ MyLibrary/
 ├── journal/
 │   ├── 2026-08.jsonl     Append-only. Source of truth.
 │   └── 2026-07.jsonl
-└── library.json          Format version, library id, configuration.
+├── library.json          Format version and library id. Strictly validated.
+└── settings.json         Per-library preferences. Optional (ADR-0019).
 ```
+
+`settings.json` was added on 2026-08-30 by the user's decision, and it is the
+only change this repository has made to the layout. It is optional in the
+strongest sense: a library without one is complete, and a damaged one falls back
+to defaults rather than making the library unopenable — which is why it is a
+second file and not fields inside `library.json`. It is **not journalled**, and
+`rebuild` does not touch it: a preference is neither library data nor derived
+from it, so invariants 6 and 9 do not reach it.
 
 ## Invariants
 
