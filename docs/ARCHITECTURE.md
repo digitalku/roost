@@ -144,16 +144,32 @@ Everything that touches file bytes:
 - BLAKE3 content hashing, streamed, including the >50 MB partial scheme
 - perceptual hashes and dominant colour → CIELAB (**M5**; the package owns them by charter)
 
-Heavy or optional backends are runtime-probed, never hard dependencies: `ffmpeg`/`ffprobe` for
-video, poppler or a bundled PDF renderer for PDF, raw decoders. If a backend is absent, the
-asset still imports — it gets a placeholder thumbnail and a `capability_missing` note, never an
-error.
+**Four backends since M4, behind one dispatcher** (`derive.ts`), each answering with the same
+two things — thumbnails and metadata — so that adding a format is a case in one `switch`:
+
+| Backend | Draws | Ships with Roost |
+| --- | --- | --- |
+| `sharp` | JPEG, PNG, WebP, GIF, TIFF, AVIF, and a RAW's embedded preview | yes (ADR-0009) |
+| resvg in WebAssembly | SVG, and the font specimens composed from glyph outlines | yes (ADR-0015) |
+| pdfium in WebAssembly | PDF pages and page counts | yes (ADR-0016) |
+| the system's `ffmpeg` | video frames and durations, audio waveforms | **no** (ADR-0017) |
+
+Only the last is optional, and its absence is a **capability** the UI reports rather than an
+error: the asset still imports, and the queue parks the work with a reason until the tool exists
+(`DATA_MODEL.md` §2.5). The two WebAssembly backends are the answer to a security question, not
+a packaging one — a module with no filesystem cannot follow a reference out of an SVG or a PDF.
 
 `sharp` is the decode and encode path (ADR-0009), imported in exactly one module — `decoder.ts` —
 so that replacing it is a contained change rather than a survey. Its async API runs on libuv's
-threadpool, so image work does not occupy the engine's event loop; `UV_THREADPOOL_SIZE` is raised
-to the core count at engine start, because the default of four is a silent ceiling on it.
-Measured: 623 thumbnails/sec with the pool at the core count.
+threadpool, so image work does not occupy the engine's event loop.
+
+**That pool cannot be widened by the process that wants it**, which this section claimed for
+three milestones and M4 measured: libuv reads `UV_THREADPOOL_SIZE` once and creates the pool on
+first use, and module loading has already used it before an entry point runs. Setting it inside
+the process measured 181 thumbnails/sec against 205 for the plain default — noise around no
+effect. Setting it for a process that has not started yet reaches 252–327, so **main forks the
+engine with it set** (`threadPoolEnv` in `@roost/core`), and `roost doctor` reports what the
+current process actually got.
 
 **That is about `sharp` specifically**, and not a general setting. Image work does real CPU work
 on those threads; a `stat` or a `rename` does not, and widening the pool for the import
@@ -166,11 +182,10 @@ first decode segfault. The CLI is unaffected — it runs on the system's Node �
 build of the app has to supply libvips itself. `scripts/probe-native.ts` decodes and encodes
 rather than calling `require`, because loading is exactly the part that succeeds.
 
-Two formats are recognised but deliberately not drawn. **BMP**: libvips has no loader for it.
-**SVG**: librsvg follows external references, measured, so rendering an imported SVG would read
-files off the user's disk through the thumbnailer and could reach the network — invariant 7. An
-asset with no thumbnail imports normally; that is the promise above, and these are the first two
-formats to use it.
+**BMP is still recognised and not drawn**: libvips has no loader for it, and nothing else here
+does either. SVG was the second such format until M4; what changed is not librsvg — measured
+again on 2.62.3, it still reads a neighbouring file whenever it is handed a path — but where the
+rasterising happens (ADR-0015).
 
 ### 3.4 `@roost/search` (`packages/search`)
 RQL grammar → AST → a `WHERE` fragment with bound parameters. Zero string interpolation of user
@@ -238,10 +253,11 @@ engine. That is the whole justification for the extra process, and ADR-0006 is w
 alternative — engine in main, database work in worker threads — is weighed against it.
 
 Backpressure is mandatory: the job queue is bounded and persisted, so a 100k-file import
-survives a crash and resumes. **M4** — there is no `jobs` table yet, and adding one takes a
-numbered migration. It needs no journal `op`: queued work is derived, not user-authored, so
-invariant 9 does not reach it and losing the queue costs time rather than data. Until then a
-crashed import is resumed by running the import again, which the content hash makes idempotent.
+survives a crash and resumes. **Landed in M4** as migration 0006 (`DATA_MODEL.md` §2.5). It
+carries no journal `op`: queued work is derived, not user-authored, so invariant 9 does not reach
+it and losing the queue costs time rather than data — a sweep re-queues whatever has no
+thumbnail. A `running` row describes a process, so the runner returns them to the queue when it
+starts.
 
 ### 4.2 IPC contract
 Types are **shared, not generated**. `@roost/contract` declares the request union, the response
@@ -277,6 +293,17 @@ Two routes:
 - `roost://original/<hash>` — the asset's own bytes: from `originals/` for a managed asset, from
   the recorded path for a referenced one. Returned as a **stream**, with byte-range support, so
   a 4 GB video costs a chunk rather than its size.
+- `roost://page/<hash>/<index>@<width>` (**M4**) — one page of a document, rendered on demand and
+  cached like a thumbnail, since the hash, the page, and the width fix the pixels. Neither a
+  stored thumbnail nor the file itself: page-through needs a picture per page, and a library that
+  stored one per page would be storing a rendering nobody asked for. The width is a fixed set for
+  the same reason the thumbnail sizes are.
+
+Rendering a page in main is a deliberate exception of the same kind as the database handle below,
+and it is affordable for two reasons: the backend is WebAssembly rather than a native decoder,
+and it is imported lazily, so a window that never opens a document never loads it. The bitmap is
+encoded by a 60-line PNG writer over `node:zlib` (`@roost/media/png`) — main must not load
+`sharp`, and an uncompressed bitmap would be three megabytes a page.
 
 This is where Electron is straightforwardly better than what it replaces. `roost-old` had to
 cap whole-file responses at 64 MB and hand-roll 8 MB range replies, because Tauri's scheme
@@ -403,8 +430,11 @@ discover → probe → hash → dedupe → place bytes → journal → index →
 6. **journal** — append the `add` record. **Journal before index, always.** A row in `index.db`
    with no journal line is data loss on the next rebuild.
 7. **index** — one transaction per batch (~500 assets), FTS insert deferred to batch end.
-8. **derive** — thumbnails and metadata queued at low priority; the UI shows placeholders and
-   upgrades live via `thumbnail:ready`.
+8. **derive** — thumbnails and metadata queued **in the same transaction as the rows** (M4), so
+   an asset and the intent to derive it are committed together. The queue is claimed by a runner
+   in the engine, which emits `job:progress`; the UI shows placeholders and re-reads when a run
+   finishes. Work nobody can do — a format with no backend, a tool that is not installed — is
+   parked with a reason rather than retried, which is what makes a backfill sweep converge.
 
 ## 6. Cross-platform strategy (Linux now, others later)
 

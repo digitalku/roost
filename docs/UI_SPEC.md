@@ -182,7 +182,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over existing tags, creates on Enter |
 | `NoteField` | inspector | draft | Autosaves on blur and after 1s idle |
-| `MetadataTable` | inspector | — | Key/value, monospace values, copy on click |
+| `MetadataTable` | inspector | — | Key/value, monospace values, copy on click. Since M4 it also carries duration, page count, and whatever the format's own backend reported — a font's family and style, a video's codec — labelled where the label is known and under the property's own name where it is not, so a new backend is visible before any interface code is written for it |
 | `StatusBar` | status | — | Counts, and one row per running job |
 | `ImportDropZone` | overlay | — | Whole-window drop target; appears only while dragging |
 | `ContextMenu` | overlay | — | One implementation, driven by a descriptor |
@@ -312,8 +312,8 @@ list, and **stepping changes the selection**, so the inspector follows what is o
 | Image | `<img src="roost://original/<hash>">`, fit to pane, click to toggle 1:1, drag to pan |
 | SVG | Same, sandboxed — scripts in an SVG do not run |
 | Video / audio | `<video>` / `<audio>` over `roost://original/`, which answers range requests |
-| PDF | Page-through (**M4**); until then, first-page thumbnail and "open externally" |
-| Font | Specimen sheet (**M4**) |
+| PDF | Page-through: `PageUp` / `PageDown` and two buttons, each page an `<img>` over `roost://page/<hash>/<n>@1024`. Arrow keys keep stepping between assets, so a document does not trap the keyboard |
+| Font | The specimen sheet the derive pass drew, with the family and style under it |
 | Anything else | The thumbnail, the metadata, and **Open externally** |
 
 **Open externally** hands the file to the desktop's own handler. A Roost library is not only a
@@ -322,6 +322,12 @@ media collection, and a format Roost cannot draw should not be a dead end.
 ## 8. States
 
 Every surface owes four states, and the empty one is where most applications get lazy.
+
+**A cell with no thumbnail is a state too.** Three things look identical in a grid — work that
+has not been done yet, a format nothing in this build draws, and a video waiting for an ffmpeg
+nobody installed — so the status bar names which one it is: *"Deriving… 42 to go"*, *"3 without a
+preview"*, or the capability's own line with a **Try again** beside it. Only the third has a
+button, because it is the only one a person can act on.
 
 **Empty.** Heading, one sentence explaining *why it is empty*, at most one action.
 - No library open → the picker, with "Create library" and "Open library".

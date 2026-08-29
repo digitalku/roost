@@ -23,9 +23,11 @@ Optional, and each one degrades gracefully when absent:
 
 | Tool | Enables |
 | --- | --- |
-| `ffmpeg` / `ffprobe` | Video thumbnails and duration (M4) |
-| A PDF backend | First-page thumbnails and page count (M4) |
+| `ffmpeg` / `ffprobe` | Video frames and durations, audio waveforms. `roost doctor` says when they are missing, and `roost thumb --retry-blocked` picks the work up once they arrive |
 | `gh` | Reading CI results without leaving the terminal |
+
+SVG, fonts, and PDF need nothing installed: their backends are WebAssembly and ship with Roost
+(ADR-0015, ADR-0016).
 
 ### On Fedora
 
@@ -156,6 +158,17 @@ previous build is exactly the trap `vitest.config.ts` had to be fixed for.
 There is no separate `--noEmit` typecheck. `tsc -b` is what validates project references, so
 build mode *is* the check, and a stale `dist/` cannot make it pass.
 
+**Deriving is up to 1.5× faster with a wider threadpool**, and a process cannot widen its own:
+libuv reads `UV_THREADPOOL_SIZE` once, before any of this code runs (`BENCHMARKS.md`,
+2026-08-29). The app does not need this — main forks the engine with the pool sized — but a long
+`roost thumb` does:
+
+```bash
+UV_THREADPOOL_SIZE=$(nproc) pnpm --filter @roost/cli start -- thumb
+```
+
+`roost doctor` prints the pool the current process got, and says this when it is the default.
+
 Working against a library:
 
 ```bash
@@ -167,7 +180,8 @@ export ROOST_LIBRARY=~/RoostTest.roost
 pnpm --filter @roost/cli start -- init "$ROOST_LIBRARY"
 pnpm --filter @roost/cli start -- import ~/Pictures --tag reference
 pnpm --filter @roost/cli start -- stats
-pnpm --filter @roost/cli start -- thumb
+pnpm --filter @roost/cli start -- thumb            # works the derive queue
+pnpm --filter @roost/cli start -- thumb --retry-blocked   # after installing ffmpeg
 pnpm --filter @roost/cli start -- rebuild
 
 pnpm --filter @roost/cli start -- query 'tag:blue rating:>=4'

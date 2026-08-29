@@ -209,19 +209,35 @@ the zoom control, marquee selection, autocomplete, chips, sidebar collapsing and
 drag-to-reparent, the library switcher, and 1:1 zoom in the preview are all in `TODO.md` §M3
 with the reason each one waited.
 
-## M4 — Format breadth ☐
+## M4 — Format breadth ☑
 
-- ☐ Video: thumbnail + duration via an ffmpeg probe (optional, graceful absence)
-- ☐ Audio: waveform + duration
-- ☐ PDF: first-page thumbnail, page count, in-app page-through
-- ☐ SVG rendering, GIF and animated WebP preview
-- ☐ Fonts: specimen rendering, family and style metadata
-- ☐ RAW photos via embedded JPEG preview
-- ☐ Capability probe surfaced in the UI ("install ffmpeg for video previews")
-- ☐ The bounded, persisted job queue and its migration (`ARCHITECTURE.md` §4.1)
+- ☑ Video: thumbnail + duration via an ffmpeg probe (optional, graceful absence)
+- ☑ Audio: waveform + duration
+- ☑ PDF: first-page thumbnail, page count, in-app page-through
+- ☑ SVG rendering, GIF and animated WebP preview
+- ☑ Fonts: specimen rendering, family and style metadata
+- ☑ RAW photos via embedded JPEG preview
+- ☑ Capability probe surfaced in the UI ("install ffmpeg for video previews")
+- ☑ The bounded, persisted job queue and its migration (`ARCHITECTURE.md` §4.1)
 
 **Accepts when:** a mixed folder of every listed format imports with correct thumbnails and
 metadata, and the same folder imports cleanly on a system with no ffmpeg or PDF backend.
+
+**Both halves are tests.** `packages/library/tests/formats.test.ts` imports one of everything and
+checks the thumbnail and the metadata each backend is responsible for;
+`packages/cli/tests/no-ffmpeg.test.ts` runs the built CLI as a subprocess whose `ROOST_FFMPEG`
+points at nothing, and asserts the video imports whole, the image still draws, and the queue says
+which tool is missing. The second is the half that would otherwise never run: every machine this
+is developed on has ffmpeg.
+
+**What it cost to learn** (`BENCHMARKS.md`, 2026-08-29): a 12-megapixel JPEG thumbnails two and a
+half times faster than a 2-megapixel PNG, because libvips shrinks a JPEG during its DCT pass;
+video and audio are two orders of magnitude slower than everything else and all of it is process
+start; and `UV_THREADPOOL_SIZE` — which `ARCHITECTURE.md` had claimed the engine raised since M1 —
+cannot be raised by the process that wants it at all.
+
+**Deferred out of M4**, with the reason each one waited, in `TODO.md`: CR3 and RAF (neither is a
+TIFF container), animated thumbnails, a PDF text layer, and EXIF beyond dimensions.
 
 ## M5 — Discovery features ☐
 

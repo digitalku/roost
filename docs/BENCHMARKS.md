@@ -54,6 +54,64 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-08-29 — deriving, per backend (M4)
+
+Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe. Node 22.23.1, sharp 0.35.3
+against libvips 8.18.3 (source build), resvg 2.6.2 and pdfium 2.1.13 in WebAssembly, ffmpeg
+8.1.2. Method: `node --experimental-strip-types scripts/bench-derive.ts --each 20`, one warm-up
+per format so a WASM module's one-time initialisation is not charged to whichever backend
+happened to be measured first.
+
+| Format | ms | Per second |
+| --- | --- | --- |
+| JPEG 4000×3000 | 17.0 | 59 |
+| PNG 1600×1200 | 43.6 | 23 |
+| SVG, 200 paths | 27.4 | 36 |
+| Font specimen | 6.6 | 151 |
+| PDF first page | 8.7 | 115 |
+| RAW embedded preview | 8.2 | 122 |
+| Video frame (720p, 10 s) | 243.5 | 4 |
+| Audio waveform (60 s MP3) | 232.8 | 4 |
+
+**A 12-megapixel JPEG is two and a half times faster than a 2-megapixel PNG**, which reads like
+a mistake and is not: libvips shrinks a JPEG during its DCT pass, so a thumbnail never decodes
+the full image, while a PNG has to be decompressed whole before anything can be resized. The
+comment in `decoder.ts` says this is why each size is rendered from the original rather than
+chained — the measurement is what it was claiming.
+
+**Video and audio are two orders of magnitude slower, and both are process start.** ADR-0017
+measured 0.10 s for an `ffprobe` run on a 1 MB file, which is not reading a megabyte — it is
+starting a process. Two spawns per asset is the whole cost, and it is the reason M4 put deriving
+behind a queue instead of inside import.
+
+**RAW is as cheap as a PDF page**, because nothing demosaics: the camera's own JPEG preview is
+extracted from the TIFF directories and scaled. That is the whole argument for ADR's approach to
+RAW, in one number.
+
+#### The threadpool nobody was widening
+
+Corpus: `roost fixture --count 2000 --real-images` (1,301 images averaging 640 KiB, 1.2 GiB),
+imported and then derived through the CLI. Warm cache, same corpus each run.
+
+| `UV_THREADPOOL_SIZE` | Thumbnails/sec |
+| --- | --- |
+| 4 (libuv's default) | 205 |
+| Set at the top of `main.ts` | **181** |
+| 22, set before the process started | **252–327** |
+
+`ARCHITECTURE.md` §3.3 had said since M1 that the engine raises this at start. Nothing did —
+and nothing could: **libuv reads the variable once and creates the pool on first use**, and by
+the time an entry point runs, module loading has already used it. The middle row is what a
+placebo looks like when it is measured instead of assumed.
+
+What works is setting it for a process that has not started yet, so main now forks the engine
+with it set (`threadPoolEnv`), and `roost doctor` prints the pool this process actually got. A
+CLI cannot fix its own, so it says what setting it is worth instead.
+
+**Import over the same corpus: 2,178 files/sec**, against `CONCEPT.md` §7's floor of 300 — and
+deriving is now separate work, which is what the queue is for. Import no longer waits on
+pictures.
+
 ### 2026-08-28 — cold start and scroll frames (M3 acceptance)
 
 Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe. Electron 43.4.1 on

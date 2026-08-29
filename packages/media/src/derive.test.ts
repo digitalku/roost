@@ -213,6 +213,34 @@ describe("deriving what a file is worth", () => {
       expect(outcome.metadata.width).toBeUndefined();
     });
 
+    it("thumbnails an animated GIF as a still, and leaves the animation to the window", async () => {
+      // The preview plays it: an `<img>` over `roost://original` animates GIF
+      // and animated WebP by itself, which is why neither needs a backend of
+      // its own. What a *thumbnail* must be is one frame — an animated one
+      // would be a grid of moving cells and a stored file many times the size.
+      const path = join(dir, "spin.gif");
+      await run("ffmpeg", [
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=64x64:rate=10",
+        "-t",
+        "1",
+        path,
+      ]);
+
+      const outcome = await derive(path, [GRID_SIZE]);
+
+      expect(outcome).toMatchObject({ ok: true, metadata: { width: 64, height: 64 } });
+      if (!outcome.ok) return;
+      expect(outcome.thumbnails).toHaveLength(1);
+      // One frame's worth of WebP, not ten.
+      expect(outcome.thumbnails[0]?.height).toBe(64);
+    });
+
     it("reports the tools it found", async () => {
       const media = (await capabilities()).find((entry) => entry.name === "media");
 
