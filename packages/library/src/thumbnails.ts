@@ -1,4 +1,6 @@
-import { EAGER_SIZES } from "@roost/media";
+import { access } from "node:fs/promises";
+import { parseContentHash } from "@roost/core";
+import { derive, EAGER_SIZES, GRID_SIZE, PREVIEW_SIZE } from "@roost/media";
 import { type DeriveReport, enqueueMissing, runDerives } from "./jobs.js";
 import type { Library } from "./library.js";
 
@@ -65,4 +67,57 @@ function asThumbnailReport(report: DeriveReport): ThumbnailReport {
     elapsed: report.elapsed,
     failed: report.failures.map((failure) => ({ path: failure.hash, reason: failure.reason })),
   };
+}
+
+/**
+ * Makes the preview-size thumbnail for one asset, if it is missing.
+ *
+ * The 512px size is generated **on first use**, not with the grid size: the
+ * Rust build measured it at 72% of all thumbnail bytes, for an image only ever
+ * needed for the asset somebody is looking at — roughly 34 GB at a million
+ * assets (`serving.ts`). "On first use" was the plan from M1 and nothing
+ * implemented it, so the inspector asked for a size no library had and drew a
+ * broken image. Seen in a window, not in a test.
+ *
+ * Only for an asset that already has its grid thumbnail: that is the cheap
+ * proof something in this build can draw it, and it stops a selection from
+ * re-deriving a format that is parked, on every click.
+ *
+ * Returns whether the preview exists now.
+ */
+export async function ensurePreview(library: Library, hash: string): Promise<boolean> {
+  const asset = parseContentHash(hash);
+  if (library.db.repo.thumbnail(asset, PREVIEW_SIZE) !== undefined) return true;
+  if (library.db.repo.thumbnail(asset, GRID_SIZE) === undefined) return false;
+
+  const target = library.db.repo.thumbnailTarget(asset);
+  if (target === undefined) return false;
+  const path =
+    target.storageMode === "referenced"
+      ? target.refPath
+      : library.storageFor("managed").locate(asset, target.ext);
+  if (path === null) return false;
+
+  try {
+    await access(path);
+    const outcome = await derive(path, [PREVIEW_SIZE]);
+    if (!outcome.ok) return false;
+    library.db.transaction(() => {
+      for (const thumbnail of outcome.thumbnails) {
+        library.db.repo.putThumbnail(
+          asset,
+          thumbnail.size,
+          thumbnail.width,
+          thumbnail.height,
+          thumbnail.data,
+        );
+      }
+    });
+    return outcome.thumbnails.length > 0;
+  } catch {
+    // A referenced original that moved, or a backend that failed on a file it
+    // drew once. Either way the inspector falls back to the grid size, which is
+    // a softer picture rather than a broken one.
+    return false;
+  }
 }

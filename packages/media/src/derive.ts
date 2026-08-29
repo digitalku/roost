@@ -173,14 +173,15 @@ async function deriveVector(
     return { ok: true, thumbnails: [], metadata: { props } };
   }
 
-  // **No dimensions for a font.** A specimen sheet has a size and a font does
-  // not, and storing the sheet's would put "512 × 85" in the inspector next to
-  // a typeface, where it means nothing. The grid reserves a font cell's shape
-  // from the thumbnail row instead, which is where that size actually belongs.
+  // The **specimen sheet's** size, which is not a fact about the typeface and is
+  // recorded anyway: the grid lays a cell out from `assets.width`/`height`, and
+  // a font without them gets a square cell that crops a sheet five times wider
+  // than it is tall. Seen in a real window, not reasoned about. The inspector
+  // leaves the row out for a font, where "512 × 85" would mean nothing.
   return {
     ok: true,
     thumbnails: await renderThumbnails({ bytes: specimen.png }, sizes),
-    metadata: { props },
+    metadata: { width: specimen.width, height: specimen.height, props },
   };
 }
 

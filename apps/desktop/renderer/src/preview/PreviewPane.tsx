@@ -1,6 +1,7 @@
 import type { WireAssetDetail } from "@roost/contract";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
+import { fallbackToGrid, previewSrc } from "../thumbnail.js";
 
 /**
  * One asset, filling the content region (`UI_SPEC.md` §7).
@@ -227,8 +228,9 @@ function Specimen({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
     <div className="preview-specimen">
       <img
         className="preview-media"
-        src={`roost://thumb/${detail.hash}@512`}
+        src={previewSrc(detail.hash)}
         alt={`Specimen of ${family}`}
+        onError={fallbackToGrid}
       />
       <p className="preview-specimen-name">
         {style === undefined ? family : `${family} · ${style}`}
@@ -258,9 +260,10 @@ function Fallback({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
         <span className="cell-kind">{detail.ext === "" ? "file" : detail.ext}</span>
         <img
           className="cell-image"
-          src={`roost://thumb/${detail.hash}@512`}
+          src={previewSrc(detail.hash)}
           alt=""
           decoding="async"
+          onError={fallbackToGrid}
         />
       </div>
       <p>Roost cannot show a {detail.ext === "" ? "file of this kind" : detail.ext} yet.</p>

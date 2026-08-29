@@ -84,6 +84,11 @@ describe("deriving what a file is worth", () => {
     });
     if (!outcome.ok) return;
     expect(outcome.thumbnails).toHaveLength(1);
+    // The specimen sheet's shape, which is what the grid lays the cell out
+    // from. Without it a font gets a square cell and a sheet five times wider
+    // than it is tall is cropped to its middle — seen in a real window.
+    expect(outcome.metadata.width).toBe(512);
+    expect(outcome.metadata.height).toBeGreaterThan(0);
   });
 
   it("renders a PDF's first page and counts the rest", async () => {

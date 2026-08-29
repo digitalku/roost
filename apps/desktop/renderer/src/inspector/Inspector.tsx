@@ -1,6 +1,7 @@
 import type { WireAssetDetail } from "@roost/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
+import { fallbackToGrid, previewSrc } from "../thumbnail.js";
 
 /**
  * Everything known about the focused asset, all of it editable.
@@ -62,10 +63,11 @@ export function Inspector({ hash, generation }: InspectorProps): React.JSX.Eleme
         <span className="cell-kind">{detail.ext === "" ? "file" : detail.ext}</span>
         <img
           className="cell-image"
-          src={`roost://thumb/${detail.hash}@512`}
+          src={previewSrc(detail.hash)}
           alt=""
           decoding="async"
           draggable={false}
+          onError={fallbackToGrid}
         />
       </div>
 
@@ -313,7 +315,9 @@ function Metadata({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
   const rows: readonly (readonly [string, string])[] = [
     ["Kind", detail.ext === "" ? "unknown" : detail.ext.toUpperCase()],
     ["Size", bytes(detail.size)],
-    ...(detail.width === null || detail.height === null
+    // A font's stored size is its specimen sheet's, kept so the grid can lay the
+    // cell out. It is not a fact about the typeface, so it is not shown here.
+    ...(detail.width === null || detail.height === null || detail.kind === "font"
       ? []
       : ([["Dimensions", `${detail.width} × ${detail.height}`]] as const)),
     ...(detail.durationMs === null ? [] : ([["Duration", duration(detail.durationMs)]] as const)),

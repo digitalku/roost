@@ -25,6 +25,21 @@ export function cellId(hash: string): string {
   return `cell-${hash}`;
 }
 
+/**
+ * Hides an image that could not be loaded.
+ *
+ * A cell whose asset has no thumbnail — a zip, a BMP, anything still in the
+ * derive queue — asks for one and gets a 404, and Chromium draws its own broken
+ * icon on top of the placeholder underneath. Seen in a real window: the `<img>`
+ * does *not* "simply render nothing", which is what this file used to claim.
+ *
+ * Declared at module scope, not inline: a fresh closure per cell is exactly what
+ * `UI_SPEC.md` §6 forbids, and this one is the same function for every cell.
+ */
+function hideBroken(event: React.SyntheticEvent<HTMLImageElement>): void {
+  event.currentTarget.hidden = true;
+}
+
 export interface AssetCellProps {
   readonly hash: string;
   readonly name: string;
@@ -73,9 +88,9 @@ export const AssetCell = memo(function AssetCell({
         {/*
           The placeholder is a first-class cell, not a broken one: a library
           holds anything (`CONCEPT.md` §5), so a `.zip` shows its extension
-          rather than a broken-image glyph. It is drawn underneath and the
-          image covers it, so a failed load needs no state — the `<img>` simply
-          renders nothing and what was already there shows through.
+          rather than a broken-image glyph. It is drawn underneath and the image
+          covers it — and the image hides itself when it fails, because Chromium
+          draws a broken icon otherwise.
         */}
         <span className="cell-kind">{ext === "" ? "file" : ext}</span>
         <img
@@ -85,6 +100,7 @@ export const AssetCell = memo(function AssetCell({
           loading="lazy"
           decoding="async"
           draggable={false}
+          onError={hideBroken}
         />
       </div>
       <span className="cell-name" title={name}>

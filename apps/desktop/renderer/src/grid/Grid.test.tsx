@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -81,6 +81,18 @@ describe("the grid", () => {
     const { assets } = show(4);
     const image = document.querySelector<HTMLImageElement>(".cell-image");
     expect(image?.getAttribute("src")).toBe(`roost://thumb/${assets[0]?.hash}@256`);
+  });
+
+  it("hides a thumbnail that could not be loaded, so the placeholder shows", () => {
+    // A zip, a BMP, anything still in the derive queue: the cell asks for a
+    // thumbnail and gets a 404, and Chromium draws its own broken icon over the
+    // placeholder unless the image takes itself out of the way.
+    show(4);
+    const image = document.querySelector(".cell-image") as HTMLImageElement;
+
+    fireEvent.error(image);
+
+    expect(image.hidden).toBe(true);
     expect(image?.getAttribute("loading")).toBe("lazy");
   });
 

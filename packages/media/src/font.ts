@@ -13,8 +13,19 @@ import { type Raster, rasteriseSvg } from "./vector.js";
  * the rasteriser there is no font left in it — only geometry.
  */
 
-/** What a specimen spells. Ascenders, descenders, round and square, and digits. */
-export const SPECIMEN_TEXT = "Handgloves 123";
+/**
+ * What a specimen spells, one line each.
+ *
+ * Ascenders, descenders, round and square on the first line; digits on the
+ * second. **Two lines rather than one** because a grid cell is clamped to two
+ * and a half times wider than tall (`layout.ts`), and a single line of
+ * "Handgloves 123" is nearly six — so it was cropped to its middle, which is
+ * what a specimen must not be. Seen in a real window.
+ */
+export const SPECIMEN_LINES = ["Handgloves", "0123456789"] as const;
+
+/** The specimen as one string, for a caller that wants to say what it spells. */
+export const SPECIMEN_TEXT = SPECIMEN_LINES.join(" ");
 
 /** The em size a specimen is laid out at, before it is fitted to a width. */
 const SPECIMEN_EM = 256;
@@ -58,46 +69,56 @@ export async function readFont(path: string): Promise<FontFacts> {
 export async function renderSpecimen(path: string, width: number): Promise<Raster | undefined> {
   const bytes = await readFile(path);
   const font = load(bytes);
-  const run = font.layout(SPECIMEN_TEXT);
-
   const scale = SPECIMEN_EM / font.unitsPerEm;
-  const parts: string[] = [];
-  let pen = 0;
 
-  for (const [index, glyph] of run.glyphs.entries()) {
-    const outline = glyph.path.toSVG();
-    // A space has no outline and still advances. Skipping the empty path keeps
-    // the markup honest rather than emitting `d=""`.
-    if (outline !== "") {
-      // The Y axis is flipped, because font units grow upward and an SVG's grow
-      // down. Doing it per glyph rather than on the group keeps each transform
-      // independent of the order they are emitted in.
-      parts.push(
-        `<path transform="translate(${round(pen * scale)} 0) scale(${round(scale)} ${round(-scale)})" d="${outline}"/>`,
-      );
+  const lines: { parts: string[]; width: number }[] = [];
+  for (const line of SPECIMEN_LINES) {
+    const run = font.layout(line);
+    const parts: string[] = [];
+    let pen = 0;
+
+    for (const [index, glyph] of run.glyphs.entries()) {
+      const outline = glyph.path.toSVG();
+      // A space has no outline and still advances. Skipping the empty path
+      // keeps the markup honest rather than emitting `d=""`.
+      if (outline !== "") {
+        // The Y axis is flipped, because font units grow upward and an SVG's
+        // grow down. Doing it per glyph rather than on the group keeps each
+        // transform independent of the order they are emitted in.
+        parts.push(
+          `<path transform="translate(${round(pen * scale)} 0) scale(${round(scale)} ${round(-scale)})" d="${outline}"/>`,
+        );
+      }
+      pen += run.positions[index]?.xAdvance ?? glyph.advanceWidth;
     }
-    pen += run.positions[index]?.xAdvance ?? glyph.advanceWidth;
+
+    lines.push({ parts, width: pen * scale });
   }
 
   // Laying out is not the same as drawing something. A font that covers none of
   // the specimen string still returns a glyph per character — `.notdef`, with
   // an advance and no outline — so the test for "nothing to show" is whether
   // any glyph contributed geometry, never how many glyphs came back.
-  if (parts.length === 0) return undefined;
+  if (lines.every((line) => line.parts.length === 0)) return undefined;
 
-  const contentWidth = Math.ceil(pen * scale);
+  const contentWidth = Math.ceil(Math.max(...lines.map((line) => line.width)));
+  const lineHeight = Math.round(SPECIMEN_EM * 1.25);
   const svgWidth = contentWidth + SPECIMEN_PADDING * 2;
-  const svgHeight = SPECIMEN_EM + SPECIMEN_PADDING * 2;
-  const baseline = SPECIMEN_PADDING + Math.round(SPECIMEN_EM * 0.78);
+  const svgHeight = lineHeight * lines.length + SPECIMEN_PADDING * 2;
+
+  const drawn = lines
+    .map((line, index) => {
+      const baseline = SPECIMEN_PADDING + Math.round(SPECIMEN_EM * 0.78) + index * lineHeight;
+      return `<g transform="translate(${SPECIMEN_PADDING} ${baseline})">${line.parts.join("")}</g>`;
+    })
+    .join("");
 
   // No background rectangle: the WebP keeps its alpha, so a specimen sits on
   // whatever the grid cell is painted in and reads in both themes. A white
   // sheet would be a light-mode decision baked into stored bytes.
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" ` +
-    `viewBox="0 0 ${svgWidth} ${svgHeight}">` +
-    `<g fill="#8a8a8a" transform="translate(${SPECIMEN_PADDING} ${baseline})">${parts.join("")}</g>` +
-    `</svg>`;
+    `viewBox="0 0 ${svgWidth} ${svgHeight}"><g fill="#8a8a8a">${drawn}</g></svg>`;
 
   return rasteriseSvg(svg, width);
 }

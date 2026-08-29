@@ -132,4 +132,4 @@ export {
   type SmartFolderEntry,
   type TagEntry,
 } from "./sidebar.js";
-export { generateMissing, type ThumbnailReport } from "./thumbnails.js";
+export { ensurePreview, generateMissing, type ThumbnailReport } from "./thumbnails.js";

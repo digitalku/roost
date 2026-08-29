@@ -30,6 +30,7 @@ import {
   compileFor,
   type DeriveReport,
   enqueueMissing,
+  ensurePreview,
   type ImportReport,
   importInto,
   Library,
@@ -113,8 +114,16 @@ export class EngineHost {
         return check(this.#require(), request.query);
 
       case "asset:detail": {
-        const found = this.#require().db.repo.assetDetail(parseContentHash(request.hash));
-        return found === undefined ? null : detailOf(found);
+        const library = this.#require();
+        const found = library.db.repo.assetDetail(parseContentHash(request.hash));
+        if (found === undefined) return null;
+        // The preview size is made on first use, which is what asking for an
+        // asset's detail is: the inspector and the preview pane both draw
+        // `@512`, and generating it for every asset up front would be 34 GB at
+        // a million (`serving.ts`). One asset, and only if it already has a
+        // grid thumbnail — proof that something here can draw it.
+        await ensurePreview(library, request.hash);
+        return detailOf(found);
       }
 
       case "asset:rate":

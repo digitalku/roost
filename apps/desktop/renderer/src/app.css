@@ -243,6 +243,7 @@ button:disabled {
 
 .status {
   display: flex;
+  flex: none;
   gap: var(--space-4);
   align-items: center;
   height: var(--row-height);
@@ -256,6 +257,10 @@ button:disabled {
 /* One row per running job (UI_SPEC.md §3). A button when it can be dismissed,
    which is every state except the running one. */
 .status-job {
+  flex: none;
+  /* Nothing in the status bar wraps: a third item was enough to fold the counts
+     onto two lines and eat the bar's own height. What gives way is the path. */
+  white-space: nowrap;
   padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--radius-sm);
@@ -285,6 +290,8 @@ button:disabled {
 }
 
 .status .path {
+  flex: 1;
+  min-width: 0;
   font-family: var(--font-mono);
   color: var(--text-subtle);
   overflow: hidden;

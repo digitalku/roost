@@ -81,8 +81,18 @@
   max-height: 100%;
 }
 
+/* The page gives way, the controls do not. Without this the image takes the
+   whole stage and pushes the pager off the bottom, which is how it looked in
+   the first window it was opened in. */
+.preview-pages .preview-media,
+.preview-specimen .preview-media {
+  flex: 1;
+  min-height: 0;
+}
+
 .preview-pager {
   display: flex;
+  flex: none;
   gap: var(--space-3);
   align-items: center;
 }
