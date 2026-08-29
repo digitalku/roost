@@ -66,3 +66,36 @@
 .preview-fallback .inspector-preview {
   width: 100%;
 }
+
+/* Page-through (UI_SPEC.md §7). The page fills what is left after the pager,
+   which sits under it rather than over: a control on top of the page would
+   cover the text somebody is reading. */
+
+.preview-pages,
+.preview-specimen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: 0;
+  max-height: 100%;
+}
+
+.preview-pager {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.preview-page-count {
+  min-width: 6ch;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+.preview-specimen-name {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}

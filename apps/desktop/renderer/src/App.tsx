@@ -3,6 +3,7 @@ import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
+import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
 import { Grid } from "./grid/Grid.js";
 import type { GridMode } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
@@ -397,6 +398,7 @@ function LibraryView({
   // selection on every keystroke, and every cell's subscription with it.
   const selection = useMemo(() => new SelectionStore(), []);
   const paging = useAssetPages(query, generation);
+  const derives = useDeriveStatus(revision);
 
   /*
    * Re-read whenever the library changes: the counts are derived, and a stale
@@ -549,6 +551,7 @@ function LibraryView({
             rather than four fragments a screen reader has to reassemble. */}
         <span>{summaryLine(query === "" ? opened.stats.assets : matches, count)}</span>
         <ImportStatus importing={importing} />
+        <DeriveStatus status={derives.status} onRetry={(reason) => void derives.retry(reason)} />
         <span className="path">{opened.summary.root}</span>
       </footer>
       {showing !== undefined && <Problem problem={showing} />}

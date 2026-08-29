@@ -57,6 +57,9 @@ describe("opening a library", () => {
       // is a library: a grid with no rows has nothing to scroll, so nothing
       // else would ask for a page.
       "assets:page",
+      // The derive queue, as soon as there is a library: an empty cell has to
+      // be able to say whether it is waiting, parked, or simply undrawable.
+      "derive:status",
       "library:sidebar",
       // The status bar's match count, asked once per query rather than once
       // per scroll.

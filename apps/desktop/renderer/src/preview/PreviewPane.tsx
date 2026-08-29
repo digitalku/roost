@@ -27,11 +27,20 @@ export interface PreviewPaneProps {
 
 export function PreviewPane({ hash, onClose, onStep }: PreviewPaneProps): React.JSX.Element {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
+  const [page, setPage] = useState(0);
   const pane = useRef<HTMLDivElement>(null);
+
+  const pages = detail?.kind === "document" ? (detail.pageCount ?? 0) : 0;
+  const turn = (delta: number): void => {
+    setPage((current) => Math.min(pages - 1, Math.max(0, current + delta)));
+  };
 
   useEffect(() => {
     let current = true;
     setDetail(undefined);
+    // Back to the first page: stepping to the next asset must not open it at
+    // page forty because that is where the last document was left.
+    setPage(0);
     void (async () => {
       const outcome = await invoke({ type: "asset:detail", hash });
       if (current && outcome.ok && outcome.value !== null) setDetail(outcome.value);
@@ -69,6 +78,16 @@ export function PreviewPane({ hash, onClose, onStep }: PreviewPaneProps): React.
           event.preventDefault();
           onStep(1);
         }
+        // Page keys turn pages and arrow keys step assets, which is the one
+        // split that keeps a document from trapping the keyboard.
+        if (event.key === "PageDown" && pages > 0) {
+          event.preventDefault();
+          turn(1);
+        }
+        if (event.key === "PageUp" && pages > 0) {
+          event.preventDefault();
+          turn(-1);
+        }
       }}
     >
       <header className="preview-bar">
@@ -77,7 +96,9 @@ export function PreviewPane({ hash, onClose, onStep }: PreviewPaneProps): React.
           Close
         </button>
       </header>
-      <div className="preview-stage">{detail === undefined ? null : <Stage detail={detail} />}</div>
+      <div className="preview-stage">
+        {detail === undefined ? null : <Stage detail={detail} page={page} onTurn={turn} />}
+      </div>
     </div>
   );
 }
@@ -90,7 +111,15 @@ export function PreviewPane({ hash, onClose, onStep }: PreviewPaneProps): React.
  * playback state, and a paused frame from the previous asset is worse than a
  * blank one.
  */
-function Stage({ detail }: { readonly detail: WireAssetDetail }): React.JSX.Element {
+function Stage({
+  detail,
+  page,
+  onTurn,
+}: {
+  readonly detail: WireAssetDetail;
+  readonly page: number;
+  readonly onTurn: (delta: number) => void;
+}): React.JSX.Element {
   const src = `roost://original/${detail.hash}`;
 
   if (detail.kind === "image") {
@@ -113,7 +142,105 @@ function Stage({ detail }: { readonly detail: WireAssetDetail }): React.JSX.Elem
     return <audio key={detail.hash} className="preview-audio" src={src} controls autoPlay />;
   }
 
+  // A document with pages to turn. `pageCount` is null until the derive pass
+  // has been over it, and a document nobody has counted yet falls through to
+  // its thumbnail rather than to a pager with one page in it.
+  if (detail.kind === "document" && detail.pageCount !== null && detail.pageCount > 0) {
+    return (
+      <Pages
+        key={detail.hash}
+        detail={detail}
+        pages={detail.pageCount}
+        page={page}
+        onTurn={onTurn}
+      />
+    );
+  }
+
+  if (detail.kind === "font") {
+    return <Specimen key={detail.hash} detail={detail} />;
+  }
+
   return <Fallback detail={detail} />;
+}
+
+/**
+ * A document, one page at a time (`UI_SPEC.md` §7).
+ *
+ * Each page is an `<img>` pointed at `roost://page/<hash>/<n>@1024`, rendered
+ * on demand by main and cached by Chromium — the same arrangement as a
+ * thumbnail, and for the same reason: bytes do not travel through IPC
+ * (invariant 12), and a library that stored a picture per page would be storing
+ * a rendering nobody asked for.
+ *
+ * The pager is `PageUp` and `PageDown` as well as buttons, because the arrow
+ * keys already belong to stepping between assets and taking them here would
+ * mean a document trapped the keyboard.
+ */
+function Pages({
+  detail,
+  pages,
+  page,
+  onTurn,
+}: {
+  readonly detail: WireAssetDetail;
+  readonly pages: number;
+  readonly page: number;
+  readonly onTurn: (delta: number) => void;
+}): React.JSX.Element {
+  const shown = Math.min(page, pages - 1);
+
+  return (
+    <div className="preview-pages">
+      <img
+        className="preview-media"
+        src={`roost://page/${detail.hash}/${shown}@1024`}
+        alt={`Page ${shown + 1} of ${pages}`}
+      />
+      <div className="preview-pager">
+        <button type="button" disabled={shown === 0} onClick={() => onTurn(-1)}>
+          Previous
+        </button>
+        <span className="preview-page-count">
+          {(shown + 1).toLocaleString()} / {pages.toLocaleString()}
+        </span>
+        <button type="button" disabled={shown >= pages - 1} onClick={() => onTurn(1)}>
+          Next
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A font: the specimen the derive pass drew, and what the font calls itself.
+ *
+ * The specimen is a stored thumbnail like any other — drawn from outlines, so
+ * nothing here loads a font (ADR-0015) — and this is a `<img>` at the preview
+ * size rather than live text in the window's own renderer.
+ */
+function Specimen({ detail }: { readonly detail: WireAssetDetail }): React.JSX.Element {
+  const family = detail.props["font.family"] ?? detail.name;
+  const style = detail.props["font.style"];
+
+  return (
+    <div className="preview-specimen">
+      <img
+        className="preview-media"
+        src={`roost://thumb/${detail.hash}@512`}
+        alt={`Specimen of ${family}`}
+      />
+      <p className="preview-specimen-name">
+        {style === undefined ? family : `${family} · ${style}`}
+      </p>
+      <button
+        type="button"
+        onClick={() => void invoke({ type: "asset:openExternally", hash: detail.hash })}
+      >
+        Open externally
+      </button>
+    </div>
+  );
 }
 
 /**

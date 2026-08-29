@@ -1,4 +1,4 @@
-import type { AssetKind } from "@roost/contract";
+import type { AssetKind, WireAssetDetail } from "@roost/contract";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -12,8 +12,10 @@ describe("the preview pane", () => {
   let closed: number;
   let steps: number[];
 
-  const show = (kind: AssetKind, ext = "png") => {
-    engine = new FakeEngine({ details: [fakeDetail(1, { kind, ext, name: `one.${ext}` })] });
+  const show = (kind: AssetKind, ext = "png", over: Partial<WireAssetDetail> = {}) => {
+    engine = new FakeEngine({
+      details: [fakeDetail(1, { kind, ext, name: `one.${ext}`, ...over })],
+    });
     install(engine);
     render(
       <PreviewPane
@@ -128,5 +130,73 @@ describe("the preview pane", () => {
       ),
     );
     expect(document.querySelector("video")).not.toBe(first);
+  });
+});
+
+describe("a document with pages to turn", () => {
+  const showDocument = (pageCount: number | null) => {
+    const engine = new FakeEngine({
+      details: [fakeDetail(1, { kind: "document", ext: "pdf", name: "report.pdf", pageCount })],
+    });
+    install(engine);
+    render(<PreviewPane hash={HASH} onClose={() => undefined} onStep={() => undefined} />);
+    return userEvent.setup();
+  };
+
+  it("renders a page over roost://page, rather than the file itself", async () => {
+    showDocument(3);
+
+    const page = (await screen.findByRole("img", { name: "Page 1 of 3" })) as HTMLImageElement;
+    // A rendering per page, made on demand by main: a library that stored one
+    // per page would be storing a picture nobody asked for.
+    expect(page.getAttribute("src")).toBe(`roost://page/${HASH}/0@1024`);
+  });
+
+  it("turns pages, and stops at both ends", async () => {
+    const user = showDocument(2);
+
+    await screen.findByRole("img", { name: "Page 1 of 2" });
+    expect((screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    const page = (await screen.findByRole("img", { name: "Page 2 of 2" })) as HTMLImageElement;
+    expect(page.getAttribute("src")).toBe(`roost://page/${HASH}/1@1024`);
+    expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("falls back to the thumbnail for a document nobody has counted yet", async () => {
+    // `pageCount` is null until the derive pass has been over it, and a pager
+    // with one page in it would be a lie about a fifty-page document.
+    showDocument(null);
+
+    await waitFor(() => expect(screen.queryByText("Open externally")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
+  });
+});
+
+describe("a font", () => {
+  it("shows the specimen the derive pass drew, and what the font calls itself", async () => {
+    const engine = new FakeEngine({
+      details: [
+        fakeDetail(1, {
+          kind: "font",
+          ext: "ttf",
+          name: "Timber.ttf",
+          props: { "font.family": "Timber Sans", "font.style": "Italic" },
+        }),
+      ],
+    });
+    install(engine);
+    render(<PreviewPane hash={HASH} onClose={() => undefined} onStep={() => undefined} />);
+
+    const specimen = (await screen.findByRole("img", {
+      name: "Specimen of Timber Sans",
+    })) as HTMLImageElement;
+    // A stored thumbnail, drawn from outlines by the engine — the window never
+    // loads a font to show one (ADR-0015).
+    expect(specimen.getAttribute("src")).toBe(`roost://thumb/${HASH}@512`);
+    expect(screen.getByText("Timber Sans · Italic")).toBeDefined();
   });
 });
