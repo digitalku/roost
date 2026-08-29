@@ -1,0 +1,187 @@
+import type { DerivedMetadata } from "@roost/core";
+import { capability, capabilityFor } from "./capability.js";
+import { readDimensions, renderThumbnails, type Thumbnail } from "./decoder.js";
+import { PAGE_RENDER_WIDTH, renderPage } from "./document.js";
+import {
+  grabFrame,
+  probeMedia,
+  WAVEFORM_BUCKETS,
+  WAVEFORM_HEIGHT,
+  waveformPeaks,
+} from "./ffmpeg.js";
+import { readFont, renderSpecimen } from "./font.js";
+import type { Format } from "./format.js";
+import { sniffFile } from "./probe.js";
+import { EAGER_SIZES } from "./serving.js";
+import { rasteriseSvgFile, VECTOR_RENDER_WIDTH } from "./vector.js";
+import { drawWaveform } from "./waveform.js";
+
+/**
+ * One asset's derived data: its thumbnails and what its bytes say about
+ * themselves.
+ *
+ * The pipeline's last stage (`ARCHITECTURE.md` §5) and the only thing the job
+ * runner calls. Which backend does the work is decided here, from the bytes,
+ * and every backend hands back the same two things — so adding a format is a
+ * case in one `switch` rather than a change in the runner, the CLI, and the
+ * app.
+ */
+
+/** What a derive produced. */
+export interface Derived {
+  readonly thumbnails: readonly Thumbnail[];
+  readonly metadata: DerivedMetadata;
+}
+
+/**
+ * A derive either produced something or explained why it could not.
+ *
+ * `blocked` is not a failure and is not thrown: a format nothing in this build
+ * draws, or a backend this machine does not have, is an expected outcome that
+ * the queue parks rather than retries (`DATA_MODEL.md` §2.5). A backend that
+ * was present and went wrong throws instead, and the runner records that as a
+ * failure worth retrying.
+ */
+export type DeriveOutcome =
+  | ({ readonly ok: true } & Derived)
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * Derives everything Roost knows how to derive from one file.
+ *
+ * The format is decided from the bytes, never from the extension: a file named
+ * `.jpg` that is really a PNG is ordinary in a downloads folder, and a
+ * dispatcher that trusted the name would hand it to the wrong backend.
+ */
+export async function derive(
+  path: string,
+  sizes: readonly number[] = EAGER_SIZES,
+): Promise<DeriveOutcome> {
+  const format = await sniffFile(path);
+  const backend = capabilityFor(format);
+
+  if (backend === undefined) return { ok: false, reason: `unsupported:${format}` };
+
+  if (backend === "media") {
+    const media = await capability("media");
+    if (!media.available) return { ok: false, reason: "missing:ffmpeg" };
+    return deriveMedia(path, format, sizes);
+  }
+
+  if (backend === "documents") return { ok: true, ...(await deriveDocument(path, sizes)) };
+  if (backend === "vectors") return deriveVector(path, format, sizes);
+  return { ok: true, ...(await deriveImage(path, sizes)) };
+}
+
+async function deriveImage(path: string, sizes: readonly number[]): Promise<Derived> {
+  const [thumbnails, dimensions] = await Promise.all([
+    renderThumbnails({ path }, sizes),
+    readDimensions(path),
+  ]);
+  return { thumbnails, metadata: dimensions ?? {} };
+}
+
+/**
+ * A PDF's first page, and its page count.
+ *
+ * The stored dimensions are the **page's own size in points**, not the size the
+ * thumbnail happened to be rendered at: a grid cell reserves its shape from
+ * them, and the render width is an implementation detail that could change
+ * without every A4 document changing shape.
+ */
+async function deriveDocument(path: string, sizes: readonly number[]): Promise<Derived> {
+  const page = await renderPage(path, 0, PAGE_RENDER_WIDTH);
+  const thumbnails = await renderThumbnails(
+    { pixels: page.pixels, width: page.width, height: page.height },
+    sizes,
+  );
+
+  return {
+    thumbnails,
+    metadata: { width: page.pageWidth, height: page.pageHeight, pageCount: page.pages },
+  };
+}
+
+async function deriveVector(
+  path: string,
+  format: Format,
+  sizes: readonly number[],
+): Promise<DeriveOutcome> {
+  if (format === "svg") {
+    const raster = await rasteriseSvgFile(path, VECTOR_RENDER_WIDTH);
+    return {
+      ok: true,
+      thumbnails: await renderThumbnails({ bytes: raster.png }, sizes),
+      // The rasterised size, which is the drawing's aspect ratio at a known
+      // width — an SVG's own `width` may be a percentage or absent entirely.
+      metadata: { width: raster.width, height: raster.height },
+    };
+  }
+
+  const facts = await readFont(path);
+  const props: Record<string, string> = {
+    "font.family": facts.family,
+    "font.style": facts.style,
+    "font.glyphs": String(facts.glyphs),
+  };
+
+  const specimen = await renderSpecimen(path, VECTOR_RENDER_WIDTH);
+  // A font that lays out none of the specimen string — an icon font, a subset —
+  // still gains its names. Blocking would throw those away with the picture.
+  if (specimen === undefined) {
+    return { ok: true, thumbnails: [], metadata: { props } };
+  }
+
+  return {
+    ok: true,
+    thumbnails: await renderThumbnails({ bytes: specimen.png }, sizes),
+    metadata: { width: specimen.width, height: specimen.height, props },
+  };
+}
+
+/**
+ * Video and audio.
+ *
+ * Two process spawns each and roughly a quarter of a second (ADR-0017), which
+ * is why this runs behind the queue and never inside import. The probe comes
+ * first because the thumbnail depends on it: a frame is taken a tenth of the
+ * way in, and that needs a duration.
+ */
+async function deriveMedia(
+  path: string,
+  format: Format,
+  sizes: readonly number[],
+): Promise<DeriveOutcome> {
+  const probe = await probeMedia(path);
+  const metadata: DerivedMetadata = {
+    ...(probe.durationMs === undefined ? {} : { durationMs: probe.durationMs }),
+    ...(probe.width === undefined ? {} : { width: probe.width }),
+    ...(probe.height === undefined ? {} : { height: probe.height }),
+    ...(Object.keys(probe.props).length === 0 ? {} : { props: probe.props }),
+  };
+
+  // A video stream is what decides which picture to make, not the container: an
+  // `.mp4` holding only audio is ordinary, and grabbing a frame from it would
+  // fail rather than produce the waveform it deserves.
+  const hasVideo = probe.width !== undefined && probe.height !== undefined;
+
+  if (hasVideo) {
+    const frame = await grabFrame(path, probe.durationMs);
+    return { ok: true, thumbnails: await renderThumbnails({ bytes: frame }, sizes), metadata };
+  }
+
+  if (probe.props["audio.codec"] === undefined) {
+    return { ok: false, reason: `unsupported:${format}` };
+  }
+
+  const peaks = await waveformPeaks(path, WAVEFORM_BUCKETS, probe.durationMs);
+  const drawn = drawWaveform(peaks, WAVEFORM_HEIGHT);
+  return {
+    ok: true,
+    thumbnails: await renderThumbnails(
+      { pixels: drawn.pixels, width: drawn.width, height: drawn.height },
+      sizes,
+    ),
+    metadata,
+  };
+}

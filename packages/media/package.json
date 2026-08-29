@@ -18,11 +18,15 @@
   "types": "./dist/index.d.ts",
   "main": "./dist/index.js",
   "dependencies": {
+    "@hyzyla/pdfium": "2.1.13",
     "@napi-rs/blake-hash": "1.4.0",
+    "@resvg/resvg-wasm": "2.6.2",
     "@roost/core": "workspace:*",
+    "fontkit": "2.0.4",
     "sharp": "^0.35.3"
   },
   "devDependencies": {
+    "@types/fontkit": "2.0.9",
     "@types/node": "22.20.1"
   }
 }

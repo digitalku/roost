@@ -16,11 +16,11 @@ export {
 /**
  * Generates thumbnails for a file, or returns none.
  *
- * **An unrenderable format is not an error.** A PDF, a video, and a font all
- * import normally and simply have no thumbnail until the backend that draws
- * them arrives (M4). Returning an empty array rather than throwing is what lets
- * the importer stay a straight line — `ARCHITECTURE.md` §3.3 makes the same
- * promise about missing backends.
+ * **Images only.** Since M4 the other formats have backends of their own and
+ * are reached through `derive`, which picks between them; this is the narrow
+ * path for a caller that has an image and wants its thumbnails. An
+ * unrenderable format is still not an error — it returns no thumbnails rather
+ * than throwing, which is what lets a caller stay a straight line.
  *
  * The format is decided from the bytes, not from the caller's word for it, for
  * the same reason `probe` does: a file named `.jpg` that is really a PNG is
@@ -33,5 +33,5 @@ export async function generateThumbnails(
 ): Promise<Thumbnail[]> {
   const format = await sniffFile(path);
   if (!isRenderable(format)) return [];
-  return renderThumbnails(path, sizes);
+  return renderThumbnails({ path }, sizes);
 }

@@ -28,7 +28,11 @@ export interface Thumbnail {
 }
 
 /**
- * Formats this build can turn into pixels.
+ * Formats **this decoder** can turn into pixels.
+ *
+ * Not the same question as "does Roost draw this": since M4 a vector
+ * rasteriser, a PDF backend, and ffmpeg draw the rest (`capability.ts` holds
+ * that table). What this set answers is which formats reach `sharp`.
  *
  * Two of them are absent for reasons worth keeping visible, because both would
  * otherwise read as oversights:
@@ -37,12 +41,14 @@ export interface Thumbnail {
  *   build's `image` crate did, so a `.bmp` that had a thumbnail there has none
  *   here. It still imports, still carries tags, and still opens elsewhere.
  * - **`svg`** — libvips renders SVG through librsvg, and **librsvg follows
- *   external references**. Measured: an `<image xlink:href="secret.png">`
- *   beside the SVG is loaded and drawn. That makes an imported SVG a way to
- *   read arbitrary local files through the thumbnailer, and the same code path
- *   reaches remote URLs, which invariant 7 forbids outright. SVG stays
- *   recognised, previewable by the renderer's own engine, and unrendered here
- *   until it can be rasterised somewhere that cannot reach the filesystem.
+ *   external references** whenever it is handed a path. Measured on 2.62.3: an
+ *   `<image xlink:href="secret.png">` beside the SVG is loaded and drawn, and
+ *   an absolute path is too. That makes an imported SVG a way to read arbitrary
+ *   local files through the thumbnailer. (The same measurement did *not*
+ *   reproduce a remote fetch, which an earlier version of this comment claimed;
+ *   the local read is the hazard and it is enough.) SVG is drawn since M4 —
+ *   by the WASM rasteriser in `vector.ts`, which has no filesystem to follow a
+ *   reference into (ADR-0015).
  */
 const RENDERABLE: ReadonlySet<Format> = new Set<Format>([
   "jpeg",
@@ -107,7 +113,35 @@ export async function readDimensions(
 }
 
 /**
- * Renders `path` at every requested size.
+ * Where pixels come from, for the encoder.
+ *
+ * Three shapes because the backends produce three: an image file is decoded
+ * from its path, a video frame and a rasterised vector arrive as encoded bytes
+ * that never touched the disk, and a waveform is drawn as raw RGBA. Everything
+ * downstream of here is one code path — resize, encode, store — rather than one
+ * per backend.
+ */
+export type PixelSource =
+  | { readonly path: string }
+  | { readonly bytes: Buffer }
+  | { readonly pixels: Buffer; readonly width: number; readonly height: number };
+
+function openSource(source: PixelSource): ReturnType<typeof sharp> {
+  // `failOn: "error"` rather than the default `"warning"`: a JPEG whose last
+  // scan is missing is ordinary in a real library, and refusing to thumbnail it
+  // would be a worse answer than an image a few rows short.
+  if ("pixels" in source) {
+    return sharp(source.pixels, {
+      raw: { width: source.width, height: source.height, channels: 4 },
+    });
+  }
+  return "path" in source
+    ? sharp(source.path, { failOn: "error" })
+    : sharp(source.bytes, { failOn: "error" });
+}
+
+/**
+ * Renders a source at every requested size.
  *
  * Each size is produced **from the original**, not by shrinking the previous
  * thumbnail. The Rust build chained, and could: it held decoded pixels and
@@ -121,16 +155,13 @@ export async function readDimensions(
  * detail, and would make a 64px icon claim to be a 512px thumbnail.
  */
 export async function renderThumbnails(
-  path: string,
+  source: PixelSource,
   sizes: readonly number[],
 ): Promise<Thumbnail[]> {
   const thumbnails: Thumbnail[] = [];
 
   for (const size of [...new Set(sizes)].sort((a, b) => b - a)) {
-    // `failOn: "error"` rather than the default `"warning"`: a JPEG whose last
-    // scan is missing is ordinary in a real library, and refusing to thumbnail
-    // it would be a worse answer than an image a few rows short.
-    const { data, info } = await sharp(path, { failOn: "error" })
+    const { data, info } = await openSource(source)
       .resize({ width: size, height: size, fit: "inside", withoutEnlargement: true })
       .webp({ quality: WEBP_QUALITY })
       .toBuffer({ resolveWithObject: true });

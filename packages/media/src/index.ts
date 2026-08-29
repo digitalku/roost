@@ -8,12 +8,40 @@
  * decoder is missing still imports, with no thumbnail rather than an error.
  */
 export {
+  CAPABILITIES,
+  CAPABILITY_FORMATS,
+  type Capability,
+  type CapabilityName,
+  capabilities,
+  capability,
+  capabilityFor,
+  isCapabilityName,
+  refreshCapabilities,
+} from "./capability.js";
+export {
   type DecoderBuild,
   decoderVersions,
   isRenderable,
+  type PixelSource,
+  renderThumbnails,
   type Thumbnail,
   WEBP_QUALITY,
 } from "./decoder.js";
+export { type Derived, type DeriveOutcome, derive } from "./derive.js";
+export {
+  documentVersion,
+  PAGE_RENDER_WIDTH,
+  pageCount,
+  type RenderedPage,
+  renderPage,
+} from "./document.js";
+export { ExternalToolError } from "./external.js";
+export {
+  type FontFacts,
+  readFont,
+  renderSpecimen,
+  SPECIMEN_TEXT,
+} from "./font.js";
 export {
   FORMATS,
   type Format,
@@ -46,3 +74,11 @@ export {
   PREVIEW_SIZE,
   THUMBNAIL_SIZES,
 } from "./thumbnail.js";
+export {
+  type Raster,
+  rasteriseSvg,
+  rasteriseSvgFile,
+  VECTOR_RENDER_WIDTH,
+  vectorVersion,
+} from "./vector.js";
+export { drawWaveform, type Pixels } from "./waveform.js";
