@@ -141,7 +141,7 @@ Legend: **M** = must have (v1.0) · **S** = should have · **C** = could have ·
 - M — Portable library folder (copy it to another machine, it just works)
 - M — **Managed** mode (files copied into library) and **Referenced** mode (files indexed in place)
 - M — Full DB rebuild by replaying the journal
-- M — Opens a library written by the Rust implementation, and vice versa
+- M — Opens a library written by the Rust implementation (one direction; see §7)
 - S — Export/backup a folder or selection with metadata
 - C — Merge two libraries
 
@@ -185,8 +185,11 @@ These are the differentiators worth building, not just parity items:
 - Grid scroll: sustained 60fps with 4k-resolution thumbnails.
 - Search p95: < 100ms on 1M rows.
 - Delete `index.db` → full rebuild from the journal with zero metadata loss (CI-enforced).
-- A library created here opens in the Rust implementation unchanged, and the reverse
-  (CI-enforced against a committed fixture library).
+- A library written by the Rust implementation opens here and migrates forward (CI-enforced
+  against a committed fixture library). **The reverse was dropped on 2026-08-29**: `roost-old`
+  is a discontinued project, and refusing to grow the schema to keep it readable there would cost
+  every milestone from M4 on. What is still promised is the line above it — the journal rebuilds
+  the index — because that, not another implementation, is what makes the format durable.
 - Ships as AppImage + Flatpak + .rpm/.deb, with native modules bundled and no runtime
   dependency surprises.
 

@@ -28,10 +28,18 @@ describe("opening a library the Rust implementation wrote", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("runs no migration, because it already carries this build's schema", () => {
+  it("arrives at v5 and is migrated forward, without touching what it carries", () => {
+    // Through M3 this asserted that no migration ran at all, which was true
+    // while both builds ended at v5. Migration 0006 is where they part company
+    // (`DATA_MODEL.md` §2.5): this build takes a Rust-written library forward,
+    // and the Rust build then refuses the index and rebuilds it from the
+    // journal. What must not change is anything the journal authored, which is
+    // what the second test here checks — 0006 only adds derived tables.
     const db = Db.open(path);
     try {
+      expect(latestSchemaVersion()).toBeGreaterThan(5);
       expect(db.schemaVersion()).toBe(latestSchemaVersion());
+      expect(db.repo.stats().assets).toBe(3);
     } finally {
       db.close();
     }

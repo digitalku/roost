@@ -1,6 +1,6 @@
 import type { Database, Statement } from "better-sqlite3";
 import type { AddRecord } from "../journal/index.js";
-import type { ContentHash } from "../model/index.js";
+import type { ContentHash, JobKind, JobState } from "../model/index.js";
 import type { Cursor, Filter, Page, SearchHit } from "./query.js";
 
 /**
@@ -69,6 +69,47 @@ export interface ThumbnailTarget {
   readonly refPath: string | null;
 }
 
+/**
+ * What a derive pass learned about a file.
+ *
+ * Every field is optional and `undefined` means "did not learn this", never
+ * "clear it": a backend that reports a duration and no dimensions must not
+ * erase dimensions probing already found. Derived values are only ever
+ * overwritten by a later derive of the same bytes, so there is nothing to
+ * clear.
+ */
+export interface DerivedMetadata {
+  readonly width?: number;
+  readonly height?: number;
+  readonly durationMs?: number;
+  readonly pageCount?: number;
+  /** Format-specific properties, from the vocabulary `DATA_MODEL.md` §2.5 fixes. */
+  readonly props?: Readonly<Record<string, string>>;
+}
+
+/** A job claimed by a runner, with the bytes it is about. */
+export interface JobClaim {
+  readonly id: number;
+  readonly hash: ContentHash;
+  readonly attempts: number;
+  readonly ext: string;
+  readonly storageMode: string;
+  readonly refPath: string | null;
+}
+
+/** How many jobs are in each state, for a status line. */
+export interface JobCount {
+  readonly kind: string;
+  readonly state: JobState;
+  readonly count: number;
+}
+
+/** Why jobs are not being done, most common first. */
+export interface JobReason {
+  readonly reason: string;
+  readonly count: number;
+}
+
 /** Everything the detail view shows about one asset. */
 export interface AssetDetail {
   readonly hash: ContentHash;
@@ -76,6 +117,8 @@ export interface AssetDetail {
   readonly size: number;
   readonly width: number | null;
   readonly height: number | null;
+  readonly durationMs: number | null;
+  readonly pageCount: number | null;
   readonly origName: string;
   readonly storageMode: string;
   readonly refPath: string | null;
@@ -87,6 +130,8 @@ export interface AssetDetail {
   readonly isFavorite: boolean;
   readonly tags: string[];
   readonly folders: string[];
+  /** Derived, format-specific properties. Empty for most assets. */
+  readonly props: Readonly<Record<string, string>>;
 }
 
 /** One row of the folder tree. */
@@ -467,13 +512,14 @@ export class Repo {
   /** One asset with its tags and folder names resolved. */
   assetDetail(hash: ContentHash): AssetDetail | undefined {
     const base = this.#s(
-      `SELECT hash, ext, size, width, height, orig_name AS origName,
+      `SELECT hash, ext, size, width, height, duration_ms AS durationMs,
+              page_count AS pageCount, orig_name AS origName,
               storage_mode AS storageMode, ref_path AS refPath,
               is_partial_hash AS isPartialHash, created_at AS createdAt,
               imported_at AS importedAt, rating, note, is_favorite AS isFavorite
          FROM assets WHERE hash = ?`,
     ).get(hash) as
-      | (Omit<AssetDetail, "isPartialHash" | "isFavorite" | "tags" | "folders"> & {
+      | (Omit<AssetDetail, "isPartialHash" | "isFavorite" | "tags" | "folders" | "props"> & {
           isPartialHash: number;
           isFavorite: number;
         })
@@ -497,6 +543,7 @@ export class Repo {
       isFavorite: base.isFavorite !== 0,
       tags: tags.map((t) => t.name),
       folders: folders.map((f) => f.name),
+      props: this.props(hash),
     };
   }
 
@@ -585,6 +632,228 @@ export class Repo {
         ORDER BY a.imported_at DESC
         LIMIT ?`,
     ).all(...sizes, limit) as ThumbnailTarget[];
+  }
+
+  // --- Derived data and the job queue ---------------------------------------
+  //
+  // None of this is journalled: it is computed from bytes, so a rebuild drops
+  // it and re-running the derive pass restores it (`DATA_MODEL.md` §2.5).
+
+  /**
+   * Folds what a derive learned into the asset row and its properties.
+   *
+   * `coalesce(?, column)` rather than a plain assignment, so a backend that
+   * reports one field leaves the others alone. Probing at import already found
+   * an image's dimensions; a later pass that only knows a page count must not
+   * blank them.
+   */
+  putDerived(hash: ContentHash, meta: DerivedMetadata): void {
+    this.#s(
+      `UPDATE assets
+          SET width       = coalesce(?, width),
+              height      = coalesce(?, height),
+              duration_ms = coalesce(?, duration_ms),
+              page_count  = coalesce(?, page_count)
+        WHERE hash = ?`,
+    ).run(
+      meta.width ?? null,
+      meta.height ?? null,
+      meta.durationMs ?? null,
+      meta.pageCount ?? null,
+      hash,
+    );
+
+    if (meta.props === undefined) return;
+    const put = this.#s(
+      `INSERT INTO asset_props (hash, key, value) VALUES (?, ?, ?)
+       ON CONFLICT(hash, key) DO UPDATE SET value = excluded.value`,
+    );
+    for (const [key, value] of Object.entries(meta.props)) put.run(hash, key, value);
+  }
+
+  /** One asset's derived properties. Empty for most assets. */
+  props(hash: ContentHash): Record<string, string> {
+    const rows = this.#s("SELECT key, value FROM asset_props WHERE hash = ? ORDER BY key").all(
+      hash,
+    ) as { key: string; value: string }[];
+    return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  }
+
+  /**
+   * Queues one job, or moves an existing one back to the front of the queue.
+   *
+   * `ON CONFLICT` makes this idempotent, which is what lets the importer queue
+   * without checking and the UI re-queue on demand. Re-queuing deliberately
+   * clears `reason` and lowers `priority` if the new one is more urgent: asking
+   * again for something that failed, or that someone is now looking at, has to
+   * mean it will be tried again and tried sooner.
+   */
+  enqueueJob(kind: JobKind, hash: ContentHash, priority: number, now: number): void {
+    this.#s(
+      `INSERT INTO jobs (kind, hash, priority, state, enqueued_at) VALUES (?, ?, ?, 'ready', ?)
+       ON CONFLICT(kind, hash) DO UPDATE SET
+           state = 'ready',
+           reason = NULL,
+           priority = min(jobs.priority, excluded.priority),
+           enqueued_at = excluded.enqueued_at`,
+    ).run(kind, hash, priority, now);
+  }
+
+  /**
+   * Queues a derive for every asset missing a thumbnail at any of `sizes`.
+   *
+   * `DO NOTHING` on conflict, unlike {@link enqueueJob}: this is the backfill
+   * sweep, and it must not disturb a job that is already blocked — a format
+   * nothing in this build can draw would otherwise be retried on every sweep,
+   * forever, and the sweep would never converge. Un-blocking is a deliberate
+   * act ({@link requeueBlocked}), taken when a backend appears.
+   *
+   * Returns how many were added.
+   */
+  enqueueMissingDerives(
+    kind: JobKind,
+    sizes: readonly number[],
+    priority: number,
+    now: number,
+    limit: number,
+  ): number {
+    if (sizes.length === 0) return 0;
+
+    // Built from `sizes.length`, never from its contents, exactly as
+    // `assetsMissingThumbnails` does — the values stay bound.
+    const probes = sizes
+      .map(() => "NOT EXISTS (SELECT 1 FROM thumbs t WHERE t.hash = a.hash AND t.size = ?)")
+      .join(" OR ");
+
+    const result = this.#s(
+      `INSERT INTO jobs (kind, hash, priority, state, enqueued_at)
+       SELECT ?, a.hash, ?, 'ready', ?
+         FROM assets a
+        WHERE ${probes}
+        ORDER BY a.imported_at DESC
+        LIMIT ?
+       ON CONFLICT(kind, hash) DO NOTHING`,
+    ).run(kind, priority, now, ...sizes, limit);
+    return result.changes;
+  }
+
+  /**
+   * Claims up to `limit` jobs, marking them `running`.
+   *
+   * One `UPDATE ... RETURNING` rather than a select followed by an update: two
+   * statements would let a second runner claim the same rows in between, and
+   * the CLI can be running a backfill while the app has a library open.
+   */
+  claimJobs(kind: JobKind, limit: number): JobClaim[] {
+    const claimed = this.#s(
+      `UPDATE jobs SET state = 'running', attempts = attempts + 1
+        WHERE id IN (
+              SELECT id FROM jobs
+               WHERE kind = ? AND state = 'ready'
+               ORDER BY priority, id
+               LIMIT ?)
+       RETURNING id, hash, attempts, priority`,
+    ).all(kind, limit) as {
+      id: number;
+      hash: ContentHash;
+      attempts: number;
+      priority: number;
+    }[];
+
+    // `RETURNING` reports rows in the order the UPDATE visited them, which is
+    // rowid order — the subquery's `ORDER BY` picks *which* rows, not the order
+    // they come back in. The runner works the batch in the order it is handed,
+    // so an interactive job queued last would otherwise wait behind the
+    // backfill it was supposed to overtake.
+    claimed.sort((a, b) => a.priority - b.priority || a.id - b.id);
+
+    const claims: JobClaim[] = [];
+    for (const job of claimed) {
+      const target = this.thumbnailTarget(job.hash);
+      // The asset is gone: the row will cascade away with it, and there is
+      // nothing to derive from.
+      if (target === undefined) {
+        this.completeJob(job.id);
+        continue;
+      }
+      claims.push({ id: job.id, attempts: job.attempts, ...target });
+    }
+    return claims;
+  }
+
+  /** Removes a finished job. The derived data it produced is the record of it. */
+  completeJob(id: number): void {
+    this.#s("DELETE FROM jobs WHERE id = ?").run(id);
+  }
+
+  /**
+   * Parks a job on something the machine does not have.
+   *
+   * Distinct from {@link failJob} because the fix is different: a blocked job
+   * waits for a backend to be installed or a format to become drawable, and
+   * retrying it now would produce the same answer at the same cost. `reason` is
+   * shown to the user, so it names the capability rather than the exception.
+   */
+  blockJob(id: number, reason: string): void {
+    this.#s("UPDATE jobs SET state = 'blocked', reason = ? WHERE id = ?").run(reason, id);
+  }
+
+  /** Records a job that was tried and did not survive. */
+  failJob(id: number, reason: string): void {
+    this.#s("UPDATE jobs SET state = 'failed', reason = ? WHERE id = ?").run(reason, id);
+  }
+
+  /**
+   * Returns claimed jobs to the queue, and reports how many.
+   *
+   * Run at start-up: `running` describes a process, and after a crash it
+   * describes one that no longer exists. A derive is idempotent — same bytes,
+   * same answer — so repeating one that was in flight is cheaper than
+   * establishing whether it finished.
+   */
+  resetRunningJobs(): number {
+    return this.#s("UPDATE jobs SET state = 'ready' WHERE state = 'running'").run().changes;
+  }
+
+  /**
+   * Un-blocks jobs, optionally only those parked on one reason.
+   *
+   * The reason is matched exactly, so installing ffmpeg can release the videos
+   * without also retrying every format this build cannot draw.
+   */
+  requeueBlocked(kind: JobKind, reason?: string): number {
+    return reason === undefined
+      ? this.#s(
+          "UPDATE jobs SET state = 'ready', reason = NULL WHERE kind = ? AND state = 'blocked'",
+        ).run(kind).changes
+      : this.#s(
+          `UPDATE jobs SET state = 'ready', reason = NULL
+            WHERE kind = ? AND state = 'blocked' AND reason = ?`,
+        ).run(kind, reason).changes;
+  }
+
+  /** Retries jobs that failed, up to `maxAttempts` tries each. */
+  requeueFailed(kind: JobKind, maxAttempts: number): number {
+    return this.#s(
+      `UPDATE jobs SET state = 'ready', reason = NULL
+        WHERE kind = ? AND state = 'failed' AND attempts < ?`,
+    ).run(kind, maxAttempts).changes;
+  }
+
+  /** How many jobs sit in each state. */
+  jobCounts(): JobCount[] {
+    return this.#s(
+      "SELECT kind, state, count(*) AS count FROM jobs GROUP BY kind, state ORDER BY kind, state",
+    ).all() as JobCount[];
+  }
+
+  /** What is holding jobs up, most common first. */
+  jobReasons(state: JobState): JobReason[] {
+    return this.#s(
+      `SELECT coalesce(reason, 'unknown') AS reason, count(*) AS count
+         FROM jobs WHERE state = ?
+        GROUP BY reason ORDER BY count DESC, reason`,
+    ).all(state) as JobReason[];
   }
 
   /** Every asset hash in the index, for comparing a rebuild against the original. */

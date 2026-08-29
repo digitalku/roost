@@ -4,7 +4,7 @@ import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AddRecord } from "../journal/index.js";
-import { parseContentHash } from "../model/index.js";
+import { JOB_PRIORITY, parseContentHash } from "../model/index.js";
 import { Db } from "./database.js";
 import { type Cursor, type Filter, MATCH_ALL, type Page, type SearchHit } from "./query.js";
 import { lastCursor, searchSql } from "./repo.js";
@@ -324,5 +324,182 @@ describe("the plan a grid query actually gets", () => {
     } finally {
       raw.close();
     }
+  });
+});
+
+describe("the derive queue", () => {
+  let db: Db;
+
+  beforeEach(() => {
+    db = Db.openInMemory();
+    for (const n of [1, 2, 3]) db.repo.applyAdd(1_700_000_000 + n, asset(n));
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  const enqueueAll = (priority = JOB_PRIORITY.import): void => {
+    for (const n of [1, 2, 3]) db.repo.enqueueJob("derive", hashOf(n), priority, 1_700_000_000);
+  };
+
+  it("claims in priority order, then in the order work arrived", () => {
+    db.repo.enqueueJob("derive", hashOf(1), JOB_PRIORITY.backfill, 1_700_000_000);
+    db.repo.enqueueJob("derive", hashOf(2), JOB_PRIORITY.backfill, 1_700_000_001);
+    db.repo.enqueueJob("derive", hashOf(3), JOB_PRIORITY.interactive, 1_700_000_002);
+
+    // The asset someone is looking at goes first, even though it was queued
+    // last — that is the whole point of the priority.
+    expect(db.repo.claimJobs("derive", 3).map((job) => job.hash)).toEqual([
+      hashOf(3),
+      hashOf(1),
+      hashOf(2),
+    ]);
+  });
+
+  it("hands a claimed job the bytes it is about", () => {
+    db.repo.applyAdd(1_700_000_009, referenced(9, { ref: "/somewhere/nine.png" }));
+    db.repo.enqueueJob("derive", hashOf(9), JOB_PRIORITY.import, 1_700_000_009);
+
+    // A runner needs the ext and the storage mode to find the file at all, and
+    // a per-job lookup afterwards would be a second query per asset.
+    expect(db.repo.claimJobs("derive", 1)[0]).toMatchObject({
+      hash: hashOf(9),
+      ext: "png",
+      storageMode: "referenced",
+      refPath: "/somewhere/nine.png",
+      attempts: 1,
+    });
+  });
+
+  it("does not hand the same job to two runners", () => {
+    enqueueAll();
+
+    const first = db.repo.claimJobs("derive", 2);
+    const second = db.repo.claimJobs("derive", 2);
+
+    expect(first).toHaveLength(2);
+    expect(second).toHaveLength(1);
+    expect(new Set([...first, ...second].map((job) => job.hash)).size).toBe(3);
+  });
+
+  it("returns jobs a crash left claimed", () => {
+    enqueueAll();
+    db.repo.claimJobs("derive", 3);
+
+    // `running` describes a process. After a crash it describes one that no
+    // longer exists, and nothing would ever claim those rows again.
+    expect(db.repo.resetRunningJobs()).toBe(3);
+    expect(db.repo.claimJobs("derive", 3)).toHaveLength(3);
+  });
+
+  it("forgets a finished job, because the derived data is the record of it", () => {
+    enqueueAll();
+    const [job] = db.repo.claimJobs("derive", 1);
+    if (job === undefined) throw new Error("nothing was claimed");
+
+    db.repo.completeJob(job.id);
+    expect(db.repo.jobCounts().reduce((n, row) => n + row.count, 0)).toBe(2);
+  });
+
+  it("keeps a blocked job out of the backfill sweep, and a sweep converges", () => {
+    // A format nothing in this build can draw must not be retried on every
+    // sweep, forever. The block is what makes the sweep terminate.
+    const [job] = db.repo.claimJobs("derive", 1);
+    db.repo.enqueueJob("derive", hashOf(1), JOB_PRIORITY.import, 1_700_000_000);
+    const [claimed] = db.repo.claimJobs("derive", 1);
+    if (claimed === undefined) throw new Error("nothing was claimed");
+    db.repo.blockJob(claimed.id, "unsupported:zip");
+    expect(job).toBeUndefined();
+
+    const added = db.repo.enqueueMissingDerives("derive", [256], JOB_PRIORITY.backfill, 1, 100);
+    expect(added).toBe(2);
+    expect(db.repo.enqueueMissingDerives("derive", [256], JOB_PRIORITY.backfill, 1, 100)).toBe(0);
+    expect(db.repo.jobReasons("blocked")).toEqual([{ reason: "unsupported:zip", count: 1 }]);
+  });
+
+  it("releases blocked jobs only for the capability that arrived", () => {
+    enqueueAll();
+    const claims = db.repo.claimJobs("derive", 3);
+    db.repo.blockJob(claims[0]?.id ?? 0, "missing:ffmpeg");
+    db.repo.blockJob(claims[1]?.id ?? 0, "missing:ffmpeg");
+    db.repo.blockJob(claims[2]?.id ?? 0, "unsupported:bmp");
+
+    // Installing ffmpeg releases the videos. It does not make a BMP drawable.
+    expect(db.repo.requeueBlocked("derive", "missing:ffmpeg")).toBe(2);
+    expect(db.repo.jobReasons("blocked")).toEqual([{ reason: "unsupported:bmp", count: 1 }]);
+  });
+
+  it("retries a failure only while it is still worth retrying", () => {
+    enqueueAll();
+    const [job] = db.repo.claimJobs("derive", 1);
+    if (job === undefined) throw new Error("nothing was claimed");
+    db.repo.failJob(job.id, "decode failed");
+
+    expect(db.repo.requeueFailed("derive", 1)).toBe(0);
+    expect(db.repo.requeueFailed("derive", 3)).toBe(1);
+    // The retry keeps counting: a job that fails forever stops being retried.
+    expect(db.repo.claimJobs("derive", 1)[0]?.attempts).toBe(2);
+  });
+
+  it("re-queuing something urgent moves it ahead of what it was behind", () => {
+    db.repo.enqueueJob("derive", hashOf(1), JOB_PRIORITY.backfill, 1_700_000_000);
+    db.repo.enqueueJob("derive", hashOf(2), JOB_PRIORITY.backfill, 1_700_000_001);
+    db.repo.enqueueJob("derive", hashOf(2), JOB_PRIORITY.interactive, 1_700_000_002);
+
+    expect(db.repo.claimJobs("derive", 1)[0]?.hash).toBe(hashOf(2));
+  });
+
+  it("drops a job whose asset was removed", () => {
+    db.repo.enqueueJob("derive", hashOf(1), JOB_PRIORITY.import, 1_700_000_000);
+    db.repo.applyRemove(hashOf(1));
+
+    expect(db.repo.claimJobs("derive", 5)).toEqual([]);
+    expect(db.repo.jobCounts()).toEqual([]);
+  });
+});
+
+describe("derived metadata", () => {
+  let db: Db;
+
+  beforeEach(() => {
+    db = Db.openInMemory();
+    db.repo.applyAdd(1_700_000_001, asset(1, { w: 800, h: 600 }));
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("does not erase what an earlier pass found", () => {
+    // A backend that knows a page count and nothing else must not blank the
+    // dimensions probing already wrote.
+    db.repo.putDerived(hashOf(1), { pageCount: 12 });
+
+    expect(db.repo.assetDetail(hashOf(1))).toMatchObject({
+      width: 800,
+      height: 600,
+      pageCount: 12,
+      durationMs: null,
+    });
+  });
+
+  it("carries format-specific properties the columns have no room for", () => {
+    db.repo.putDerived(hashOf(1), { props: { "font.family": "Adwaita Sans" } });
+    db.repo.putDerived(hashOf(1), {
+      props: { "font.family": "Adwaita Sans", "font.style": "Regular" },
+    });
+
+    expect(db.repo.assetDetail(hashOf(1))?.props).toEqual({
+      "font.family": "Adwaita Sans",
+      "font.style": "Regular",
+    });
+  });
+
+  it("loses its properties with the asset, not before", () => {
+    db.repo.putDerived(hashOf(1), { props: { "font.family": "Adwaita Sans" } });
+    db.repo.applyRemove(hashOf(1));
+
+    expect(db.repo.props(hashOf(1))).toEqual({});
   });
 });

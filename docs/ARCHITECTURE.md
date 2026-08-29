@@ -356,8 +356,10 @@ project grows.
 
 **A second conformance test is specific to this repository:** a small library fixture,
 committed, that was written by the Rust implementation. Opening it, replaying it, and hashing
-the result must produce the same database this implementation would have written. Format
-compatibility is a promise in `CONCEPT.md` §7; without that test it is a hope.
+the result must produce the same database this implementation would have written — and, since
+schema v6, migrating it forward without touching anything the journal authored. That direction
+is still promised in `CONCEPT.md` §7; the other one was retired on 2026-08-29, so no test runs
+the `roost-old` binary any more.
 
 ### 4.6 Performance strategy
 - Grid virtualization: render only visible cells plus a small overscan.

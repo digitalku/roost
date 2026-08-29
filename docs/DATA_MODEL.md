@@ -200,6 +200,89 @@ gives.
 why SQLite already walks the ordering index and stops at the LIMIT for those terms — which is
 the plan this migration buys everywhere else. Adding one would create the problem.
 
+### 2.5 Migration 0006 — M4 derived work (schema v6)
+
+Decided and landed 2026-08-29, and **the first migration this repository authors**. Everything it
+adds is derived from bytes, so nothing here takes a journal op.
+
+```sql
+ALTER TABLE assets ADD COLUMN page_count INTEGER;
+
+CREATE TABLE asset_props (
+  hash  TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
+  key   TEXT NOT NULL,
+  value TEXT NOT NULL,
+  PRIMARY KEY (hash, key)
+) WITHOUT ROWID;
+
+CREATE TABLE jobs (
+  id          INTEGER PRIMARY KEY,
+  kind        TEXT NOT NULL,
+  hash        TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
+  priority    INTEGER NOT NULL DEFAULT 0,
+  state       TEXT NOT NULL DEFAULT 'ready'
+              CHECK (state IN ('ready', 'running', 'blocked', 'failed')),
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  reason      TEXT,
+  enqueued_at INTEGER NOT NULL,
+  UNIQUE (kind, hash)
+);
+
+CREATE INDEX idx_jobs_ready      ON jobs(priority, id) WHERE state = 'ready';
+CREATE INDEX idx_jobs_unfinished ON jobs(kind, state)  WHERE state <> 'ready';
+```
+
+**`page_count` is a column and font family is not.** A page count is a number every document
+format has, it sorts, and RQL will want `pages:>10` — that is a column. A font's family name, a
+video's codec, an audio file's sample rate are open-ended, format-specific, and absent for most
+assets: a column each would be a migration per format and a mostly-null table. `asset_props` takes
+those, keyed `(hash, key)` and `WITHOUT ROWID` because the primary key *is* the row.
+
+The key vocabulary is fixed in `@roost/media`, not open to callers, so the table cannot quietly
+become a place to stash anything:
+
+| Key | Set for | Example |
+| --- | --- | --- |
+| `font.family` | fonts | `Adwaita Sans` |
+| `font.style` | fonts | `Regular` |
+| `font.glyphs` | fonts | `2937` |
+| `video.codec` | video | `h264` |
+| `video.fps` | video | `30` |
+| `audio.codec` | audio | `mp3` |
+| `audio.channels` | audio | `2` |
+| `audio.sampleRate` | audio | `44100` |
+
+**One job row per `(kind, hash)`, and a finished job is deleted.** The queue holds outstanding
+work, not a history: an asset's derived data is its own record that the work happened, and a table
+that accumulated a row per completed job would grow to the size of the library for no reader. What
+stays behind is what still needs attention — `blocked` for work waiting on a capability the machine
+does not have (`ARCHITECTURE.md` §3.3), `failed` for work that was tried and did not survive, both
+carrying `reason`. That is what lets the UI say *"12 videos are waiting for ffmpeg"* rather than
+showing twelve blank cells.
+
+**`running` is a claim, not a state that survives.** A crash leaves rows claimed by a process that
+no longer exists, so the runner resets `running` to `ready` when it starts. Re-running a derive is
+idempotent — it recomputes from the same bytes — so a job that was in flight is cheaper to repeat
+than to reason about.
+
+**The indexes match the two questions asked of this table.** `idx_jobs_ready` is partial on the
+one state a claim looks at, so the claim query never walks rows that are blocked or failed, and it
+is ordered by `(priority, id)` — which *is* the claim order, so the runner seeks and stops rather
+than sorting the backlog. `idx_jobs_unfinished` is the mirror image, for the counts the UI shows.
+Both are partial in the direction that keeps them proportional to the work outstanding rather than
+to the library.
+
+**What this costs a library that goes back.** `roost-old` understands schema v5 and refuses
+anything newer, so a library this build has opened will not open there again — measured: every one
+of its commands stops at *"library uses schema version 6, but this build supports up to 5"*,
+`rebuild` included, because it opens the library before rebuilding it. Deleting `index.db` first
+lets it in, and its own replay restores the library from the journal.
+
+**That is a fact about a discontinued build, not a cost being paid.** The user retired the
+obligation on 2026-08-29: `roost-old` is not a target, schema growth is what M4 through M7 are made
+of, and holding v5 to keep a dead build readable would trade every later milestone for it. The
+direction that still matters — a library it wrote opening *here* — is tested and unaffected.
+
 ## 3. Roost Query Language (RQL)
 
 The search bar and smart folders share one grammar. It compiles to SQL with **bound

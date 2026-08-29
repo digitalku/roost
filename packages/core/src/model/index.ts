@@ -24,6 +24,15 @@ export {
   UnsupportedPlatformError,
   type WireError,
 } from "./error.js";
+export {
+  isJobKind,
+  isJobState,
+  JOB_KINDS,
+  JOB_PRIORITY,
+  JOB_STATES,
+  type JobKind,
+  type JobState,
+} from "./job.js";
 export { isKind, KINDS, type Kind } from "./kind.js";
 export {
   isLinkMethod,

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReplyEnvelope, Request } from "@roost/contract";
 import { ASSET_KINDS as WIRE_KINDS, LIBRARY_SUFFIX as WIRE_SUFFIX } from "@roost/contract";
-import { KINDS } from "@roost/core";
+import { KINDS, latestSchemaVersion } from "@roost/core";
 import { importInto, LIBRARY_SUFFIX, Library } from "@roost/library";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost } from "./host.js";
@@ -144,7 +144,7 @@ describe("the engine's message loop", () => {
         root: join(dir, "Made By The Window.roost"),
         name: "Made By The Window",
         formatVersion: 1,
-        schemaVersion: 5,
+        schemaVersion: latestSchemaVersion(),
       },
     });
   });

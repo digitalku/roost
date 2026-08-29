@@ -417,7 +417,9 @@ function summarize(library: FakeLibrary): LibrarySummary {
     name: library.name,
     id: "00000000-0000-4000-8000-000000000000",
     formatVersion: 1,
-    schemaVersion: 5,
+    // A stand-in, not a claim: the renderer never reads this number, and it
+    // cannot import the migration list to learn the real one.
+    schemaVersion: 6,
   };
 }
 

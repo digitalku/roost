@@ -8,8 +8,15 @@ This document is binding. Any deviation requires explicit approval.
 
 This specification is carried over **unchanged in substance** from the Rust/Tauri
 implementation at `../roost-old`. It governs the on-disk format, and the format did not
-change when the language did: a library written by either implementation must open in the
-other.
+change when the language did.
+
+**Amended 2026-08-29 (user decision).** This note used to require that a library written by
+either implementation open in the other. It no longer does: `roost-old` is a discontinued
+project, and schema growth this specification always allowed — `DATA_MODEL.md` §2 — reached the
+point where its build refuses the index (v6, M4). Nothing about the *format* changed with that
+decision: the layout, the hashing, the journal records, and the invariants below are untouched,
+and a library `roost-old` wrote still opens here. What was retired is an obligation to a dead
+build, not a rule about bytes on disk.
 
 Exactly two things were edited, both of them file paths naming where the *code* lives, never
 what the *library* contains:
