@@ -8,3 +8,4 @@ export {
   lockPathFor,
 } from "./lock.js";
 export { openExternally, revealInFileManager } from "./reveal.js";
+export { DEFAULT_THREAD_POOL, threadPoolEnv, threadPoolSize } from "./threadpool.js";

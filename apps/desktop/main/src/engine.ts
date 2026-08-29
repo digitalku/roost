@@ -6,7 +6,7 @@ import {
   type Request,
   type WireProblem,
 } from "@roost/contract";
-import { logger } from "@roost/core";
+import { logger, threadPoolEnv } from "@roost/core";
 import { type UtilityProcess, utilityProcess } from "electron";
 
 /**
@@ -71,6 +71,11 @@ export class Engine {
       serviceName: "roost-engine",
       stdio: "inherit",
       execArgv,
+      // The one place the decoder's threadpool can be sized: libuv reads
+      // `UV_THREADPOOL_SIZE` once, on the way up, so a process cannot widen its
+      // own — measured, in `threadpool.ts`. The engine is the process that
+      // decodes, and this is where it is started.
+      env: threadPoolEnv(),
     });
     if (execArgv.length > 0) log.info("engine inspector", { flag: execArgv[0] ?? "" });
     this.#child = child;

@@ -28,6 +28,7 @@
     "@biomejs/biome": "2.5.10",
     "@roost/core": "workspace:*",
     "@roost/library": "workspace:*",
+    "@roost/media": "workspace:*",
     "@types/node": "22.20.1",
     "electron": "43.4.1",
     "node-addon-api": "^8.9.2",

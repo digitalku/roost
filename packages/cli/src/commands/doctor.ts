@@ -1,3 +1,5 @@
+import { availableParallelism } from "node:os";
+import { DEFAULT_THREAD_POOL, threadPoolSize } from "@roost/core";
 import {
   check,
   type DoctorReport,
@@ -82,6 +84,16 @@ function print(report: DoctorReport, examples: number, out: (line: string) => vo
   // crash the engine" have the same cause and no other symptom.
   const versions = decoderVersions();
   out(`  sharp ${versions.sharp} (${versions.build} build), libvips ${versions.libvips}`);
+  // The pool `sharp` decodes on. It cannot be raised from inside a process
+  // (`threadpool.ts`), so a CLI that wanted it wider would have to be started
+  // that way — which is worth saying once, here, rather than in every command
+  // that turned out to be slow.
+  const pool = threadPoolSize();
+  out(
+    pool === DEFAULT_THREAD_POOL
+      ? `  threadpool ${pool} — UV_THREADPOOL_SIZE=${availableParallelism()} makes deriving ~1.5x faster`
+      : `  threadpool ${pool}`,
+  );
   if (!report.deep) out("  shallow run — pass --deep to re-hash every object");
 
   if (isClean(report)) {
