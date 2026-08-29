@@ -12,6 +12,7 @@ import {
 import { readFont, renderSpecimen } from "./font.js";
 import type { Format } from "./format.js";
 import { sniffFile } from "./probe.js";
+import { looksLikeRaw, type RawFacts, readRaw } from "./raw.js";
 import { EAGER_SIZES } from "./serving.js";
 import { rasteriseSvgFile, VECTOR_RENDER_WIDTH } from "./vector.js";
 import { drawWaveform } from "./waveform.js";
@@ -70,7 +71,46 @@ export async function derive(
 
   if (backend === "documents") return { ok: true, ...(await deriveDocument(path, sizes)) };
   if (backend === "vectors") return deriveVector(path, format, sizes);
+
+  // A RAW is a TIFF container, and a NEF or an ARW is indistinguishable from a
+  // scanned TIFF in the 64 bytes sniffing reads. Both formats therefore come
+  // through here, and what tells them apart is whether the file carries an
+  // embedded JPEG — which is also the only thing either of them is drawn from.
+  if (format === "raw" || format === "tiff") {
+    const facts = await readRaw(path);
+    if (facts !== undefined && looksLikeRaw(facts)) return deriveRawPhoto(facts, sizes);
+    // A `raw` that carries no readable preview is a container this build does
+    // not open: Canon's CR3 and Fuji's RAF are not TIFF at all. Parked rather
+    // than failed, because that is a missing capability and not a broken file.
+    if (format === "raw") return { ok: false, reason: "unsupported:raw" };
+  }
+
   return { ok: true, ...(await deriveImage(path, sizes)) };
+}
+
+/**
+ * A RAW photograph, drawn from the JPEG the camera embedded.
+ *
+ * The recorded dimensions are the **photograph's**, taken from the largest
+ * uncompressed image in the container — the sensor data — and not the preview's.
+ * A 24-megapixel RAW whose preview is 1616×1080 is a 24-megapixel photograph,
+ * and an inspector that said otherwise would be describing a thumbnail.
+ */
+async function deriveRawPhoto(facts: RawFacts, sizes: readonly number[]): Promise<DeriveOutcome> {
+  const preview = facts.preview;
+  if (preview === undefined) return { ok: false, reason: "unsupported:raw" };
+
+  const width = facts.width ?? preview.width;
+  const height = facts.height ?? preview.height;
+
+  return {
+    ok: true,
+    thumbnails: await renderThumbnails({ bytes: preview.bytes }, sizes),
+    metadata: {
+      ...(width === undefined ? {} : { width }),
+      ...(height === undefined ? {} : { height }),
+    },
+  };
 }
 
 async function deriveImage(path: string, sizes: readonly number[]): Promise<Derived> {

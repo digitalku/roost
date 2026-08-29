@@ -60,6 +60,14 @@ export {
 } from "./hash.js";
 export { type Probed, probe, sniffFile } from "./probe.js";
 export {
+  type EmbeddedPreview,
+  isTiffContainer,
+  looksLikeRaw,
+  parseRaw,
+  type RawFacts,
+  readRaw,
+} from "./raw.js";
+export {
   gradient,
   gradientPixels,
   isSyntheticFormat,

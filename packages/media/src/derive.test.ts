@@ -10,6 +10,7 @@ import { GRID_SIZE } from "./serving.js";
 import { gradient } from "./synth.js";
 import { makeFont } from "./testing/font-fixture.js";
 import { makePdf } from "./testing/pdf-fixture.js";
+import { makeRaw } from "./testing/raw-fixture.js";
 
 const run = promisify(execFile);
 
@@ -97,6 +98,49 @@ describe("deriving what a file is worth", () => {
       ok: true,
       metadata: { pageCount: 2, width: 595, height: 842 },
     });
+  });
+
+  it("draws a RAW from the JPEG its camera embedded", async () => {
+    // Demosaicing a sensor would produce a different picture from the one the
+    // photographer saw; the camera's own preview is what a grid should show.
+    const path = await put(
+      "shot.nef",
+      makeRaw({
+        width: 6000,
+        height: 4000,
+        preview: await gradient(320, 213, 5, "jpeg"),
+      }),
+    );
+
+    const outcome = await derive(path, [GRID_SIZE]);
+
+    // The photograph's dimensions, not the preview's.
+    expect(outcome).toMatchObject({ ok: true, metadata: { width: 6000, height: 4000 } });
+    if (!outcome.ok) return;
+    expect(outcome.thumbnails).toHaveLength(1);
+  });
+
+  it("leaves a scanned TIFF to the image decoder, where it belongs", async () => {
+    // A TIFF with no embedded preview is a scan, not a RAW, and the difference
+    // is not visible in a header.
+    const path = await put("scan.tiff", await gradient(200, 120, 4, "tiff"));
+
+    expect(await derive(path, [GRID_SIZE])).toMatchObject({
+      ok: true,
+      metadata: { width: 200, height: 120 },
+    });
+  });
+
+  it("parks a RAW container this build cannot open", async () => {
+    // Canon's CR3 and Fuji's RAF are not TIFF at all. Recognised, so they do
+    // not reach ffmpeg as videos, and parked, because that is a capability this
+    // build does not have rather than a broken file.
+    const cr3 = Buffer.alloc(64);
+    cr3.write("ftyp", 4, "latin1");
+    cr3.write("crx ", 8, "latin1");
+    const path = await put("shot.cr3", cr3);
+
+    expect(await derive(path, [GRID_SIZE])).toEqual({ ok: false, reason: "unsupported:raw" });
   });
 
   it("parks a format nothing in this build draws, rather than failing", async () => {

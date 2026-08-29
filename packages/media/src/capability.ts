@@ -39,7 +39,7 @@ export interface Capability {
 
 /** Which backend owns which format. The one table `derive` dispatches through. */
 export const CAPABILITY_FORMATS: Readonly<Record<CapabilityName, readonly Format[]>> = {
-  images: ["jpeg", "png", "webp", "gif", "tiff", "avif"],
+  images: ["jpeg", "png", "webp", "gif", "tiff", "avif", "raw"],
   vectors: ["svg", "ttf", "otf", "woff", "woff2"],
   documents: ["pdf"],
   media: ["mp4", "mkv", "webm", "ogg", "flac", "mp3", "wav"],

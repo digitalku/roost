@@ -16,6 +16,7 @@ export const FORMATS = [
   "bmp",
   "tiff",
   "avif",
+  "raw",
   "svg",
   "pdf",
   "mp4",
@@ -47,6 +48,7 @@ const KIND_OF: Readonly<Record<Format, Kind>> = {
   bmp: "image",
   tiff: "image",
   avif: "image",
+  raw: "image",
   svg: "image",
   mp4: "video",
   mkv: "video",
@@ -82,6 +84,10 @@ const MEDIA_TYPE_OF: Readonly<Record<Format, string>> = {
   bmp: "image/bmp",
   tiff: "image/tiff",
   avif: "image/avif",
+  // Deliberately not an `image/*` type: no browser draws a sensor mosaic, and
+  // claiming one would make the preview pane try. What a RAW *shows* is the
+  // JPEG the camera embedded, which reaches the window as a thumbnail.
+  raw: "application/octet-stream",
   svg: "image/svg+xml",
   pdf: "application/pdf",
   mp4: "video/mp4",
@@ -116,6 +122,16 @@ const FORMAT_OF_EXTENSION: Readonly<Record<string, Format>> = {
   tif: "tiff",
   tiff: "tiff",
   avif: "avif",
+  cr2: "raw",
+  cr3: "raw",
+  nef: "raw",
+  arw: "raw",
+  dng: "raw",
+  orf: "raw",
+  rw2: "raw",
+  raf: "raw",
+  pef: "raw",
+  srw: "raw",
   svg: "svg",
   pdf: "pdf",
   mp4: "mp4",
@@ -194,8 +210,19 @@ export function sniff(bytes: Uint8Array): Format {
   if (at(bytes, 0, "RIFF") && at(bytes, 8, "WAVE")) return "wav";
   if (at(bytes, 0, "BM")) return "bmp";
   if (startsWith(bytes, [0x49, 0x49, 0x2a, 0x00]) || startsWith(bytes, [0x4d, 0x4d, 0x00, 0x2a])) {
-    return "tiff";
+    // A CR2 is a TIFF that says so at offset 8. A NEF, an ARW, and a DNG do
+    // not: they are TIFF containers whose vendor tags live in the directories,
+    // which is past the sniffed window. They therefore sniff as `tiff` here and
+    // are recognised by the reader that walks those directories (`raw.ts`) —
+    // sniffing is a header question and this one is not answerable from 64
+    // bytes.
+    return at(bytes, 8, "CR") ? "raw" : "tiff";
   }
+  // Two RAW formats that are TIFF-shaped with a vendor magic in place of 42.
+  if (startsWith(bytes, [0x49, 0x49, 0x52, 0x4f]) || startsWith(bytes, [0x49, 0x49, 0x55, 0x00])) {
+    return "raw";
+  }
+  if (at(bytes, 0, "FUJIFILMCCD-RAW")) return "raw";
   if (at(bytes, 0, "%PDF-")) return "pdf";
   if (at(bytes, 0, "OggS")) return "ogg";
   if (at(bytes, 0, "fLaC")) return "flac";
@@ -209,7 +236,12 @@ export function sniff(bytes: Uint8Array): Format {
   }
   // ISO base media: a four-byte size, then "ftyp", then the brand.
   if (at(bytes, 4, "ftyp")) {
-    return at(bytes, 8, "avif") || at(bytes, 8, "avis") ? "avif" : "mp4";
+    if (at(bytes, 8, "avif") || at(bytes, 8, "avis")) return "avif";
+    // Canon's CR3 is an ISO base media file, not a TIFF. It is recognised so
+    // that it does not reach ffmpeg as a video, which is what its container
+    // otherwise makes it look like.
+    if (at(bytes, 8, "crx ")) return "raw";
+    return "mp4";
   }
   if (startsWith(bytes, [0x00, 0x01, 0x00, 0x00]) || at(bytes, 0, "true")) return "ttf";
   if (at(bytes, 0, "OTTO")) return "otf";
