@@ -255,7 +255,7 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-08-24.** The five questions the language change forced were settled
+**Nothing open, as of 2026-08-29.** The five questions the language change forced were settled
 together, before any code was written against them — which is the cheapest moment they could
 have been settled, and the reason M0 can start without working around an unknown.
 
@@ -267,6 +267,15 @@ have been settled, and the reason M0 can start without working around an unknown
 | Native dependencies | `better-sqlite3`, `sharp`, native BLAKE3 | ADR-0009 |
 | Reflink | No addon. `COPYFILE_FICLONE_FORCE` refuses rather than falling back — `EXDEV` across filesystems, `ENOTSUP` on a non-CoW one — so `link_method` stays truthful with what Node already has | ADR-0012, superseding ADR-0010 |
 | Electron version | Track the stable line. Exact pin in the manifest, deliberate bumps, never outside the supported three majors | ADR-0011 |
+
+**M4 opened with three more, decided together on 2026-08-29** — one per format family Roost could
+not draw, all settled before any of them was written against:
+
+| Question | Outcome | Record |
+| --- | --- | --- |
+| SVG and font specimens | resvg compiled to WebAssembly, which has no filesystem and no sockets to follow a reference with; fontkit reads the font and supplies the outlines a specimen is drawn from | ADR-0015 |
+| PDF | pdfium compiled to WebAssembly. One instance per process, and a page is single-use — `render()` closes it | ADR-0016 |
+| Video and audio | The system's `ffmpeg` and `ffprobe`, probed once per session. Bundling stays open for M6, where packaging is decided | ADR-0017 |
 
 Settled by the user's own choice of stack, and recorded rather than argued: the application
 shell (ADR-0001), the frontend framework (ADR-0002), and the library format, which is carried
