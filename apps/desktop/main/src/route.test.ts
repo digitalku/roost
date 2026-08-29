@@ -62,3 +62,39 @@ describe("parsing a roost:// URL", () => {
     expect(reasonFor("not a url at all")).toBe("not a URL");
   });
 });
+
+describe("parsing a page URL", () => {
+  const HASH = "a".repeat(64);
+
+  it("reads the hash, the page, and the width", () => {
+    const route = parseRoostUrl(`roost://page/${HASH}/3@1024`);
+
+    expect(route).toEqual({
+      ok: true,
+      value: { kind: "page", hash: HASH, index: 3, width: 1024 },
+    });
+  });
+
+  it("refuses a width nobody registered", () => {
+    // The same rule a thumbnail size follows, and for a sharper reason: pages
+    // are rendered on demand, in the process that draws the window, so a
+    // free-form width would let a renderer bug ask for a ten-thousand-pixel
+    // page.
+    expect(parseRoostUrl(`roost://page/${HASH}/0@4000`).ok).toBe(false);
+  });
+
+  it("refuses a page number that is not one", () => {
+    expect(parseRoostUrl(`roost://page/${HASH}/-1@512`).ok).toBe(false);
+    expect(parseRoostUrl(`roost://page/${HASH}/1.5@512`).ok).toBe(false);
+    expect(parseRoostUrl(`roost://page/${HASH}/999999@512`).ok).toBe(false);
+  });
+
+  it("refuses a traversal dressed as a hash, like every other route", () => {
+    expect(parseRoostUrl("roost://page/../../etc/passwd/0@512").ok).toBe(false);
+  });
+
+  it("needs both halves of the address", () => {
+    expect(parseRoostUrl(`roost://page/${HASH}@512`).ok).toBe(false);
+    expect(parseRoostUrl(`roost://page/${HASH}/0`).ok).toBe(false);
+  });
+});

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Db, INDEX_FILE, IndexSink, ManagedStorage, parseContentHash } from "@roost/core";
+import { makePdf } from "@roost/media/testing/pdf-fixture";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AssetServer } from "./assets.js";
 
@@ -173,6 +174,78 @@ describe("serving bytes over roost://", () => {
   });
 });
 
+describe("serving a document page", () => {
+  let root: string;
+  let server: AssetServer;
+  const DOC = parseContentHash("e".repeat(64));
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "roost-pages-"));
+
+    const storage = new ManagedStorage(root);
+    const path = storage.locate(DOC, "pdf");
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, makePdf([{ colour: [255, 0, 0] }, { colour: [0, 0, 255] }]));
+
+    const db = Db.open(join(root, INDEX_FILE));
+    db.transaction(() => {
+      const sink = new IndexSink(db);
+      sink.apply({
+        ts: 1,
+        op: "add",
+        hash: DOC,
+        ext: "pdf",
+        size: 1,
+        name: "report.pdf",
+        mode: "managed",
+      });
+    });
+    db.close();
+
+    server = new AssetServer();
+    server.attach(root);
+  });
+
+  afterEach(async () => {
+    server.detach();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const get = (url: string): Promise<Response> => server.handle(new Request(url));
+
+  it("renders the page asked for, as a PNG", async () => {
+    const response = await get(`roost://page/${DOC}/1@512`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    const bytes = Buffer.from(await response.arrayBuffer());
+    // A real PNG, not merely a response that claims to be one: signature, and
+    // the width the URL asked for, read out of IHDR.
+    expect(bytes.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    expect(bytes.readUInt32BE(16)).toBe(512);
+  });
+
+  it("caches a page for ever, because its URL fixes its pixels", async () => {
+    const response = await get(`roost://page/${DOC}/0@512`);
+
+    expect(response.headers.get("cache-control")).toContain("immutable");
+  });
+
+  it("answers 404 for a page the document does not have", async () => {
+    const response = await get(`roost://page/${DOC}/9@512`);
+
+    expect(response.status).toBe(404);
+    // Briefly cached, not for ever: the document could be re-imported.
+    expect(response.headers.get("cache-control")).toBe("max-age=5");
+  });
+
+  it("answers 404 for an asset that is not a document at all", async () => {
+    const absent = parseContentHash("f".repeat(64));
+
+    expect((await get(`roost://page/${absent}/0@512`)).status).toBe(404);
+  });
+});
+
 describe("what main is allowed to import", () => {
   it("never pulls the whole of @roost/media, which would load sharp", async () => {
     // ADR-0008 puts the handler in the process that draws the window, and
@@ -187,5 +260,21 @@ describe("what main is allowed to import", () => {
       if (/from "@roost\/media"/.test(source)) offenders.push(name);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("reaches the PDF backend by its own subpath, and only lazily", async () => {
+    // `@roost/media/document` is decoder-free — pdfium in WebAssembly, no
+    // sharp — and it is imported inside the handler rather than at the top of
+    // the file, so a window that never opens a document never loads it.
+    const source = await readFile(
+      join(fileURLToPath(new URL(".", import.meta.url)), "assets.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain('await import("@roost/media/document")');
+    // The PNG encoder comes the same way, and it is `node:zlib` and nothing
+    // else — which is what makes it reachable from here at all.
+    expect(source).toContain('await import("@roost/media/png")');
+    expect(/^import .*@roost\/media\/document/m.test(source)).toBe(false);
   });
 });

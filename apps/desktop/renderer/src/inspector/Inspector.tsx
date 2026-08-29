@@ -316,6 +316,12 @@ function Metadata({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
     ...(detail.width === null || detail.height === null
       ? []
       : ([["Dimensions", `${detail.width} × ${detail.height}`]] as const)),
+    ...(detail.durationMs === null ? [] : ([["Duration", duration(detail.durationMs)]] as const)),
+    ...(detail.pageCount === null ? [] : ([["Pages", detail.pageCount.toLocaleString()]] as const)),
+    // Whatever the format's own backend reported. The order is the vocabulary's
+    // rather than the map's, so a font always reads family-then-style and two
+    // assets of the same kind line up.
+    ...propertyRows(detail.props),
     ["Storage", detail.storageMode],
     ...(detail.refPath === null ? [] : ([["Path", detail.refPath]] as const)),
     ["Imported", when(detail.importedAt)],
@@ -336,6 +342,49 @@ function Metadata({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
       ))}
     </dl>
   );
+}
+
+/**
+ * The derived properties worth showing, in a fixed order with readable labels.
+ *
+ * A key the renderer has no label for is shown under its own name rather than
+ * hidden: a backend that starts reporting something new should be visible in
+ * the inspector before anyone writes a line of interface code for it.
+ */
+const PROPERTY_LABELS: readonly (readonly [string, string])[] = [
+  ["font.family", "Family"],
+  ["font.style", "Style"],
+  ["font.glyphs", "Glyphs"],
+  ["video.codec", "Codec"],
+  ["video.fps", "Frame rate"],
+  ["audio.codec", "Codec"],
+  ["audio.channels", "Channels"],
+  ["audio.sampleRate", "Sample rate"],
+];
+
+function propertyRows(props: Readonly<Record<string, string>>): (readonly [string, string])[] {
+  const known = PROPERTY_LABELS.filter(([key]) => props[key] !== undefined).map(
+    ([key, label]) => [label, props[key] ?? ""] as const,
+  );
+  const rest = Object.entries(props)
+    .filter(([key]) => !PROPERTY_LABELS.some(([known]) => known === key))
+    .map(([key, value]) => [key, value] as const);
+  return [...known, ...rest];
+}
+
+/**
+ * `3:07`, or `1:02:07` for something long enough to need hours.
+ *
+ * Rounded to the second: a duration in milliseconds is what the schema stores
+ * and not what anyone reads.
+ */
+function duration(ms: number): string {
+  const total = Math.round(ms / 1000);
+  const seconds = total % 60;
+  const minutes = Math.floor(total / 60) % 60;
+  const hours = Math.floor(total / 3600);
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
 }
 
 /** Binary multiples, the way `STORAGE_SPEC.md` and the CLI both count. */

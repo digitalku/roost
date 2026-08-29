@@ -10,6 +10,7 @@ import type {
   RequestType,
   ResponseOf,
   WireAssetDetail,
+  WireDeriveStatus,
   WireImportReport,
   WireProblem,
   WireSidebar,
@@ -76,6 +77,8 @@ export interface FakeEngineOptions {
   /** Rows an import adds to what the empty query answers with. */
   readonly importAdds?: readonly AssetCard[];
   readonly importProgress?: readonly ImportProgress[];
+  /** What `derive:status` and `derive:retry` answer with. */
+  readonly deriveStatus?: WireDeriveStatus;
 }
 
 const EMPTY_REPORT: WireImportReport = {
@@ -108,6 +111,9 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     importedAt: card.importedAt,
     rating: null,
     note: null,
+    durationMs: null,
+    pageCount: null,
+    props: {},
     isFavorite: false,
     tags: [],
     folders: [],
@@ -356,6 +362,21 @@ export class FakeEngine {
           ...this.#options.importReport,
         });
       }
+
+      case "derive:status":
+      case "derive:retry":
+        // A fake queue with nothing in it, unless a test taught it otherwise:
+        // most of them are about the grid and never look at this.
+        return ok(
+          this.#options.deriveStatus ?? {
+            ready: 0,
+            running: 0,
+            blocked: 0,
+            failed: 0,
+            reasons: [],
+            capabilities: [],
+          },
+        );
 
       case "query:check": {
         const bad = this.#options.invalid?.[request.query];

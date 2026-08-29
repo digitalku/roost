@@ -13,6 +13,18 @@
     "./serving": {
       "types": "./dist/serving.d.ts",
       "default": "./dist/serving.js"
+    },
+    "./document": {
+      "types": "./dist/document.d.ts",
+      "default": "./dist/document.js"
+    },
+    "./png": {
+      "types": "./dist/png.d.ts",
+      "default": "./dist/png.js"
+    },
+    "./testing/*": {
+      "types": "./dist/testing/*.d.ts",
+      "default": "./dist/testing/*.js"
     }
   },
   "types": "./dist/index.d.ts",

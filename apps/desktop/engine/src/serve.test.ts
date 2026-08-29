@@ -404,6 +404,7 @@ describe("the engine's message loop", () => {
     expect(Object.keys(value).sort()).toEqual(
       [
         "createdAt",
+        "durationMs",
         "ext",
         "kind",
         "folders",
@@ -414,6 +415,8 @@ describe("the engine's message loop", () => {
         "isPartialHash",
         "name",
         "note",
+        "pageCount",
+        "props",
         "rating",
         "refPath",
         "size",

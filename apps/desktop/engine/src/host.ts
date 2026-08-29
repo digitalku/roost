@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type {
   AssetKind,
   AssetPage,
+  DeriveProgress,
   ImportProgress,
   LibraryStats,
   LibrarySummary,
@@ -11,6 +12,7 @@ import type {
   SidebarRow,
   WireAssetDetail,
   WireCursor,
+  WireDeriveStatus,
   WireImportReport,
   WireSidebar,
 } from "@roost/contract";
@@ -26,7 +28,8 @@ import {
 } from "@roost/core";
 import {
   compileFor,
-  generateMissing,
+  type DeriveReport,
+  enqueueMissing,
   type ImportReport,
   importInto,
   Library,
@@ -34,14 +37,19 @@ import {
   libraryNameFromPath,
   matches,
   pageOf,
+  queueStatus,
   rate,
   readSidebar,
   renameAsset,
+  retryBlocked,
+  retryFailed,
+  runDerives,
   setFavorite,
   setNote,
   tagAdd,
   tagRemove,
 } from "@roost/library";
+import { capabilities } from "@roost/media";
 import { formatFromExtension, kindOf } from "@roost/media/serving";
 import { QueryError } from "@roost/search";
 
@@ -136,6 +144,21 @@ export class EngineHost {
       case "import:paths":
         return this.#import(request.paths, request.mode, request.tags);
 
+      case "derive:status":
+        return this.#deriveStatus();
+
+      case "derive:retry": {
+        const library = this.#require();
+        retryBlocked(library, request.reason ?? undefined);
+        retryFailed(library);
+        // The queue is worked in the background rather than awaited: the button
+        // that sent this should not sit disabled through a thousand videos, and
+        // the window learns what happened from `job:progress` like any other
+        // run.
+        void this.#runDerives();
+        return this.#deriveStatus();
+      }
+
       case "dialog:chooseImport":
       case "asset:openExternally":
 
@@ -207,16 +230,85 @@ export class EngineHost {
     });
     this.onProgress?.(progressOf(report, 0));
 
-    // Thumbnails are part of the same run here, unlike the CLI, where `import`
+    // Derived work is part of the same run here, unlike the CLI, where `import`
     // and `thumb` are separate commands. A headless import into a library
     // nobody is looking at should not pay for pictures; an import someone is
     // watching produces a screen of placeholders without them.
-    const thumbnails = await generateMissing(library, undefined, undefined, (running) => {
-      this.onProgress?.(progressOf(report, running.generated));
+    //
+    // The importer has already queued the jobs, in the transaction that wrote
+    // the rows — this only works the queue.
+    const derived = await this.#runDerives((running) => {
+      this.onProgress?.(progressOf(report, running.derived));
     });
 
     this.onChanged?.();
-    return reportOf(report, thumbnails.generated);
+    return reportOf(report, derived?.derived ?? 0);
+  }
+
+  /**
+   * Works the derive queue, once at a time.
+   *
+   * One run per host: a second caller joins the run in flight rather than
+   * starting another, because two runners on one library would claim different
+   * halves of the same queue and finish no sooner. The window learns what
+   * happened from `job:progress`.
+   */
+  async #runDerives(
+    onProgress?: (report: DeriveReport) => void,
+  ): Promise<DeriveReport | undefined> {
+    const library = this.#library;
+    if (library === undefined) return undefined;
+
+    const running = this.#deriving;
+    if (running !== undefined) return running;
+
+    this.#stopDeriving = new AbortController();
+    const run = runDerives(library, {
+      signal: this.#stopDeriving.signal,
+      onProgress: (report) => {
+        onProgress?.(report);
+        this.onJobProgress?.({
+          derived: report.derived,
+          remaining: queueStatus(library).ready,
+          blocked: report.blocked,
+          failed: report.failed,
+        });
+      },
+    }).finally(() => {
+      this.#deriving = undefined;
+    });
+
+    this.#deriving = run;
+    const report = await run;
+    // Announced once at the end: the grid re-reads and the cells that were
+    // placeholders find their thumbnails. Per batch would be a redraw every
+    // hundred assets for a run that can take minutes.
+    if (report.derived > 0) this.onChanged?.();
+    return report;
+  }
+
+  #deriving: Promise<DeriveReport> | undefined;
+  #stopDeriving: AbortController | undefined;
+
+  /** Called as the derive queue works. Set by `serve`, like {@link onChanged}. */
+  onJobProgress: ((progress: DeriveProgress) => void) | undefined;
+
+  /** What the queue holds, and what this machine can draw. */
+  async #deriveStatus(): Promise<WireDeriveStatus> {
+    const status = queueStatus(this.#require());
+    return {
+      ready: status.ready,
+      running: status.running,
+      blocked: status.blocked,
+      failed: status.failed,
+      reasons: status.reasons.map((row) => ({ reason: row.reason, count: row.count })),
+      capabilities: (await capabilities()).map((capability) => ({
+        name: capability.name,
+        available: capability.available,
+        version: capability.version,
+        detail: capability.detail,
+      })),
+    };
   }
 
   /** Called while an import runs. Set by `serve`, like {@link onChanged}. */
@@ -250,6 +342,13 @@ export class EngineHost {
   async close(): Promise<void> {
     const open = this.#library;
     this.#library = undefined;
+
+    // The runner is stopped before the library is: it commits batch by batch,
+    // so a run cut short here has already kept everything it finished, and a
+    // batch that lands after the database is closed would throw instead.
+    this.#stopDeriving?.abort();
+    await this.#deriving?.catch(() => undefined);
+
     if (open === undefined) return;
     await open.close();
     log.info("library closed", { root: open.root });
@@ -261,6 +360,14 @@ export class EngineHost {
     await this.close();
     this.#library = library;
     log.info("library opened", { root: library.root, name: library.manifest.name });
+
+    // Whatever the last session left undone, plus whatever a rebuild dropped.
+    // Queued and worked in the background, so opening a library is not held up
+    // by a hundred thousand thumbnails — the window draws placeholders and they
+    // fill in (`ARCHITECTURE.md` §4.5).
+    enqueueMissing(library);
+    void this.#runDerives();
+
     return summarize(library);
   }
 
@@ -465,6 +572,9 @@ function detailOf(detail: AssetDetail): WireAssetDetail {
     isFavorite: detail.isFavorite,
     tags: detail.tags,
     folders: detail.folders,
+    durationMs: detail.durationMs,
+    pageCount: detail.pageCount,
+    props: detail.props,
   };
 }
 

@@ -6,14 +6,40 @@ import { THUMBNAIL_SIZES } from "@roost/media/serving";
 /**
  * What a `roost://` URL asks for, once it has been proved to ask for anything.
  *
- * ADR-0008 gives the scheme two routes and no others. Parsing is separated from
+ * ADR-0008 gave the scheme two routes; M4 adds a third, for a document page
+ * that is neither a stored thumbnail nor the file itself (`UI_SPEC.md` §7). Parsing is separated from
  * serving so that the rejections — a bad hash, an unknown size, a third route
  * nobody registered — can be asserted without an Electron process, and so that
  * `protocol.ts` stays a handler rather than a parser.
  */
 export type Route =
   | { readonly kind: "thumb"; readonly hash: ContentHash; readonly size: ThumbSize }
-  | { readonly kind: "original"; readonly hash: ContentHash };
+  | { readonly kind: "original"; readonly hash: ContentHash }
+  | {
+      readonly kind: "page";
+      readonly hash: ContentHash;
+      /** Zero-based, as the document backend counts. */
+      readonly index: number;
+      readonly width: PageWidth;
+    };
+
+/**
+ * Widths a page may be rendered at.
+ *
+ * Fixed for the same reason a thumbnail size is: a free-form width would let a
+ * renderer bug ask for a ten-thousand-pixel page, and rendering happens on the
+ * process that draws the window.
+ */
+export const PAGE_WIDTHS = [512, 1024] as const;
+
+export type PageWidth = (typeof PAGE_WIDTHS)[number];
+
+/** How many pages a document may be asked for. A safety rail, not a format limit. */
+export const MAX_PAGE_INDEX = 9999;
+
+function isPageWidth(value: number): value is PageWidth {
+  return (PAGE_WIDTHS as readonly number[]).includes(value);
+}
 
 export type ThumbSize = (typeof THUMBNAIL_SIZES)[number];
 
@@ -56,6 +82,29 @@ export function parseRoostUrl(url: string): Checked<Route> {
     const size = Number(rest.slice(at + 1));
     if (!isThumbSize(size)) return bad(`no such thumbnail size: ${rest.slice(at + 1)}`);
     return ok({ kind: "thumb", hash, size });
+  }
+
+  if (parsed.host === "page") {
+    // `<hash>/<index>@<width>`: the page is part of the path because it is part
+    // of what is being addressed, and the width is a rendering choice, spelled
+    // the way a thumbnail's size is.
+    const at = rest.lastIndexOf("@");
+    if (at === -1) return bad("a page URL needs a @<width>");
+    const slash = rest.indexOf("/");
+    if (slash === -1) return bad("a page URL needs a page number");
+
+    const hash = rest.slice(0, slash);
+    if (!isContentHash(hash)) return bad("not a content hash");
+
+    const index = Number(rest.slice(slash + 1, at));
+    if (!Number.isInteger(index) || index < 0 || index > MAX_PAGE_INDEX) {
+      return bad(`no such page: ${rest.slice(slash + 1, at)}`);
+    }
+
+    const width = Number(rest.slice(at + 1));
+    if (!isPageWidth(width)) return bad(`no such page width: ${rest.slice(at + 1)}`);
+
+    return ok({ kind: "page", hash, index, width });
   }
 
   if (parsed.host === "original") {

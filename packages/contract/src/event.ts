@@ -1,5 +1,5 @@
 import { bad, type Checked, isRecord, ok, readInteger, within } from "./checked.js";
-import type { ImportProgress } from "./dto.js";
+import type { DeriveProgress, ImportProgress } from "./dto.js";
 
 /**
  * What the engine says without being asked.
@@ -24,7 +24,14 @@ export type Event =
    * the numbers exist only while the run is happening. Counts and no path —
    * see {@link ImportProgress}.
    */
-  | ({ readonly type: "import:progress" } & ImportProgress);
+  | ({ readonly type: "import:progress" } & ImportProgress)
+  /**
+   * How far the derive queue has got.
+   *
+   * Separate from `import:progress` because the two overlap: an import can
+   * finish while its thumbnails are still being made, and the window says so.
+   */
+  | ({ readonly type: "job:progress" } & DeriveProgress);
 
 export type EventType = Event["type"];
 export type EventOf<T extends EventType> = Extract<Event, { type: T }>;
@@ -48,6 +55,22 @@ export const EVENT_VALIDATORS: {
       duplicates: counts["duplicates"] ?? 0,
       failed: counts["failed"] ?? 0,
       thumbnails: counts["thumbnails"] ?? 0,
+    });
+  },
+
+  "job:progress": (source) => {
+    const counts: Record<string, number> = {};
+    for (const field of ["derived", "remaining", "blocked", "failed"] as const) {
+      const value = readInteger(source, field);
+      if (!value.ok) return value;
+      counts[field] = value.value;
+    }
+    return ok({
+      type: "job:progress",
+      derived: counts["derived"] ?? 0,
+      remaining: counts["remaining"] ?? 0,
+      blocked: counts["blocked"] ?? 0,
+      failed: counts["failed"] ?? 0,
     });
   },
 };

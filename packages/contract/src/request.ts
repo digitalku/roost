@@ -22,6 +22,7 @@ import type {
   StorageMode,
   WireAssetDetail,
   WireCursor,
+  WireDeriveStatus,
   WireImportReport,
   WireSidebar,
 } from "./dto.js";
@@ -153,6 +154,22 @@ export type Request =
       /** Applied to everything imported in this run. */
       readonly tags: readonly string[];
     }
+  /**
+   * What the derive queue is holding, and what this machine can draw.
+   *
+   * Asked when the window opens a library and after a run finishes, so an
+   * empty cell can say why it is empty rather than looking broken.
+   */
+  | { readonly type: "derive:status" }
+  /**
+   * Offer parked work again, now that a missing tool may exist.
+   *
+   * `reason` names which parked work to release — `missing:ffmpeg` after
+   * installing it — or `null` for all of it. Releasing everything would also
+   * retry formats this build genuinely cannot draw, which costs a full pass to
+   * reach the same answer.
+   */
+  | { readonly type: "derive:retry"; readonly reason: string | null }
   /** Ask the user for files and folders to import. Answered by main. */
   | { readonly type: "dialog:chooseImport" }
   /**
@@ -206,6 +223,9 @@ export interface Responses {
   /** `false` when the desktop had no handler for it. */
   "asset:openExternally": boolean;
   "import:paths": WireImportReport;
+  "derive:status": WireDeriveStatus;
+  /** The status after the retry, so one round trip answers "and now?". */
+  "derive:retry": WireDeriveStatus;
   /** `null` when the user cancelled; an empty array is not a thing a dialog returns. */
   "dialog:chooseImport": readonly string[] | null;
   /** `null` when the user cancelled, which is an outcome rather than a failure. */
@@ -344,6 +364,16 @@ export const REQUEST_VALIDATORS: {
     const tags = readStringArray(source, "tags");
     if (!tags.ok) return tags;
     return ok({ type: "import:paths", paths: paths.value, mode: mode.value, tags: tags.value });
+  },
+
+  "derive:status": () => ok({ type: "derive:status" }),
+
+  "derive:retry": (source) => {
+    // `null` releases everything parked; a string releases only what is parked
+    // on that reason.
+    const reason = readNullable(source, "reason", readNonEmpty);
+    if (!reason.ok) return reason;
+    return ok({ type: "derive:retry", reason: reason.value });
   },
 
   "dialog:chooseImport": () => ok({ type: "dialog:chooseImport" }),

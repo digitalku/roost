@@ -214,6 +214,62 @@ export interface WireAssetDetail {
   readonly tags: readonly string[];
   /** Slash-separated folder paths this asset is in. */
   readonly folders: readonly string[];
+  /** Video and audio only, in milliseconds. */
+  readonly durationMs: number | null;
+  /** Documents only. */
+  readonly pageCount: number | null;
+  /**
+   * Whatever the format's own backend had to say: a font's family and style, a
+   * video's codec, an audio file's sample rate.
+   *
+   * A map rather than fields, because the vocabulary is per format and grows
+   * with each backend (`DATA_MODEL.md` §2.5). The renderer shows what is there
+   * and knows nothing about what any key means.
+   */
+  readonly props: Readonly<Record<string, string>>;
+}
+
+/** One of the backends that draws a format, and whether this machine has it. */
+export interface WireCapability {
+  readonly name: string;
+  readonly available: boolean;
+  readonly version: string | null;
+  /** One line for a person: which build is loaded, or what to install. */
+  readonly detail: string;
+}
+
+/** Why derived work is parked, and how much of it. */
+export interface WireDeriveReason {
+  readonly reason: string;
+  readonly count: number;
+}
+
+/**
+ * What the derive queue is holding.
+ *
+ * The window shows this so that an empty cell can say *why* it is empty — a
+ * format nothing draws, or a tool nobody installed (`ROADMAP.md` M4).
+ */
+export interface WireDeriveStatus {
+  readonly ready: number;
+  readonly running: number;
+  readonly blocked: number;
+  readonly failed: number;
+  readonly reasons: readonly WireDeriveReason[];
+  readonly capabilities: readonly WireCapability[];
+}
+
+/**
+ * How far the derive queue has got.
+ *
+ * Like {@link ImportProgress}, this carries numbers rather than pointing at
+ * something to re-read: they exist only while the run is happening.
+ */
+export interface DeriveProgress {
+  readonly derived: number;
+  readonly remaining: number;
+  readonly blocked: number;
+  readonly failed: number;
 }
 
 /** One file that could not be imported, and why. */

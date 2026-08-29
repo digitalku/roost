@@ -86,9 +86,59 @@ export class AssetServer {
     const open = this.#open;
     if (open === undefined) return new Response(null, { status: 404 });
 
-    return route.value.kind === "thumb"
-      ? this.#serveThumb(open, route.value)
-      : this.#serveOriginal(open, route.value, request);
+    if (route.value.kind === "thumb") return this.#serveThumb(open, route.value);
+    if (route.value.kind === "page") return this.#servePage(open, route.value);
+    return this.#serveOriginal(open, route.value, request);
+  }
+
+  /**
+   * One page of a document, rendered on demand.
+   *
+   * Neither a stored thumbnail nor the file itself, which is why it is a third
+   * route rather than a use of the other two: page-through needs a picture per
+   * page and a library that stored one per page would be storing a rendering
+   * nobody asked for.
+   *
+   * Rendered **here**, in the process that draws the window, which is a
+   * deliberate exception of the same kind ADR-0008 already takes for the
+   * read-only database handle: bytes cannot cross IPC, so the process that
+   * serves them is the process that must make them. It is affordable because
+   * the backend is WASM rather than a native decoder — nothing is `dlopen`ed
+   * and nothing is loaded until the first page is asked for — and because a
+   * page costs single-digit milliseconds (ADR-0016).
+   */
+  async #servePage(open: OpenLibrary, route: Extract<Route, { kind: "page" }>): Promise<Response> {
+    const path = await this.locate(route.hash);
+    if (path === undefined) return new Response(null, { status: 404 });
+
+    try {
+      // Imported here rather than at the top of the file: a window that never
+      // opens a document never loads a PDF backend, and cold start is an M3
+      // acceptance criterion that M4 must not spend.
+      const { renderPage } = await import("@roost/media/document");
+      const page = await renderPage(path, route.index, route.width);
+      const { encodePng } = await import("@roost/media/png");
+      const png = encodePng(page.pixels, page.width, page.height);
+
+      return new Response(new Uint8Array(png), {
+        headers: {
+          "content-type": "image/png",
+          "content-length": String(png.byteLength),
+          // Content-addressed like a thumbnail: the hash, the page, and the
+          // width fix the pixels, so nothing behind this URL can change.
+          "cache-control": "public, max-age=31536000, immutable",
+        },
+      });
+    } catch (error) {
+      // An encrypted PDF, a page past the end, a file that is not a document at
+      // all. A missing picture, not a broken window.
+      log.debug("could not render a page", {
+        hash: route.hash,
+        page: route.index,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return new Response(null, { status: 404, headers: { "cache-control": "max-age=5" } });
+    }
   }
 
   #serveThumb(open: OpenLibrary, route: Extract<Route, { kind: "thumb" }>): Response {

@@ -91,6 +91,8 @@ describe("validating a request", () => {
       "asset:tagRemove",
       "asset:openExternally",
       "import:paths",
+      "derive:status",
+      "derive:retry",
       "dialog:chooseImport",
       "dialog:openLibrary",
       "dialog:chooseLocation",
