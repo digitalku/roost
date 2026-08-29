@@ -52,7 +52,12 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   },
   stats: {},
   rebuild: {},
-  thumb: { size: { type: "string", multiple: true }, limit: { type: "string" } },
+  thumb: {
+    size: { type: "string", multiple: true },
+    limit: { type: "string" },
+    retry: { type: "boolean" },
+    "retry-blocked": { type: "boolean" },
+  },
   fixture: {
     count: { type: "string" },
     size: { type: "string", multiple: true },
@@ -192,7 +197,17 @@ async function dispatch(
       if (!Number.isInteger(limit) || limit <= 0) {
         return usage(streams, command, "--limit must be a positive whole number");
       }
-      await thumb(await library(), { sizes, limit }, streams.out, streams.progress);
+      await thumb(
+        await library(),
+        {
+          sizes,
+          limit,
+          ...(flag(values, "retry") ? { retry: true } : {}),
+          ...(flag(values, "retry-blocked") ? { retryBlocked: true } : {}),
+        },
+        streams.out,
+        streams.progress,
+      );
       return EXIT.ok;
     }
 

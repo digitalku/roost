@@ -119,9 +119,15 @@ Options:
 ${LIBRARY_FLAG}
 ${GLOBAL}`,
 
-  thumb: `Generate thumbnails for assets that have none.
+  thumb: `Generate thumbnails and metadata for assets that have none.
 
-Safe to run repeatedly: assets that already have one are skipped.
+Works the derive queue: images, SVG, fonts, PDF pages, video frames, and
+audio waveforms, each through the backend that draws it. Safe to run
+repeatedly and safe to interrupt — what it finished, it keeps.
+
+Work nobody can do is parked rather than retried: a format this build cannot
+draw, or a tool this machine does not have. That is what makes a second run
+finish immediately instead of trying everything again.
 
 Usage: roost thumb [OPTIONS]
 
@@ -129,6 +135,8 @@ Options:
 ${LIBRARY_FLAG}
       --size <PIXELS>    Longest edge. Repeatable. Default: 256
       --limit <N>        Stop after this many assets
+      --retry            Offer failed jobs again, up to three attempts each
+      --retry-blocked    Offer parked jobs again, after installing a tool
 ${GLOBAL}`,
 
   fixture: `Generate a synthetic corpus for benchmarking.

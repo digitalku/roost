@@ -42,8 +42,18 @@ async function initialise(): Promise<void> {
 /** What a rasterised vector came out as. */
 export interface Raster {
   readonly png: Buffer;
+  /** The rendered bitmap's size. */
   readonly width: number;
   readonly height: number;
+  /**
+   * The drawing's own size, in its own units.
+   *
+   * What an inspector should show: a 120×60 logo is 120×60 however wide it was
+   * rasterised. resvg resolves it from `width`/`height` or from the `viewBox`,
+   * so even an SVG sized in percentages reports the shape it was drawn in.
+   */
+  readonly intrinsicWidth: number;
+  readonly intrinsicHeight: number;
 }
 
 /**
@@ -70,6 +80,8 @@ export async function rasteriseSvg(svg: string, width = VECTOR_RENDER_WIDTH): Pr
     png: Buffer.from(rendered.asPng()),
     width: rendered.width,
     height: rendered.height,
+    intrinsicWidth: Math.round(resvg.width),
+    intrinsicHeight: Math.round(resvg.height),
   };
 }
 

@@ -86,6 +86,17 @@ export {
   importInto,
   rankedStages,
 } from "./import.js";
+export {
+  type DeriveReport,
+  enqueueDerives,
+  enqueueMissing,
+  type QueueStatus,
+  queueStatus,
+  type RunOptions,
+  retryBlocked,
+  retryFailed,
+  runDerives,
+} from "./jobs.js";
 export { Library, nowUnix, type OpenOptions } from "./library.js";
 export {
   discoverLibrary,

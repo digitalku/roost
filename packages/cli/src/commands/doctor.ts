@@ -8,7 +8,7 @@ import {
   reclaimableBytes,
   unsoundForReclaim,
 } from "@roost/library";
-import { decoderVersions } from "@roost/media";
+import { capabilities, decoderVersions } from "@roost/media";
 import { bytes, seconds } from "../format.js";
 import { EXIT, type Streams } from "../io.js";
 import { withLibrary } from "../open.js";
@@ -40,6 +40,7 @@ export async function doctor(
     });
 
     print(report, options.examples, streams.out);
+    await printCapabilities(streams.out);
 
     if (options.reclaim) {
       const freed = await reclaim(
@@ -53,6 +54,24 @@ export async function doctor(
 
     return hasDamage(report) ? EXIT.failed : EXIT.ok;
   });
+}
+
+/**
+ * What this machine can draw.
+ *
+ * Printed by `doctor` rather than by a command of its own, for the reason
+ * ADR-0013 gave about the decoder build: "video thumbnails are missing" and
+ * "video thumbnails are broken" have one cause and no other symptom, and the
+ * place someone looks when something is wrong is here.
+ */
+async function printCapabilities(out: (line: string) => void): Promise<void> {
+  out("");
+  out("Backends");
+  for (const capability of await capabilities()) {
+    const mark = capability.available ? " " : "!";
+    const version = capability.version === null ? "" : ` ${capability.version}`;
+    out(`  ${mark} ${capability.name}${version} — ${capability.detail}`);
+  }
 }
 
 function print(report: DoctorReport, examples: number, out: (line: string) => void): void {

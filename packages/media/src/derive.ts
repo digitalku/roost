@@ -112,9 +112,10 @@ async function deriveVector(
     return {
       ok: true,
       thumbnails: await renderThumbnails({ bytes: raster.png }, sizes),
-      // The rasterised size, which is the drawing's aspect ratio at a known
-      // width — an SVG's own `width` may be a percentage or absent entirely.
-      metadata: { width: raster.width, height: raster.height },
+      // The drawing's own size, not the size it happened to be rasterised at.
+      // A 120×60 logo is 120×60 in the inspector, and the grid gets the same
+      // ratio either way.
+      metadata: { width: raster.intrinsicWidth, height: raster.intrinsicHeight },
     };
   }
 
@@ -132,10 +133,14 @@ async function deriveVector(
     return { ok: true, thumbnails: [], metadata: { props } };
   }
 
+  // **No dimensions for a font.** A specimen sheet has a size and a font does
+  // not, and storing the sheet's would put "512 × 85" in the inspector next to
+  // a typeface, where it means nothing. The grid reserves a font cell's shape
+  // from the thumbnail row instead, which is where that size actually belongs.
   return {
     ok: true,
     thumbnails: await renderThumbnails({ bytes: specimen.png }, sizes),
-    metadata: { width: specimen.width, height: specimen.height, props },
+    metadata: { props },
   };
 }
 

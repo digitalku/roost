@@ -64,10 +64,10 @@ describe("deriving what a file is worth", () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.thumbnails).toHaveLength(1);
-    // Rendered at the vector width and kept in proportion, so a grid cell
-    // reserves the drawing's shape rather than a square.
-    expect(outcome.metadata.width).toBe(512);
-    expect(outcome.metadata.height).toBe(256);
+    // The drawing's own size, not the width it was rasterised at: an inspector
+    // showing "512 × 256" for an 80×40 logo would be inventing a number.
+    expect(outcome.metadata.width).toBe(80);
+    expect(outcome.metadata.height).toBe(40);
   });
 
   it("reads a font's names and draws its specimen", async () => {

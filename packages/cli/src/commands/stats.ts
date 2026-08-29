@@ -1,5 +1,5 @@
 import { logDir } from "@roost/core";
-import { Library } from "@roost/library";
+import { Library, queueStatus } from "@roost/library";
 import { bytes, row } from "../format.js";
 
 export async function stats(root: string, out: (line: string) => void): Promise<void> {
@@ -21,6 +21,15 @@ export async function stats(root: string, out: (line: string) => void): Promise<
     out(row("favourites", counts.favorites));
     out(row("notes", counts.notes));
     out(row("thumbnails", counts.thumbnails));
+
+    // What is still owed, and only when something is: a library whose queue is
+    // empty should not carry three lines saying so.
+    const queue = queueStatus(library);
+    if (queue.ready + queue.running + queue.blocked + queue.failed > 0) {
+      out(row("derive queue", queue.ready + queue.running));
+      if (queue.blocked > 0) out(row("parked", queue.blocked, 2));
+      if (queue.failed > 0) out(row("failed", queue.failed, 2));
+    }
     out(row("schema", library.db.schemaVersion()));
     out(row("logs", logDir()));
   } finally {

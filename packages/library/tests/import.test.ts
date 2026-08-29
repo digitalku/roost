@@ -8,6 +8,8 @@ import {
   importInto,
   Library,
   PartialHashCollisionError,
+  queueStatus,
+  retryFailed,
 } from "@roost/library";
 import { GRID_SIZE, gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -299,7 +301,11 @@ describe("generating thumbnails", () => {
     const source = join(dir, "pictures");
     await mkdir(source, { recursive: true });
     await writeFile(join(source, "wide.png"), await gradient(600, 400, 1, "png"));
-    await writeFile(join(source, "doc.pdf"), Buffer.from("%PDF-1.7\n"));
+    // Two ways to have no thumbnail, which M4 made different things: a format
+    // with no backend at all, and a document whose backend exists and cannot
+    // read it.
+    await writeFile(join(source, "bundle.zip"), Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]));
+    await writeFile(join(source, "torn.pdf"), Buffer.from("%PDF-1.7\n"));
     library = await Library.create(join(dir, "library"), "test");
     await importInto(library, [source]);
   });
@@ -309,25 +315,47 @@ describe("generating thumbnails", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("draws what it can and counts what it cannot", async () => {
+  it("draws what it can, parks what nothing draws, and fails what broke", async () => {
     const report = await generateMissing(library, [GRID_SIZE]);
 
     expect(report.generated).toBe(1);
-    // A PDF imports normally and simply has no thumbnail until M4.
+    // A zip has no picture and never will; the queue parks it.
     expect(report.unsupported).toBe(1);
-    expect(report.failed).toEqual([]);
+    // A truncated PDF is a different thing: the backend is here and the file is
+    // wrong, so it is a failure worth retrying rather than a capability that is
+    // missing.
+    expect(report.failed).toHaveLength(1);
     expect(library.stats().thumbnails).toBe(1);
   });
 
-  it("is safe to run twice and does no work the second time", async () => {
+  it("converges: a second run offers only what is worth trying again", async () => {
     await generateMissing(library, [GRID_SIZE]);
     const again = await generateMissing(library, [GRID_SIZE]);
 
-    // The unsupported asset is still missing a thumbnail and is still offered,
-    // which is correct: nothing records that a format cannot be drawn, and a
-    // later build may be able to draw it.
+    // The parked zip is not offered again — that is what stops every sweep from
+    // re-deriving every undrawable asset in the library — and neither is the
+    // failure, until something asks for a retry.
     expect(again.generated).toBe(0);
+    expect(again.unsupported).toBe(0);
+    expect(again.failed).toEqual([]);
     expect(library.stats().thumbnails).toBe(1);
+
+    const status = queueStatus(library);
+    expect(status.blocked).toBe(1);
+    expect(status.failed).toBe(1);
+    expect(status.reasons).toEqual([{ reason: "unsupported:zip", count: 1 }]);
+  });
+
+  it("retries a failure when asked, and leaves the parked work parked", async () => {
+    await generateMissing(library, [GRID_SIZE]);
+
+    expect(retryFailed(library)).toBe(1);
+    expect(queueStatus(library)).toMatchObject({ ready: 1, blocked: 1 });
+
+    const again = await generateMissing(library, [GRID_SIZE]);
+    // Still torn, so still a failure — but it was tried, which is the
+    // difference between "retryable" and "parked".
+    expect(again.failed).toHaveLength(1);
   });
 });
 

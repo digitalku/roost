@@ -1,9 +1,14 @@
-import { generateMissing, Library } from "@roost/library";
+import { generateMissing, Library, queueStatus, retryBlocked, retryFailed } from "@roost/library";
+import { capabilities } from "@roost/media";
 import { bytes, rate, row, seconds } from "../format.js";
 
 export interface ThumbArgs {
   readonly sizes: readonly number[];
   readonly limit: number;
+  /** Offer parked work again, now that a backend may have arrived. */
+  readonly retryBlocked?: boolean;
+  /** Offer work that failed, up to three attempts each. */
+  readonly retry?: boolean;
 }
 
 export async function thumb(
@@ -14,6 +19,15 @@ export async function thumb(
 ): Promise<void> {
   const library = await Library.open(root);
   try {
+    if (args.retryBlocked === true) {
+      const released = retryBlocked(library);
+      out(`Released ${released} parked job(s)`);
+    }
+    if (args.retry === true) {
+      const released = retryFailed(library);
+      out(`Retrying ${released} failed job(s)`);
+    }
+
     let lastShown = 0;
     const report = await generateMissing(library, args.sizes, args.limit, (running) => {
       const done = running.generated + running.unsupported + running.missing;
@@ -23,11 +37,6 @@ export async function thumb(
     });
 
     out(`Generated ${report.generated} thumbnail(s) at ${args.sizes.join(", ")} px`);
-    if (report.unsupported > 0) {
-      // Expected, not a fault: a PDF, a video, and a font all import normally
-      // and have no thumbnail until the backend that draws them arrives.
-      out(row("", `${report.unsupported} asset(s) this build cannot draw`, 1, 0));
-    }
     if (report.missing > 0) {
       out(
         row("", `${report.missing} referenced original(s) no longer at their recorded path`, 1, 0),
@@ -39,7 +48,28 @@ export async function thumb(
     );
 
     for (const failure of report.failed.slice(0, 10)) {
-      out(`  failed ${failure.path}: ${failure.reason}`);
+      out(`  failed ${failure.path.slice(0, 12)}: ${failure.reason}`);
+    }
+
+    // What is left, and why. A parked job is not a fault — it is work waiting
+    // on a capability this machine does not have, or on a format nothing in
+    // this build draws — but it is the difference between an empty cell that
+    // means something and one that means nothing.
+    const status = queueStatus(library);
+    if (status.blocked > 0 || status.failed > 0) {
+      out("");
+      out(`${status.blocked} parked, ${status.failed} failed`);
+      for (const reason of status.reasons) {
+        out(row("", `${reason.count} × ${reason.reason}`, 1, 0));
+      }
+      if (status.reasons.some((reason) => reason.reason.startsWith("missing:ff"))) {
+        const media = (await capabilities()).find((entry) => entry.name === "media");
+        if (media?.available === false) out(row("", media.detail, 1, 0));
+      }
+      if (status.failed > 0) out(row("", "pass --retry to try the failures again", 1, 0));
+      if (status.blocked > 0) {
+        out(row("", "pass --retry-blocked after installing a missing tool", 1, 0));
+      }
     }
   } finally {
     await library.close();

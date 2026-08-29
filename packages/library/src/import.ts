@@ -13,6 +13,7 @@ import { hashFile, probe } from "@roost/media";
 import { mapWithConcurrency } from "./concurrency.js";
 import { discover } from "./discover.js";
 import { PartialHashCollisionError } from "./error.js";
+import { enqueueDerives } from "./jobs.js";
 import type { Library } from "./library.js";
 import { nowUnix } from "./library.js";
 
@@ -483,6 +484,15 @@ async function commit(
   library.db.transaction(() => {
     const sink = new IndexSink(library.db);
     for (const record of batch) sink.apply(record);
+
+    // Queued in the same transaction as the rows they are about (§5 step 8).
+    // Committing an asset without the intent to derive it would leave it with
+    // no thumbnail until something ran a whole-library sweep, and a crash
+    // between two transactions is exactly when that happens.
+    enqueueDerives(
+      library,
+      batch.filter((record) => record.op === "add").map((record) => record.hash),
+    );
   });
   timings.indexing += performance.now() - indexStarted;
 }
