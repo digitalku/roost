@@ -133,8 +133,8 @@
 .cell[data-view="compact"] .cell-thumb,
 .cell[data-view="details"] .cell-thumb {
   flex: none;
-  width: 2em;
-  height: 2em;
+  width: var(--row-thumb);
+  height: var(--row-thumb);
   border-radius: var(--radius-sm);
 }
 
@@ -157,7 +157,7 @@
  */
 .cell[data-view="details"] {
   display: grid;
-  grid-template-columns: 2em minmax(0, 1fr) 5em 6em 8em 8em;
+  grid-template-columns: var(--details-columns);
 }
 
 .cell-field {
@@ -185,6 +185,21 @@
  * picture, which name themselves.
  */
 .grid-frame {
+  /*
+   * Two numbers the header and the rows have to agree on.
+   *
+   * The tracks are in `px` rather than `em` because the header draws at
+   * `--text-sm` and a row at `--text-base`, so the same `em` track is two
+   * different widths in the two places that must line up.
+   *
+   * `--scrollbar` is the strip `scrollbar-gutter: stable` reserves inside the
+   * scroller. `Grid.tsx` measures it and writes it here, because it is a
+   * platform constant CSS cannot name.
+   */
+  --details-columns: 26px minmax(0, 1fr) 65px 78px 104px 104px;
+  --row-thumb: 26px;
+  --scrollbar: 0px;
+
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -198,12 +213,15 @@
 .details-header {
   display: grid;
   /* The same tracks as a details cell, plus the scroller's own padding, so the
-     labels sit over the columns they name rather than near them. */
-  grid-template-columns: 2em minmax(0, 1fr) 5em 6em 8em 8em;
+     labels sit over the columns they name rather than near them. The right side
+     also gives back the strip the scroller reserves for its scrollbar, which the
+     rows do not have. */
+  grid-template-columns: var(--details-columns);
   gap: var(--space-2);
   align-items: center;
   height: var(--control-height);
-  padding: 0 calc(var(--gutter) + var(--space-2));
+  padding-right: calc(var(--gutter) + var(--space-2) + var(--scrollbar));
+  padding-left: calc(var(--gutter) + var(--space-2));
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-muted);

@@ -57,7 +57,14 @@ describe("re-renders on a selection change", () => {
   it("re-renders two cells, whatever is on screen", async () => {
     const assets = Array.from({ length: 600 }, (_, i) => fakeAsset(i));
     render(
-      <Grid assets={assets} mode="uniform" target={240} selection={selection} onMore={() => {}} />,
+      <Grid
+        assets={assets}
+        view="icons"
+        proportional={false}
+        target={240}
+        selection={selection}
+        onMore={() => {}}
+      />,
     );
     const user = userEvent.setup();
     const cells = screen.getAllByRole("option");
@@ -77,7 +84,14 @@ describe("re-renders on a selection change", () => {
   it("re-renders nothing when the click changes nothing", async () => {
     const assets = Array.from({ length: 200 }, (_, i) => fakeAsset(i));
     render(
-      <Grid assets={assets} mode="uniform" target={240} selection={selection} onMore={() => {}} />,
+      <Grid
+        assets={assets}
+        view="icons"
+        proportional={false}
+        target={240}
+        selection={selection}
+        onMore={() => {}}
+      />,
     );
     const user = userEvent.setup();
     const cells = screen.getAllByRole("option");

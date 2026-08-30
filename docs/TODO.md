@@ -400,10 +400,16 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
     knowing before the next menu is written.
   - The zoom controls are real `DropdownMenu.Item`s under `asChild`: a bare `<button>` inside
     the content is reachable by pointer and by nothing else, which §10 forbids.
-  - 🟡 **Not seen in a real window.** An Electron instance opened outside this session held the
-    single-instance lock, so a fresh one exited on the spot. The three views, the menu, and the
-    zoom row all have tests; the pixels do not — and the recent list found a bidi defect at
-    exactly this step that no renderer test could see, so this is a gap with a precedent.
+  - ☑ ~~**Seen in a real window** on 2026-08-30, and the precedent held: it found three defects
+    no renderer test could.~~ The grid laid out against `clientWidth`, which **includes the
+    scroller's own padding**, so every view was one gutter too wide and the rightmost column ran
+    under the scrollbar with its edge cut off. In Details that clipped the date; in Icons it
+    clipped a thumbnail, which reads as a crop rather than a bug. The header's `em` tracks
+    resolved against `--text-sm` while a row's resolved against `--text-base`, so the columns
+    drifted apart left to right — 24px by the last one. And the header, sitting outside the
+    scroller, was never narrowed by the reserved scrollbar strip. Fixed together: the tracks are
+    `px` and declared once, the grid measures the content box, and it writes the reserved strip
+    to the frame as a custom property. Measured after: zero drift across all six columns.
 
 - 🟡 **Sort By.** Not a menu item — a migration and a bench run per key. The application has one
   order, `imported_at DESC, hash`, and keyset paging plus all four composite indexes in migration
@@ -491,7 +497,14 @@ repository's session log, because a lesson nobody rereads is a lesson nobody has
    `PRAGMA foreign_keys = OFF` changed nothing (`better-sqlite3` sets it on regardless), and an
    unanchored `/@cursorTs/` matched `@cursorTs2` and counted the broken version as correct.
    Writing the test is half the work; breaking the code to watch it fail is the other half.
-10. **Measure before naming the cause.** The obvious reason a sequential JavaScript pipeline
+10. **`tsc -b` is not a typecheck unless it is forced.** Commit `19e4a8e` shipped four type
+    errors — a renderer test still passing `mode` to a `Grid` whose props had been replaced —
+    and `pnpm verify` reported clean, because the incremental build did not re-check the
+    dependents of the file that changed. The tests passed too: React ignores an unknown prop,
+    so `view` arrived as `undefined` and the grid fell back to Icons, which is what those tests
+    happened to expect. A forced build finds it in 0.78s against 0.37s, so `pnpm typecheck` is
+    `tsc -b --force` now and `pnpm build` stays incremental. TypeScript 7.0.2.
+11. **Measure before naming the cause.** The obvious reason a sequential JavaScript pipeline
     loses to Rust is that the Rust one is parallel. It is not: `/usr/bin/time` put `roost-old`'s
     import at 98% CPU — one core — while this build sat at 199% and still took three times as
     long. The difference is six times the CPU *per file*, not threads. The write-up that assumed

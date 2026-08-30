@@ -33,12 +33,13 @@ describe("the grid", () => {
   let more: () => void;
   let moreCalls: string[];
 
-  const show = (count: number, mode: "masonry" | "uniform" = "uniform") => {
+  const show = (count: number, proportional = false) => {
     const assets = Array.from({ length: count }, (_, i) => fakeAsset(i));
     const view = render(
       <Grid
         assets={assets}
-        mode={mode}
+        view="icons"
+        proportional={proportional}
         target={240}
         selection={selection}
         onMore={more}
@@ -102,13 +103,37 @@ describe("the grid", () => {
     render(
       <Grid
         assets={[fakeAsset(0, { ext: "zip", name: "backup.zip", width: null, height: null })]}
-        mode="uniform"
+        view="icons"
+        proportional={false}
         target={240}
         selection={selection}
         onMore={more}
       />,
     );
     expect(screen.getByText("zip")).toBeDefined();
+  });
+
+  it("lays out inside the scroller's padding, not over it", () => {
+    // Found in a real window on 2026-08-30: `clientWidth` includes the
+    // scroller's own padding, so every view was one gutter too wide and the
+    // rightmost column ran under the scrollbar with its edge cut off. happy-dom
+    // reports no padding, which is why no test saw it — so this one says what
+    // the padding is.
+    const PADDING = 12;
+    vi.stubGlobal("getComputedStyle", () => ({
+      paddingLeft: `${PADDING}px`,
+      paddingRight: `${PADDING}px`,
+    }));
+    show(60);
+
+    const cells = screen.getAllByRole("option");
+    const right = Math.max(
+      ...cells.map((cell) => {
+        const x = Number(/translate\((-?[\d.]+)px/.exec(cell.style.transform)?.[1] ?? "0");
+        return x + Number.parseFloat(cell.style.width);
+      }),
+    );
+    expect(right).toBeLessThanOrEqual(WIDTH - PADDING * 2);
   });
 
   it("selects with a click, adds with ctrl, and extends with shift", async () => {

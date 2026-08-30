@@ -13,7 +13,7 @@
     "postinstall": "node scripts/build-sharp.mjs",
     "build": "tsc -b",
     "build:native": "node scripts/build-sharp.mjs",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b --force",
     "clean": "tsc -b --clean",
     "check": "biome check --write",
     "check:ci": "biome ci",

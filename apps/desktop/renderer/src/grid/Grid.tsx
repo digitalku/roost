@@ -50,6 +50,7 @@ export function Grid({
   onMore,
   onOpen,
 }: GridProps): React.JSX.Element {
+  const frame = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [height, setHeight] = useState(0);
@@ -87,8 +88,23 @@ export function Grid({
     const element = viewport.current;
     if (element === null) return;
     const measure = (): void => {
-      setWidth(element.clientWidth);
+      // `clientWidth` includes the scroller's own padding, and laying out
+      // against it makes every view one gutter too wide — the last column ends
+      // up under the scrollbar with its right edge cut off. Only a real window
+      // shows this: happy-dom does no layout and reports no padding, so the
+      // tests were measuring a scroller that had none.
+      const style = getComputedStyle(element);
+      const padding = px(style.paddingLeft) + px(style.paddingRight);
+      setWidth(Math.max(0, element.clientWidth - padding));
       setHeight(element.clientHeight);
+      // The details header sits outside the scroller, so it is the one thing in
+      // the frame that is not narrowed by the reserved scrollbar strip. Writing
+      // the width rather than rendering it: it is one custom property, it
+      // changes only on a resize, and the render below does not read it.
+      frame.current?.style.setProperty(
+        "--scrollbar",
+        `${element.offsetWidth - element.clientWidth}px`,
+      );
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
@@ -233,7 +249,7 @@ export function Grid({
   );
 
   return (
-    <div className="grid-frame" data-view={view}>
+    <div className="grid-frame" data-view={view} ref={frame}>
       {/*
         The header sits outside the scroller rather than sticking to the top of
         it: the cells are absolutely positioned from y=0, so a sticky row inside
@@ -283,6 +299,12 @@ export function Grid({
       </div>
     </div>
   );
+}
+
+/** A computed length, or zero where there is no layout to read one from. */
+function px(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 const DIRECTIONS: Readonly<Record<string, Direction | undefined>> = {

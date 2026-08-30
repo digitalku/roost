@@ -336,7 +336,16 @@ layout. Decided when Compact was built, on 2026-08-30.
 top of it. Cells are absolutely positioned from `y = 0`, so a sticky row inside would cover the
 first one, and offsetting every tile to make room would put a view's decoration into the layout
 arithmetic. Its columns use the same track template as a details cell, so the labels sit over
-the columns they name.
+the columns they name — which costs two things, both found by measuring a real window on
+2026-08-30 and neither visible to a test:
+
+- The track list is in `px`, not `em`. The header draws at `--text-sm` and a row at
+  `--text-base`, so the same `em` track is two different widths in the two places that have to
+  line up, and the drift accumulates left to right.
+- The header is as wide as the frame; the rows are as wide as the scroller's content, which is
+  narrower by the strip `scrollbar-gutter: stable` reserves. The header gives that strip back as
+  right padding, from a width the grid measures and writes as a custom property — CSS cannot
+  name it, and it is a platform constant rather than a state to track.
 
 **Zoom** is the cell target, 120–400px, snapped to seven steps. `layout()` has taken it as a
 parameter since M3; the menu is the first thing to pass anything but a constant. The three
@@ -349,10 +358,13 @@ them and an absent item teaches nothing. Neither is a renderer change: the appli
 and keyset paging plus every composite index in migration 0005 is built on it. Each sort key
 needs its own index per filter and its own cursor. See ADR-0018.
 
-**Common to every view.** Column count derives from the container width and the zoom target;
-the filename is a reserved band under the thumbnail, never an overlay on it. An asset with no
-recorded dimensions is laid out at 1:1 and re-laid out once metadata arrives — the only reflow
-the grid is permitted, and it happens off-screen when the derive queue is keeping up.
+**Common to every view.** Column count derives from the scroller's **content** width — not
+`clientWidth`, which includes the scroller's own padding and made every view one gutter too
+wide, running the last column under the scrollbar with its edge cut off. The zoom target sets
+how wide a column wants to be; the filename is a reserved band under the thumbnail, never an
+overlay on it. An asset with no recorded dimensions is laid out at 1:1 and re-laid out once
+metadata arrives — the only reflow the grid is permitted, and it happens off-screen when the
+derive queue is keeping up.
 
 **Cell contract, non-negotiable:**
 - `AssetCell` is `memo`'d and receives only primitives: `hash`, `ext`, `width`, `height`,
