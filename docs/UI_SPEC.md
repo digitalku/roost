@@ -209,6 +209,40 @@ gives: this list is what *finds* a library, so it cannot live inside one.
 - Relative times are coarse on purpose: "Yesterday", "3 days ago", and a date past a week. The
   question is which library, not how many hours.
 
+### 3.2 The inspector over several assets
+
+**The inspector edits the selection, not the focused asset.** Until 2026-08-30 it took one hash
+and every edit sent it alone, so selecting five assets and adding a tag tagged one — reported
+from real use, and invisible to any test that only asked whether the tag arrived.
+
+One asset and several are the **same components** given different data. `Rating`, the favourite
+button and `TagEditor` all take a list of hashes and never learn how long it is, which is what
+stops the bug returning for one path and not the other.
+
+**What a multi-selection shows**
+
+| Control | Over several assets |
+| --- | --- |
+| Heading | `3 assets` in place of the name field |
+| Rating | The rating they share; `mixed` beside empty stars when they disagree. Clicking the shared rating clears it, as for one asset; a mixed selection has nothing to clear, so a click always sets |
+| Favourite | Filled when all are, empty otherwise. Clicking a `none` or `mixed` state favourites everything — the destructive reading needs the explicit `all` state to reach |
+| Tags | Tags **all** of them carry, then tags **some** carry, drawn apart and labelled. Adding applies to everything; removing a partial tag is the same call, since the engine ignores an asset that does not carry it |
+| Metadata | Total size and the commonest kinds. Nothing per-asset |
+
+**What it deliberately does not show**, each for its own reason:
+
+- **No name field.** A name belongs to one asset.
+- **No note.** A note is a paragraph about one thing; writing one across twelve would silently
+  destroy eleven.
+- **No preview.** One asset's picture above controls that edit all of them is exactly the
+  misreading this panel exists to correct.
+- **No "Open externally".** Handing twenty files to the desktop is more than a click's worth of
+  consequence.
+
+**One request, not one per asset.** `asset:summary` takes the whole selection and answers with
+the aggregate. A selection is routinely hundreds of rows, and a detail each would be hundreds of
+round trips for a panel that shows a summary of them.
+
 ## 4. Navigation
 
 ### 4.1 What the sidebar contains

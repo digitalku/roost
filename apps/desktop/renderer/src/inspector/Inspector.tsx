@@ -1,10 +1,22 @@
-import type { WireAssetDetail } from "@roost/contract";
+import type { WireAssetDetail, WireSelectionSummary } from "@roost/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { fallbackToGrid, previewSrc } from "../thumbnail.js";
 
 /**
- * Everything known about the focused asset, all of it editable.
+ * Everything known about the selection, all of it editable.
+ *
+ * **The selection, not the focused asset.** Until 2026-08-30 this panel took one
+ * hash and every edit sent `[detail.hash]`, so selecting five assets and adding
+ * a tag tagged one of them — reported from real use, and invisible to any test
+ * that only asked whether the tag arrived. The contract has taken `hashes` as an
+ * array since M2 and the engine has always written one journal batch for all of
+ * them; the interface was the whole of the bug.
+ *
+ * One asset and several are **the same components** given different data, which
+ * is what stops the bug coming back for one path and not the other: `Rating`,
+ * the favourite button, and `TagEditor` all take a list of hashes and never
+ * learn how long it is.
  *
  * **Every edit reads the record back** rather than trusting what it sent. That
  * is not caution for its own sake: the engine trims a name, drops an
@@ -20,25 +32,46 @@ import { fallbackToGrid, previewSrc } from "../thumbnail.js";
 export const NOTE_IDLE_MS = 1000;
 
 export interface InspectorProps {
-  /** The focused asset, or `undefined` when nothing is focused. */
-  readonly hash: string | undefined;
+  /**
+   * The selection, in result order. Empty when nothing is selected.
+   *
+   * The caller must keep this array's identity stable across unrelated renders
+   * — it is what the read effect depends on, and a fresh array per render would
+   * re-read the library on every keystroke elsewhere in the window.
+   */
+  readonly hashes: readonly string[];
   /** Bumped by the caller when something outside the inspector changed. */
   readonly generation: number;
 }
 
-export function Inspector({ hash, generation }: InspectorProps): React.JSX.Element | null {
+export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Element | null {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
+  const [summary, setSummary] = useState<WireSelectionSummary | undefined>();
 
   const read = useCallback(async () => {
-    if (hash === undefined) {
-      setDetail(undefined);
+    const only = hashes.length === 1 ? hashes[0] : undefined;
+
+    if (only !== undefined) {
+      const outcome = await invoke({ type: "asset:detail", hash: only });
+      setSummary(undefined);
+      // A selection can outlive the asset it points at; `null` is the answer to
+      // that, and it empties the panel rather than raising anything.
+      setDetail(outcome.ok && outcome.value !== null ? outcome.value : undefined);
       return;
     }
-    const outcome = await invoke({ type: "asset:detail", hash });
-    // A selection can outlive the asset it points at; `null` is the answer to
-    // that, and it empties the panel rather than raising anything.
-    setDetail(outcome.ok && outcome.value !== null ? outcome.value : undefined);
-  }, [hash]);
+
+    setDetail(undefined);
+    if (hashes.length === 0) {
+      setSummary(undefined);
+      return;
+    }
+
+    // One request for the whole selection rather than a detail each: a
+    // selection is routinely hundreds of rows, and what this draws is a summary
+    // of them.
+    const outcome = await invoke({ type: "asset:summary", hashes });
+    setSummary(outcome.ok ? outcome.value : undefined);
+  }, [hashes]);
 
   /*
    * `generation` is a trigger, not a value the body reads: something outside
@@ -49,7 +82,11 @@ export function Inspector({ hash, generation }: InspectorProps): React.JSX.Eleme
     void read();
   }, [read, generation]);
 
-  if (hash === undefined || detail === undefined) return null;
+  if (summary !== undefined) {
+    return <Selection hashes={hashes} summary={summary} onSaved={read} />;
+  }
+
+  if (detail === undefined) return null;
 
   return (
     <aside className="inspector" aria-label="Inspector">
@@ -74,25 +111,11 @@ export function Inspector({ hash, generation }: InspectorProps): React.JSX.Eleme
       <Name detail={detail} onSaved={read} />
 
       <div className="inspector-row">
-        <Rating value={detail.rating} hash={detail.hash} onSaved={read} />
-        <button
-          type="button"
-          className="favorite"
-          aria-pressed={detail.isFavorite}
-          aria-label="Favorite"
-          onClick={() => {
-            void invoke({
-              type: "asset:favorite",
-              hashes: [detail.hash],
-              favorite: !detail.isFavorite,
-            }).then(read);
-          }}
-        >
-          {detail.isFavorite ? "★" : "☆"}
-        </button>
+        <Rating value={detail.rating} mixed={false} hashes={hashes} onSaved={read} />
+        <Favorite state={detail.isFavorite ? "all" : "none"} hashes={hashes} onSaved={read} />
       </div>
 
-      <TagEditor detail={detail} onSaved={read} />
+      <TagEditor hashes={hashes} shared={detail.tags} partial={[]} onSaved={read} />
       <NoteField detail={detail} onSaved={read} />
       <Metadata detail={detail} />
 
@@ -156,15 +179,18 @@ function Name({
  */
 function Rating({
   value,
-  hash,
+  mixed,
+  hashes,
   onSaved,
 }: {
   readonly value: number | null;
-  readonly hash: string;
+  /** The selection disagrees. Distinct from `null`, which is "none is rated". */
+  readonly mixed: boolean;
+  readonly hashes: readonly string[];
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
   return (
-    <div className="rating">
+    <div className="rating" data-mixed={mixed || undefined}>
       {[1, 2, 3, 4, 5].map((star) => (
         <button
           key={star}
@@ -173,47 +199,103 @@ function Rating({
           aria-label={`${star} star${star === 1 ? "" : "s"}`}
           data-on={value !== null && star <= value ? "" : undefined}
           onClick={() => {
+            // Clicking the rating they already share clears it, which is the
+            // only gesture that can express unrated without a second control.
+            // A mixed selection has no shared rating to clear, so a click
+            // always sets.
             void invoke({
               type: "asset:rate",
-              hashes: [hash],
-              rating: value === star ? null : star,
+              hashes,
+              rating: !mixed && value === star ? null : star,
             }).then(onSaved);
           }}
         >
           ★
         </button>
       ))}
+      {mixed && <span className="mixed">mixed</span>}
     </div>
   );
 }
 
-/** Tags, added on Enter and removed by their own button. */
-function TagEditor({
-  detail,
+/**
+ * The favourite toggle, over one asset or many.
+ *
+ * A mixed selection favourites everything rather than clearing: the gesture
+ * people expect from a half-filled control is "make them all this", and the
+ * destructive reading is the one that needs an explicit state to reach.
+ */
+function Favorite({
+  state,
+  hashes,
   onSaved,
 }: {
-  readonly detail: WireAssetDetail;
+  readonly state: "all" | "none" | "mixed";
+  readonly hashes: readonly string[];
+  readonly onSaved: () => Promise<void>;
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className="favorite"
+      aria-pressed={state === "all"}
+      aria-label="Favorite"
+      data-mixed={state === "mixed" || undefined}
+      onClick={() => {
+        void invoke({ type: "asset:favorite", hashes, favorite: state !== "all" }).then(onSaved);
+      }}
+    >
+      {state === "all" ? "★" : "☆"}
+    </button>
+  );
+}
+
+/**
+ * Tags, added on Enter and removed by their own button.
+ *
+ * **Shared and partial tags are drawn apart** (`UI_SPEC.md` §3.2). A tag two of
+ * three assets carry is not the same claim as one all three carry, and a panel
+ * that showed them alike would be lying about the selection. Partial tags are
+ * dimmed and labelled with how many carry them.
+ *
+ * Adding applies to everything selected. Removing a partial tag is the same
+ * call — the engine ignores an asset that does not carry it — so there is no
+ * second gesture to learn.
+ */
+function TagEditor({
+  hashes,
+  shared,
+  partial,
+  onSaved,
+}: {
+  readonly hashes: readonly string[];
+  readonly shared: readonly string[];
+  readonly partial: readonly string[];
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
   const [draft, setDraft] = useState("");
 
+  const remove = (tag: string): void => {
+    void invoke({ type: "asset:tagRemove", hashes, tags: [tag] }).then(onSaved);
+  };
+
   return (
     <div className="tags">
       <ul className="tag-list">
-        {detail.tags.map((tag) => (
+        {shared.map((tag) => (
           <li key={tag} className="tag">
             <span>{tag}</span>
-            <button
-              type="button"
-              aria-label={`Remove ${tag}`}
-              onClick={() => {
-                void invoke({
-                  type: "asset:tagRemove",
-                  hashes: [detail.hash],
-                  tags: [tag],
-                }).then(onSaved);
-              }}
-            >
+            <button type="button" aria-label={`Remove ${tag}`} onClick={() => remove(tag)}>
+              ×
+            </button>
+          </li>
+        ))}
+        {partial.map((tag) => (
+          <li key={tag} className="tag" data-partial>
+            <span title={`Only some of the ${hashes.length} selected assets carry this`}>
+              {tag}
+            </span>
+            <button type="button" aria-label={`Remove ${tag}`} onClick={() => remove(tag)}>
               ×
             </button>
           </li>
@@ -231,10 +313,69 @@ function TagEditor({
           event.preventDefault();
           const tag = draft;
           setDraft("");
-          void invoke({ type: "asset:tagAdd", hashes: [detail.hash], tags: [tag] }).then(onSaved);
+          void invoke({ type: "asset:tagAdd", hashes, tags: [tag] }).then(onSaved);
         }}
       />
     </div>
+  );
+}
+
+/**
+ * The panel for a selection of several assets (`UI_SPEC.md` §3.2).
+ *
+ * What is missing here is the point. There is **no name field**, because a name
+ * is unique to one asset; **no note**, because a note is a paragraph about one
+ * thing and writing one across twelve assets would silently destroy eleven; and
+ * **no preview**, because showing one asset's picture over controls that edit
+ * all of them is the misreading this whole change exists to correct.
+ */
+function Selection({
+  hashes,
+  summary,
+  onSaved,
+}: {
+  readonly hashes: readonly string[];
+  readonly summary: WireSelectionSummary;
+  readonly onSaved: () => Promise<void>;
+}): React.JSX.Element {
+  return (
+    <aside className="inspector" aria-label="Inspector">
+      <h2 className="inspector-count">{summary.count.toLocaleString()} assets</h2>
+
+      <div className="inspector-row">
+        <Rating
+          value={summary.rating}
+          mixed={summary.ratingMixed}
+          hashes={hashes}
+          onSaved={onSaved}
+        />
+        <Favorite state={summary.favorite} hashes={hashes} onSaved={onSaved} />
+      </div>
+
+      <TagEditor
+        hashes={hashes}
+        shared={summary.sharedTags}
+        partial={summary.partialTags}
+        onSaved={onSaved}
+      />
+
+      <dl className="metadata">
+        <div className="metadata-row">
+          <dt>Size</dt>
+          <dd>{bytes(summary.totalBytes)}</dd>
+        </div>
+        {summary.kinds.length > 0 && (
+          <div className="metadata-row">
+            <dt>Kinds</dt>
+            <dd>
+              {summary.kinds
+                .map((kind) => (kind === "" ? "unknown" : kind.toUpperCase()))
+                .join(", ")}
+            </dd>
+          </div>
+        )}
+      </dl>
+    </aside>
   );
 }
 

@@ -503,3 +503,99 @@ describe("derived metadata", () => {
     expect(db.repo.props(hashOf(1))).toEqual({});
   });
 });
+
+describe("summarising a selection", () => {
+  /**
+   * What the inspector draws over several assets.
+   *
+   * The distinctions here are the ones a panel gets wrong quietly: unrated is
+   * not rated-zero, "none is rated" is agreement rather than disagreement, and
+   * a tag two of three assets carry is a weaker claim than one all three carry.
+   */
+  let db: Db;
+
+  beforeEach(() => {
+    db = Db.openInMemory();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  /** Three assets, sized 1000, 2000 and 3000. */
+  const three = (): ReturnType<typeof hashOf>[] =>
+    [1, 2, 3].map((n) => {
+      const a = asset(n, { size: n * 1000 });
+      db.repo.applyAdd(10 * n, a);
+      return a.hash;
+    });
+
+  it("counts them and adds up their bytes", () => {
+    const summary = db.repo.selectionSummary(three());
+    expect(summary.count).toBe(3);
+    expect(summary.totalBytes).toBe(6000);
+  });
+
+  it("calls no rating at all agreement, not a disagreement", () => {
+    // An untouched selection must show empty stars, not the word "mixed".
+    const summary = db.repo.selectionSummary(three());
+    expect(summary.rating).toBeNull();
+    expect(summary.ratingMixed).toBe(false);
+  });
+
+  it("reports the rating they share, and mixed when they do not", () => {
+    const hashes = three();
+    for (const hash of hashes) db.repo.applyRate(hash, 4);
+    expect(db.repo.selectionSummary(hashes)).toMatchObject({ rating: 4, ratingMixed: false });
+
+    db.repo.applyRate(hashes[1] as ReturnType<typeof hashOf>, 2);
+    expect(db.repo.selectionSummary(hashes)).toMatchObject({ rating: null, ratingMixed: true });
+  });
+
+  it("treats one unrated asset among rated ones as mixed", () => {
+    // The case a `min = max` test alone would call agreement: two fours and an
+    // unrated is not "they are all four".
+    const hashes = three();
+    db.repo.applyRate(hashes[0] as ReturnType<typeof hashOf>, 4);
+    db.repo.applyRate(hashes[1] as ReturnType<typeof hashOf>, 4);
+    expect(db.repo.selectionSummary(hashes)).toMatchObject({ rating: null, ratingMixed: true });
+  });
+
+  it("says all, none, or mixed about favourites", () => {
+    const hashes = three();
+    expect(db.repo.selectionSummary(hashes).favorite).toBe("none");
+
+    db.repo.applyFavoriteSet(hashes[0] as ReturnType<typeof hashOf>, true);
+    expect(db.repo.selectionSummary(hashes).favorite).toBe("mixed");
+
+    for (const hash of hashes) db.repo.applyFavoriteSet(hash, true);
+    expect(db.repo.selectionSummary(hashes).favorite).toBe("all");
+  });
+
+  it("separates a tag they all carry from one only some carry", () => {
+    const hashes = three();
+    for (const hash of hashes) db.repo.applyTagAdd(hash, ["wood"]);
+    db.repo.applyTagAdd(hashes[0] as ReturnType<typeof hashOf>, ["wip"]);
+
+    const summary = db.repo.selectionSummary(hashes);
+    expect(summary.sharedTags).toEqual(["wood"]);
+    expect(summary.partialTags).toEqual(["wip"]);
+  });
+
+  it("ignores an asset the library does not hold", () => {
+    // A selection can outlive the rows it points at, and the summary must
+    // describe what is there rather than what was asked about.
+    const hashes = three();
+    expect(db.repo.selectionSummary([...hashes, hashOf(99)]).count).toBe(3);
+  });
+
+  it("answers for an empty selection without raising", () => {
+    expect(db.repo.selectionSummary([])).toMatchObject({
+      count: 0,
+      totalBytes: 0,
+      rating: null,
+      ratingMixed: false,
+      favorite: "none",
+    });
+  });
+});

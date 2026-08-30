@@ -14,6 +14,7 @@ import type {
   WireImportReport,
   WireProblem,
   WireRecentLibrary,
+  WireSelectionSummary,
   WireSidebar,
 } from "@roost/contract";
 import type { WindowBridge } from "../bridge.js";
@@ -255,6 +256,51 @@ export class FakeEngine {
     return ok(null);
   }
 
+  /**
+   * The same aggregate the engine computes in SQL, over whatever details this
+   * fake was given.
+   *
+   * Written out rather than stubbed with a fixed answer: the shared-versus-
+   * partial tag distinction is the part of the inspector most likely to be got
+   * wrong, and a fake that returned a constant would let that pass.
+   */
+  #summarize(hashes: readonly string[]): WireSelectionSummary {
+    const found = hashes
+      .map((hash) => this.details.get(hash))
+      .filter((detail): detail is WireAssetDetail => detail !== undefined);
+
+    const rated = found.filter((detail) => detail.rating !== null);
+    const agreed =
+      found.length > 0 &&
+      rated.length === found.length &&
+      rated.every((detail) => detail.rating === rated[0]?.rating);
+    const favourites = found.filter((detail) => detail.isFavorite).length;
+
+    const carrying = new Map<string, number>();
+    for (const detail of found) {
+      for (const tag of detail.tags) carrying.set(tag, (carrying.get(tag) ?? 0) + 1);
+    }
+    const names = [...carrying.keys()].sort();
+
+    const kinds = [...new Set(found.map((detail) => detail.ext))].slice(0, 5);
+
+    return {
+      count: found.length,
+      totalBytes: found.reduce((total, detail) => total + detail.size, 0),
+      rating: agreed ? (rated[0]?.rating ?? null) : null,
+      ratingMixed: rated.length > 0 && !agreed,
+      favorite:
+        favourites === 0
+          ? "none"
+          : favourites === found.length && found.length > 0
+            ? "all"
+            : "mixed",
+      sharedTags: names.filter((name) => carrying.get(name) === found.length),
+      partialTags: names.filter((name) => carrying.get(name) !== found.length),
+      kinds,
+    };
+  }
+
   /** The rows a query answers with, or `undefined` if it was never taught one. */
   #rowsFor(query: string): readonly AssetCard[] | undefined {
     if (query.trim() === "") return this.assets;
@@ -305,6 +351,9 @@ export class FakeEngine {
         this.#remember(this.#open);
         return ok(this.#open);
       }
+
+      case "asset:summary":
+        return ok(this.#summarize(request.hashes));
 
       case "library:current":
         return ok(this.#open ?? null);

@@ -51,6 +51,7 @@ export {
   type WireImportReport,
   type WireProblem,
   type WireRecentLibrary,
+  type WireSelectionSummary,
   type WireSidebar,
 } from "./dto.js";
 export {

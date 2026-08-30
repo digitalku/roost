@@ -23,6 +23,7 @@ export {
   lastCursor,
   type OriginalRecord,
   Repo,
+  type SelectionSummary,
   type SmartFolderRow,
   type Stats,
   searchSql,

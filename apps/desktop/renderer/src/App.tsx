@@ -498,11 +498,20 @@ function LibraryView({
   // Subscribed for the wake, not for the value: the count is read straight off
   // the store below, and a revision counter is what makes "deselect one, select
   // another" register as a change at all.
-  useSyncExternalStore(selection.subscribeRevision, selection.revision);
+  const selectionRevision = useSyncExternalStore(selection.subscribeRevision, selection.revision);
   const count = selection.size;
-  // The inspector follows focus, not selection: a `Shift`-click selects a run
-  // and the panel shows the one the ring is on (`UI_SPEC.md` §6).
   const focused = selection.focused;
+  /*
+   * The inspector edits the **selection**, not the focused asset — it used to
+   * take one hash, and tagging five assets tagged one.
+   *
+   * Memoised on the revision because the array is what the inspector's read
+   * effect depends on: `selected()` allocates a fresh one per call, and passing
+   * that straight through would re-read the library on every unrelated render
+   * in this window.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the revision is the trigger
+  const selected = useMemo(() => selection.selected(), [selection, selectionRevision]);
   const [previewing, setPreviewing] = useState(false);
 
   // The end of cold start: not when the window opened, not when the engine
@@ -591,7 +600,7 @@ function LibraryView({
             onOpen={() => setPreviewing(true)}
           />
         )}
-        <Inspector hash={focused} generation={revision} />
+        <Inspector hashes={selected} generation={revision} />
       </div>
 
       <DropZone onDrop={importing.start} />

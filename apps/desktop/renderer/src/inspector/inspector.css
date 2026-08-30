@@ -148,3 +148,36 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* ── A selection of several assets (`UI_SPEC.md` §3.2) ───────────────────── */
+
+.inspector-count {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-lg);
+  line-height: var(--leading-lg);
+  font-weight: 600;
+}
+
+/* The selection disagrees. The stars stay empty rather than showing an average
+   nobody set, and the word carries the meaning. */
+.rating .mixed,
+.favorite[data-mixed] {
+  color: var(--text-subtle);
+}
+
+.rating .mixed {
+  align-self: center;
+  margin-left: var(--space-1);
+  font-size: var(--text-sm);
+  font-style: italic;
+}
+
+/* A tag only some of the selection carries. Dimmed and outlined rather than
+   filled: it is a weaker claim than a shared tag, and the panel must not say
+   otherwise. */
+.tag[data-partial] {
+  border: 1px dashed var(--border-strong);
+  background: none;
+  color: var(--text-muted);
+}

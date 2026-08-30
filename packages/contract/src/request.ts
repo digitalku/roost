@@ -25,6 +25,7 @@ import type {
   WireDeriveStatus,
   WireImportReport,
   WireRecentLibrary,
+  WireSelectionSummary,
   WireSidebar,
 } from "./dto.js";
 import { STORAGE_MODES } from "./dto.js";
@@ -110,6 +111,14 @@ export type Request =
    * that, not an error dialog.
    */
   | { readonly type: "asset:detail"; readonly hash: string }
+  /**
+   * What a selection of several assets shares, and what it does not.
+   *
+   * Asked instead of `asset:detail` once more than one asset is selected. The
+   * inspector cannot fetch a detail each: a selection is routinely hundreds of
+   * rows, and what it draws is a summary of them rather than each of them.
+   */
+  | { readonly type: "asset:summary"; readonly hashes: readonly string[] }
   /**
    * Set or clear a rating on every selected asset.
    *
@@ -223,6 +232,7 @@ export interface Responses {
   "assets:count": number;
   "query:check": QueryCheck;
   "asset:detail": WireAssetDetail | null;
+  "asset:summary": WireSelectionSummary;
   /**
    * Every edit answers with `null` and the inspector re-reads.
    *
@@ -327,6 +337,12 @@ export const REQUEST_VALIDATORS: {
   "asset:detail": (source) => {
     const hash = readHash(source, "hash");
     return hash.ok ? ok({ type: "asset:detail", hash: hash.value }) : hash;
+  },
+
+  "asset:summary": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    if (!hashes.ok) return hashes;
+    return ok({ type: "asset:summary", hashes: hashes.value });
   },
 
   "asset:rate": (source) => {

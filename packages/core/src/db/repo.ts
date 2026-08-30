@@ -111,6 +111,30 @@ export interface JobReason {
 }
 
 /** Everything the detail view shows about one asset. */
+/**
+ * What a selection of several assets shares, and what it does not.
+ *
+ * The inspector edits a selection, so it has to be able to say "three assets,
+ * mixed ratings" — and a tag two of three assets carry is a different thing from
+ * one all three carry. Computed here in two statements rather than by reading
+ * every asset's detail: a selection is routinely hundreds of rows, and the panel
+ * shows a summary of them, not each of them.
+ */
+export interface SelectionSummary {
+  readonly count: number;
+  readonly totalBytes: number;
+  /** The rating they all carry, or `null` when they disagree or none is rated. */
+  readonly rating: number | null;
+  readonly ratingMixed: boolean;
+  readonly favorite: "all" | "none" | "mixed";
+  /** Tags every selected asset carries. Removing one removes it from all. */
+  readonly sharedTags: readonly string[];
+  /** Tags some of them carry. Shown apart, because "remove" means less here. */
+  readonly partialTags: readonly string[];
+  /** The commonest extensions present, most first. At most five. */
+  readonly kinds: readonly string[];
+}
+
 export interface AssetDetail {
   readonly hash: ContentHash;
   readonly ext: string;
@@ -544,6 +568,66 @@ export class Repo {
       tags: tags.map((t) => t.name),
       folders: folders.map((f) => f.name),
       props: this.props(hash),
+    };
+  }
+
+  /**
+   * Aggregates a selection.
+   *
+   * **The hashes arrive as one JSON parameter**, not as a list of placeholders.
+   * `#s` caches a prepared statement per SQL string, so `IN (?, ?, ?)` would mint
+   * and cache a new statement for every selection size anyone ever makes — and
+   * it would run into SQLite's parameter ceiling on a large one. `json_each`
+   * keeps the SQL a single constant string whatever the selection.
+   */
+  selectionSummary(hashes: readonly ContentHash[]): SelectionSummary {
+    const list = JSON.stringify(hashes);
+
+    const totals = this.#s(
+      `SELECT count(*) AS count, coalesce(sum(size), 0) AS totalBytes,
+              count(rating) AS rated, min(rating) AS lowest, max(rating) AS highest,
+              coalesce(sum(is_favorite), 0) AS favorites
+         FROM assets WHERE hash IN (SELECT value FROM json_each(?))`,
+    ).get(list) as {
+      count: number;
+      totalBytes: number;
+      rated: number;
+      lowest: number | null;
+      highest: number | null;
+      favorites: number;
+    };
+
+    const tagged = this.#s(
+      `SELECT t.name AS name, count(*) AS carrying
+         FROM asset_tags at JOIN tags t ON t.id = at.tag_id
+        WHERE at.hash IN (SELECT value FROM json_each(?))
+        GROUP BY t.id ORDER BY t.name`,
+    ).all(list) as { name: string; carrying: number }[];
+
+    const kinds = this.#s(
+      `SELECT ext FROM assets WHERE hash IN (SELECT value FROM json_each(?))
+        GROUP BY ext ORDER BY count(*) DESC, ext LIMIT 5`,
+    ).all(list) as { ext: string }[];
+
+    // `rated === count`, not `lowest !== null`. `min` and `max` skip NULLs, so
+    // two fours and an unrated asset would agree on 4 and read as "they are all
+    // four" — which is the case that has to come out mixed. The schema's rating
+    // is 1..5 or NULL; there is no zero to confuse this with.
+    const allRated = totals.count > 0 && totals.rated === totals.count;
+    const agreed = allRated && totals.lowest === totals.highest;
+
+    return {
+      count: totals.count,
+      totalBytes: totals.totalBytes,
+      rating: agreed ? totals.lowest : null,
+      // No rating anywhere is agreement, not disagreement: it is what an
+      // untouched selection looks like, and the stars should show empty.
+      ratingMixed: totals.rated > 0 && !agreed,
+      favorite:
+        totals.favorites === 0 ? "none" : totals.favorites === totals.count ? "all" : "mixed",
+      sharedTags: tagged.filter((t) => t.carrying === totals.count).map((t) => t.name),
+      partialTags: tagged.filter((t) => t.carrying !== totals.count).map((t) => t.name),
+      kinds: kinds.map((k) => k.ext),
     };
   }
 

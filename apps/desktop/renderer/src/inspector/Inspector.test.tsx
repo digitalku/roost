@@ -1,3 +1,4 @@
+import type { WireAssetDetail } from "@roost/contract";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,7 +23,7 @@ describe("the inspector", () => {
   const show = (over: Parameters<typeof fakeDetail>[1] = {}, hash: string | undefined = HASH) => {
     engine = new FakeEngine({ details: [fakeDetail(1, over)] });
     install(engine);
-    const view = render(<Inspector hash={hash} generation={0} />);
+    const view = render(<Inspector hashes={hash === undefined ? [] : [hash]} generation={0} />);
     return { user: userEvent.setup(), ...view };
   };
 
@@ -30,7 +31,7 @@ describe("the inspector", () => {
     vi.useRealTimers();
   });
 
-  it("renders nothing when nothing is focused", () => {
+  it("renders nothing when nothing is selected", () => {
     show({}, undefined);
     expect(screen.queryByRole("complementary")).toBeNull();
   });
@@ -40,7 +41,7 @@ describe("the inspector", () => {
     // answer to that, not an error.
     engine = new FakeEngine({ details: [] });
     install(engine);
-    render(<Inspector hash={HASH} generation={0} />);
+    render(<Inspector hashes={[HASH]} generation={0} />);
     await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:detail")).toBe(true));
     expect(screen.queryByRole("complementary")).toBeNull();
   });
@@ -164,11 +165,11 @@ describe("the inspector", () => {
   it("re-reads when something outside it changed the library", async () => {
     engine = new FakeEngine({ details: [fakeDetail(1, { rating: 2 })] });
     install(engine);
-    const { rerender } = render(<Inspector hash={HASH} generation={0} />);
+    const { rerender } = render(<Inspector hashes={[HASH]} generation={0} />);
     await screen.findByRole("button", { name: "4 stars" });
     const before = engine.seen.filter((r) => r.type === "asset:detail").length;
 
-    rerender(<Inspector hash={HASH} generation={1} />);
+    rerender(<Inspector hashes={[HASH]} generation={1} />);
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail").length).toBeGreaterThan(before),
     );
@@ -183,7 +184,7 @@ describe("what a re-read must and must not overwrite", () => {
     // space the library does not hold, visible only after a reload.
     const engine = new FakeEngine({ details: [fakeDetail(1, { name: "one.png" })] });
     install(engine);
-    render(<Inspector hash={HASH} generation={0} />);
+    render(<Inspector hashes={[HASH]} generation={0} />);
     const user = userEvent.setup();
 
     const field = (await screen.findByLabelText("Name")) as HTMLInputElement;
@@ -197,7 +198,7 @@ describe("what a re-read must and must not overwrite", () => {
   it("does not stomp a half-typed note when something else changed the library", async () => {
     const engine = new FakeEngine({ details: [fakeDetail(1)] });
     install(engine);
-    const { rerender } = render(<Inspector hash={HASH} generation={0} />);
+    const { rerender } = render(<Inspector hashes={[HASH]} generation={0} />);
     const user = userEvent.setup();
 
     const note = (await screen.findByLabelText("Note")) as HTMLTextAreaElement;
@@ -205,10 +206,138 @@ describe("what a re-read must and must not overwrite", () => {
 
     // An edit elsewhere re-reads this asset too. Losing what is being typed
     // because an unrelated asset was tagged is the bug this guards.
-    rerender(<Inspector hash={HASH} generation={1} />);
+    rerender(<Inspector hashes={[HASH]} generation={1} />);
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail").length).toBe(2),
     );
     expect(note.value).toBe("half a th");
+  });
+});
+
+/**
+ * A selection of several assets.
+ *
+ * The bug this covers was reported from real use on 2026-08-30: selecting five
+ * assets and adding a tag tagged one of them. **Every assertion here counts the
+ * hashes that were sent**, because the broken version would have passed any
+ * test that only asked whether the tag arrived.
+ */
+describe("the inspector over several assets", () => {
+  let engine: FakeEngine;
+
+  const THREE = [0, 1, 2].map((index) => fakeDetail(index).hash);
+
+  const show = (details: readonly Partial<WireAssetDetail>[]) => {
+    engine = new FakeEngine({
+      details: details.map((over, index) => fakeDetail(index, over)),
+    });
+    install(engine);
+    const view = render(<Inspector hashes={THREE} generation={0} />);
+    return { user: userEvent.setup(), ...view };
+  };
+
+  /** The hashes the last request of `type` carried. */
+  const sentTo = (type: string): readonly string[] => {
+    const last = [...engine.seen].reverse().find((request) => request.type === type);
+    return (last as { hashes?: readonly string[] } | undefined)?.hashes ?? [];
+  };
+
+  it("adds a tag to every selected asset, not to one of them", async () => {
+    const { user } = show([{}, {}, {}]);
+    await screen.findByText("3 assets");
+
+    await user.type(screen.getByLabelText("Add a tag"), "wood{Enter}");
+
+    await waitFor(() => expect(sentTo("asset:tagAdd")).toHaveLength(3));
+    expect(sentTo("asset:tagAdd")).toEqual(THREE);
+  });
+
+  it("rates every selected asset", async () => {
+    const { user } = show([{}, {}, {}]);
+    await screen.findByText("3 assets");
+
+    await user.click(screen.getByRole("button", { name: "4 stars" }));
+
+    await waitFor(() => expect(sentTo("asset:rate")).toEqual(THREE));
+  });
+
+  it("says the rating is mixed, and a click sets rather than clears", async () => {
+    // Clicking the star they already share clears it — but a selection that
+    // disagrees has no shared rating to clear, so the same click must set.
+    const { user } = show([{ rating: 4 }, { rating: 2 }, { rating: 4 }]);
+    expect(await screen.findByText("mixed")).toBeDefined();
+
+    await user.click(screen.getByRole("button", { name: "4 stars" }));
+
+    await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:rate")).toBe(true));
+    const request = [...engine.seen].reverse().find((r) => r.type === "asset:rate");
+    expect((request as { rating: number | null }).rating).toBe(4);
+  });
+
+  it("clears the rating they all share, the way one asset does", async () => {
+    const { user } = show([{ rating: 3 }, { rating: 3 }, { rating: 3 }]);
+    await screen.findByText("3 assets");
+    expect(screen.queryByText("mixed")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "3 stars" }));
+
+    await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:rate")).toBe(true));
+    const request = [...engine.seen].reverse().find((r) => r.type === "asset:rate");
+    expect((request as { rating: number | null }).rating).toBeNull();
+  });
+
+  it("favourites all of them when only some are favourites", async () => {
+    // The gesture people expect from a half-filled control is "make them all
+    // this". Clearing is the destructive reading and needs the explicit state.
+    const { user } = show([{ isFavorite: true }, {}, {}]);
+    await screen.findByText("3 assets");
+
+    await user.click(screen.getByRole("button", { name: "Favorite" }));
+
+    await waitFor(() => expect(sentTo("asset:favorite")).toEqual(THREE));
+    const request = [...engine.seen].reverse().find((r) => r.type === "asset:favorite");
+    expect((request as { favorite: boolean }).favorite).toBe(true);
+  });
+
+  it("draws a tag some of them carry apart from one they all carry", async () => {
+    show([{ tags: ["wood", "wip"] }, { tags: ["wood"] }, { tags: ["wood"] }]);
+    await screen.findByText("3 assets");
+
+    const shared = screen.getByText("wood").closest("li");
+    const partial = screen.getByText("wip").closest("li");
+    expect(shared?.hasAttribute("data-partial")).toBe(false);
+    expect(partial?.hasAttribute("data-partial")).toBe(true);
+  });
+
+  it("removes a tag from the whole selection", async () => {
+    const { user } = show([{ tags: ["wood"] }, { tags: ["wood"] }, { tags: ["wood"] }]);
+    await screen.findByText("3 assets");
+
+    await user.click(screen.getByRole("button", { name: "Remove wood" }));
+
+    await waitFor(() => expect(sentTo("asset:tagRemove")).toEqual(THREE));
+  });
+
+  it("offers no name, no note, and no preview", async () => {
+    // Each of the three would be wrong in its own way: a name is unique to one
+    // asset, a note written across twelve would destroy eleven, and one
+    // asset's picture over controls that edit all of them is the misreading
+    // this whole panel exists to correct.
+    show([{}, {}, {}]);
+    await screen.findByText("3 assets");
+
+    expect(screen.queryByLabelText("Name")).toBeNull();
+    expect(screen.queryByLabelText("Note")).toBeNull();
+    expect(document.querySelector(".inspector-preview")).toBeNull();
+  });
+
+  it("asks once for the whole selection rather than once per asset", async () => {
+    // A selection is routinely hundreds of rows. One detail request each would
+    // be hundreds of round trips for a panel showing a summary.
+    show([{}, {}, {}]);
+    await screen.findByText("3 assets");
+
+    expect(engine.seen.filter((r) => r.type === "asset:summary")).toHaveLength(1);
+    expect(engine.seen.filter((r) => r.type === "asset:detail")).toHaveLength(0);
   });
 });

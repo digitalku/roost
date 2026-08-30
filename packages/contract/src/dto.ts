@@ -67,6 +67,29 @@ export interface WireRecentLibrary {
   readonly available: boolean;
 }
 
+/**
+ * What a selection of several assets shares, and what it does not.
+ *
+ * The inspector edits the selection, so it has to be able to say "3 assets ·
+ * mixed ratings" — and a tag two of three assets carry is not the same thing as
+ * one all three carry. One request rather than a detail per asset: a selection
+ * is routinely hundreds of rows and the panel shows a summary of them.
+ */
+export interface WireSelectionSummary {
+  readonly count: number;
+  readonly totalBytes: number;
+  /** The rating they all carry, or `null` when they disagree or none is rated. */
+  readonly rating: number | null;
+  readonly ratingMixed: boolean;
+  readonly favorite: "all" | "none" | "mixed";
+  /** Tags every selected asset carries. */
+  readonly sharedTags: readonly string[];
+  /** Tags some of them carry. */
+  readonly partialTags: readonly string[];
+  /** The commonest extensions present, most first. At most five. */
+  readonly kinds: readonly string[];
+}
+
 /** The counts behind a library's summary view. */
 export interface LibraryStats {
   readonly assets: number;

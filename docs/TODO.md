@@ -330,26 +330,18 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   fix is a targeted update (drop the row, keep the scroll), not a reload. A **changed asset
   count** does re-page, because "the library went from empty to twelve" is a visibly wrong grid
   rather than a stale one.
-- 🔴 **An edit applies to the focused asset, not to the selection. Next up.** Reported from real
-  use on 2026-08-30: select several assets, add a tag, and it lands on one of them. Everything
-  below the interface is already right — `asset:tagAdd`, `asset:tagRemove`, `asset:rate`, and
-  `asset:favorite` all take `hashes` as an array, and the engine writes one journal batch for
-  however many arrive. The renderer is the whole of the bug: `App.tsx` passes `selection.focused`
-  to the inspector and nothing else, and four call sites in `Inspector.tsx` wrap that one hash in
-  a single-element array. `App.tsx` even carries a comment saying the inspector follows focus
-  rather than selection, so this is a decision to revisit and not an oversight to patch.
-
-  Two pieces, and the second is the reason this was left:
-  - **The wiring.** The inspector takes the selection, the four call sites send all of it, and a
-    zero-selection state stays what it is today.
-  - **The design, which `UI_SPEC.md` §3 does not answer yet.** A multi-selection inspector has to
-    say what the assets *share* and what differs: which tags all of them carry against tags only
-    some carry, "3 assets · mixed ratings", a name field with nothing sensible to show. Removing a
-    tag two of three assets have needs to mean something unambiguous. `UI_SPEC.md` §3 gets the
-    answer in the same change, per the rule at the top of §6 of `CLAUDE.md`.
-
-  Worth pinning with a test the moment it works: the current behaviour would pass any test that
-  only asserts "the tag was added".
+- ☑ ~~**An edit applies to the focused asset, not to the selection.**~~ Fixed 2026-08-30. The
+  inspector takes the selection; `Rating`, the favourite button and `TagEditor` take a list of
+  hashes and never learn how long it is, so one asset and several are the same components. The
+  design `UI_SPEC.md` §3 owed is now §3.2. A new `asset:summary` request answers with the
+  aggregate — shared and partial tags, a shared rating or `mixed`, all/none/mixed favourites —
+  in one round trip rather than a detail per asset.
+  - The regression tests **count the hashes that were sent**, because the broken version passed
+    everything that only asked whether the tag arrived. Verified by breaking both halves and
+    watching the right test fail.
+  - A test also corrected a comment: there is no rated-zero to distinguish from unrated, because
+    the schema is `rating BETWEEN 1 AND 5`. What makes `rated === count` necessary is that `min`
+    and `max` skip NULLs, so two fours and an unrated asset would agree on 4.
 - 🟡 **The preview fits the pane and stops there.** `UI_SPEC.md` §7 also asks for click-to-toggle
   1:1 and drag-to-pan on an image, which is the difference between looking at a photograph and
   checking one. It needs a transform and a gesture, not a new request.

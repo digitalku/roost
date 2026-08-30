@@ -139,6 +139,9 @@ export class EngineHost {
         return detailOf(found);
       }
 
+      case "asset:summary":
+        return this.#require().db.repo.selectionSummary(hashes(request.hashes));
+
       case "asset:rate":
         return this.#edit(() => rate(this.#require(), hashes(request.hashes), request.rating));
 
