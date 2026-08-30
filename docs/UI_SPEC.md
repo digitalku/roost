@@ -171,6 +171,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `Toolbar` | toolbar | — | Composes the four below |
 | `SearchField` | toolbar | draft text | RQL input; §5 |
 | `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, sort, grouping. ADR-0018 |
+| `AssetContextMenu` | content | — | Right-click on the selection. Native menus were considered and rejected; ADR-0021 |
 | `NavTree` | sidebar | expansion | One component for folders and smart folders; §4.2 |
 | `TagList` | sidebar | expansion | Grouped, with counts |
 | `AssetGrid` | content | scroll, pages | Virtualized; §6. Icons and compact are one component |

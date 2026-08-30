@@ -30,17 +30,21 @@ Still open, and none of it blocks M0:
   contains, so nothing about the format moved. Flagged here rather than assumed, because a
   binding document does not get edited quietly. See the port note at the top of the spec.
 
-- 🔴 **Unstyled component primitives — now blocking two features, not zero.** `UI_SPEC.md` §3
+- 🟡 **Nothing follows the system's colour scheme.** `index.html` pins
+  `data-theme="dark"` and no code reads `prefers-color-scheme`. Found on 2026-08-30 while
+  costing native menus, where it would have been a blocker — a native menu follows the GTK theme,
+  so a light desktop would have shown a light menu over a permanently dark window. The menus
+  became ours instead (ADR-0021), so it is no longer blocking, but it is still wrong. A theme
+  setting has a home now: per-library in `settings.json`, with the application default in
+  `configDir()` because the picker is drawn before any library is open (ADR-0019).
+
+- ☑ ~~**Unstyled component primitives.**~~ `UI_SPEC.md` §3
   builds every component in-repo on top of unstyled primitives for menus, dialogs, tooltips, and
-  sliders. Which library — Radix, Ark, Base UI, or hand-rolled — is still open. The constraint is
-  invariant 7: no runtime network, no bundled webfont, nothing that ships its own design
-  opinions. It was "needed by M3" and nothing needed it; as of 2026-08-30 the view menu
-  (ADR-0018) and the asset context menu both do, and a menu is the hardest of the four to
-  hand-roll correctly — focus trapping, roving focus, typeahead, submenu timing, and placement
-  that flips near a screen edge. There is a second question underneath: an Electron native
-  `Menu.popup()` gets the platform's own menu and its accessibility for free, but main would
-  have to know the menu's contents, which is business logic in the process invariant 4 keeps
-  empty. Needs an ADR.
+  Settled 2026-08-30 by ADR-0021: `radix-ui` 1.6.7, after measuring all four candidates and
+  investigating the native alternative the user asked for first. All four were clean against
+  invariant 7 — no `fetch`, no `@font-face`, no CDN — so the constraint most likely to decide it
+  decided nothing, and Radix won on being smallest, stable, and shaped like the two features
+  that needed it.
 
 - ☑ ~~**Where configuration lives.**~~ Settled 2026-08-30 by ADR-0019: `settings.json` inside
   the library is the default, and `stateDir()`/`configDir()` hold only what cannot live in one.

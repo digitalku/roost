@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@roost/contract": "workspace:*",
+    "radix-ui": "1.6.7",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },

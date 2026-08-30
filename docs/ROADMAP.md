@@ -302,6 +302,8 @@ not draw, all settled before any of them was written against:
 | Where settings live | `settings.json` inside `<Name>.roost`, which is the default; `stateDir()` and `configDir()` hold only what cannot live in a library — the recent list that finds one, window geometry, and the theme the picker is drawn in | ADR-0019 |
 | Windows | Several windows onto one library. Several libraries at once is refused for now, and the work it would need is named | ADR-0020 |
 
+| UI primitives | `radix-ui` 1.6.7, measured against three alternatives. Native `Menu.popup()` was recommended first, on the user's request for the OS's own menus, and reversed by finding that Electron draws its own menu on Linux — the only platform v1 ships | ADR-0021 |
+
 **M5 and M6 are deferred**, at the user's request on 2026-08-30: feature work first, and both
 milestones get planned once the feature set has settled. Nothing below them is cancelled; the
 order is.
