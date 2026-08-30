@@ -2,7 +2,7 @@ import type { AssetCard } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { benchTarget } from "../bench/bench.js";
 import { AssetCell, cellId } from "./AssetCell.js";
-import { type Direction, type GridMode, layout, moveFocus, visibleTiles } from "./layout.js";
+import { type Direction, type GridView, layout, moveFocus, visibleTiles } from "./layout.js";
 import { FOCUSED, SELECTED, type SelectionStore } from "./selection.js";
 
 /**
@@ -31,7 +31,9 @@ const CAPTION = 22;
 
 export interface GridProps {
   readonly assets: readonly AssetCard[];
-  readonly mode: GridMode;
+  readonly view: GridView;
+  /** Icons take the asset's own shape rather than a square (ADR-0018). */
+  readonly proportional: boolean;
   /** The zoom target: roughly how wide a cell wants to be. */
   readonly target: number;
   readonly selection: SelectionStore;
@@ -41,7 +43,8 @@ export interface GridProps {
 
 export function Grid({
   assets,
-  mode,
+  view,
+  proportional,
   target,
   selection,
   onMore,
@@ -53,8 +56,16 @@ export function Grid({
   const [top, setTop] = useState(0);
 
   const grid = useMemo(
-    () => layout(assets, { mode, containerWidth: width, target, gap: 8, caption: CAPTION }),
-    [assets, mode, width, target],
+    () =>
+      layout(assets, {
+        view,
+        proportional,
+        containerWidth: width,
+        target,
+        gap: view === "details" ? 0 : 8,
+        caption: CAPTION,
+      }),
+    [assets, view, proportional, width, target],
   );
 
   // The order is what Shift-click and the arrow keys move through, so it
@@ -222,33 +233,53 @@ export function Grid({
   );
 
   return (
-    <div
-      className="grid"
-      ref={viewport}
-      onScroll={onScroll}
-      onPointerDown={onPointerDown}
-      onDoubleClick={onDoubleClick}
-      onKeyDown={onKeyDown}
-      role="listbox"
-      aria-multiselectable
-      aria-label="Assets"
-      tabIndex={0}
-    >
-      <div className="grid-canvas" style={{ height: grid.height }}>
-        {tiles.map((tile) => {
-          const asset = byHash.get(tile.hash);
-          return asset === undefined ? null : (
-            <ConnectedCell
-              key={tile.hash}
-              asset={asset}
-              x={tile.x}
-              y={tile.y}
-              width={tile.width}
-              height={tile.height}
-              selection={selection}
-            />
-          );
-        })}
+    <div className="grid-frame" data-view={view}>
+      {/*
+        The header sits outside the scroller rather than sticking to the top of
+        it: the cells are absolutely positioned from y=0, so a sticky row inside
+        would cover the first one, and offsetting every tile to make room would
+        put a view's decoration into the layout arithmetic.
+      */}
+      {view === "details" && (
+        <div className="details-header" aria-hidden="true">
+          <span />
+          <span>Name</span>
+          <span>Kind</span>
+          <span>Size</span>
+          <span>Dimensions</span>
+          <span>Imported</span>
+        </div>
+      )}
+      <div
+        className="grid"
+        data-view={view}
+        ref={viewport}
+        onScroll={onScroll}
+        onPointerDown={onPointerDown}
+        onDoubleClick={onDoubleClick}
+        onKeyDown={onKeyDown}
+        role="listbox"
+        aria-multiselectable
+        aria-label="Assets"
+        tabIndex={0}
+      >
+        <div className="grid-canvas" style={{ height: grid.height }}>
+          {tiles.map((tile) => {
+            const asset = byHash.get(tile.hash);
+            return asset === undefined ? null : (
+              <ConnectedCell
+                key={tile.hash}
+                asset={asset}
+                view={view}
+                x={tile.x}
+                y={tile.y}
+                width={tile.width}
+                height={tile.height}
+                selection={selection}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -271,6 +302,7 @@ const DIRECTIONS: Readonly<Record<string, Direction | undefined>> = {
  */
 function ConnectedCell({
   asset,
+  view,
   x,
   y,
   width,
@@ -278,6 +310,7 @@ function ConnectedCell({
   selection,
 }: {
   readonly asset: AssetCard;
+  readonly view: GridView;
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -300,6 +333,11 @@ function ConnectedCell({
       caption={CAPTION}
       isSelected={(state & SELECTED) !== 0}
       isFocused={(state & FOCUSED) !== 0}
+      view={view}
+      size={asset.size}
+      assetWidth={asset.width}
+      assetHeight={asset.height}
+      importedAt={asset.importedAt}
     />
   );
 }

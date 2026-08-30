@@ -61,7 +61,7 @@ body {
 
 /* The grid takes what is left. `min-width: 0` because a flex item's default
    `min-width: auto` would let its content push the panels off screen. */
-.workspace > .grid,
+.workspace > .grid-frame,
 .workspace > .grid-empty,
 .workspace > .preview {
   flex: 1 1 auto;
@@ -417,4 +417,102 @@ button:disabled {
   border-color: var(--border);
   background: var(--surface-overlay);
   color: var(--text);
+}
+
+/* ── The view menu (ADR-0018), drawn on Radix (ADR-0021) ─────────────────── */
+
+.view-trigger {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.menu {
+  z-index: 10;
+  min-width: 15rem;
+  padding: var(--space-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-2);
+}
+
+.menu-item {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  outline: none;
+  user-select: none;
+}
+
+/* Radix moves a roving highlight with the pointer and the keyboard alike, so
+   one rule serves both and there is no separate `:hover`. */
+.menu-item[data-highlighted] {
+  background: var(--select-bg);
+  color: var(--select-text);
+}
+
+.menu-item[data-disabled] {
+  color: var(--text-subtle);
+}
+
+/* The mark column is reserved whether or not anything is in it, so labels line
+   up down the menu rather than shifting when a tick appears. */
+.menu-mark {
+  flex: none;
+  width: 1em;
+  color: var(--accent-hover);
+  text-align: center;
+}
+
+.menu-label {
+  flex: 1;
+}
+
+.menu-accelerator {
+  flex: none;
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
+}
+
+/* The proportion checkbox belongs to Icons above it, and is indented to say so. */
+.menu-item[data-nested] {
+  padding-left: var(--space-6);
+}
+
+.menu-separator {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background: var(--border);
+}
+
+/* Zoom is a row of controls on one menu line — the shape a file manager uses,
+   and the one thing a native menu could not have carried (ADR-0021). */
+.menu-zoom {
+  cursor: default;
+}
+
+.zoom-controls {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.zoom-controls button {
+  width: var(--control-height);
+  padding: 0;
+  border-color: var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.zoom-controls button[data-highlighted] {
+  border-color: var(--border-focus);
+}
+
+.zoom-controls button[data-disabled] {
+  color: var(--text-subtle);
 }

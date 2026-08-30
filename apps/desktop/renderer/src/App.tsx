@@ -11,9 +11,10 @@ import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
 import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
 import { Grid } from "./grid/Grid.js";
-import type { GridMode } from "./grid/layout.js";
+import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, zoomBy } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
+import { ViewMenu } from "./grid/ViewMenu.js";
 import { DropZone } from "./import/DropZone.js";
 import { type Importing, useImport } from "./import/useImport.js";
 import { Inspector } from "./inspector/Inspector.js";
@@ -433,7 +434,11 @@ function LibraryView({
   readonly onImported: () => void;
   readonly problem: WireProblem | undefined;
 }): React.JSX.Element {
-  const [mode, setMode] = useState<GridMode>("masonry");
+  const [view, setView] = useState<GridView>("icons");
+  // Icons take the asset's own shape by default: it is the only layout that
+  // does not crop, and this is a library of pictures (ADR-0018).
+  const [proportional, setProportional] = useState(true);
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   /**
    * What is on screen, as one string.
    *
@@ -520,6 +525,33 @@ function LibraryView({
     if (paging.assets.length > 0) markFirstPaint();
   }, [paging.assets.length]);
 
+  /**
+   * `Ctrl+1..3` select the views (`UI_SPEC.md` §9, ADR-0018).
+   *
+   * On the window rather than on the grid, because a view is a property of the
+   * window and the grid is not always what has focus — the search field and the
+   * inspector both take it, and switching view from either is what a person
+   * expects.
+   *
+   * Which is also why typing is checked for first: `Ctrl+1` means nothing in a
+   * text field, but a bare digit does, and a guard that only looked at the
+   * modifier would be one shortcut away from eating a keystroke.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && isTyping(target)) return;
+      const at = Number(event.key) - 1;
+      const chosen = GRID_VIEWS[at];
+      if (chosen === undefined) return;
+      event.preventDefault();
+      setView(chosen);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // An import changes the counts, the sidebar, and what the grid holds, so it
   // is the one thing in the window that has to reset the paging as well.
   const importing = useImport(onImported);
@@ -549,20 +581,14 @@ function LibraryView({
         <h1 className="bar-title">{opened.summary.name}</h1>
         <SearchField query={query} onApply={applyQuery} matches={matches} />
         <div className="bar-actions">
-          <button
-            type="button"
-            data-active={mode === "masonry" || undefined}
-            onClick={() => setMode("masonry")}
-          >
-            Masonry
-          </button>
-          <button
-            type="button"
-            data-active={mode === "uniform" || undefined}
-            onClick={() => setMode("uniform")}
-          >
-            Uniform
-          </button>
+          <ViewMenu
+            view={view}
+            proportional={proportional}
+            zoom={zoom}
+            onView={setView}
+            onProportional={setProportional}
+            onZoom={(steps) => setZoom((at) => (steps === 0 ? DEFAULT_ZOOM : zoomBy(at, steps)))}
+          />
           <button
             type="button"
             disabled={importing.running}
@@ -593,8 +619,9 @@ function LibraryView({
         ) : (
           <Grid
             assets={paging.assets}
-            mode={mode}
-            target={240}
+            view={view}
+            proportional={proportional}
+            target={zoom}
             selection={selection}
             onMore={paging.more}
             onOpen={() => setPreviewing(true)}
@@ -615,5 +642,14 @@ function LibraryView({
       </footer>
       {showing !== undefined && <Problem problem={showing} />}
     </div>
+  );
+}
+
+/** Whether a keystroke belongs to whatever the user is typing into. */
+function isTyping(element: HTMLElement): boolean {
+  return (
+    element.isContentEditable ||
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement
   );
 }

@@ -320,17 +320,98 @@ describe("the library view", () => {
     expect(await screen.findByText("12 assets · 5 selected")).toBeDefined();
   });
 
-  it("switches between masonry and uniform without losing the rows", async () => {
+  /** The first cell's box, as the layout set it. */
+  const box = (): { width: number; height: number } => {
+    const cell = screen.getAllByRole("option")[0] as HTMLElement;
+    return {
+      width: Number.parseInt(cell.style.width, 10),
+      height: Number.parseInt(cell.style.height, 10),
+    };
+  };
+
+  it("turns proportional icons into square ones without losing the rows", async () => {
     const { user } = await open(12);
     await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
 
-    await user.click(screen.getByRole("button", { name: "Uniform" }));
+    // The fixture is 800x600, so a proportional cell is three-quarters of its
+    // width plus the caption band — shorter than its width either way.
+    const before = box();
+    expect(before.height).toBeLessThan(before.width);
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(await screen.findByRole("menuitemcheckbox", { name: /Match image/ }));
+
     expect(screen.getAllByRole("option")).toHaveLength(12);
-    // A uniform grid gives every cell one shape; masonry does not.
-    const heights = new Set(
-      screen.getAllByRole("option").map((cell) => (cell as HTMLElement).style.height),
+    // Square now: the picture is the column's width, and the band is on top.
+    const after = box();
+    expect(after.height).toBeGreaterThan(after.width);
+  });
+
+  it("switches view from the menu, and again from the keyboard", async () => {
+    const { user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /Details/ }));
+    expect(screen.getByRole("listbox").getAttribute("data-view")).toBe("details");
+    // One row per asset across the width, which is what makes it a table.
+    const widths = new Set(
+      screen.getAllByRole("option").map((cell) => (cell as HTMLElement).style.width),
     );
-    expect(heights.size).toBe(1);
+    expect(widths.size).toBe(1);
+
+    // `Ctrl+2` from anywhere in the window, not only from the grid.
+    await user.keyboard("{Control>}2{/Control}");
+    expect(screen.getByRole("listbox").getAttribute("data-view")).toBe("compact");
+  });
+
+  it("leaves Ctrl+1 alone while somebody is typing a query", async () => {
+    // A guard that only checked the modifier would be one shortcut away from
+    // eating a keystroke meant for the field.
+    const { user } = await open(12);
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /Details/ }));
+    expect(screen.getByRole("listbox").getAttribute("data-view")).toBe("details");
+
+    await user.click(screen.getByLabelText("Search"));
+    await user.keyboard("{Control>}1{/Control}");
+    expect(screen.getByRole("listbox").getAttribute("data-view")).toBe("details");
+  });
+
+  it("hides the proportion checkbox in a view it says nothing about", async () => {
+    // A control that does nothing is worse than an absent one (`UI_SPEC.md` §8).
+    const { user } = await open(12);
+    await user.click(screen.getByRole("button", { name: "View" }));
+    expect(await screen.findByRole("menuitemcheckbox", { name: /Match image/ })).toBeDefined();
+
+    await user.click(screen.getByRole("menuitemradio", { name: /Compact/ }));
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitemcheckbox", { name: /Match image/ })).toBeNull(),
+    );
+  });
+
+  it("zooms the cells, and the menu stays open to do it again", async () => {
+    // A row of buttons rather than three items exists so that zooming twice
+    // does not cost two trips through the menu.
+    const { user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+    const before = box().width;
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Zoom in" }));
+    // Still open, which is the whole reason these are a row and not three items.
+    expect(screen.getByRole("menu")).toBeDefined();
+
+    // Radix hides the rest of the page from the accessibility tree while a menu
+    // is open, so the grid can only be read once it is closed.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(box().width).toBeGreaterThan(before));
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Reset zoom" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(box().width).toBe(before));
   });
 
   it("says so when a library holds nothing, rather than showing an empty grid", async () => {

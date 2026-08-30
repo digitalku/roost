@@ -317,7 +317,7 @@ differs only in layout.
 | View | `Ctrl+1..3` | Layout |
 | --- | --- | --- |
 | **Icons** (default) | `Ctrl+1` | Square cells, filled row-major so result order reads left to right |
-| **Compact** | `Ctrl+2` | A small thumbnail with the name beside it, flowing down a column and wrapping to the next |
+| **Compact** | `Ctrl+2` | A small thumbnail with the name beside it, in short rows across several columns |
 | **Details** | `Ctrl+3` | A table with a header row: name, size, kind, dimensions, imported |
 
 **Match image proportions**, a checkbox under Icons, is the masonry layout. It is a property of
@@ -326,11 +326,26 @@ the only layout here that does not crop, which matters in an application for loo
 pictures. Cells take their height from the asset's own aspect ratio and pack into the shortest
 column.
 
-**Zoom** is the cell target, 120–400px, snapped. `layout()` has taken it as a parameter since
-M3; the menu is the first thing to pass anything but a constant.
+**Every view scrolls vertically, including Compact.** A file manager's compact view flows *down*
+a column and wraps to the next, which means scrolling sideways. Here it wraps the other way.
+Two scroll axes in one window is jarring, and the culling, the prefetch, and the roving ring are
+all written against `y` — a horizontal view would be a second virtualisation, not a second
+layout. Decided when Compact was built, on 2026-08-30.
 
-**Sort By** and **Group By** are in the menu because that is where a person looks for them, and
-neither is a renderer change: the application has exactly one order — `imported_at DESC, hash` —
+**Details has a header row**, and it sits **outside** the scroller rather than sticking to the
+top of it. Cells are absolutely positioned from `y = 0`, so a sticky row inside would cover the
+first one, and offsetting every tile to make room would put a view's decoration into the layout
+arithmetic. Its columns use the same track template as a details cell, so the labels sit over
+the columns they name.
+
+**Zoom** is the cell target, 120–400px, snapped to seven steps. `layout()` has taken it as a
+parameter since M3; the menu is the first thing to pass anything but a constant. The three
+controls are one row on one menu line, and **selecting one does not close the menu** — zooming
+twice should not cost two trips. Each is a real menu item underneath, because a bare button
+inside the content would be reachable by pointer and by nothing else (§10).
+
+**Sort By** and **Group By** are in the menu, disabled, because that is where a person looks for
+them and an absent item teaches nothing. Neither is a renderer change: the application has exactly one order — `imported_at DESC, hash` —
 and keyset paging plus every composite index in migration 0005 is built on it. Each sort key
 needs its own index per filter and its own cursor. See ADR-0018.
 

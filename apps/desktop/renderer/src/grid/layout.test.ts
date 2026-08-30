@@ -9,7 +9,8 @@ import {
 } from "./layout.js";
 
 const OPTIONS = {
-  mode: "masonry",
+  view: "icons",
+  proportional: true,
   containerWidth: 1000,
   target: 240,
   gap: 8,
@@ -55,7 +56,7 @@ describe("choosing a column count", () => {
   });
 });
 
-describe("laying out a masonry grid", () => {
+describe("laying out proportional icons", () => {
   it("packs into the shortest column and never overlaps", () => {
     const grid = layout(
       shaped(40).map((item, i) => ({ ...item, height: 200 + (i % 7) * 120 })),
@@ -107,7 +108,7 @@ describe("laying out a masonry grid", () => {
 
 describe("laying out a uniform grid", () => {
   it("keeps result order across the row, and gives every cell one shape", () => {
-    const grid = layout(shaped(9), { ...OPTIONS, mode: "uniform" });
+    const grid = layout(shaped(9), { ...OPTIONS, proportional: false });
     // Row-major: the first four are the first row, left to right.
     expect(grid.order.slice(0, 4).map((tile) => tile.x)).toEqual(
       [0, 1, 2, 3].map((i) => i * (grid.columnWidth + OPTIONS.gap)),
@@ -117,7 +118,7 @@ describe("laying out a uniform grid", () => {
   });
 
   it("ignores the aspect ratio, which is what makes it the uniform view", () => {
-    const grid = layout(shaped(4, 12_000, 400), { ...OPTIONS, mode: "uniform" });
+    const grid = layout(shaped(4, 12_000, 400), { ...OPTIONS, proportional: false });
     expect(new Set(grid.order.map((tile) => tile.height)).size).toBe(1);
   });
 });
@@ -173,7 +174,7 @@ describe("culling to what is on screen", () => {
 });
 
 describe("moving focus with the arrow keys", () => {
-  const uniform = { ...OPTIONS, mode: "uniform" } as const;
+  const uniform = { ...OPTIONS, proportional: false } as const;
 
   it("moves by geometry, not by index", () => {
     const grid = layout(shaped(12), uniform);

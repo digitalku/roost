@@ -7,11 +7,18 @@
  * dimension lays out square, that a panorama does not produce a cell taller than
  * the window, and that nothing overlaps.
  *
- * **Columns, not a flat list.** Masonry places each cell in the shortest column,
- * so cells are not in `y` order overall — but within one column they always are.
- * Culling then costs a binary search per column, with a column count in the
- * single digits, instead of a scan over nine hundred thousand rows per frame.
- * Uniform mode fills the same structure row-major, so both share one path.
+ * **Columns, not a flat list.** Proportional icons place each cell in the
+ * shortest column, so cells are not in `y` order overall — but within one column
+ * they always are. Culling then costs a binary search per column, with a column
+ * count in the single digits, instead of a scan over nine hundred thousand rows
+ * per frame. Every other view fills the same structure row-major, so all four
+ * share one path.
+ *
+ * **Every view scrolls vertically**, including Compact. A file manager's compact
+ * view flows down a column and wraps to the next, which means scrolling
+ * sideways; here it wraps the other way. Two scroll axes in one window is
+ * jarring, and the culling, the prefetch, and the roving ring are all written
+ * against `y` — see `UI_SPEC.md` §6.
  */
 
 /** What the layout needs to know about one asset. */
@@ -41,16 +48,53 @@ export interface Layout {
   readonly order: readonly Tile[];
 }
 
-export type GridMode = "masonry" | "uniform";
+/** The three views the view menu offers (ADR-0018). */
+export const GRID_VIEWS = ["icons", "compact", "details"] as const;
+export type GridView = (typeof GRID_VIEWS)[number];
+
+export function isGridView(value: string): value is GridView {
+  return (GRID_VIEWS as readonly string[]).includes(value);
+}
+
+/** The zoom targets, snapped rather than free (`UI_SPEC.md` §6). */
+export const ZOOM_STEPS = [120, 160, 200, 240, 300, 360, 400] as const;
+export const DEFAULT_ZOOM = 240;
+
+/** Moves along {@link ZOOM_STEPS}, stopping at the ends. */
+export function zoomBy(target: number, steps: number): number {
+  const at = ZOOM_STEPS.indexOf(target as (typeof ZOOM_STEPS)[number]);
+  const from = at === -1 ? ZOOM_STEPS.indexOf(DEFAULT_ZOOM) : at;
+  const to = Math.min(ZOOM_STEPS.length - 1, Math.max(0, from + steps));
+  return ZOOM_STEPS[to] ?? DEFAULT_ZOOM;
+}
 
 export interface LayoutOptions {
-  readonly mode: GridMode;
+  readonly view: GridView;
+  /**
+   * Icons take the asset's own shape rather than a square.
+   *
+   * A property of how an icon is drawn rather than a fourth view, which is what
+   * it always was (ADR-0018). Ignored by the other two views: a compact row and
+   * a details row have no picture to be shaped by.
+   */
+  readonly proportional: boolean;
   readonly containerWidth: number;
-  /** The zoom target: roughly how wide a cell wants to be. */
+  /** The zoom target: roughly how wide an icon wants to be. */
   readonly target: number;
   readonly gap: number;
   /** The band under the thumbnail. Reserved, never an overlay (`UI_SPEC.md` §6). */
   readonly caption: number;
+}
+
+/**
+ * A compact column has to hold a name beside its thumbnail, so it is wider than
+ * the zoom target and never narrower than this.
+ */
+const COMPACT_MIN_WIDTH = 260;
+
+/** What a row is worth at a given zoom, clamped so neither end is unusable. */
+function rowHeight(target: number, divisor: number, low: number, high: number): number {
+  return Math.min(high, Math.max(low, Math.round(target / divisor)));
 }
 
 /**
@@ -70,26 +114,42 @@ export function columnCountFor(containerWidth: number, target: number, gap: numb
 }
 
 export function layout(items: readonly Shaped[], options: LayoutOptions): Layout {
-  const { mode, containerWidth, target, gap, caption } = options;
-  const count = columnCountFor(containerWidth, target, gap);
+  const { view, proportional, containerWidth, target, gap, caption } = options;
+
+  // Details is one row per asset across the whole width; compact needs room for
+  // a name, so it does not follow the zoom target directly.
+  const count =
+    view === "details"
+      ? 1
+      : columnCountFor(
+          containerWidth,
+          view === "compact" ? Math.max(COMPACT_MIN_WIDTH, target + 120) : target,
+          gap,
+        );
   const columnWidth = Math.max(1, Math.floor((containerWidth - gap * (count - 1)) / count));
+
+  // Only icons reserve a band under the picture. The other two put the name
+  // beside it, so there is nothing to reserve.
+  const band = view === "icons" ? caption : 0;
+  const packed = view === "icons" && proportional;
 
   const columns: Tile[][] = Array.from({ length: count }, () => []);
   const bottoms = new Array<number>(count).fill(0);
   const order: Tile[] = [];
 
   items.forEach((item, index) => {
-    // Masonry packs into whichever column ends highest up; uniform keeps result
-    // order, which is what makes it a *grid* rather than a second masonry.
-    const column = mode === "masonry" ? shortest(bottoms) : index % count;
-    const body = mode === "masonry" ? Math.round(columnWidth * ratioOf(item)) : columnWidth;
+    // Proportional icons pack into whichever column ends highest up; everything
+    // else keeps result order, which is what makes it a *grid* rather than a
+    // second masonry.
+    const column = packed ? shortest(bottoms) : index % count;
+    const body = bodyHeight(view, packed, columnWidth, target, item);
     const tile: Tile = {
       hash: item.hash,
       index,
       x: column * (columnWidth + gap),
       y: bottoms[column] ?? 0,
       width: columnWidth,
-      height: body + caption,
+      height: body + band,
     };
     columns[column]?.push(tile);
     order.push(tile);
@@ -99,6 +159,19 @@ export function layout(items: readonly Shaped[], options: LayoutOptions): Layout
   // The trailing gap is not part of the content, so it is taken back off.
   const height = Math.max(0, Math.max(0, ...bottoms) - gap);
   return { columns, columnWidth, height, order };
+}
+
+/** How tall the picture-or-row part of a cell is, before any caption band. */
+function bodyHeight(
+  view: GridView,
+  packed: boolean,
+  columnWidth: number,
+  target: number,
+  item: Shaped,
+): number {
+  if (view === "compact") return rowHeight(target, 5, 32, 72);
+  if (view === "details") return rowHeight(target, 7, 26, 48);
+  return packed ? Math.round(columnWidth * ratioOf(item)) : columnWidth;
 }
 
 /**

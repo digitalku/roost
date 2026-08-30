@@ -115,3 +115,101 @@
   height: 100%;
   color: var(--text-subtle);
 }
+
+/* ── Compact and Details (ADR-0018, `UI_SPEC.md` §6) ─────────────────────── */
+
+/*
+ * Both put the name beside the thumbnail rather than under it, so the cell is a
+ * row rather than a column and there is no caption band to reserve.
+ */
+.cell[data-view="compact"],
+.cell[data-view="details"] {
+  flex-direction: row;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 0 var(--space-2);
+}
+
+.cell[data-view="compact"] .cell-thumb,
+.cell[data-view="details"] .cell-thumb {
+  flex: none;
+  width: 2em;
+  height: 2em;
+  border-radius: var(--radius-sm);
+}
+
+.cell[data-view="compact"] .cell-kind,
+.cell[data-view="details"] .cell-kind {
+  font-size: 8px;
+}
+
+.cell[data-view="compact"] .cell-name,
+.cell[data-view="details"] .cell-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+/*
+ * Details is a table without being one: five fixed tracks, so the columns line
+ * up down the whole list. A real `<table>` cannot be virtualised by transform —
+ * a row absolutely positioned out of its table box stops being a row.
+ */
+.cell[data-view="details"] {
+  display: grid;
+  grid-template-columns: 2em minmax(0, 1fr) 5em 6em 8em 8em;
+}
+
+.cell-field {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Zebra striping, so the eye can carry a row across six columns. */
+.grid[data-view="details"] .cell:nth-child(even) {
+  background: var(--surface);
+}
+
+.grid[data-view="details"] .cell:hover,
+.grid[data-view="compact"] .cell:hover {
+  background: var(--surface-raised);
+}
+
+/*
+ * The frame: an optional header over the scroller. Only Details has one, and it
+ * is the only view whose columns need naming — the others carry a name and a
+ * picture, which name themselves.
+ */
+.grid-frame {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.grid-frame > .grid {
+  flex: 1;
+  min-height: 0;
+}
+
+.details-header {
+  display: grid;
+  /* The same tracks as a details cell, plus the scroller's own padding, so the
+     labels sit over the columns they name rather than near them. */
+  grid-template-columns: 2em minmax(0, 1fr) 5em 6em 8em 8em;
+  gap: var(--space-2);
+  align-items: center;
+  height: var(--control-height);
+  padding: 0 calc(var(--gutter) + var(--space-2));
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.details-header > span:nth-child(n + 3) {
+  text-align: right;
+}

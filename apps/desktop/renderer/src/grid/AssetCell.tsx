@@ -1,4 +1,5 @@
 import { memo } from "react";
+import type { GridView } from "./layout.js";
 
 /**
  * One cell. Memo'd, and given nothing but primitives.
@@ -51,6 +52,17 @@ export interface AssetCellProps {
   readonly caption: number;
   readonly isSelected: boolean;
   readonly isFocused: boolean;
+  readonly view: GridView;
+  /*
+   * The four below are only drawn by the details view, and are passed in every
+   * view anyway. They are primitives, so they cost nothing to pass and nothing
+   * to compare — and formatting them *here*, inside the memo, is what keeps a
+   * selection change from re-formatting two hundred dates.
+   */
+  readonly size: number;
+  readonly assetWidth: number | null;
+  readonly assetHeight: number | null;
+  readonly importedAt: number;
 }
 
 export const AssetCell = memo(function AssetCell({
@@ -64,7 +76,58 @@ export const AssetCell = memo(function AssetCell({
   caption,
   isSelected,
   isFocused,
+  view,
+  size,
+  assetWidth,
+  assetHeight,
+  importedAt,
 }: AssetCellProps): React.JSX.Element {
+  const kind = ext === "" ? "file" : ext;
+
+  if (view !== "icons") {
+    return (
+      // biome-ignore lint/a11y/useFocusableInteractive: one tab stop; see below
+      <div
+        id={cellId(hash)}
+        className="cell"
+        data-hash={hash}
+        data-view={view}
+        data-selected={isSelected || undefined}
+        data-focused={isFocused || undefined}
+        role="option"
+        aria-selected={isSelected}
+        aria-label={name}
+        style={{ transform: `translate(${x}px, ${y}px)`, width, height }}
+      >
+        <div className="cell-thumb">
+          <span className="cell-kind">{kind}</span>
+          <img
+            className="cell-image"
+            src={`roost://thumb/${hash}@256`}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            onError={hideBroken}
+          />
+        </div>
+        <span className="cell-name" title={name}>
+          {name}
+        </span>
+        {view === "details" && (
+          <>
+            <span className="cell-field">{kind.toUpperCase()}</span>
+            <span className="cell-field">{bytes(size)}</span>
+            <span className="cell-field">
+              {assetWidth === null || assetHeight === null ? "" : `${assetWidth} × ${assetHeight}`}
+            </span>
+            <span className="cell-field">{day(importedAt)}</span>
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     /*
      * An option in a listbox is deliberately not focusable. The grid is one tab
@@ -82,6 +145,7 @@ export const AssetCell = memo(function AssetCell({
       role="option"
       aria-selected={isSelected}
       aria-label={name}
+      data-view="icons"
       style={{ transform: `translate(${x}px, ${y}px)`, width, height }}
     >
       <div className="cell-thumb" style={{ height: height - caption }}>
@@ -92,7 +156,7 @@ export const AssetCell = memo(function AssetCell({
           covers it — and the image hides itself when it fails, because Chromium
           draws a broken icon otherwise.
         */}
-        <span className="cell-kind">{ext === "" ? "file" : ext}</span>
+        <span className="cell-kind">{kind}</span>
         <img
           className="cell-image"
           src={`roost://thumb/${hash}@256`}
@@ -109,3 +173,20 @@ export const AssetCell = memo(function AssetCell({
     </div>
   );
 });
+
+/** Binary multiples, the way the inspector and the CLI both count. */
+function bytes(size: number): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let value = size;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
+}
+
+/** The date alone: a details row has no room for a clock, and rarely a use. */
+function day(unix: number): string {
+  return new Date(unix * 1000).toLocaleDateString();
+}

@@ -388,17 +388,23 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 Accepted on 2026-08-30, and the work splits in three. Only the first is one sitting.
 
-- 🔴 **The menu itself: Icons, Compact, Details, and Zoom.** `ViewMenu` replaces the two-button
-  toggle. Icons is today's `uniform` renamed; **Match image proportions** is today's `masonry`,
-  demoted from a peer view to a checkbox under Icons. Compact is new and cheap — `layout.ts` is
-  already column-based. `Ctrl+1..3` select the views and push the sidebar and inspector toggles
-  to `F9` and `F4`.
-  - **Details needs no engine work at all**, which was the surprise when this was costed:
-    `searchSql` already selects `origName`, `ext`, `size`, `width`, `height`, `importedAt`,
-    `rating`, and `isFavorite` on every row of every page. Every column the table wants is
-    already arriving in the renderer and being thrown away.
-  - `GridMode` stops being one union. The view and the proportion flag are two pieces of state,
-    and only Icons reads the second.
+- ☑ ~~**The menu itself: Icons, Compact, Details, and Zoom.**~~ Built 2026-08-30 on Radix.
+  `Ctrl+1..3` select the views from anywhere in the window, guarded so a keystroke meant for a
+  text field is never eaten. Details needed no engine work, as costed. Two things learned while
+  building it, both now in `UI_SPEC.md` §6: **Compact wraps vertically**, not sideways as a file
+  manager does, because two scroll axes in one window is jarring and the culling, prefetch and
+  roving ring are all written against `y`; and the **details header sits outside the scroller**,
+  because cells are positioned from `y = 0` and a sticky row would cover the first of them.
+  - **Radix hides the rest of the page from the accessibility tree while a menu is open.** A
+    test that reads the grid after clicking a menu item has to close the menu first. Worth
+    knowing before the next menu is written.
+  - The zoom controls are real `DropdownMenu.Item`s under `asChild`: a bare `<button>` inside
+    the content is reachable by pointer and by nothing else, which §10 forbids.
+  - 🟡 **Not seen in a real window.** An Electron instance opened outside this session held the
+    single-instance lock, so a fresh one exited on the spot. The three views, the menu, and the
+    zoom row all have tests; the pixels do not — and the recent list found a bidi defect at
+    exactly this step that no renderer test could see, so this is a gap with a precedent.
+
 - 🟡 **Sort By.** Not a menu item — a migration and a bench run per key. The application has one
   order, `imported_at DESC, hash`, and keyset paging plus all four composite indexes in migration
   0005 are built on it. Each key needs its own index *per filter*, its own cursor, and a
