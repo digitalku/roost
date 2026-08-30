@@ -31,16 +31,20 @@ import {
   type DeriveReport,
   enqueueMissing,
   ensurePreview,
+  forgetLibrary,
   type ImportReport,
   importInto,
   Library,
   libraryDirectory,
   libraryNameFromPath,
+  listRecent,
   matches,
   pageOf,
+  pinLibrary,
   queueStatus,
   rate,
   readSidebar,
+  rememberLibrary,
   renameAsset,
   retryBlocked,
   retryFailed,
@@ -93,6 +97,15 @@ export class EngineHost {
 
       case "library:current":
         return this.#library === undefined ? null : summarize(this.#library);
+
+      case "recent:list":
+        return listRecent();
+
+      case "recent:forget":
+        return forgetLibrary(request.root);
+
+      case "recent:pin":
+        return pinLibrary(request.root, request.pinned);
 
       case "library:close":
         await this.close();
@@ -376,6 +389,15 @@ export class EngineHost {
     // fill in (`ARCHITECTURE.md` §4.5).
     enqueueMissing(library);
     void this.#runDerives();
+
+    // After the library is open, and never in its way: the picker's list is a
+    // convenience, and a state file that cannot be written must not cost
+    // somebody the library they just opened (`recent.ts`).
+    await rememberLibrary({
+      root: library.root,
+      name: library.manifest.name,
+      id: library.manifest.id,
+    });
 
     return summarize(library);
   }

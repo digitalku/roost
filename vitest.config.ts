@@ -41,6 +41,11 @@ const alias = [
 /**
  * Two projects, because the renderer needs a DOM and nothing else may have one.
  *
+ * Both load `vitest.setup.ts` first, which moves every XDG directory into
+ * scratch space. Without it a test that opens a library writes into the
+ * developer's own `~/.local/state/roost` — which is not hypothetical, it
+ * happened.
+ *
  * A single `environment: "happy-dom"` would give the engine and the CLI a
  * `window` they must never have, and a test that accidentally used one would
  * pass here and fail in the process that actually runs it.
@@ -58,6 +63,7 @@ export default defineConfig({
           name: "node",
           environment: "node",
           passWithNoTests: true,
+          setupFiles: ["./vitest.setup.ts"],
           // Unit tests live next to the code they cover (`CLAUDE.md` §6).
           // Integration tests get `tests/` in the package they exercise.
           include: [
@@ -79,7 +85,7 @@ export default defineConfig({
           environment: "happy-dom",
           passWithNoTests: true,
           globals: false,
-          setupFiles: ["./apps/desktop/renderer/src/testing/setup.ts"],
+          setupFiles: ["./vitest.setup.ts", "./apps/desktop/renderer/src/testing/setup.ts"],
           include: ["apps/desktop/renderer/src/**/*.test.{ts,tsx}"],
         },
       },

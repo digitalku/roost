@@ -116,6 +116,17 @@ export {
   withLibrarySuffix,
 } from "./naming.js";
 export {
+  forgetLibrary,
+  listRecent,
+  pinLibrary,
+  RECENT_FILE,
+  RECENT_LIMIT,
+  type RecentEntry,
+  type RecentLibrary,
+  recentPath,
+  rememberLibrary,
+} from "./recent.js";
+export {
   compileFor,
   count,
   list,

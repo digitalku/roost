@@ -24,6 +24,7 @@ import type {
   WireCursor,
   WireDeriveStatus,
   WireImportReport,
+  WireRecentLibrary,
   WireSidebar,
 } from "./dto.js";
 import { STORAGE_MODES } from "./dto.js";
@@ -51,6 +52,18 @@ export type Request =
   | { readonly type: "library:create"; readonly parent: string; readonly name: string }
   /** The library this engine currently holds, if any. */
   | { readonly type: "library:current" }
+  /**
+   * The libraries this machine has opened, pinned first and then newest.
+   *
+   * Application state rather than library state, for the plainest of the three
+   * reasons ADR-0019 gives: this list is what *finds* a library, so it cannot
+   * live inside one.
+   */
+  | { readonly type: "recent:list" }
+  /** Drops one entry from the recent list, and answers with what is left. */
+  | { readonly type: "recent:forget"; readonly root: string }
+  /** Pins or unpins one entry. A pinned entry is never evicted by the limit. */
+  | { readonly type: "recent:pin"; readonly root: string; readonly pinned: boolean }
   /** Release the library, its journal, and its lock. */
   | { readonly type: "library:close" }
   /** The counts behind the library view. */
@@ -199,6 +212,10 @@ export interface Responses {
   "library:open": LibrarySummary;
   "library:create": LibrarySummary;
   "library:current": LibrarySummary | null;
+  "recent:list": readonly WireRecentLibrary[];
+  /** The new list, so one round trip answers "and now?". */
+  "recent:forget": readonly WireRecentLibrary[];
+  "recent:pin": readonly WireRecentLibrary[];
   "library:close": null;
   "library:stats": LibraryStats;
   "library:sidebar": WireSidebar;
@@ -257,6 +274,22 @@ export const REQUEST_VALIDATORS: {
   },
 
   "library:current": () => ok({ type: "library:current" }),
+
+  "recent:list": () => ok({ type: "recent:list" }),
+
+  "recent:forget": (source) => {
+    const root = readNonEmpty(source, "root");
+    if (!root.ok) return root;
+    return ok({ type: "recent:forget", root: root.value });
+  },
+
+  "recent:pin": (source) => {
+    const root = readNonEmpty(source, "root");
+    if (!root.ok) return root;
+    const pinned = readBoolean(source, "pinned");
+    if (!pinned.ok) return pinned;
+    return ok({ type: "recent:pin", root: root.value, pinned: pinned.value });
+  },
   "library:close": () => ok({ type: "library:close" }),
   "library:stats": () => ok({ type: "library:stats" }),
   "library:sidebar": () => ok({ type: "library:sidebar" }),

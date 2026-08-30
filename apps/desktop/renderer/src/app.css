@@ -298,3 +298,123 @@ button:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── The recent list on the picker (`UI_SPEC.md` §3) ─────────────────────── */
+
+.recent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(640px, 100%);
+  margin-top: var(--space-4);
+  text-align: left;
+}
+
+.recent-title {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.recent-row:hover {
+  border-color: var(--border);
+  background: var(--surface-raised);
+}
+
+/* A library that has moved or gone: legible, unopenable, and still removable.
+   Dimming rather than hiding, because a list that quietly shrinks reads as the
+   application having forgotten (`RecentList.tsx`). */
+.recent-row[data-missing] .recent-name,
+.recent-row[data-missing] .recent-path {
+  color: var(--text-subtle);
+  text-decoration: line-through;
+}
+
+/* The row's own button carries the name and the path, so the whole row is one
+   target rather than a link inside a clickable div. */
+.recent-open {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0;
+  height: auto;
+  padding: var(--space-1) 0;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.recent-open:hover:not(:disabled) {
+  background: none;
+}
+
+.recent-open:disabled {
+  cursor: default;
+}
+
+.recent-name {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-path {
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+
+.recent-when {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.recent-pin,
+.recent-forget {
+  flex: none;
+  width: var(--control-height);
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  color: var(--text-subtle);
+}
+
+.recent-pin[aria-pressed="true"] {
+  color: var(--warning);
+}
+
+.recent-pin:hover,
+.recent-forget:hover {
+  border-color: var(--border);
+  background: var(--surface-overlay);
+  color: var(--text);
+}

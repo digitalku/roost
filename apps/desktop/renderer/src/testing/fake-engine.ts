@@ -13,6 +13,7 @@ import type {
   WireDeriveStatus,
   WireImportReport,
   WireProblem,
+  WireRecentLibrary,
   WireSidebar,
 } from "@roost/contract";
 import type { WindowBridge } from "../bridge.js";
@@ -43,6 +44,14 @@ export interface FakeEngineOptions {
   readonly chooseLocationDialog?: string | null;
   /** Libraries that already exist, by path. */
   readonly existing?: readonly FakeLibrary[];
+  /**
+   * What the picker's recent list starts with.
+   *
+   * Opening a library here appends to it, exactly as the engine does, so a test
+   * can drive "open one, come back, see it listed" rather than asserting on a
+   * list somebody handed the component.
+   */
+  readonly recent?: readonly WireRecentLibrary[];
   /** Counts every library reports. */
   readonly stats?: Partial<LibraryStats>;
   /** What the grid pages through for the empty query, newest first. */
@@ -171,6 +180,7 @@ export class FakeEngine {
   /** Mutable: an import adds rows, newest first. */
   assets: readonly AssetCard[];
   #open: LibrarySummary | undefined;
+  #recent: readonly WireRecentLibrary[];
   #listeners = new Set<(event: unknown) => void>();
 
   constructor(options: FakeEngineOptions = {}) {
@@ -178,6 +188,24 @@ export class FakeEngine {
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);
     for (const detail of options.details ?? []) this.details.set(detail.hash, detail);
     this.assets = options.assets ?? [];
+    this.#recent = options.recent ?? [];
+  }
+
+  /** Moves a library to the front of the recent list, as the engine's `#open` does. */
+  #remember(summary: LibrarySummary): void {
+    const kept = this.#recent.filter((entry) => entry.root !== summary.root);
+    const previous = this.#recent.find((entry) => entry.root === summary.root);
+    this.#recent = [
+      {
+        root: summary.root,
+        name: summary.name,
+        id: summary.id,
+        openedAt: Math.floor(Date.now() / 1000),
+        pinned: previous?.pinned ?? false,
+        available: true,
+      },
+      ...kept,
+    ];
   }
 
   /** The bridge the renderer will find on `window`. */
@@ -251,6 +279,7 @@ export class FakeEngine {
           });
         }
         this.#open = summarize(found);
+        this.#remember(this.#open);
         return ok(this.#open);
       }
 
@@ -273,11 +302,25 @@ export class FakeEngine {
         const library = { root, name: request.name };
         this.#libraries.set(root, library);
         this.#open = summarize(library);
+        this.#remember(this.#open);
         return ok(this.#open);
       }
 
       case "library:current":
         return ok(this.#open ?? null);
+
+      case "recent:list":
+        return ok(this.#recent);
+
+      case "recent:forget":
+        this.#recent = this.#recent.filter((entry) => entry.root !== request.root);
+        return ok(this.#recent);
+
+      case "recent:pin":
+        this.#recent = this.#recent.map((entry) =>
+          entry.root === request.root ? { ...entry, pinned: request.pinned } : entry,
+        );
+        return ok(this.#recent);
 
       case "library:close":
         this.#open = undefined;

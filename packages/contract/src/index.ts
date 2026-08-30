@@ -50,6 +50,7 @@ export {
   type WireImportFailure,
   type WireImportReport,
   type WireProblem,
+  type WireRecentLibrary,
   type WireSidebar,
 } from "./dto.js";
 export {

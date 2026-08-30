@@ -167,6 +167,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | --- | --- | --- | --- |
 | `AppShell` | — | panel sizes, theme | Grid template, resize handles, keyboard scope root |
 | `LibraryPicker` | full screen | — | First run and library switching. Recent list, create, open |
+| `RecentList` | picker | — | The libraries this machine has opened. Pin, forget; §3.1 |
 | `Toolbar` | toolbar | — | Composes the four below |
 | `SearchField` | toolbar | draft text | RQL input; §5 |
 | `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, sort, grouping. ADR-0018 |
@@ -191,6 +192,21 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 Everything above is built in-repo on top of unstyled primitives (menus, dialogs, tooltips,
 sliders) rather than a component kit with its own design opinions. Rationale and the
 alternatives are in `TODO.md` §1 — the choice of primitive library is open.
+
+### 3.1 The recent list
+
+The picker's way back in. Application state rather than library state, for the reason ADR-0019
+gives: this list is what *finds* a library, so it cannot live inside one.
+
+- **Pinned first, then most recently opened.** Twelve unpinned entries are kept; a pinned entry is
+  never evicted, which is how somebody says "this one always".
+- **A library that has gone is shown and marked, not hidden.** Struck through, unopenable, with
+  its own way to be forgotten. A list that quietly shrinks reads as the application having
+  forgotten, and leaves the reader unsure whether they imagined the library or lost it.
+- **Nothing at all on a first run.** No heading, no empty box (§8) — the picker is then exactly
+  what it was before this existed.
+- Relative times are coarse on purpose: "Yesterday", "3 days ago", and a date past a week. The
+  question is which library, not how many hours.
 
 ## 4. Navigation
 

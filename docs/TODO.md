@@ -360,13 +360,16 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 ### Settings, windows, and the picker (ADR-0019 and ADR-0020, decided 2026-08-30)
 
-- 🔴 **The recent-libraries list, and with it the first application state file.** The cheapest
-  thing on this list and the one that unblocks the most. Both documents already decided its
-  shape: `UI_SPEC.md` §3's `LibraryPicker` row says "Recent list, create, open", and `dirs.ts`
-  names it in the doc comment for `stateDir()`. Nothing in the renderer says "recent" today.
-  - Each entry is validated when it is drawn. A library may have been moved or deleted, and a
-    recent list pointing at nothing is worse than no recent list.
-  - Pin, and remove-from-list. A recent list nobody can prune becomes noise.
+- ☑ ~~**The recent-libraries list, and with it the first application state file.**~~ Done
+  2026-08-30: `stateDir()/recent.json`, written atomically, tolerant of absence and damage, with
+  pinning and forgetting. `UI_SPEC.md` §3.1 is the design of record. **It has not been seen in a
+  real window** — an Electron instance from an earlier session held the single-instance lock, so
+  every attempt to drive a fresh one exited immediately, which is `main.ts:65` working exactly as
+  written. The component and the wiring have tests; the pixels are unverified.
+  - 🟢 **The CLI does not record into it.** Deliberate but not obviously right: `roost init`
+    creating a library is a deliberate act and belongs on the list, while `roost query` in a
+    script rewriting a state file is not. If it lands, the rule is "init and open record; reads
+    do not".
 - 🟡 **`settings.json` in the library** (ADR-0019). Reads tolerate absence, damage, unknown keys,
   and wrong types by falling back per setting. Writes tolerate failure silently — a library on
   read-only media must not raise a dialog when somebody changes the zoom. Unknown keys survive a

@@ -1,4 +1,10 @@
-import type { LibraryStats, LibrarySummary, WireProblem, WireSidebar } from "@roost/contract";
+import type {
+  LibraryStats,
+  LibrarySummary,
+  WireProblem,
+  WireRecentLibrary,
+  WireSidebar,
+} from "@roost/contract";
 import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { markFirstPaint } from "./bench/bench.js";
@@ -11,6 +17,7 @@ import { SelectionStore } from "./grid/selection.js";
 import { DropZone } from "./import/DropZone.js";
 import { type Importing, useImport } from "./import/useImport.js";
 import { Inspector } from "./inspector/Inspector.js";
+import { RecentList } from "./library/RecentList.js";
 import { PreviewPane } from "./preview/PreviewPane.js";
 import { SearchField } from "./search/SearchField.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
@@ -57,6 +64,7 @@ export function App(): React.JSX.Element {
    */
   const [generation, setGeneration] = useState(0);
   const [revision, setRevision] = useState(0);
+  const [recent, setRecent] = useState<readonly WireRecentLibrary[]>([]);
 
   // Focus moved deliberately, in the frame after the form appears, rather than
   // with `autoFocus`: this form opens in response to a click, so putting the
@@ -91,6 +99,17 @@ export function App(): React.JSX.Element {
     if (rowsChanged) setGeneration((n) => n + 1);
   }, []);
 
+  // Read whenever the picker could be on screen, including after a library is
+  // closed — the one just closed belongs at the top of the list, and asking the
+  // engine is cheaper than keeping a second copy in step with it.
+  useEffect(() => {
+    if (opened !== undefined) return;
+    void (async () => {
+      const list = await invoke({ type: "recent:list" });
+      if (list.ok) setRecent(list.value);
+    })();
+  }, [opened]);
+
   // Whatever the engine already holds. A window reopened after a reload finds
   // its library still open, because the engine outlives the page.
   useEffect(() => {
@@ -112,23 +131,47 @@ export function App(): React.JSX.Element {
     [opened, readStats],
   );
 
-  const openLibrary = async () => {
+  /**
+   * Opens a library by path.
+   *
+   * Shared by the dialog and by a recent row rather than written twice: the
+   * engine records the open either way, so two call sites would be two chances
+   * for them to diverge about what opening means.
+   */
+  const openPath = async (path: string) => {
     setBusy(true);
-    const chosen = await invoke({ type: "dialog:openLibrary" });
-    if (!chosen.ok) {
-      setBusy(false);
-      return setProblem(chosen.problem);
-    }
-    // Cancelled: leave the screen exactly as it was.
-    if (chosen.value === null) return setBusy(false);
-
-    const outcome = await invoke({ type: "library:open", path: chosen.value });
+    const outcome = await invoke({ type: "library:open", path });
     setBusy(false);
     if (!outcome.ok) {
       setOpened(undefined);
+      // The recent list is the likeliest way to reach a library that has been
+      // moved since it was last opened, so it is re-read on a failure: the row
+      // that just failed comes back marked missing rather than looking fine.
+      const list = await invoke({ type: "recent:list" });
+      if (list.ok) setRecent(list.value);
       return setProblem(outcome.problem);
     }
     await readStats(outcome.value);
+  };
+
+  const openLibrary = async () => {
+    setBusy(true);
+    const chosen = await invoke({ type: "dialog:openLibrary" });
+    setBusy(false);
+    if (!chosen.ok) return setProblem(chosen.problem);
+    // Cancelled: leave the screen exactly as it was.
+    if (chosen.value === null) return;
+    await openPath(chosen.value);
+  };
+
+  const forget = async (root: string) => {
+    const list = await invoke({ type: "recent:forget", root });
+    if (list.ok) setRecent(list.value);
+  };
+
+  const pin = async (root: string, pinned: boolean) => {
+    const list = await invoke({ type: "recent:pin", root, pinned });
+    if (list.ok) setRecent(list.value);
   };
 
   const chooseLocation = async () => {
@@ -253,6 +296,13 @@ export function App(): React.JSX.Element {
           </button>
         </div>
         {problem !== undefined && <Problem problem={problem} />}
+        <RecentList
+          entries={recent}
+          busy={busy}
+          onOpen={(root) => void openPath(root)}
+          onForget={(root) => void forget(root)}
+          onPin={(root, pinned) => void pin(root, pinned)}
+        />
       </section>
     </Frame>
   );

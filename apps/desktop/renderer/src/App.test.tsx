@@ -49,6 +49,9 @@ describe("opening a library", () => {
     // The dialog is asked first and the library second: the renderer never
     // invents a path.
     expect(engine.seen.map((request) => request.type)).toEqual([
+      // The picker asks for its recent list before anything else: it is what
+      // the first screen draws, and it needs no library.
+      "recent:list",
       "library:current",
       "dialog:openLibrary",
       "library:open",
@@ -554,5 +557,82 @@ describe("the preview, in the window", () => {
     // A wrap here is a jump of thousands of rows, which is not what an arrow
     // key means anywhere else.
     expect(await screen.findByRole("img", { name: "asset-0.png" })).toBeDefined();
+  });
+});
+
+/**
+ * The picker's recent list, end to end through the fake bridge.
+ *
+ * `RecentList.test.tsx` covers the component in isolation; this covers the
+ * wiring — that opening records, that closing brings the list back with the
+ * library on it, and that a row is a way back in without touching a dialog.
+ */
+describe("the recent list on the picker", () => {
+  const start = (options: ConstructorParameters<typeof FakeEngine>[0] = {}) => {
+    install(new FakeEngine(options));
+    return { user: userEvent.setup(), ...render(<App />) };
+  };
+
+  const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+  it("says nothing on a first run", async () => {
+    start();
+    await screen.findByRole("button", { name: "Open library…" });
+    expect(screen.queryByText("Recent")).toBeNull();
+  });
+
+  it("lists a library that was opened, once it is closed again", async () => {
+    const { user } = start({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("button", { name: "Close library" });
+    await user.click(screen.getByRole("button", { name: "Close library" }));
+
+    // Back on the picker, with the library it just left at the top — which is
+    // the case that matters most, because it is where somebody lands after
+    // switching away by accident.
+    expect(await screen.findByText("Recent")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Open Holiday Photos" })).toBeDefined();
+  });
+
+  it("opens from a row, without a dialog", async () => {
+    const { user } = start({
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      recent: [
+        {
+          root: HOLIDAY,
+          name: "Holiday Photos",
+          id: "abc",
+          openedAt: Math.floor(Date.now() / 1000) - 3600,
+          pinned: false,
+          available: true,
+        },
+      ],
+      stats: { assets: 1234 },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Open Holiday Photos" }));
+    expect(await screen.findByRole("button", { name: "Close library" })).toBeDefined();
+  });
+
+  it("takes a row off the list when it is forgotten", async () => {
+    const { user } = start({
+      recent: [
+        {
+          root: HOLIDAY,
+          name: "Holiday Photos",
+          id: "abc",
+          openedAt: Math.floor(Date.now() / 1000),
+          pinned: false,
+          available: true,
+        },
+      ],
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Forget Holiday Photos" }));
+    await waitFor(() => expect(screen.queryByText("Recent")).toBeNull());
   });
 });

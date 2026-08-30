@@ -49,6 +49,24 @@ export interface LibrarySummary {
   readonly schemaVersion: number;
 }
 
+/**
+ * One row of the picker's recent list.
+ *
+ * `available` is checked when the list is read rather than stored, because the
+ * answer changes without this application being involved. An entry that is gone
+ * is shown and marked rather than hidden — dropping it silently reads as the
+ * application having forgotten.
+ */
+export interface WireRecentLibrary {
+  readonly root: string;
+  readonly name: string;
+  readonly id: string;
+  /** Unix seconds. */
+  readonly openedAt: number;
+  readonly pinned: boolean;
+  readonly available: boolean;
+}
+
 /** The counts behind a library's summary view. */
 export interface LibraryStats {
   readonly assets: number;
