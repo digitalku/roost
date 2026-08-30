@@ -32,7 +32,9 @@ describe("the asset context menu", () => {
         onExported={(report) => exported.push(report)}
         onProblem={(problem) => problems.push(problem.message)}
       >
-        <div>the grid</div>
+        <div data-testid="surface" tabIndex={-1}>
+          the grid
+        </div>
       </AssetContextMenu>,
     );
     return { user: userEvent.setup(), ...view };
@@ -131,6 +133,18 @@ describe("the asset context menu", () => {
     await open();
     expect(disabled("Move to trash Del")).toBe(true);
   });
+
+  /*
+   * There is no test here for focus returning to what the menu was opened over,
+   * and that is deliberate. The fix is `onCloseAutoFocus` in the component:
+   * Radix hands focus back to the trigger, which is a wrapper with no
+   * `tabindex`, so in a real browser `.focus()` on it does nothing and focus
+   * lands on the body — with the grid's roving ring and the preview's stepping
+   * both dead until something is clicked. happy-dom does not model focusability
+   * at all, so a test written for it passed with the fix **and** with the fix
+   * removed. A test that cannot fail is worse than no test (`TODO.md` §4,
+   * lesson 9), so this is a real-window claim and is listed as one.
+   */
 
   it("does not open at all over an empty selection", async () => {
     show([]);

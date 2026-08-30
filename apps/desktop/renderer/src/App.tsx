@@ -634,7 +634,18 @@ function LibraryView({
             is on screen, and it is a string the user can read and edit. */}
         {sidebar !== undefined && <Sidebar sidebar={sidebar} query={query} onPick={applyQuery} />}
         {previewing && focused !== undefined ? (
-          <PreviewPane hash={focused} onClose={() => setPreviewing(false)} onStep={step} />
+          /* Over the asset on screen, not over the selection: "export…" while
+             looking at one picture cannot sensibly mean the other eleven. */
+          <AssetContextMenu
+            hashes={[focused]}
+            onExported={(report) => {
+              setActed(undefined);
+              setNote(exportLine(report));
+            }}
+            onProblem={setActed}
+          >
+            <PreviewPane hash={focused} onClose={() => setPreviewing(false)} onStep={step} />
+          </AssetContextMenu>
         ) : paging.assets.length === 0 && paging.done ? (
           <p className="grid-empty">{query === "" ? EMPTY_LIBRARY : NOTHING_MATCHED}</p>
         ) : (

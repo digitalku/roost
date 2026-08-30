@@ -73,6 +73,14 @@ body {
   flex-direction: column;
 }
 
+/* The wrapper is a flex column, so what it holds has to be told to fill it —
+   the rule below sizes `.menu-area` itself, not the frame or the pane inside. */
+.menu-area > .grid-frame,
+.menu-area > .preview {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
 /* The grid takes what is left. `min-width: 0` because a flex item's default
    `min-width: auto` would let its content push the panels off screen. */
 .workspace > .grid-frame,

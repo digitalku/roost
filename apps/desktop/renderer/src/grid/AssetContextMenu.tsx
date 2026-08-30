@@ -1,9 +1,10 @@
 import type { WireExportReport, WireProblem } from "@roost/contract";
 import { ContextMenu } from "radix-ui";
+import { useRef } from "react";
 import { invoke } from "../bridge.js";
 
 /**
- * Right-click on the selection (`UI_SPEC.md` §3).
+ * Right-click on the grid or on an open preview (`UI_SPEC.md` §3.3).
  *
  * The file actions a file manager has, on the assets a person has selected:
  * open in whatever the desktop uses, show it where it lives, copy the paths,
@@ -14,7 +15,10 @@ import { invoke } from "../bridge.js";
  *
  * Right-clicking an asset that is not selected selects it first; right-clicking
  * one that is leaves the selection alone. `Grid` does that, because it is the
- * component that knows what is under the pointer.
+ * component that knows what is under the pointer. **In the preview there is
+ * nothing to point at but the asset on screen**, so the menu is over that one
+ * whatever else is selected — "export…" while looking at one picture cannot
+ * sensibly mean the other eleven.
  *
  * **Move to trash is here and disabled.** Trash is ADR-0022 and is not decided
  * yet — it needs a column, two journal ops, and partial indexes. An item that
@@ -38,6 +42,7 @@ export function AssetContextMenu({
 }: AssetContextMenuProps): React.JSX.Element {
   const count = hashes.length;
   const only = count === 1 ? hashes[0] : undefined;
+  const restoreTo = useRef<HTMLElement | null>(null);
 
   const copyPaths = (): void => {
     void invoke({ type: "asset:copyPath", hashes }).then((outcome) => {
@@ -59,13 +64,32 @@ export function AssetContextMenu({
   };
 
   return (
-    <ContextMenu.Root>
+    <ContextMenu.Root
+      onOpenChange={(open) => {
+        if (open) {
+          restoreTo.current =
+            document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        }
+      }}
+    >
       <ContextMenu.Trigger className="menu-area" disabled={count === 0}>
         {children}
       </ContextMenu.Trigger>
 
       <ContextMenu.Portal>
-        <ContextMenu.Content className="menu" collisionPadding={8}>
+        <ContextMenu.Content
+          className="menu"
+          collisionPadding={8}
+          onCloseAutoFocus={(event) => {
+            // Radix hands focus back to the trigger, which here is a plain
+            // wrapper with no `tabindex` — so it would land on the body and the
+            // arrow keys would stop working in whatever the menu was opened
+            // over. Both of those are keyboard surfaces: the grid moves its
+            // roving ring with them and the preview steps through the library.
+            event.preventDefault();
+            restoreTo.current?.focus();
+          }}
+        >
           <ContextMenu.Item
             className="menu-item"
             disabled={only === undefined}

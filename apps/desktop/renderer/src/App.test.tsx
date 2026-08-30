@@ -268,6 +268,41 @@ describe("the library view", () => {
     expect(new Set(hashes).size).toBe(12);
   });
 
+  it("puts the context menu over the previewed asset, not over the selection", async () => {
+    // `UI_SPEC.md` §3.3. Selecting three and opening one leaves three selected,
+    // and "export…" while looking at one picture cannot sensibly mean the other
+    // two — so the preview's menu is over the asset on screen.
+    const { engine, user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+    const cells = screen.getAllByRole("option");
+
+    await user.click(cells[0] as HTMLElement);
+    await user.keyboard("{Shift>}");
+    await user.click(cells[2] as HTMLElement);
+    await user.keyboard("{/Shift}");
+
+    // `Enter` rather than a double-click: a double-click's own pointer-down
+    // collapses the selection to the cell under it, so it could not tell the
+    // two rules apart. `Enter` opens the focused asset and leaves three
+    // selected, which is the case this test exists for.
+    (screen.getByRole("listbox", { name: "Assets" }) as HTMLElement).focus();
+    await user.keyboard("{Enter}");
+    const pane = await screen.findByRole("dialog");
+
+    pane.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await screen.findByRole("menu");
+    // "Copy path", singular: three selected, one on screen, one in the menu.
+    await user.click(screen.getByRole("menuitem", { name: "Copy path" }));
+
+    await waitFor(() => {
+      const sent = engine.seen.filter((request) => request.type === "asset:copyPath");
+      expect(sent).toHaveLength(1);
+      expect((sent[0] as { hashes: readonly string[] }).hashes).toEqual([
+        cells[2]?.getAttribute("data-hash"),
+      ]);
+    });
+  });
+
   it("asks for the next page as the scroll approaches the bottom, and then stops", async () => {
     const { engine } = await open(250);
     await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));

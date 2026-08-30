@@ -246,11 +246,21 @@ round trips for a panel that shows a summary of them.
 
 ### 3.3 The asset context menu
 
-Right-click on the grid. It acts on the **selection**, never on the asset the pointer is over —
+Right-click on the grid, or on an open preview. Over the grid it acts on the **selection**,
+never on the asset the pointer is over —
 right-clicking an asset that is not selected selects it first, and right-clicking one that is
 leaves the selection alone, which is what every file manager does and what makes "select twelve,
 export twelve" one gesture. `Grid` does the selecting, because it is the component that knows
 what is under the pointer; the menu only ever receives a list of hashes.
+
+**In the preview the menu is over the asset on screen**, whatever else is selected. There is
+nothing else to point at, and "export…" while looking at one picture cannot sensibly mean the
+other eleven. Selecting three and pressing `Enter` is the case that makes the two rules
+distinguishable, and it is the one the regression test drives.
+
+**Closing the menu gives focus back to what it was opened over.** Radix returns focus to its
+trigger, which here is a plain wrapper with no `tabindex`, so focus would land on the body — with
+the grid's roving ring and the preview's stepping both dead until something is clicked.
 
 | Item | Over one | Over several |
 | --- | --- | --- |

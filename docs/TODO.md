@@ -414,10 +414,25 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟡 **Copy is a path, not a file.** `Ctrl+V` into a file manager does nothing with it. A real
   file copy needs `text/uri-list` and, for Nautilus, `x-special/gnome-copied-files`, which is one
   clipboard format per desktop.
+- ☑ ~~**The menu on an open preview**, over the asset on screen rather than over the selection.~~
+  Added 2026-08-31 at the user's request. Distinguishing the two rules needs `Enter` rather than a
+  double-click, because a double-click's own pointer-down collapses the selection first — the
+  version written with `dblClick` passed with the wrong rule wired in.
+- 🟡 **Focus returning to what the menu was opened over is a real-window claim.** The fix is
+  `onCloseAutoFocus`: Radix hands focus to the trigger, a wrapper with no `tabindex`, so a real
+  browser drops it on the body and both the grid's roving ring and the preview's stepping go dead.
+  **happy-dom does not model focusability**, so the test written for it passed with the fix and
+  with the fix removed — it was deleted rather than kept as false comfort (§4, lesson 9). This is
+  the first thing to check in a window.
+- 🟡 **`PreviewPane` claims `aria-modal="true"` and is not modal.** The sidebar, the toolbar and
+  the inspector all stay rendered and usable beside it, and `UI_SPEC.md` §7 says "into the content
+  region" rather than over it. Found while wrapping the pane in the context menu; not changed in
+  the same breath because the role is what `PreviewPane.test.tsx` finds the pane by.
 - 🟡 **Not seen in a real window.** An Electron instance opened outside this session held the
-  single-instance lock again. Eleven component tests and seven service tests cover it; the pixels
-  do not — and this is the second time in two sessions, so it is a workflow gap rather than bad
-  luck.
+  single-instance lock again. Twelve component tests, one at the App level and seven service tests
+  cover it; the pixels do not — and this is the second time in two sessions, so it is a workflow
+  gap rather than bad luck. What most needs a window: focus after the menu closes, and whether the
+  grid and the preview still fill their new wrapper.
 
 ### The view menu (ADR-0018, decided 2026-08-30)
 
