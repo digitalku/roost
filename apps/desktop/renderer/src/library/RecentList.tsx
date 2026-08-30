@@ -55,7 +55,16 @@ export function RecentList({
               onClick={() => onOpen(entry.root)}
             >
               <span className="recent-name">{entry.name}</span>
-              <span className="recent-path">{entry.root}</span>
+              {/*
+                The left-to-right mark is load-bearing. `.recent-path` is laid
+                out `direction: rtl` so a long path is truncated at the *start*,
+                where the uninteresting part is — but that also moves a leading
+                `/` to the end, and the path rendered as
+                `home/orion/Desktop/testing.roost/`. Seen in a window, not in a
+                test: happy-dom does no bidi. The mark forces the whole run back
+                into logical order without changing where it truncates.
+              */}
+              <span className="recent-path">{`\u200e${entry.root}`}</span>
             </button>
             <span className="recent-when">
               {entry.available ? whenOpened(entry.openedAt, at) : "Missing"}

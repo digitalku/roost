@@ -52,10 +52,22 @@ describe("the recent list", () => {
   });
 
   it("shows the name, the path, and when it was last opened", () => {
-    show([entry()]);
+    const { container } = show([entry()]);
     expect(screen.getByText("Holiday")).toBeDefined();
-    expect(screen.getByText("/home/you/Holiday.roost")).toBeDefined();
     expect(screen.getByText("2 min ago")).toBeDefined();
+    expect(container.querySelector(".recent-path")?.textContent).toContain(
+      "/home/you/Holiday.roost",
+    );
+  });
+
+  it("keeps the path in logical order under the right-to-left truncation", () => {
+    // `.recent-path` is laid out `direction: rtl` so a long path loses its
+    // uninteresting start rather than its meaningful end. Without the
+    // left-to-right mark that also moves a leading `/` to the far end, and the
+    // path rendered as `home/you/Holiday.roost/` — seen in a real window, where
+    // this was caught, because happy-dom does no bidi and cannot see it.
+    const { container } = show([entry()]);
+    expect(container.querySelector(".recent-path")?.textContent?.[0]).toBe("\u200e");
   });
 
   it("opens the library that was clicked", async () => {
