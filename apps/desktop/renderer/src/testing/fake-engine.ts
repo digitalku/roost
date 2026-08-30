@@ -11,6 +11,7 @@ import type {
   ResponseOf,
   WireAssetDetail,
   WireDeriveStatus,
+  WireExportReport,
   WireImportReport,
   WireProblem,
   WireRecentLibrary,
@@ -80,6 +81,10 @@ export interface FakeEngineOptions {
   readonly details?: readonly WireAssetDetail[];
   /** What `asset:openExternally` answers with. */
   readonly opensExternally?: boolean;
+  /** What `asset:reveal` and `asset:copyPath` answer with. */
+  readonly desktopAnswers?: boolean;
+  /** What an export reports. */
+  readonly exportReport?: Partial<WireExportReport>;
   /** What `dialog:chooseImport` answers with. `null` is a cancelled dialog. */
   readonly importDialog?: readonly string[] | null;
   /** What an import reports, and the progress it emits on the way. */
@@ -434,6 +439,19 @@ export class FakeEngine {
 
       case "asset:openExternally":
         return ok(this.#options.opensExternally ?? true);
+
+      case "asset:reveal":
+      case "asset:copyPath":
+        return ok(this.#options.desktopAnswers ?? true);
+
+      case "assets:export":
+        return ok({
+          exported: request.hashes.length,
+          renamed: 0,
+          missing: 0,
+          failed: 0,
+          ...this.#options.exportReport,
+        });
 
       case "dialog:chooseImport":
         return ok(this.#options.importDialog ?? null);

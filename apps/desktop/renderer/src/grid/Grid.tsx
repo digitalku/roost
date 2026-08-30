@@ -20,6 +20,9 @@ import { FOCUSED, SELECTED, type SelectionStore } from "./selection.js";
  * is none.
  */
 
+/** `PointerEvent.button` for the right mouse button. */
+const SECONDARY = 2;
+
 /** How far past the viewport to keep rendered, so a fling has somewhere to land. */
 const OVERSCAN = 900;
 
@@ -192,6 +195,18 @@ export function Grid({
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const hash = hashAt(event.target);
+
+      // The secondary button opens a menu over the selection, so it must not
+      // collapse one. An asset already selected is left alone — right-clicking
+      // one of twelve to export all twelve is the ordinary gesture — and one
+      // that is not becomes the selection, which is what every file manager
+      // does.
+      if (event.button === SECONDARY) {
+        if (hash === undefined) return selection.clear();
+        if ((selection.stateOf(hash) & SELECTED) === 0) selection.click(hash);
+        return;
+      }
+
       // A click on the background clears, which is what makes a mis-click
       // recoverable without a keyboard.
       if (hash === undefined) return selection.clear();

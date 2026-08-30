@@ -31,6 +31,7 @@ import {
   type DeriveReport,
   enqueueMissing,
   ensurePreview,
+  exportAssets,
   forgetLibrary,
   type ImportReport,
   importInto,
@@ -184,9 +185,16 @@ export class EngineHost {
         return this.#deriveStatus();
       }
 
+      case "assets:export":
+        // No journal line: nothing about the library changed. An export reads
+        // the store and writes outside it, which is the one direction that is
+        // not a mutation.
+        return exportAssets(this.#require(), hashes(request.hashes), request.destination);
+
       case "dialog:chooseImport":
       case "asset:openExternally":
-
+      case "asset:reveal":
+      case "asset:copyPath":
       case "dialog:openLibrary":
       case "dialog:chooseLocation":
         // A dialog belongs to a window and this process has none. Main answers

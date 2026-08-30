@@ -13,7 +13,7 @@ import {
   stderrSink,
   teeSink,
 } from "@roost/core";
-import { app, BrowserWindow, dialog, ipcMain, protocol, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from "electron";
 import { AssetServer } from "./assets.js";
 import { Engine, EngineGoneError, EngineProblem } from "./engine.js";
 import { ROOST_SCHEME, ROOST_SCHEME_PRIVILEGES } from "./security.js";
@@ -192,10 +192,14 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "dialog:chooseLocation",
   "dialog:chooseImport",
   "asset:openExternally",
+  "asset:reveal",
+  "asset:copyPath",
 ]);
 
 async function answerHere(request: Request): Promise<string | boolean | readonly string[] | null> {
   if (request.type === "asset:openExternally") return openExternally(request.hash);
+  if (request.type === "asset:reveal") return reveal(request.hash);
+  if (request.type === "asset:copyPath") return copyPaths(request.hashes);
   if (request.type === "dialog:chooseImport") return chooseImport();
 
   const forOpening = request.type === "dialog:openLibrary";
@@ -270,6 +274,43 @@ async function openExternally(hash: string): Promise<boolean> {
   const failure = await shell.openPath(path);
   if (failure !== "") log.warn("the desktop could not open an asset", { reason: failure });
   return failure === "";
+}
+
+/**
+ * Shows an asset in the desktop's own file manager, selected.
+ *
+ * `shell.showItemInFolder` returns nothing and reports nothing, so the answer
+ * is whether there was a file to show rather than whether a file manager
+ * opened. Being honest about that is better than inventing a success.
+ */
+async function reveal(hash: string): Promise<boolean> {
+  if (!isContentHash(hash)) return false;
+  const path = await assets.locate(hash);
+  if (path === undefined) return false;
+  shell.showItemInFolder(path);
+  return true;
+}
+
+/**
+ * Puts the selection's paths on the clipboard, one per line.
+ *
+ * The renderer never sees them. It asks by hash, main resolves each one, and
+ * what comes back is a count-free boolean — so a path reaches the person who
+ * asked for it without passing through the sandbox on the way (ADR-0008).
+ *
+ * Assets whose bytes are not on this machine are skipped rather than written as
+ * a blank line: a clipboard with a hole in it is worse than a shorter one.
+ */
+async function copyPaths(hashList: readonly string[]): Promise<boolean> {
+  const paths: string[] = [];
+  for (const hash of hashList) {
+    if (!isContentHash(hash)) continue;
+    const path = await assets.locate(hash);
+    if (path !== undefined) paths.push(path);
+  }
+  if (paths.length === 0) return false;
+  clipboard.writeText(paths.join("\n"));
+  return true;
 }
 
 /** Re-emits an engine event to every open window. */

@@ -59,9 +59,24 @@ body {
   flex: 0 0 280px;
 }
 
+/*
+ * The context menu's trigger, wrapped around the grid rather than being it.
+ *
+ * A real element because Radix's trigger needs one to hang a ref and a
+ * `contextmenu` handler on, and `Grid` neither forwards a ref nor spreads
+ * props — it takes primitives and renders a frame. A column, so the frame it
+ * wraps still fills the height it was given.
+ */
+.menu-area {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
 /* The grid takes what is left. `min-width: 0` because a flex item's default
    `min-width: auto` would let its content push the panels off screen. */
 .workspace > .grid-frame,
+.workspace > .menu-area,
 .workspace > .grid-empty,
 .workspace > .preview {
   flex: 1 1 auto;
@@ -256,6 +271,16 @@ button:disabled {
 
 /* One row per running job (UI_SPEC.md §3). A button when it can be dismissed,
    which is every state except the running one. */
+/*
+ * What the last action said. Non-blocking, so it is a line in the bar rather
+ * than a dialog — and it does not wrap, for the reason below.
+ */
+.status-note {
+  flex: none;
+  white-space: nowrap;
+  color: var(--text);
+}
+
 .status-job {
   flex: none;
   /* Nothing in the status bar wraps: a third item was enough to fold the counts

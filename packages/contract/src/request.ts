@@ -23,6 +23,7 @@ import type {
   WireAssetDetail,
   WireCursor,
   WireDeriveStatus,
+  WireExportReport,
   WireImportReport,
   WireRecentLibrary,
   WireSelectionSummary,
@@ -159,6 +160,37 @@ export type Request =
    */
   | { readonly type: "asset:openExternally"; readonly hash: string }
   /**
+   * Show one asset in the desktop's file manager, selected.
+   *
+   * Answered by **main**, for the reason `asset:openExternally` gives, and with
+   * the same rule: the renderer asks by hash and learns only whether the
+   * desktop did something. A path is what main acts on, never what the renderer
+   * receives.
+   */
+  | { readonly type: "asset:reveal"; readonly hash: string }
+  /**
+   * Put the selection's paths on the clipboard, one per line.
+   *
+   * Answered by **main**, which owns the clipboard. This is deliberately the
+   * one way a path leaves the engine to somewhere a person can read it: the
+   * user asked for it, it goes to them rather than to the renderer, and the
+   * renderer learns only whether anything was copied.
+   */
+  | { readonly type: "asset:copyPath"; readonly hashes: readonly string[] }
+  /**
+   * Copy the selection's originals into a directory the user chose.
+   *
+   * The one place Roost writes into a user's directory, and it does so only
+   * because the user picked the directory in a dialog and asked for it by name.
+   * Nothing under `originals/` is moved, modified, or removed — an export is a
+   * copy out (`STORAGE_SPEC.md` invariant 6 is about the reverse direction).
+   */
+  | {
+      readonly type: "assets:export";
+      readonly hashes: readonly string[];
+      readonly destination: string;
+    }
+  /**
    * Import files and directories into the open library.
    *
    * Paths, not bytes: the renderer gets a path for a dropped file from the
@@ -249,6 +281,11 @@ export interface Responses {
   "asset:tagRemove": null;
   /** `false` when the desktop had no handler for it. */
   "asset:openExternally": boolean;
+  /** `false` when the bytes are not on this machine. */
+  "asset:reveal": boolean;
+  /** `false` when nothing could be located, so nothing was put on the clipboard. */
+  "asset:copyPath": boolean;
+  "assets:export": WireExportReport;
   "import:paths": WireImportReport;
   "derive:status": WireDeriveStatus;
   /** The status after the retry, so one round trip answers "and now?". */
@@ -399,6 +436,24 @@ export const REQUEST_VALIDATORS: {
   "asset:openExternally": (source) => {
     const hash = readHash(source, "hash");
     return hash.ok ? ok({ type: "asset:openExternally", hash: hash.value }) : hash;
+  },
+
+  "asset:reveal": (source) => {
+    const hash = readHash(source, "hash");
+    return hash.ok ? ok({ type: "asset:reveal", hash: hash.value }) : hash;
+  },
+
+  "asset:copyPath": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    return hashes.ok ? ok({ type: "asset:copyPath", hashes: hashes.value }) : hashes;
+  },
+
+  "assets:export": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    if (!hashes.ok) return hashes;
+    const destination = readNonEmpty(source, "destination");
+    if (!destination.ok) return destination;
+    return ok({ type: "assets:export", hashes: hashes.value, destination: destination.value });
   },
 
   "import:paths": (source) => {

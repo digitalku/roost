@@ -71,6 +71,7 @@ export {
   UnknownTagGroupError,
   UnsoundReclaimError,
 } from "./error.js";
+export { type ExportReport, exportAssets } from "./export.js";
 export {
   type FixtureOptions,
   type FixtureReport,

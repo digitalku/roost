@@ -366,3 +366,23 @@ export interface ImportProgress {
   /** Non-zero once the import is done and the thumbnails are being made. */
   readonly thumbnails: number;
 }
+
+/**
+ * What an export did.
+ *
+ * Counts rather than a list of names: exporting a selection of ten thousand is
+ * one gesture, and the interesting answer is "how many, and did any not make
+ * it" rather than a scroll of filenames nobody reads.
+ *
+ * `renamed` is the subset that landed under a suffixed name because the
+ * destination already held that filename. It is reported separately because a
+ * silent rename is the one outcome a person would want to know about — the file
+ * they went looking for afterwards is not called what they expected.
+ */
+export interface WireExportReport {
+  readonly exported: number;
+  readonly renamed: number;
+  /** Assets whose bytes are not on this machine — a moved `referenced` original. */
+  readonly missing: number;
+  readonly failed: number;
+}

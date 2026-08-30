@@ -136,6 +136,26 @@ describe("the grid", () => {
     expect(right).toBeLessThanOrEqual(WIDTH - PADDING * 2);
   });
 
+  it("keeps a selection when one of it is right-clicked, and moves one when it is not", async () => {
+    // The context menu acts on the selection, so the gesture that opens it must
+    // not collapse one: right-clicking one of twelve to export all twelve is the
+    // ordinary case, and `click` would have left one selected.
+    const { user, assets } = show(12);
+    const cells = screen.getAllByRole("option");
+
+    await user.click(cells[0] as HTMLElement);
+    await user.keyboard("{Shift>}");
+    await user.click(cells[2] as HTMLElement);
+    await user.keyboard("{/Shift}");
+    expect(selection.selected()).toHaveLength(3);
+
+    await user.pointer({ keys: "[MouseRight]", target: cells[1] as HTMLElement });
+    expect(selection.selected()).toHaveLength(3);
+
+    await user.pointer({ keys: "[MouseRight]", target: cells[7] as HTMLElement });
+    expect(selection.selected()).toEqual([assets[7]?.hash]);
+  });
+
   it("selects with a click, adds with ctrl, and extends with shift", async () => {
     const { user, assets } = show(12);
     const cells = screen.getAllByRole("option");

@@ -47,6 +47,7 @@ export {
   type WireCursor,
   type WireDeriveReason,
   type WireDeriveStatus,
+  type WireExportReport,
   type WireImportFailure,
   type WireImportReport,
   type WireProblem,

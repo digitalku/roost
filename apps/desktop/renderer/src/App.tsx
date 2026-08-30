@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
 import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
+import { AssetContextMenu, exportLine } from "./grid/AssetContextMenu.js";
 import { Grid } from "./grid/Grid.js";
 import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, zoomBy } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
@@ -440,6 +441,17 @@ function LibraryView({
   const [proportional, setProportional] = useState(true);
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   /**
+   * What the last action said, if it said anything.
+   *
+   * The status bar rather than a dialog: an export that worked is not worth
+   * interrupting anyone for, and one that partly did not is not worth losing.
+   * It clears when the selection changes, which is the next thing a person does
+   * after acting on one — so it needs no timer, and nothing disappears while
+   * still being read.
+   */
+  const [note, setNote] = useState<string | undefined>();
+  const [acted, setActed] = useState<WireProblem | undefined>();
+  /**
    * What is on screen, as one string.
    *
    * `UI_SPEC.md` §4.2: there is no separate filter state the search field does
@@ -498,7 +510,9 @@ function LibraryView({
   );
   // The library's problem outranks the grid's: a library that failed to open
   // explains an empty grid, and showing both would say the same thing twice.
-  const showing = problem ?? paging.problem;
+  // An action's own failure sits between them — it is the most recent thing the
+  // user did, but it does not explain a library that never opened.
+  const showing = problem ?? acted ?? paging.problem;
 
   // Subscribed for the wake, not for the value: the count is read straight off
   // the store below, and a revision counter is what makes "deselect one, select
@@ -518,6 +532,13 @@ function LibraryView({
   // biome-ignore lint/correctness/useExhaustiveDependencies: the revision is the trigger
   const selected = useMemo(() => selection.selected(), [selection, selectionRevision]);
   const [previewing, setPreviewing] = useState(false);
+
+  // Selecting something else is how a result stops being the current one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the revision is the trigger
+  useEffect(() => {
+    setNote(undefined);
+    setActed(undefined);
+  }, [selectionRevision]);
 
   // The end of cold start: not when the window opened, not when the engine
   // replied, but when there is a grid with rows in it (`ROADMAP.md` M3).
@@ -617,15 +638,24 @@ function LibraryView({
         ) : paging.assets.length === 0 && paging.done ? (
           <p className="grid-empty">{query === "" ? EMPTY_LIBRARY : NOTHING_MATCHED}</p>
         ) : (
-          <Grid
-            assets={paging.assets}
-            view={view}
-            proportional={proportional}
-            target={zoom}
-            selection={selection}
-            onMore={paging.more}
-            onOpen={() => setPreviewing(true)}
-          />
+          <AssetContextMenu
+            hashes={selected}
+            onExported={(report) => {
+              setActed(undefined);
+              setNote(exportLine(report));
+            }}
+            onProblem={setActed}
+          >
+            <Grid
+              assets={paging.assets}
+              view={view}
+              proportional={proportional}
+              target={zoom}
+              selection={selection}
+              onMore={paging.more}
+              onOpen={() => setPreviewing(true)}
+            />
+          </AssetContextMenu>
         )}
         <Inspector hashes={selected} generation={revision} />
       </div>
@@ -636,6 +666,11 @@ function LibraryView({
         {/* One text node, so what the status bar says is one readable string
             rather than four fragments a screen reader has to reassemble. */}
         <span>{summaryLine(query === "" ? opened.stats.assets : matches, count)}</span>
+        {note !== undefined && (
+          <span className="status-note" aria-live="polite">
+            {note}
+          </span>
+        )}
         <ImportStatus importing={importing} />
         <DeriveStatus status={derives.status} onRetry={(reason) => void derives.retry(reason)} />
         <span className="path">{opened.summary.root}</span>

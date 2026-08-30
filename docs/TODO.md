@@ -13,7 +13,15 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
 
 ## 1. Needs a decision from the user
 
-**Nothing blocking.** The five questions the language change forced were settled on 2026-08-24,
+- 🔴 **ADR-0022 — what `Delete` means.** The asset context menu shipped on 2026-08-31 with
+  **Move to trash present and disabled**, because trash is not an afternoon: a `trashed_at`
+  column (migration 0007), two journal ops, four partial indexes, and one more flag in RQL. The
+  recommendation is in the ADR, and the finding that shaped it is that **Roost already has half a
+  trash** — `removeAssets` leaves the bytes for `doctor --reclaim` and destroys the metadata,
+  which is the expensive half the wrong way round. Nothing else waits on this; the menu works
+  without it.
+
+**Otherwise nothing blocking.** The five questions the language change forced were settled on 2026-08-24,
 before any code was written against them — ADR-0006 through ADR-0012, all Accepted. What they
 decided is in `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
 
@@ -383,6 +391,33 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   the protocol: `roost://thumb/<hash>@256` names no library, so two open libraries make the URL
   ambiguous. That is an ADR-0008 amendment, several read-only handles in main, and an engine
   story. Written down so the cost is not rediscovered.
+
+### The asset context menu (2026-08-31)
+
+- ☑ ~~**The menu itself, on the selection.**~~ Open, Show in file manager, Copy path, Export…,
+  and Move to trash disabled pending ADR-0022. `UI_SPEC.md` §3.3 is the design of record.
+  Right-clicking an asset already in the selection keeps it; right-clicking one outside makes it
+  the selection — the regression test drives both, because the version that called `click()` for
+  both would have passed a test that only checked the menu opened.
+- ☑ ~~**Export to an external folder.**~~ `exportAssets` in `@roost/library`, over the directory
+  chooser that already existed. Files land under the library's name rather than the
+  content-addressed one, a collision gets a numbered suffix via `COPYFILE_EXCL` rather than
+  check-then-write, and the name is `basename`d — it is user-authored, so `../escaped.png` would
+  otherwise have made an export a way to write outside the chosen directory. Pinned by a test.
+- 🟡 **Rating, favourite, and tags are not in the menu.** They would need the selection summary
+  the inspector already fetches, which is a round trip on every right-click. Worth doing, and
+  worth doing after trash rather than instead of it.
+- 🟡 **"Open with…" is not "Open".** The user asked for a chooser; `shell.openPath` gives the
+  desktop's default. A real chooser has no Electron API and would mean reading `.desktop` files
+  and `mimeapps.list` on Linux with nothing shared by the other two platforms — an ADR, not a
+  menu item.
+- 🟡 **Copy is a path, not a file.** `Ctrl+V` into a file manager does nothing with it. A real
+  file copy needs `text/uri-list` and, for Nautilus, `x-special/gnome-copied-files`, which is one
+  clipboard format per desktop.
+- 🟡 **Not seen in a real window.** An Electron instance opened outside this session held the
+  single-instance lock again. Eleven component tests and seven service tests cover it; the pixels
+  do not — and this is the second time in two sessions, so it is a workflow gap rather than bad
+  luck.
 
 ### The view menu (ADR-0018, decided 2026-08-30)
 

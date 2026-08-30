@@ -171,7 +171,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `Toolbar` | toolbar | — | Composes the four below |
 | `SearchField` | toolbar | draft text | RQL input; §5 |
 | `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, sort, grouping. ADR-0018 |
-| `AssetContextMenu` | content | — | Right-click on the selection. Native menus were considered and rejected; ADR-0021 |
+| `AssetContextMenu` | content | — | Right-click on the selection; §3.3. Native menus were considered and rejected; ADR-0021 |
 | `NavTree` | sidebar | expansion | One component for folders and smart folders; §4.2 |
 | `TagList` | sidebar | expansion | Grouped, with counts |
 | `AssetGrid` | content | scroll, pages | Virtualized; §6. Icons and compact are one component |
@@ -191,8 +191,9 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `EmptyState` | any | — | Heading, one sentence, at most one action; §8 |
 
 Everything above is built in-repo on top of unstyled primitives (menus, dialogs, tooltips,
-sliders) rather than a component kit with its own design opinions. Rationale and the
-alternatives are in `TODO.md` §1 — the choice of primitive library is open.
+sliders) rather than a component kit with its own design opinions. The primitives are Radix,
+chosen in ADR-0021 after measuring four candidates and investigating the native-menu path the
+user asked for first.
 
 ### 3.1 The recent list
 
@@ -243,6 +244,39 @@ stops the bug returning for one path and not the other.
 the aggregate. A selection is routinely hundreds of rows, and a detail each would be hundreds of
 round trips for a panel that shows a summary of them.
 
+### 3.3 The asset context menu
+
+Right-click on the grid. It acts on the **selection**, never on the asset the pointer is over —
+right-clicking an asset that is not selected selects it first, and right-clicking one that is
+leaves the selection alone, which is what every file manager does and what makes "select twelve,
+export twelve" one gesture. `Grid` does the selecting, because it is the component that knows
+what is under the pointer; the menu only ever receives a list of hashes.
+
+| Item | Over one | Over several |
+| --- | --- | --- |
+| **Open** | hands the file to the desktop's own handler | disabled — three files is three applications opening |
+| **Show in file manager** | reveals it, selected | disabled, same reason |
+| **Copy path** | one path | `Copy N paths`, one per line |
+| **Export…** | a directory chooser, then a copy out | `Export N assets…` |
+| **Move to trash** | disabled pending ADR-0022 | disabled |
+
+**Nothing here hands a path to the renderer.** Open, reveal, and copy are all answered by main,
+which resolves the hash, acts, and returns a boolean. Copying is the one case where a path
+reaches a person — they asked for it, and it goes to the clipboard rather than into the sandbox.
+
+**Export is the only place Roost writes into a user's directory**, and it does so under two
+conditions that make it the opposite of the pattern `STORAGE_SPEC.md` forbids: the user picked
+the directory in a dialog, and nothing inside the library is moved, modified, or removed. Files
+land under the name the library shows, not the content-addressed one — a folder of hashes is not
+an export anyone wanted — and a name the destination already holds gets a numbered suffix. The
+status bar says how many were renamed, because a silent rename means the file they go looking
+for afterwards is not called what they expect.
+
+**Results go to the status bar, not to a dialog.** An export that worked is not worth
+interrupting anyone for, and one that partly did not is not worth losing. The line clears when
+the selection changes, which is the next thing a person does after acting on one — so it needs no
+timer, and nothing vanishes while it is still being read.
+
 ## 4. Navigation
 
 ### 4.1 What the sidebar contains
@@ -255,7 +289,7 @@ PLACES
   Recent                         imported in the last 7 days
   Favorites
   Untagged                       the pile that needs work — the reason this is here
-  Trash                          M6
+  Trash                          ADR-0022, and the count is what makes it worth a row
 
 FOLDERS                          user tree, drag to reorder and re-parent
   ▸ Clients
@@ -467,7 +501,7 @@ becomes a preference in M6.
 | `0`–`5` | Set rating on the selection (`0` clears to unrated) |
 | `F` | Toggle favourite |
 | `T` | Focus the tag editor for the selection |
-| `Delete` | Remove from library (confirms; M6 sends to trash) |
+| `Delete` | Move to trash (ADR-0022). Until that lands, the menu item is present and disabled |
 | `Ctrl+Delete` | Remove from the current folder only |
 | `[` / `]` | Zoom cells down · up |
 | `Ctrl+K` | Command palette (**M6**) |
