@@ -104,17 +104,40 @@
  * and a pill on the label plus a ring on a 40px thumbnail reads as two
  * competing highlights inside a third.
  */
-.cell[data-view="icons"][data-selected] .cell-thumb {
+/*
+ * One card, not a ringed picture above a filled bar.
+ *
+ * The ring used to sit on the thumbnail and the fill on the caption, with the
+ * 4px gap between them showing page background — two marks for one selected
+ * thing, reported on 2026-09-01. The cell is what gets both now: filled behind
+ * the picture, the seam, and the caption alike, and ringed at its own edge, so
+ * the picture and its name read as one object.
+ */
+.cell[data-view="icons"][data-selected] {
+  background: var(--select-bg);
   box-shadow: 0 0 0 2px var(--select-border);
 }
 
 .cell[data-view="icons"][data-selected] .cell-name {
   color: var(--select-text);
-  background: var(--select-bg);
 }
 
 .cell[data-focused] {
   outline-color: var(--border-focus);
+}
+
+/*
+ * Focus over a selected card thickens the ring rather than adding a second one.
+ *
+ * There is no room to draw the roving ring inside an icon the way a row can —
+ * inside is the picture. So the one ring the card already has carries both
+ * meanings: present says selected, brighter and thicker says the keyboard is
+ * here. Dropping it entirely is not an option, because focus and selection are
+ * separate and a multi-selection would have nothing showing where `Space` lands.
+ */
+.cell[data-view="icons"][data-selected][data-focused] {
+  outline-color: transparent;
+  box-shadow: 0 0 0 3px var(--border-focus);
 }
 
 /* Nothing is on screen yet, and that is a state rather than a blank grid. */

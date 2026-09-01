@@ -111,7 +111,12 @@
   --text-inverse: var(--gray-0);
 
   --select-bg: var(--accent-2);
-  --select-border: var(--accent-5);
+  /* One step calmer than `--border-focus`, deliberately. Selection and focus
+     are separate states that appear together constantly — a selected card also
+     has the keyboard on it — so the two rings have to be told apart at a
+     glance. They were the same value in both themes until 2026-09-01, which
+     made "brighter means focused" a claim nothing could see. */
+  --select-border: var(--accent-4);
   --select-text: var(--gray-12);
 
   --accent: var(--accent-4);
@@ -149,7 +154,9 @@
   --text-inverse: var(--gray-12);
 
   --select-bg: var(--accent-6);
-  --select-border: var(--accent-3);
+  /* Calmer than `--border-focus` here too; on this ramp that is one step
+     lighter rather than one step darker. */
+  --select-border: var(--accent-4);
   --select-text: var(--gray-0);
 
   --accent: var(--accent-3);

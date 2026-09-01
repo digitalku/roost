@@ -354,8 +354,10 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   `roost://original/<hash>` and the protocol answers ranges down to the byte, tested both ways —
   but the thing they exist for is a player seeking, and there is still no real video fixture in
   the container (§2 above).
-- 🟡 **How the grid paints selection has no automated guard.** Fixed on 2026-09-01 after a
-  report: Compact and Details drew the Icons treatment — a filled pill on the label, a ring on a
+- 🟡 **How the grid paints selection has no automated guard.** Fixed on 2026-09-01 after two
+  reports, one per shape. Icons drew a ring on the picture and a fill on the caption, with the
+  4px seam between them showing page background — two marks with a gap; the cell carries both
+  now, so a selected icon is one card. And Compact and Details drew the Icons treatment — a filled pill on the label, a ring on a
   40px thumbnail, and an outline around the whole row — where a filled row was wanted. Reading
   the CSS to fix it turned up a second defect nothing could have caught: `.grid[data-view]
   .cell:hover` outranks `.cell[data-view][data-selected]`, so **hovering a selected row erased
@@ -364,6 +366,12 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   the cascade is not there to get wrong. A `check-grid.mjs` beside `check-trash.mjs` is the
   shape of the guard; what it needs first is the CDP plumbing lifted out of the three scripts
   that now each carry a copy, which is the point at which a fourth copy stops being acceptable.
+  - **A third defect was in the tokens, not the rules.** `--select-border` and `--border-focus`
+    resolved to the same colour in *both* themes, so "the focused one is brighter" was a claim
+    nothing could see — a selected card and a selected-and-focused card differed by one pixel of
+    ring width. Selection is one step calmer than focus now. Two tokens naming two roles are
+    worth nothing while they hold one value, and only a measurement finds that: the stylesheet
+    reads as though they differ.
 - 🟢 **The grid's frame budget is asserted by construction, not measured.** The re-render count
   is a test, and the layout is a binary search per column; neither is a frame percentile. The
   scroll benchmark mode is what turns this into a number, and it is still an M3 item.
