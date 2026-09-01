@@ -53,11 +53,24 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [summary, setSummary] = useState<WireSelectionSummary | undefined>();
 
+  /**
+   * Which read is the current one.
+   *
+   * The selection can change faster than the engine answers — a marquee sweep
+   * changes it on every frame it crosses a cell — and two reads in flight
+   * resolve in whatever order they finish. Without this the panel can settle on
+   * the summary of a selection the user has already dragged past.
+   */
+  const latest = useRef(0);
+
   const read = useCallback(async () => {
+    const ticket = latest.current + 1;
+    latest.current = ticket;
     const only = hashes.length === 1 ? hashes[0] : undefined;
 
     if (only !== undefined) {
       const outcome = await invoke({ type: "asset:detail", hash: only });
+      if (latest.current !== ticket) return;
       setSummary(undefined);
       // A selection can outlive the asset it points at; `null` is the answer to
       // that, and it empties the panel rather than raising anything.
@@ -75,6 +88,7 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
     // selection is routinely hundreds of rows, and what this draws is a summary
     // of them.
     const outcome = await invoke({ type: "asset:summary", hashes });
+    if (latest.current !== ticket) return;
     setSummary(outcome.ok ? outcome.value : undefined);
   }, [hashes]);
 

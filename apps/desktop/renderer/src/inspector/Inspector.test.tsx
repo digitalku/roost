@@ -1,5 +1,5 @@
-import type { WireAssetDetail } from "@roost/contract";
-import { render, screen, waitFor } from "@testing-library/react";
+import type { Outcome, RequestOf, RequestType, ResponseOf, WireAssetDetail } from "@roost/contract";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeEngine, fakeDetail, install } from "../testing/fake-engine.js";
@@ -380,5 +380,48 @@ describe("the inspector over several assets", () => {
 
     expect(engine.seen.filter((r) => r.type === "asset:summary")).toHaveLength(1);
     expect(engine.seen.filter((r) => r.type === "asset:detail")).toHaveLength(0);
+  });
+
+  it("ignores an answer the selection has already moved past", async () => {
+    // A marquee sweep changes the selection on every frame it crosses a cell,
+    // so several reads are in flight at once and they resolve in whatever
+    // order they finish. Without a guard the panel settles on the summary of a
+    // selection the drag left behind — which reads as the count sticking.
+    const engine = new FakeEngine({ details: [0, 1, 2].map((index) => fakeDetail(index)) });
+    const real = engine.bridge();
+    const held: (() => void)[] = [];
+    install(engine);
+    Object.defineProperty(window, "roost", {
+      configurable: true,
+      writable: true,
+      value: {
+        ...real,
+        invoke: function invoke<T extends RequestType>(
+          request: RequestOf<T>,
+        ): Promise<Outcome<ResponseOf<T>>> {
+          const answer = real.invoke(request);
+          if (request.type !== "asset:summary") return answer;
+          return new Promise((resolve) => {
+            held.push(() => void answer.then(resolve));
+          });
+        },
+      },
+    });
+
+    const view = render(<Inspector hashes={THREE.slice(0, 2)} generation={0} />);
+    await waitFor(() => expect(held).toHaveLength(1));
+    view.rerender(<Inspector hashes={THREE} generation={0} />);
+    await waitFor(() => expect(held).toHaveLength(2));
+
+    // The newer read answers first, the older one after it.
+    await act(async () => {
+      held[1]?.();
+    });
+    expect(screen.getByText("3 assets")).toBeDefined();
+
+    await act(async () => {
+      held[0]?.();
+    });
+    expect(screen.getByText("3 assets")).toBeDefined();
   });
 });
