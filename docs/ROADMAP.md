@@ -254,6 +254,12 @@ is listed here, so the order stays visible instead of becoming folklore.
   Migration 0008, three journal ops, the library API, `roost comment`, the three contract
   requests, the inspector's list, and the marker strip under the player. What is **not** done is
   seeing it in a real window, which is the fifth thing now waiting on `check-grid.mjs`
+- ◐ **A video transport of our own** — ADR-0024, **Proposed** 2026-09-02, from the user asking why
+  Eagle's player feels part of the application and ours does not. Four stages: parity plus the
+  comment marks moved onto the timeline, then frame stepping and speed and A-B loop, then
+  hover-scrub previews (a decision of its own), then **set this frame as the thumbnail**, which
+  the user asked for directly. Not started — it needs the user, and it needs four player
+  libraries measured first
 
 ## M5 — Discovery features ☐
 
@@ -290,7 +296,10 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-02.** ADR-0023 — comments that carry a moment — was accepted the
+**ADR-0024 is open, as of 2026-09-02**: a video transport of our own, proposed after the user
+asked what media player Eagle uses and the answer turned out to be "the same one, with the
+controls turned off". It needs the user, and it needs four player libraries measured against
+invariant 7 first. Before it, ADR-0023 — comments that carry a moment — was accepted the
 day after it was proposed. The five questions the language change forced were settled together,
 before any code was written against them — which is the cheapest moment they could
 have been settled, and the reason M0 can start without working around an unknown.

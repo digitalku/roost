@@ -18,7 +18,23 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   permanent removal stays `remove`. Migration 0007, the `trash`/`restore` ops, `is:trashed`,
   the Trash place, `roost trash`, and the window's `Delete` key all landed together.
 
-**Nothing blocking.** The five questions the language change forced were settled on 2026-08-24,
+- 🟡 **ADR-0024 — a video transport of our own.** Proposed 2026-09-02, after the user asked what
+  media player Eagle uses. It is the same player: Eagle is an Electron application, so its
+  playback is Chromium's, with `controls` off and a transport drawn over it. Everything it does
+  that ours cannot — frame stepping, 0.25×–8×, hover-scrub previews, A-B loop, marks *on* the
+  timeline, "set this frame as the thumbnail" — follows from that one decision.
+  - **Stage 4 is asked for directly**: right click the video, set the frame it is paused on as the
+    thumbnail. Decided inside the ADR rather than deferred, because the part that looked
+    frightening has a clean answer — the journal records `poster_set {hash, at}`, **where to look
+    and never the pixels**, so a rebuild re-extracts the frame and invariant 1 is untouched.
+  - **What must be measured before it is Accepted**: `media-chrome`, Vidstack, Plyr, and video.js
+    against invariant 7, the bundle budget, and whether a mark can be put on their timeline
+    without forking them. ADR-0021 exists because the first answer to a question shaped like this
+    was wrong, and the same four-candidate measurement is owed here.
+  - Stage 3 (storyboard sprites for hover-scrub) stays a separate decision: it is a migration, and
+    `thumbs` is keyed `(hash, size)` where a sprite is not a size.
+
+**Nothing else is blocking.** The five questions the language change forced were settled on 2026-08-24,
 before any code was written against them — ADR-0006 through ADR-0012, all Accepted. What they
 decided is in `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
 
