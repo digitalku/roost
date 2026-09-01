@@ -276,8 +276,9 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-01.** The five questions the language change forced were settled
-together, before any code was written against them — which is the cheapest moment they could
+**One open, as of 2026-09-01: ADR-0023**, comments that carry a moment — a table, three journal
+ops, and where a position lives. Everything in the table below is settled. The five questions the
+language change forced were settled together, before any code was written against them — which is the cheapest moment they could
 have been settled, and the reason M0 can start without working around an unknown.
 
 | Question | Outcome | Record |

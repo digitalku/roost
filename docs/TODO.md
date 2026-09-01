@@ -231,6 +231,13 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   *referenced* original does not — that one says the user moved their own file, and counting it
   would block reclaiming forever, since no rebuild returns a file someone meant to delete.
 
+- 🟡 **Notes are not searchable at all, and `CONCEPT.md` §5.1 lists them as an M.** The parity
+  line is "full-text over name, tags, **notes**, folder names"; `assets_fts` is
+  `(hash, orig_name, tags)`, and RQL has no `note:` either — so a note is a field a person can
+  write and then never find again. Found on 2026-09-01 while drafting ADR-0023, which refuses to
+  give comments a search path before notes have one: a library where the comments are findable
+  and the notes are not is worse than one where neither is. The fix is one FTS column and one
+  trigger, and folder names are the other half of the same line.
 - 🟡 **Free text that matches almost everything costs 22 ms at 95k assets**, against 0.16 ms for
   a selective term. `assets_fts MATCH ?` is compiled as `a.rowid IN (SELECT rowid ...)`, and the
   subquery materialises every matching rowid before the ordering and the limit apply. Nothing to
