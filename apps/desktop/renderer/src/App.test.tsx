@@ -355,6 +355,50 @@ describe("the library view", () => {
     expect(await screen.findByText("12 assets · 5 selected")).toBeDefined();
   });
 
+  it("drops the selection when Delete takes it off screen, and still says what happened", async () => {
+    // Both halves were found by driving a real window, and neither shows in a
+    // component test of the menu alone: the selection lives in `App`, the note
+    // lives in `App`, and it was `App` that wiped one with the other.
+    const { engine, user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    expect(await screen.findByText("12 assets · 1 selected")).toBeDefined();
+
+    await user.keyboard("{Delete}");
+
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "assets:trash")).toBe(true),
+    );
+    // The asset is off screen, so a selection naming it is a selection of
+    // something nobody can see — the inspector would go on editing it. The
+    // total is the fake's own and is pinned, so what is asserted is the
+    // disappearance of the selection clause rather than the count beside it.
+    await waitFor(() => expect(screen.queryByText(/selected/)).toBeNull());
+    expect(screen.getByText("12 assets")).toBeDefined();
+
+    // **Read after the clear has rendered, never with `findByText`.** The
+    // status line survives the selection change the action itself caused, and
+    // an unstamped note is wiped by the effect that drops a stale result — but
+    // it is on screen for one commit first, which `findByText` resolves on and
+    // then stops watching. Written that way the test passed with the fix
+    // removed (`TODO.md` §4, lesson 9).
+    expect(screen.getByText("Moved 1 asset to the trash")).toBeDefined();
+  });
+
+  it("keeps the selection after an export, which takes nothing off screen", async () => {
+    // The other half of the rule: only actions that remove assets from the view
+    // clear the selection, or exporting twelve would deselect them.
+    const { user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+
+    const grid = screen.getByRole("listbox", { name: "Assets" });
+    grid.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await user.click(await screen.findByRole("menuitem", { name: "Export…" }));
+
+    expect(await screen.findByText("12 assets · 1 selected")).toBeDefined();
+  });
+
   /** The first cell's box, as the layout set it. */
   const box = (): { width: number; height: number } => {
     const cell = screen.getAllByRole("option")[0] as HTMLElement;

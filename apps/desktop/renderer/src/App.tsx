@@ -392,6 +392,9 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
 
 const EMPTY_LIBRARY = "Nothing in this library yet.";
 const NOTHING_MATCHED = "Nothing matches this query.";
+// The Trash place is the one query whose empty answer is a *state* rather than
+// a failed search — "nothing matches" reads as a query that did not work.
+const EMPTY_TRASH = "The trash is empty.";
 
 /** `1,234 assets · 3 selected`, with the second half only when there is one. */
 function summaryLine(assets: number | undefined, selected: number): string {
@@ -455,11 +458,17 @@ function LibraryView({
    *
    * The status bar rather than a dialog: an export that worked is not worth
    * interrupting anyone for, and one that partly did not is not worth losing.
-   * It clears when the selection changes, which is the next thing a person does
-   * after acting on one — so it needs no timer, and nothing disappears while
-   * still being read.
+   * It clears when the selection moves *away from* the one it was written
+   * against, which is the next thing a person does after acting on one — so it
+   * needs no timer, and nothing disappears while still being read.
+   *
+   * **Stamped with a selection revision rather than cleared on any change.**
+   * Trashing says what it did and then clears the selection, because the assets
+   * it named are no longer on screen — and a rule that cleared the line on any
+   * change would wipe every message the moment it was written. Found by driving
+   * a real window: the note was there before the fix and gone after it.
    */
-  const [note, setNote] = useState<string | undefined>();
+  const [note, setNote] = useState<{ line: string; at: number } | undefined>();
   const [acted, setActed] = useState<WireProblem | undefined>();
   /**
    * What is on screen, as one string.
@@ -551,10 +560,13 @@ function LibraryView({
    */
   const [confirming, setConfirming] = useState<ConfirmRequest | undefined>();
 
-  // Selecting something else is how a result stops being the current one.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the revision is the trigger
+  // Selecting something else is how a result stops being the current one — but
+  // a result written *against* this selection is not stale, which is what an
+  // action that clears the selection produces.
   useEffect(() => {
-    setNote(undefined);
+    setNote((current) =>
+      current === undefined || current.at === selectionRevision ? current : undefined,
+    );
     setActed(undefined);
   }, [selectionRevision]);
 
@@ -604,16 +616,33 @@ function LibraryView({
     return trash !== undefined && trash.query === query;
   }, [sidebar, query]);
 
-  const noteResult = useCallback((line: string) => {
-    setActed(undefined);
-    setNote(line);
-  }, []);
+  const noteResult = useCallback(
+    (line: string) => {
+      setActed(undefined);
+      // Read from the store rather than from the subscribed value: the actions
+      // clear the selection before saying what they did, so the revision that
+      // matters is the one after that clear, and this render has not seen it.
+      setNote({ line, at: selection.revision() });
+    },
+    [selection],
+  );
+
+  /**
+   * Trashing, restoring, and deleting all take their assets out of the view.
+   *
+   * The same rule `applyQuery` follows, for the same reason: what was selected
+   * is no longer on screen. Without it the status bar says "1 selected" over a
+   * grid with nothing highlighted, the inspector goes on editing an asset that
+   * is in the trash, and the roving ring has nowhere to return to.
+   */
+  const clearSelection = useCallback(() => selection.clear(), [selection]);
 
   const trashing = useTrashActions({
     hashes: selected,
     onNote: noteResult,
     onProblem: setActed,
     onConfirm: setConfirming,
+    onGone: clearSelection,
   });
 
   /**
@@ -710,11 +739,14 @@ function LibraryView({
             onNote={noteResult}
             onProblem={setActed}
             onConfirm={setConfirming}
+            onGone={clearSelection}
           >
             <PreviewPane hash={focused} onClose={() => setPreviewing(false)} onStep={step} />
           </AssetContextMenu>
         ) : paging.assets.length === 0 && paging.done ? (
-          <p className="grid-empty">{query === "" ? EMPTY_LIBRARY : NOTHING_MATCHED}</p>
+          <p className="grid-empty">
+            {query === "" ? EMPTY_LIBRARY : inTrash ? EMPTY_TRASH : NOTHING_MATCHED}
+          </p>
         ) : (
           <AssetContextMenu
             hashes={selected}
@@ -722,6 +754,7 @@ function LibraryView({
             onNote={noteResult}
             onProblem={setActed}
             onConfirm={setConfirming}
+            onGone={clearSelection}
           >
             <Grid
               assets={paging.assets}
@@ -750,7 +783,7 @@ function LibraryView({
         </span>
         {note !== undefined && (
           <span className="status-note" aria-live="polite">
-            {note}
+            {note.line}
           </span>
         )}
         <ImportStatus importing={importing} />

@@ -21,6 +21,7 @@ describe("the asset context menu", () => {
   let notes: string[];
   let problems: string[];
   let confirmations: ConfirmRequest[];
+  let gone: number;
 
   const show = (
     hashes: readonly string[] = HASHES,
@@ -32,6 +33,7 @@ describe("the asset context menu", () => {
     notes = [];
     problems = [];
     confirmations = [];
+    gone = 0;
     const view = render(
       <AssetContextMenu
         hashes={hashes}
@@ -39,6 +41,9 @@ describe("the asset context menu", () => {
         onNote={(line) => notes.push(line)}
         onProblem={(problem) => problems.push(problem.message)}
         onConfirm={(request) => confirmations.push(request)}
+        onGone={() => {
+          gone += 1;
+        }}
       >
         <div data-testid="surface" tabIndex={-1}>
           the grid
@@ -100,6 +105,9 @@ describe("the asset context menu", () => {
     expect(request.hashes).toEqual(HASHES);
     expect(request.destination).toBe("/home/someone/Desktop");
     expect(notes[0]).toBe("Exported 3");
+    // An export takes nothing out of the view, so the selection stays. This is
+    // the half that makes `onGone` a different callback from `onNote`.
+    expect(gone).toBe(0);
   });
 
   it("exports nothing when the dialog is cancelled", async () => {
@@ -147,6 +155,10 @@ describe("the asset context menu", () => {
     expect(sentTo("assets:trash")[0]?.hashes).toEqual(HASHES);
     expect(confirmations).toHaveLength(0);
     expect(notes[0]).toBe("Moved 3 assets to the trash");
+    // The selection named assets that are no longer on screen, so it has to go
+    // with them — otherwise the inspector goes on editing a trashed asset.
+    // Found by driving a real window, which is also the only place it shows.
+    expect(gone).toBe(1);
   });
 
   it("offers restoring and permanent deletion only inside the trash", async () => {
@@ -167,6 +179,7 @@ describe("the asset context menu", () => {
 
     await waitFor(() => expect(sentTo("assets:restore")).toHaveLength(1));
     expect(sentTo("assets:restore")[0]?.hashes).toEqual(HASHES);
+    await waitFor(() => expect(gone).toBe(1));
   });
 
   it("confirms before removing anything permanently, and sends nothing until it is", async () => {

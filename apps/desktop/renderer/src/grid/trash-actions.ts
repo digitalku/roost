@@ -29,6 +29,26 @@ export interface TrashActionsOptions {
   readonly onNote: (line: string) => void;
   readonly onProblem: (problem: WireProblem) => void;
   readonly onConfirm: (request: ConfirmRequest) => void;
+  /**
+   * The assets acted on are no longer where they were.
+   *
+   * Every action here takes its assets out of the view they were selected in —
+   * trashing and deleting out of the library, restoring out of the Trash — so
+   * the selection that named them is a selection of things nobody can see. Left
+   * alone it says "1 selected" over a grid with nothing highlighted, keeps the
+   * inspector editing a trashed asset, and leaves the roving ring with nowhere
+   * to go. Found by driving a real window on 2026-09-01; no component test
+   * could see it, because none of them owns a selection *and* a grid.
+   *
+   * Deliberately not `onNote`: exporting says something too, and an export
+   * takes nothing out of the view.
+   *
+   * **Called before `onNote`, always.** The window clears its status line when
+   * the selection moves away from the one the line was written against, so a
+   * note written before the clear is wiped by it. Saying it afterwards stamps
+   * the note against the selection that will still be there to read it.
+   */
+  readonly onGone: () => void;
 }
 
 export interface TrashActions {
@@ -45,21 +65,24 @@ export function useTrashActions({
   onNote,
   onProblem,
   onConfirm,
+  onGone,
 }: TrashActionsOptions): TrashActions {
   return useMemo(() => {
     const count = hashes.length;
 
     const trash = (): void => {
       void invoke({ type: "assets:trash", hashes }).then((outcome) => {
-        if (outcome.ok) onNote(`Moved ${assets(count)} to the trash`);
-        else onProblem(outcome.problem);
+        if (!outcome.ok) return onProblem(outcome.problem);
+        onGone();
+        onNote(`Moved ${assets(count)} to the trash`);
       });
     };
 
     const restore = (): void => {
       void invoke({ type: "assets:restore", hashes }).then((outcome) => {
-        if (outcome.ok) onNote(`Restored ${assets(count)}`);
-        else onProblem(outcome.problem);
+        if (!outcome.ok) return onProblem(outcome.problem);
+        onGone();
+        onNote(`Restored ${assets(count)}`);
       });
     };
 
@@ -71,8 +94,9 @@ export function useTrashActions({
         confirmLabel: "Delete",
         run: () => {
           void invoke({ type: "assets:remove", hashes }).then((outcome) => {
-            if (outcome.ok) onNote(`Deleted ${assets(count)}`);
-            else onProblem(outcome.problem);
+            if (!outcome.ok) return onProblem(outcome.problem);
+            onGone();
+            onNote(`Deleted ${assets(count)}`);
           });
         },
       });
@@ -85,15 +109,16 @@ export function useTrashActions({
         confirmLabel: "Empty trash",
         run: () => {
           void invoke({ type: "assets:emptyTrash" }).then((outcome) => {
-            if (outcome.ok) onNote(`Deleted ${assets(outcome.value)}`);
-            else onProblem(outcome.problem);
+            if (!outcome.ok) return onProblem(outcome.problem);
+            onGone();
+            onNote(`Deleted ${assets(outcome.value)}`);
           });
         },
       });
     };
 
     return { trash, restore, deletePermanently, emptyTrash };
-  }, [hashes, onNote, onProblem, onConfirm]);
+  }, [hashes, onNote, onProblem, onConfirm, onGone]);
 }
 
 /** "1 asset" or "12 assets" — the CLI's phrasing, so the two frontends agree. */

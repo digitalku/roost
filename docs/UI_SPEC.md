@@ -295,10 +295,19 @@ an export anyone wanted — and a name the destination already holds gets a numb
 status bar says how many were renamed, because a silent rename means the file they go looking
 for afterwards is not called what they expect.
 
+**An action that removes assets from the view clears the selection.** Trashing, restoring, and
+deleting all take their assets out of the place they were selected in; a selection left naming
+them says "1 selected" over a grid with nothing highlighted, keeps the inspector editing a
+trashed asset, and leaves the roving ring with nowhere to go. Exporting does not clear it — an
+export takes nothing off screen. Found by driving a real window on 2026-09-01, and invisible to
+every component test, because no component owns a selection *and* a grid.
+
 **Results go to the status bar, not to a dialog.** An export that worked is not worth
 interrupting anyone for, and one that partly did not is not worth losing. The line clears when
-the selection changes, which is the next thing a person does after acting on one — so it needs no
-timer, and nothing vanishes while it is still being read.
+the selection moves *away from* the one it was written against, which is the next thing a person
+does after acting on one — so it needs no timer, and nothing vanishes while it is still being
+read. Away from, not merely changes: the rule above clears the selection as part of trashing, and
+a line wiped by any change is a line no destructive action can ever leave behind.
 
 ### 3.4 Confirming what cannot be undone
 
@@ -513,6 +522,8 @@ button, because it is the only one a person can act on.
 - A folder with no assets → "Nothing in Logos yet." Drop target stays live.
 - A query with no matches → "No assets match `tag:blue rating:>=4`." with the offending
   query rendered in monospace and a "clear filter" action. Never a generic "no results".
+- An empty **Trash** → "The trash is empty." Its emptiness is a *state*, not a search that
+  found nothing, and "nothing matches this query" reads as a query that did not work.
 - A parse error → handled at the field (§5), never as an empty grid.
 
 **Loading.** Skeleton cells at the right sizes, not a spinner, and only after 150ms — anything

@@ -39,6 +39,8 @@ export interface AssetContextMenuProps {
   readonly onProblem: (problem: WireProblem) => void;
   /** Asks for the confirmation an irreversible action needs. */
   readonly onConfirm: (request: ConfirmRequest) => void;
+  /** The assets acted on have left the view, so the selection naming them has to go. */
+  readonly onGone: () => void;
   readonly children: React.ReactNode;
 }
 
@@ -48,6 +50,7 @@ export function AssetContextMenu({
   onNote,
   onProblem,
   onConfirm,
+  onGone,
   children,
 }: AssetContextMenuProps): React.JSX.Element {
   const count = hashes.length;
@@ -78,6 +81,7 @@ export function AssetContextMenu({
     onNote,
     onProblem,
     onConfirm,
+    onGone,
   });
 
   return (

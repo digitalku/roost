@@ -435,14 +435,22 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   the inspector all stay rendered and usable beside it, and `UI_SPEC.md` §7 says "into the content
   region" rather than over it. Found while wrapping the pane in the context menu; not changed in
   the same breath because the role is what `PreviewPane.test.tsx` finds the pane by.
-- 🔴 **Trash has not been seen in a real window either.** Everything below is a component,
-  service, or CLI claim: 21 tests over the library, 15 over the menu, and the whole flow driven
-  through `roost trash` against a real library on disk — trash, restore, rebuild, empty, and the
-  journal lines checked by eye against ADR-0022. What none of that covers is the pixels: the
-  Trash row and its count, the menu swapping its last item, the dialog's focus starting on
-  Cancel, and whether the grid re-pages when an asset is trashed out from under it. **This is
-  now three sessions in a row**, so it is a workflow gap rather than bad luck, and the first
-  thing the next session should do is take the single-instance lock and drive it.
+- ☑ ~~**Trash, in a real window.**~~ Driven 2026-09-01, and the precedent held for the fourth
+  time: it found two defects no test could. `scripts/check-trash.mjs` is what it became — 22
+  assertions against a running window, over a library it builds in a temp directory and deletes
+  again, so it can never touch one of yours. Verified by breaking the fix and watching three of
+  the 22 fail.
+  - **Trashing left the selection holding an asset nobody could see.** The status bar said "1
+    selected" over a grid with nothing highlighted, the inspector went on editing a trashed
+    asset, and the roving ring had nowhere to go. Every action that removes assets from the view
+    clears the selection now; exporting, which removes nothing, does not.
+  - **The fix for that wiped the status line the action had just written.** The line cleared on
+    any selection change, and trashing now *is* a selection change — so no destructive action
+    could ever say what it did. The note is stamped with the selection it was written against and
+    clears only when the selection moves away from it.
+  - 🟢 **The roving ring is left with nothing focused** after a delete, which is consistent with
+    clearing the selection any other way but not with what a file manager does. Moving it to the
+    next surviving row needs the grid's order at the moment of the delete.
 - 🟡 **Not seen in a real window.** An Electron instance opened outside this session held the
   single-instance lock again. Twelve component tests, one at the App level and seven service tests
   cover it; the pixels do not — and this is the second time in two sessions, so it is a workflow
@@ -461,10 +469,18 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - ☑ ~~Re-importing a trashed file restores it.~~ It journals a `restore`, never a second `add`:
   re-adding would rewrite `imported_at` and move the asset to the top of a grid it has been in
   for months.
+- ☑ ~~**Nothing in the repository drives a window.**~~ Half-closed: `check-trash.mjs` joins
+  `check-sandbox.mjs` and `bench-window.mjs`. All three are still run by hand and none is in
+  `pnpm verify`, for the reason §M3 gives — they need Electron's binary and a session that
+  composites. What is new is that the trash one **builds its own fixture**, so it is the first of
+  the three that could be a CI step without a library to point it at.
 - 🟡 **The grid re-pages on a trash rather than dropping the row.** `readStats` now compares the
   trashed count as well as the asset count, so trashing does invalidate the pages — but it
   invalidates *all* of them and the scroll position goes with them. That is the same targeted-update
   gap §M3 already carries, now reachable one gesture sooner.
+- ☑ ~~**An empty Trash reported a failed search.**~~ It said "Nothing matches this query.",
+  which reads as a query that did not work rather than as a trash with nothing in it.
+  `UI_SPEC.md` §8 carries the state now.
 - 🟡 **The inspector says nothing about a trashed asset.** `AssetDetail` and the wire both carry
   `trashedAt` and nothing draws it, so an asset opened from Trash looks like any other.
 - 🟢 **`doctor` does not mention the trash.** Trashed assets are still rows, so their bytes are
@@ -594,7 +610,16 @@ repository's session log, because a lesson nobody rereads is a lesson nobody has
     so `view` arrived as `undefined` and the grid fell back to Icons, which is what those tests
     happened to expect. A forced build finds it in 0.78s against 0.37s, so `pnpm typecheck` is
     `tsc -b --force` now and `pnpm build` stays incremental. TypeScript 7.0.2.
-11. **Measure before naming the cause.** The obvious reason a sequential JavaScript pipeline
+11. **A test that waits for text can pass on text that is about to vanish.** `findByText`
+    resolves the moment the node appears and then stops watching, so a status line written and
+    then wiped one commit later satisfies it. Written that way, the regression test for the
+    status line passed with the fix removed — the same shape as lesson 9, reached from a
+    different direction. Wait for the *settled* state first, then read synchronously.
+12. **`pkill -f` matches the shell running it.** `pkill -f check-trash.mjs` from a shell whose
+    own command line contains that string kills the shell, and the symptom is a command that
+    produces no output and never returns — which reads as the script hanging. It cost twenty
+    minutes here. Match on a pattern the invocation cannot contain.
+13. **Measure before naming the cause.** The obvious reason a sequential JavaScript pipeline
     loses to Rust is that the Rust one is parallel. It is not: `/usr/bin/time` put `roost-old`'s
     import at 98% CPU — one core — while this build sat at 199% and still took three times as
     long. The difference is six times the CPU *per file*, not threads. The write-up that assumed
