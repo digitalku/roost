@@ -1,7 +1,9 @@
-import type { WireAssetDetail } from "@roost/contract";
+import type { WireAssetDetail, WireComment } from "@roost/contract";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { fallbackToGrid, previewSrc } from "../thumbnail.js";
+import { timecode } from "../timecode.js";
+import { playhead } from "./playhead.js";
 
 /**
  * One asset, filling the content region (`UI_SPEC.md` §7).
@@ -21,27 +23,52 @@ import { fallbackToGrid, previewSrc } from "../thumbnail.js";
 
 export interface PreviewPaneProps {
   readonly hash: string;
+  /**
+   * Bumped by the caller when something outside the pane changed the library.
+   *
+   * The inspector is on screen beside the preview and can add a comment to the
+   * asset being played, so the pane re-reads on it exactly as the inspector
+   * does — otherwise the marker strip would be right only until somebody used
+   * the panel next to it.
+   */
+  readonly generation: number;
   readonly onClose: () => void;
   /** Moves to the previous or next loaded asset, changing the selection. */
   readonly onStep: (delta: -1 | 1) => void;
 }
 
-export function PreviewPane({ hash, onClose, onStep }: PreviewPaneProps): React.JSX.Element {
+export function PreviewPane({
+  hash,
+  generation,
+  onClose,
+  onStep,
+}: PreviewPaneProps): React.JSX.Element {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [page, setPage] = useState(0);
   const pane = useRef<HTMLDivElement>(null);
+  /** Which asset the page number belongs to, so a re-read does not turn back. */
+  const detailHash = useRef<string | undefined>(undefined);
 
   const pages = detail?.kind === "document" ? (detail.pageCount ?? 0) : 0;
   const turn = (delta: number): void => {
     setPage((current) => Math.min(pages - 1, Math.max(0, current + delta)));
   };
 
+  /*
+   * `generation` is a trigger rather than a value the body reads: something
+   * outside the pane changed the library, and what is on screen may be stale.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     let current = true;
-    setDetail(undefined);
+    // Not cleared on a re-read of the same asset: blanking the pane on every
+    // announced change would restart a video that is playing. A different
+    // asset replaces the element anyway, because `Stage` is keyed on the hash.
+    setDetail((held) => (held?.hash === hash ? held : undefined));
     // Back to the first page: stepping to the next asset must not open it at
     // page forty because that is where the last document was left.
-    setPage(0);
+    setPage((at) => (detailHash.current === hash ? at : 0));
+    detailHash.current = hash;
     void (async () => {
       const outcome = await invoke({ type: "asset:detail", hash });
       if (current && outcome.ok && outcome.value !== null) setDetail(outcome.value);
@@ -49,7 +76,7 @@ export function PreviewPane({ hash, onClose, onStep }: PreviewPaneProps): React.
     return () => {
       current = false;
     };
-  }, [hash]);
+  }, [hash, generation]);
 
   // The pane takes focus when it opens: it is the thing the keyboard is now
   // for, and a preview that needs a click before the arrow keys work is a
@@ -129,18 +156,8 @@ function Stage({
     return <img key={detail.hash} className="preview-media" src={src} alt={detail.name} />;
   }
 
-  if (detail.kind === "video") {
-    /*
-     * The file is the user's own and there is nowhere a caption track could
-     * come from — M4's metadata pass is where an embedded one would be found.
-     */
-    // biome-ignore lint/a11y/useMediaCaption: see above
-    return <video key={detail.hash} className="preview-media" src={src} controls autoPlay />;
-  }
-
-  if (detail.kind === "audio") {
-    // biome-ignore lint/a11y/useMediaCaption: as for video, above
-    return <audio key={detail.hash} className="preview-audio" src={src} controls autoPlay />;
+  if (detail.kind === "video" || detail.kind === "audio") {
+    return <Player key={detail.hash} detail={detail} src={src} />;
   }
 
   // A document with pages to turn. `pageCount` is null until the derive pass
@@ -209,6 +226,139 @@ function Pages({
           Next
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Video and audio, with a strip of comment markers under the native controls.
+ *
+ * **Under the control bar, not instead of it** (ADR-0023 §6). The browser's own
+ * bar cannot carry marks of ours, and the only other way past that is a custom
+ * transport — which means owning buffering, fullscreen, the keyboard map, and
+ * the accessibility of a media player, a commitment `UI_SPEC.md` §7 has avoided
+ * on purpose.
+ *
+ * The strip is drawn whether or not there is anything on it, so that writing the
+ * first comment does not move the picture it is about.
+ *
+ * Nothing here follows the playhead. The native bar draws the position a pixel
+ * above this strip, and a second indicator would be a `requestAnimationFrame`
+ * loop for the whole of a film to redraw what is already on screen.
+ */
+function Player({
+  detail,
+  src,
+}: {
+  readonly detail: WireAssetDetail;
+  readonly src: string;
+}): React.JSX.Element {
+  const media = useRef<HTMLMediaElement | null>(null);
+  /**
+   * What the element says, once it has said anything.
+   *
+   * Derived rather than seeded from `detail.durationMs`, and the difference is
+   * not academic: a `useState` initialiser runs once, so a strip that opened
+   * before the derive pass had probed the file would hold `null` for as long as
+   * the preview stayed open — and there is no second chance if the element
+   * itself never loads. Found in a real window, against a video Chromium
+   * refused to decode: the library knew the duration and the strip stayed
+   * empty.
+   */
+  const [measured, setMeasured] = useState<number | null>(null);
+  // The element's own answer wins: it is the timeline the markers are placed
+  // along. The probe's is what lets a marker be drawn before the file loads.
+  const duration = measured ?? detail.durationMs;
+
+  // Registered for the inspector's list to seek, which is in another subtree
+  // entirely (`playhead.ts`).
+  useEffect(() => {
+    const element = media.current;
+    return element === null ? undefined : playhead.attach(element);
+  }, []);
+
+  const measure = (): void => {
+    const seconds = media.current?.duration;
+    if (seconds !== undefined && Number.isFinite(seconds) && seconds > 0) {
+      setMeasured(Math.round(seconds * 1000));
+    }
+  };
+
+  /*
+   * The file is the user's own and there is nowhere a caption track could come
+   * from — M4's metadata pass is where an embedded one would be found.
+   */
+  return (
+    <div className="preview-player">
+      {detail.kind === "audio" ? (
+        // biome-ignore lint/a11y/useMediaCaption: see above
+        <audio
+          ref={(element) => {
+            media.current = element;
+          }}
+          className="preview-audio"
+          src={src}
+          controls
+          autoPlay
+          onLoadedMetadata={measure}
+        />
+      ) : (
+        // biome-ignore lint/a11y/useMediaCaption: see above
+        <video
+          ref={(element) => {
+            media.current = element;
+          }}
+          className="preview-media"
+          src={src}
+          controls
+          autoPlay
+          onLoadedMetadata={measure}
+        />
+      )}
+      <Markers comments={detail.comments} duration={duration} />
+    </div>
+  );
+}
+
+/**
+ * One tick per timed comment, placed along the medium's own timeline.
+ *
+ * Untimed comments are not here on purpose: they are about the asset rather
+ * than about a moment in it, and a tick at zero would say something the comment
+ * does not. They are in the inspector's list, which holds both.
+ */
+function Markers({
+  comments,
+  duration,
+}: {
+  readonly comments: readonly WireComment[];
+  readonly duration: number | null;
+}): React.JSX.Element {
+  const timed = comments.filter((comment) => comment.atMs !== null);
+  const placeable = duration !== null && duration > 0;
+
+  return (
+    // No role and no name of its own: the strip is a track, and every tick on
+    // it says where it goes and what is written there. A named group here would
+    // announce a heading over controls that already describe themselves.
+    <div className="preview-markers">
+      {placeable &&
+        timed.map((comment) => {
+          const at = comment.atMs ?? 0;
+          return (
+            <button
+              key={comment.id}
+              type="button"
+              className="preview-marker"
+              // Clamped: a comment written against a duration the probe
+              // reported and the file disagrees with must stay on the strip.
+              style={{ left: `${Math.min(100, (at / duration) * 100)}%` }}
+              title={`${timecode(at)} — ${comment.body}`}
+              aria-label={`Play from ${timecode(at)}: ${comment.body}`}
+              onClick={() => playhead.seek(at)}
+            />
+          );
+        })}
     </div>
   );
 }

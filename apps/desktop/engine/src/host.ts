@@ -11,6 +11,7 @@ import type {
   ResponseOf,
   SidebarRow,
   WireAssetDetail,
+  WireComment,
   WireCursor,
   WireDeriveStatus,
   WireImportReport,
@@ -18,6 +19,7 @@ import type {
 } from "@roost/contract";
 import {
   type AssetDetail,
+  type CommentRow,
   type ContentHash,
   type Cursor,
   lastCursor,
@@ -27,6 +29,7 @@ import {
   type StorageMode,
 } from "@roost/core";
 import {
+  addComment,
   compileFor,
   type DeriveReport,
   emptyTrash,
@@ -48,11 +51,13 @@ import {
   readSidebar,
   rememberLibrary,
   removeAssets,
+  removeComment,
   renameAsset,
   restoreAssets,
   retryBlocked,
   retryFailed,
   runDerives,
+  setComment,
   setFavorite,
   setNote,
   tagAdd,
@@ -141,7 +146,7 @@ export class EngineHost {
         // a million (`serving.ts`). One asset, and only if it already has a
         // grid thumbnail — proof that something here can draw it.
         await ensurePreview(library, request.hash);
-        return detailOf(found);
+        return detailOf(found, library.db.repo.commentsFor(found.hash));
       }
 
       case "asset:summary":
@@ -170,6 +175,27 @@ export class EngineHost {
 
       case "asset:tagRemove":
         return this.#edit(() => tagRemove(this.#require(), hashes(request.hashes), request.tags));
+
+      // The id `addComment` mints is deliberately dropped: the caller re-reads
+      // the asset like every other edit, and an id held in the renderer would
+      // be a second idea of a list the engine already answers with.
+      case "comment:add":
+        return this.#edit(async () => {
+          await addComment(
+            this.#require(),
+            parseContentHash(request.hash),
+            request.atMs,
+            request.body,
+          );
+        });
+
+      case "comment:set":
+        return this.#edit(() =>
+          setComment(this.#require(), request.id, request.atMs, request.body),
+        );
+
+      case "comment:remove":
+        return this.#edit(() => removeComment(this.#require(), request.id));
 
       case "assets:trash":
         return this.#edit(() => trashAssets(this.#require(), hashes(request.hashes)));
@@ -625,7 +651,7 @@ function hashes(values: readonly string[]): ContentHash[] {
  * and the wire says it is one of two values, so this is where a third one would
  * be caught instead of reaching a renderer that switches on it.
  */
-function detailOf(detail: AssetDetail): WireAssetDetail {
+function detailOf(detail: AssetDetail, comments: readonly CommentRow[]): WireAssetDetail {
   return {
     hash: detail.hash,
     name: detail.origName,
@@ -648,6 +674,26 @@ function detailOf(detail: AssetDetail): WireAssetDetail {
     durationMs: detail.durationMs,
     pageCount: detail.pageCount,
     props: detail.props,
+    comments: comments.map(commentOf),
+  };
+}
+
+/**
+ * One comment, mapped field by field.
+ *
+ * The `hash` is dropped: these arrive inside the detail of the asset they are
+ * on, so carrying it would be a second copy of what the reader asked by. `atMs`
+ * keeps its name — it is the one number here that is milliseconds rather than
+ * unix seconds (ADR-0023), and a field called `at` beside `createdAt` would
+ * invite reading the two as the same kind of number.
+ */
+function commentOf(row: CommentRow): WireComment {
+  return {
+    id: row.id,
+    atMs: row.atMs,
+    body: row.body,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 

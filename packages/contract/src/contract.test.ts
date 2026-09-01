@@ -93,6 +93,9 @@ describe("validating a request", () => {
       "asset:rename",
       "asset:tagAdd",
       "asset:tagRemove",
+      "comment:add",
+      "comment:set",
+      "comment:remove",
       "asset:openExternally",
       "asset:reveal",
       "asset:copyPath",
@@ -161,6 +164,69 @@ describe("validating a page of the grid", () => {
       reason: "assets:page: limit: expected a safe integer",
     });
     expect(page({ limit: MAX_PAGE_LIMIT }).ok).toBe(true);
+  });
+});
+
+describe("validating a comment", () => {
+  const HASH = "a".repeat(64);
+
+  it("takes a moment or an explicit null, and nothing in between", () => {
+    expect(checkRequest({ type: "comment:add", hash: HASH, atMs: 91_500, body: "early" })).toEqual({
+      ok: true,
+      value: { type: "comment:add", hash: HASH, atMs: 91_500, body: "early" },
+    });
+
+    // `null` is a comment about the asset rather than about a moment in it,
+    // which is what lets a `.zip` carry one (ADR-0023).
+    expect(checkRequest({ type: "comment:add", hash: HASH, atMs: null, body: "x" })).toEqual({
+      ok: true,
+      value: { type: "comment:add", hash: HASH, atMs: null, body: "x" },
+    });
+
+    // An absent field is not the same as an explicit null on this boundary: it
+    // is a caller that forgot, and forgetting must not silently mean "about the
+    // whole asset".
+    expect(checkRequest({ type: "comment:add", hash: HASH, body: "x" })).toEqual({
+      ok: false,
+      reason: "comment:add: atMs: expected a safe integer",
+    });
+  });
+
+  it("refuses a moment that cannot mean anything", () => {
+    expect(checkRequest({ type: "comment:add", hash: HASH, atMs: -1, body: "x" })).toEqual({
+      ok: false,
+      reason: "comment:add: atMs: expected zero or more milliseconds",
+    });
+    // Milliseconds are integers here, and a float would round differently on
+    // the two sides of the wire.
+    expect(checkRequest({ type: "comment:add", hash: HASH, atMs: 91.5, body: "x" })).toEqual({
+      ok: false,
+      reason: "comment:add: atMs: expected a safe integer",
+    });
+  });
+
+  it("refuses a body with nothing in it", () => {
+    // The engine trims and refuses the same thing (`EmptyCommentError`); this
+    // is the boundary refusing to carry it in the first place.
+    expect(checkRequest({ type: "comment:add", hash: HASH, atMs: null, body: "   " })).toEqual({
+      ok: false,
+      reason: "comment:add: body: expected a non-empty string",
+    });
+  });
+
+  it("names an edit by its id, never by a hash and a position", () => {
+    expect(checkRequest({ type: "comment:set", id: 41, atMs: 91_000, body: "later" })).toEqual({
+      ok: true,
+      value: { type: "comment:set", id: 41, atMs: 91_000, body: "later" },
+    });
+    expect(checkRequest({ type: "comment:remove", id: 41 })).toEqual({
+      ok: true,
+      value: { type: "comment:remove", id: 41 },
+    });
+    expect(checkRequest({ type: "comment:remove", id: "41" })).toEqual({
+      ok: false,
+      reason: "comment:remove: id: expected a safe integer",
+    });
   });
 });
 

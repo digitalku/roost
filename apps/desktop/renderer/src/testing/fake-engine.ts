@@ -10,6 +10,7 @@ import type {
   RequestType,
   ResponseOf,
   WireAssetDetail,
+  WireComment,
   WireDeriveStatus,
   WireExportReport,
   WireImportReport,
@@ -135,6 +136,7 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     isFavorite: false,
     tags: [],
     folders: [],
+    comments: [],
     ...over,
   };
 }
@@ -189,6 +191,14 @@ export class FakeEngine {
   readonly details = new Map<string, WireAssetDetail>();
   /** Mutable: an import adds rows, newest first. */
   assets: readonly AssetCard[];
+  /**
+   * The next comment id, minted the way the engine mints one: `max(id) + 1`.
+   *
+   * Modelled rather than stubbed because the renderer names an edit by the id
+   * the list handed it, and a fake that reused one would let a component pass
+   * while editing the wrong comment.
+   */
+  #nextCommentId = 1;
   #open: LibrarySummary | undefined;
   #recent: readonly WireRecentLibrary[];
   #listeners = new Set<(event: unknown) => void>();
@@ -196,7 +206,15 @@ export class FakeEngine {
   constructor(options: FakeEngineOptions = {}) {
     this.#options = options;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);
-    for (const detail of options.details ?? []) this.details.set(detail.hash, detail);
+    for (const detail of options.details ?? []) {
+      // Ordered on the way in, not only on the way out: the engine answers in
+      // the repository's order whatever order the rows were written in, and a
+      // fake that returned a test's own spelling would be kinder than the wire.
+      this.details.set(detail.hash, { ...detail, comments: ordered(detail.comments) });
+      for (const comment of detail.comments) {
+        this.#nextCommentId = Math.max(this.#nextCommentId, comment.id + 1);
+      }
+    }
     this.assets = options.assets ?? [];
     this.#recent = options.recent ?? [];
   }
@@ -260,6 +278,25 @@ export class FakeEngine {
     for (const hash of hashes) {
       const found = this.details.get(hash);
       if (found !== undefined) this.details.set(hash, change(found));
+    }
+    this.emit({ type: "library:changed" });
+    return ok(null);
+  }
+
+  /**
+   * Applies a change to every comment in the fake, by id.
+   *
+   * Across all assets rather than one, because `comment:set` and
+   * `comment:remove` name a comment by its id and never say which asset it is
+   * on — so a fake that needed to be told would be a kinder wire than the real
+   * one. Returning `undefined` from `change` drops the comment.
+   */
+  #mutateComments(change: (comment: WireComment) => WireComment | undefined): Outcome<unknown> {
+    for (const [hash, detail] of this.details) {
+      const kept = detail.comments
+        .map(change)
+        .filter((comment): comment is WireComment => comment !== undefined);
+      this.details.set(hash, { ...detail, comments: ordered(kept) });
     }
     this.emit({ type: "library:changed" });
     return ok(null);
@@ -441,6 +478,34 @@ export class FakeEngine {
         }));
       }
 
+      case "comment:add": {
+        const body = request.body.trim();
+        const id = this.#nextCommentId;
+        this.#nextCommentId += 1;
+        return this.#mutate([request.hash], (detail) => ({
+          ...detail,
+          comments: ordered([
+            ...detail.comments,
+            { id, atMs: request.atMs, body, createdAt: 1_700_000_000, updatedAt: null },
+          ]),
+        }));
+      }
+
+      case "comment:set":
+        return this.#mutateComments((comment) =>
+          comment.id === request.id
+            ? {
+                ...comment,
+                atMs: request.atMs,
+                body: request.body.trim(),
+                updatedAt: 1_700_000_100,
+              }
+            : comment,
+        );
+
+      case "comment:remove":
+        return this.#mutateComments((comment) => (comment.id === request.id ? undefined : comment));
+
       // Trashing is modelled as removal from `assets`, because that is what the
       // window sees: every query but the Trash place is scoped to live assets,
       // and the fake has no query engine to scope with. Restoring is deliberately
@@ -547,6 +612,22 @@ export class FakeEngine {
       }
     }
   }
+}
+
+/**
+ * Comments in the order the repository answers with: timed first, in timeline
+ * order, ties broken by id.
+ *
+ * `ORDER BY at_ms IS NULL, at_ms, id` in SQL. Repeated here because the order
+ * is what the inspector draws and the strip reads, and a fake that returned
+ * insertion order would let a component pass while showing the wrong list.
+ */
+function ordered(comments: readonly WireComment[]): WireComment[] {
+  return [...comments].sort((left, right) => {
+    if ((left.atMs === null) !== (right.atMs === null)) return left.atMs === null ? 1 : -1;
+    if (left.atMs !== right.atMs) return (left.atMs ?? 0) - (right.atMs ?? 0);
+    return left.id - right.id;
+  });
 }
 
 /** Keyset paging over a plain array, the way the engine does it over SQLite. */

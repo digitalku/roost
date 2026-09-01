@@ -271,6 +271,37 @@ export interface WireAssetDetail {
    * and knows nothing about what any key means.
    */
   readonly props: Readonly<Record<string, string>>;
+  /**
+   * Comments, timed ones first and in timeline order (ADR-0023).
+   *
+   * Carried by the detail rather than fetched on their own, because both
+   * readers already have one: the inspector draws the list under the note, and
+   * the preview draws a tick per comment under the player. A second request
+   * would be a second round trip for both, and two ideas of when the list is
+   * stale.
+   */
+  readonly comments: readonly WireComment[];
+}
+
+/**
+ * One comment, and the moment it points at (ADR-0023).
+ *
+ * `atMs` is milliseconds into the medium, and `null` means the comment is about
+ * the asset rather than about a moment in it — which is what lets a `.zip`
+ * carry one. It is the one number on this wire that is **not** unix seconds,
+ * and it is spelled `atMs` so that it cannot be read as one.
+ *
+ * There is no `hash` here: comments arrive inside the detail of the asset they
+ * are on, so a hash would be a second copy of what the reader already asked by.
+ */
+export interface WireComment {
+  readonly id: number;
+  readonly atMs: number | null;
+  readonly body: string;
+  /** Unix seconds, like every other timestamp here. */
+  readonly createdAt: number;
+  /** `null` until the comment is edited. */
+  readonly updatedAt: number | null;
 }
 
 /** One of the backends that draws a format, and whether this machine has it. */

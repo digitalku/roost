@@ -152,6 +152,37 @@ export type Request =
       readonly tags: readonly string[];
     }
   /**
+   * Add a comment to one asset, at a moment or about the whole of it (ADR-0023).
+   *
+   * `atMs` is milliseconds into the medium; `null` is a comment about the
+   * asset, which is what lets a `.zip` carry one. One hash rather than the
+   * selection: a comment is a paragraph about one thing, for the reason
+   * `UI_SPEC.md` §3.2 keeps the note off a multi-selection.
+   *
+   * The id is minted and journalled by the engine, so it is neither sent nor
+   * answered with — the caller re-reads the asset, like every other edit.
+   */
+  | {
+      readonly type: "comment:add";
+      readonly hash: string;
+      readonly atMs: number | null;
+      readonly body: string;
+    }
+  /**
+   * Edit a comment in place, keeping its identity and its place in the list.
+   *
+   * By id rather than by hash and index: an index would name a different
+   * comment the moment another window added one, and the id is what the
+   * journal already carries.
+   */
+  | {
+      readonly type: "comment:set";
+      readonly id: number;
+      readonly atMs: number | null;
+      readonly body: string;
+    }
+  | { readonly type: "comment:remove"; readonly id: number }
+  /**
    * Hand an asset to the desktop's own handler.
    *
    * Answered by **main**: it needs `shell.openPath`, and the engine has no
@@ -304,6 +335,9 @@ export interface Responses {
   "asset:rename": null;
   "asset:tagAdd": null;
   "asset:tagRemove": null;
+  "comment:add": null;
+  "comment:set": null;
+  "comment:remove": null;
   /** `false` when the desktop had no handler for it. */
   "asset:openExternally": boolean;
   /** `false` when the bytes are not on this machine. */
@@ -463,6 +497,31 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "asset:tagRemove", hashes: hashes.value, tags: tags.value });
   },
 
+  "comment:add": (source) => {
+    const hash = readHash(source, "hash");
+    if (!hash.ok) return hash;
+    const atMs = readMoment(source);
+    if (!atMs.ok) return atMs;
+    const body = readNonEmpty(source, "body");
+    if (!body.ok) return body;
+    return ok({ type: "comment:add", hash: hash.value, atMs: atMs.value, body: body.value });
+  },
+
+  "comment:set": (source) => {
+    const id = readInteger(source, "id");
+    if (!id.ok) return id;
+    const atMs = readMoment(source);
+    if (!atMs.ok) return atMs;
+    const body = readNonEmpty(source, "body");
+    if (!body.ok) return body;
+    return ok({ type: "comment:set", id: id.value, atMs: atMs.value, body: body.value });
+  },
+
+  "comment:remove": (source) => {
+    const id = readInteger(source, "id");
+    return id.ok ? ok({ type: "comment:remove", id: id.value }) : id;
+  },
+
   "asset:openExternally": (source) => {
     const hash = readHash(source, "hash");
     return hash.ok ? ok({ type: "asset:openExternally", hash: hash.value }) : hash;
@@ -541,6 +600,21 @@ export const REQUEST_VALIDATORS: {
  * caller that meant to page and did not.
  */
 export const MAX_PAGE_LIMIT = 10_000;
+
+/**
+ * A moment into a medium: milliseconds, or `null` for a comment about the asset.
+ *
+ * Refused here rather than left to the engine, unlike a rating's range: a
+ * negative offset is not a value out of bounds but a number that cannot mean
+ * anything, and the same check runs again where the journal is written
+ * (`op.ts`) because that is the side that has to survive a replay.
+ */
+function readMoment(source: Record<string, unknown>): Checked<number | null> {
+  const at = readNullable(source, "atMs", readInteger);
+  if (!at.ok) return at;
+  if (at.value !== null && at.value < 0) return bad("atMs: expected zero or more milliseconds");
+  return at;
+}
 
 /** A cursor as it arrives: `null`, or the two fields a previous page handed out. */
 function readCursor(value: unknown): Checked<WireCursor | null> {

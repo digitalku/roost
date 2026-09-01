@@ -1,4 +1,4 @@
-import type { AssetKind, WireAssetDetail } from "@roost/contract";
+import type { AssetKind, WireAssetDetail, WireComment } from "@roost/contract";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +20,7 @@ describe("the preview pane", () => {
     render(
       <PreviewPane
         hash={HASH}
+        generation={0}
         onClose={() => {
           closed += 1;
         }}
@@ -118,12 +119,14 @@ describe("the preview pane", () => {
       ],
     });
     install(engine);
-    const { rerender } = render(<PreviewPane hash={HASH} onClose={vi.fn()} onStep={vi.fn()} />);
+    const { rerender } = render(
+      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
+    );
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
     const first = document.querySelector("video");
 
     const second = fakeDetail(2).hash;
-    rerender(<PreviewPane hash={second} onClose={vi.fn()} onStep={vi.fn()} />);
+    rerender(<PreviewPane hash={second} generation={0} onClose={vi.fn()} onStep={vi.fn()} />);
     await waitFor(() =>
       expect(document.querySelector("video")?.getAttribute("src")).toBe(
         `roost://original/${second}`,
@@ -133,13 +136,156 @@ describe("the preview pane", () => {
   });
 });
 
+describe("the comment markers under the player", () => {
+  const HOUR = 3_600_000;
+
+  const showVideo = (comments: readonly WireComment[], durationMs: number | null = HOUR) => {
+    const engine = new FakeEngine({
+      details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs, comments })],
+    });
+    install(engine);
+    render(<PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />);
+    return { engine, user: userEvent.setup() };
+  };
+
+  it("places a tick along the medium's own timeline", async () => {
+    showVideo([
+      { id: 7, atMs: HOUR / 4, body: "the cut lands early", createdAt: 1, updatedAt: null },
+    ]);
+
+    const tick = await screen.findByRole("button", {
+      name: "Play from 15:00.0: the cut lands early",
+    });
+    // A quarter of the way in, and centred on the moment rather than starting
+    // at it — a 3px tick drawn from the offset would sit consistently late.
+    expect((tick as HTMLElement).style.left).toBe("25%");
+  });
+
+  it("seeks the player, which is the whole point of the strip", async () => {
+    const { user } = showVideo([
+      { id: 7, atMs: 91_500, body: "the cut lands early", createdAt: 1, updatedAt: null },
+    ]);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Play from 1:31.5: the cut lands early" }),
+    );
+    // The native control bar cannot carry marks of ours, so the strip drives
+    // the element directly (ADR-0023 §6).
+    expect(document.querySelector("video")?.currentTime).toBe(91.5);
+  });
+
+  it("leaves untimed comments off it", async () => {
+    // They are about the asset rather than about a moment in it, and a tick at
+    // zero would say something the comment does not. The inspector's list holds
+    // both.
+    showVideo([{ id: 7, atMs: null, body: "the export is 8-bit", createdAt: 1, updatedAt: null }]);
+
+    await waitFor(() => expect(document.querySelector(".preview-markers")).not.toBeNull());
+    expect(document.querySelectorAll(".preview-marker")).toHaveLength(0);
+  });
+
+  it("draws the strip with nothing on it, so the first comment moves nothing", async () => {
+    showVideo([]);
+    await waitFor(() => expect(document.querySelector(".preview-markers")).not.toBeNull());
+  });
+
+  it("places nothing while the duration is unknown", async () => {
+    // `durationMs` is null until the probe has been over the file, and happy-dom
+    // reports the element's own duration as NaN — which is what an element that
+    // has loaded no media really does say. A marker at 0% would be a guess.
+    showVideo(
+      [{ id: 7, atMs: 91_500, body: "the cut lands early", createdAt: 1, updatedAt: null }],
+      null,
+    );
+
+    await waitFor(() => expect(document.querySelector(".preview-markers")).not.toBeNull());
+    expect(document.querySelectorAll(".preview-marker")).toHaveLength(0);
+  });
+
+  it("places the ticks once the probe answers, even if the element never loads", async () => {
+    // Found in a real window on 2026-09-02, against a video Chromium refused to
+    // decode: the library knew the duration and the strip stayed empty. The
+    // duration was seeded into state from the first detail, so a preview opened
+    // before the derive pass had been over the file held `null` for as long as
+    // it stayed open — and `loadedmetadata` never fires to correct it when the
+    // element itself will not load. It is derived from the prop now.
+    const engine = new FakeEngine({
+      details: [
+        fakeDetail(1, {
+          kind: "video",
+          ext: "mp4",
+          durationMs: null,
+          comments: [{ id: 7, atMs: HOUR / 2, body: "halfway", createdAt: 1, updatedAt: null }],
+        }),
+      ],
+    });
+    install(engine);
+    const view = render(
+      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
+    );
+    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
+    expect(document.querySelectorAll(".preview-marker")).toHaveLength(0);
+
+    const held = engine.details.get(HASH);
+    if (held === undefined) throw new Error("the fake lost the asset");
+    engine.details.set(HASH, { ...held, durationMs: HOUR });
+    view.rerender(<PreviewPane hash={HASH} generation={1} onClose={vi.fn()} onStep={vi.fn()} />);
+
+    await screen.findByRole("button", { name: "Play from 30:00.0: halfway" });
+  });
+
+  it("re-reads when the library changes, so a comment written beside it appears", async () => {
+    // The inspector is on screen next to the preview and edits the same asset.
+    // Without the re-read the strip would be right only until somebody used the
+    // panel beside it.
+    const engine = new FakeEngine({
+      details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs: HOUR })],
+    });
+    install(engine);
+    const view = render(
+      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
+    );
+    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
+    expect(document.querySelectorAll(".preview-marker")).toHaveLength(0);
+
+    await engine
+      .bridge()
+      .invoke({ type: "comment:add", hash: HASH, atMs: HOUR / 2, body: "halfway" });
+    view.rerender(<PreviewPane hash={HASH} generation={1} onClose={vi.fn()} onStep={vi.fn()} />);
+
+    await screen.findByRole("button", { name: "Play from 30:00.0: halfway" });
+  });
+
+  it("keeps playing through a re-read of the same asset", async () => {
+    // Blanking the pane on every announced change would restart a video that is
+    // playing — and a library announces a change on every edit anywhere in it.
+    const engine = new FakeEngine({
+      details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs: HOUR })],
+    });
+    install(engine);
+    const view = render(
+      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
+    );
+    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
+    const playing = document.querySelector("video");
+
+    view.rerender(<PreviewPane hash={HASH} generation={1} onClose={vi.fn()} onStep={vi.fn()} />);
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "asset:detail")).toHaveLength(2),
+    );
+    expect(document.querySelector("video")).toBe(playing);
+  });
+});
+
 describe("a document with pages to turn", () => {
   const showDocument = (pageCount: number | null) => {
     const engine = new FakeEngine({
       details: [fakeDetail(1, { kind: "document", ext: "pdf", name: "report.pdf", pageCount })],
     });
     install(engine);
-    render(<PreviewPane hash={HASH} onClose={() => undefined} onStep={() => undefined} />);
+    render(
+      <PreviewPane hash={HASH} generation={0} onClose={() => undefined} onStep={() => undefined} />,
+    );
     return userEvent.setup();
   };
 
@@ -189,7 +335,9 @@ describe("a font", () => {
       ],
     });
     install(engine);
-    render(<PreviewPane hash={HASH} onClose={() => undefined} onStep={() => undefined} />);
+    render(
+      <PreviewPane hash={HASH} generation={0} onClose={() => undefined} onStep={() => undefined} />,
+    );
 
     const specimen = (await screen.findByRole("img", {
       name: "Specimen of Timber Sans",

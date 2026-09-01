@@ -109,3 +109,54 @@
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
+
+/* The player, and the comment markers under it (ADR-0023 §6). The strip is
+   below the browser's own control bar rather than a replacement for it: the
+   native bar cannot carry marks of ours, and owning a transport means owning
+   buffering, fullscreen, and the accessibility of a media player. */
+
+.preview-player {
+  /* Shrink-wraps the media, so the strip is exactly as wide as the picture it
+     is a timeline for rather than as wide as the pane. */
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.preview-player .preview-media {
+  min-height: 0;
+}
+
+/* Drawn whether or not anything is on it: writing the first comment must not
+   move the picture it is about. */
+.preview-markers {
+  position: relative;
+  flex: none;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+}
+
+.preview-marker {
+  position: absolute;
+  top: 0;
+  width: 3px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  /* Centred on its moment rather than starting at it: a 3px tick drawn from
+     the offset would sit consistently late. */
+  transform: translateX(-50%);
+}
+
+.preview-marker:hover,
+.preview-marker:focus-visible {
+  background: var(--accent-hover);
+  /* Reaches past the strip so a tick can be found without hitting 3 pixels. */
+  transform: translateX(-50%) scaleY(1.75);
+}

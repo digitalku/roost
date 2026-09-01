@@ -183,6 +183,8 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over existing tags, creates on Enter |
 | `NoteField` | inspector | draft | Autosaves on blur and after 1s idle |
+| `Comments` | inspector | drafts | Several comments where the note is one; each may carry a moment. §3.5 |
+| `CommentMarkers` | content | — | One tick per timed comment, under the player's own control bar; §7 |
 | `MetadataTable` | inspector | — | Key/value, monospace values, copy on click. Since M4 it also carries duration, page count, and whatever the format's own backend reported — a font's family and style, a video's codec — labelled where the label is known and under the property's own name where it is not, so a new backend is visible before any interface code is written for it. **Labels are qualified where two properties would otherwise share one**: `Video codec` and `Audio codec`, never two rows both saying `Codec` |
 | `StatusBar` | status | — | Counts, and one row per running job |
 | `ImportDropZone` | overlay | — | Whole-window drop target; appears only while dragging |
@@ -325,6 +327,42 @@ button, no dismissal by clicking outside it, and focus starting on **Cancel**. T
 prevented is a stray click or a stray `Enter`, and a dialog either of those can confirm is
 decoration. The confirming button says the verb — `Delete`, `Empty trash` — never `OK`, and it is
 the only place the `--danger-` ramp is used (§2).
+
+### 3.5 Comments, and the moment one points at
+
+Accepted as ADR-0023. A **note** is the paragraph about an asset, edited in place; a **comment**
+is one remark among several, keeps its own identity, and may point at a moment inside the medium.
+Neither replaces the other, and the panel shows both.
+
+**The list is a timeline, not a log.** Timed comments come first in timeline order, then the
+untimed ones — the order the repository answers in, so the window never sorts what the engine
+already ordered. A comment with no moment is about the asset as a whole, which is what lets a
+`.zip` carry one.
+
+**The moment is taken at the first keystroke, not when the comment is sent.** "At this point, …"
+is what a person means, and a video that goes on playing while the sentence is finished would
+otherwise record the moment they stopped writing. It is shown as a removable chip, which is also
+how the same field writes a comment about the whole asset while a player is on screen.
+
+**A timecode is a control only when there is somewhere to go.** With a preview open it seeks;
+with none open it is text. A control that does nothing when pressed is worse than no control,
+because it claims the timecode is a way to get somewhere.
+
+| Gesture | What happens |
+| --- | --- |
+| Type, then `Enter` | Adds the comment, at the captured moment or about the asset |
+| `Escape` in the field | Drops the draft and its moment. Nothing is sent |
+| Click the timecode | Seeks the open preview to it |
+| Click the chip's `×` | Makes the comment about the asset rather than about a moment |
+| **Edit** | Edits in place, keeping the id — never remove-and-re-add, which would move the comment to the end of every list ordered by creation |
+| An emptied field | **Cancels.** Removing has its own button, and a gesture that destroys by leaving something blank cannot be taken back with `Escape` |
+
+**Editing keeps the moment** unless the chip is dismissed, and the row buttons are drawn rather
+than revealed on hover: a control that appears only under the pointer is one a keyboard cannot
+find.
+
+Comments follow the note in belonging to **one asset**, so like the note they are absent from the
+multi-selection panel (§3.2) — writing one across twelve assets would say twelve different things.
 
 ## 4. Navigation
 
@@ -544,10 +582,23 @@ list, and **stepping changes the selection**, so the inspector follows what is o
 | --- | --- |
 | Image | `<img src="roost://original/<hash>">`, fit to pane, click to toggle 1:1, drag to pan |
 | SVG | Same, sandboxed — scripts in an SVG do not run |
-| Video / audio | `<video>` / `<audio>` over `roost://original/`, which answers range requests |
+| Video / audio | `<video>` / `<audio>` over `roost://original/`, which answers range requests, with the comment strip under the control bar |
 | PDF | Page-through: `PageUp` / `PageDown` and two buttons, each page an `<img>` over `roost://page/<hash>/<n>@1024`. Arrow keys keep stepping between assets, so a document does not trap the keyboard |
 | Font | The specimen sheet the derive pass drew, with the family and style under it |
 | Anything else | The thumbnail, the metadata, and **Open externally** |
+
+**The comment strip sits under the native control bar, not instead of it** (ADR-0023). The
+browser's bar cannot carry marks of ours, and the only other way past that is a custom transport —
+which means owning buffering, fullscreen, the keyboard map, and the accessibility of a media
+player, a commitment this section has avoided on purpose. So: a thin track below the bar, one tick
+per **timed** comment placed along the medium's own timeline, each seeking when clicked and naming
+its moment and its text to a screen reader. Untimed comments are not on it — a tick at zero would
+say something the comment does not — and they are in the inspector's list, which holds both.
+
+The strip is drawn whether or not anything is on it, so writing the first comment does not move
+the picture it is about. Nothing on it follows the playhead: the native bar draws the position a
+pixel above, and a second indicator would be an animation frame loop for the length of a film to
+redraw what is already on screen.
 
 **Open externally** hands the file to the desktop's own handler. A Roost library is not only a
 media collection, and a format Roost cannot draw should not be a dead end.

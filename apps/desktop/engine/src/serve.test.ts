@@ -404,6 +404,7 @@ describe("the engine's message loop", () => {
     // the two types are allowed to differ, and this is the place that notices.
     expect(Object.keys(value).sort()).toEqual(
       [
+        "comments",
         "createdAt",
         "durationMs",
         "ext",
@@ -483,6 +484,75 @@ describe("the engine's message loop", () => {
 
     await ask(8, { type: "asset:rename", hash, name: "  Renamed.txt  " });
     expect((await detail())["name"]).toBe("Renamed.txt");
+  });
+
+  it("carries comments on the asset they are about, in timeline order", async () => {
+    await libraryOf(1);
+    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const comments = async (): Promise<Record<string, unknown>[]> => {
+      const reply = await ask(99, { type: "asset:detail", hash });
+      return (reply as { value: { comments: Record<string, unknown>[] } }).value.comments;
+    };
+
+    // Written out of order on purpose: the list is a timeline, not a log of
+    // when somebody typed.
+    await ask(2, { type: "comment:add", hash, atMs: 120_000, body: "  later  " });
+    await ask(3, { type: "comment:add", hash, atMs: null, body: "about the file" });
+    await ask(4, { type: "comment:add", hash, atMs: 1_000, body: "earlier" });
+
+    // Timed first, in order, and the untimed one last — and the body trimmed on
+    // the way through, which is why an edit answers `null` and the reader
+    // re-reads (ADR-0023).
+    expect((await comments()).map((row) => row["body"])).toEqual([
+      "earlier",
+      "later",
+      "about the file",
+    ]);
+    // `atMs` on the wire, milliseconds, beside a `createdAt` in unix seconds:
+    // the one number in the format that is not seconds, spelled so that it
+    // cannot be read as one.
+    expect(Object.keys((await comments())[0] ?? {}).sort()).toEqual(
+      ["atMs", "body", "createdAt", "id", "updatedAt"].sort(),
+    );
+
+    // Narrowed rather than cast: the reply is `unknown` on this side of the
+    // wire, and that is the whole point of reading it back through the port.
+    const idOf = (row: Record<string, unknown> | undefined): number => {
+      const id = row?.["id"];
+      if (typeof id !== "number") throw new Error("a comment came back without an id");
+      return id;
+    };
+    const id = idOf((await comments())[0]);
+    await ask(5, { type: "comment:set", id, atMs: 2_000, body: "earlier still" });
+    // The same comment, moved: an edit that removed and re-added would mint a
+    // second id and put it at the end of the list.
+    expect((await comments())[0]).toMatchObject({ id, atMs: 2_000, body: "earlier still" });
+    expect(await comments()).toHaveLength(3);
+
+    await ask(6, { type: "comment:remove", id });
+    expect((await comments()).map((row) => row["id"])).not.toContain(id);
+  });
+
+  it("refuses a comment the format cannot hold", async () => {
+    await libraryOf(1);
+    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+
+    // Refused by the contract before the engine is asked, and therefore
+    // **dropped rather than answered** — the same rule every malformed message
+    // follows here (`serve.ts`). A body with nothing in it is a comment that
+    // says nothing, and a negative offset is a number that cannot mean
+    // anything; both are the validator's, and `contract.test.ts` pins them.
+    expect(await ask(2, { type: "comment:add", hash, atMs: null, body: "  " })).toBeUndefined();
+    expect(await ask(3, { type: "comment:add", hash, atMs: -1, body: "x" })).toBeUndefined();
+    // An id nothing is behind is the engine's to refuse, and it says so rather
+    // than doing nothing quietly: a stale list in one window must not silently
+    // edit whatever is at that id now.
+    expect(await ask(4, { type: "comment:set", id: 9_999, atMs: null, body: "x" })).toMatchObject({
+      ok: false,
+      problem: { code: "unknown_comment" },
+    });
   });
 
   it("refuses a rating the schema will not hold", async () => {

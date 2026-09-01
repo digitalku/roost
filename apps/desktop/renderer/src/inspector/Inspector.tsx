@@ -2,6 +2,7 @@ import type { WireAssetDetail, WireSelectionSummary } from "@roost/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { fallbackToGrid, previewSrc } from "../thumbnail.js";
+import { Comments } from "./Comments.js";
 
 /**
  * Everything known about the selection, all of it editable.
@@ -151,6 +152,11 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
 
       <TagEditor hashes={hashes} shared={detail.tags} partial={[]} onSaved={read} />
       <NoteField detail={detail} onSaved={read} />
+      {/* Keyed on the hash so a half-typed comment does not follow the
+          selection onto the next asset: the drafts here belong to the asset
+          they were started on, and React would otherwise keep them across a
+          change of `detail`. */}
+      <Comments key={detail.hash} detail={detail} onSaved={read} />
       <Metadata detail={detail} />
 
       <button

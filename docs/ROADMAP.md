@@ -250,9 +250,10 @@ is listed here, so the order stays visible instead of becoming folklore.
 - ☑ **Trash** — 2026-09-01, ADR-0022. Also listed under M6, which is where the Trash place was
   first promised
 - ☑ **Marquee selection** — 2026-09-01, the last of `UI_SPEC.md` §6's grid gestures
-- ◐ **Comments that carry a moment** — ADR-0023, accepted 2026-09-02. Migration 0008, three
-  journal ops, the library API, and `roost comment` are in; the IPC surface and the two
-  components the window needs are in `TODO.md`
+- ☑ **Comments that carry a moment** — ADR-0023, accepted 2026-09-02 and built the same day.
+  Migration 0008, three journal ops, the library API, `roost comment`, the three contract
+  requests, the inspector's list, and the marker strip under the player. What is **not** done is
+  seeing it in a real window, which is the fifth thing now waiting on `check-grid.mjs`
 
 ## M5 — Discovery features ☐
 

@@ -44,6 +44,7 @@ export {
   type StorageMode,
   type WireAssetDetail,
   type WireCapability,
+  type WireComment,
   type WireCursor,
   type WireDeriveReason,
   type WireDeriveStatus,

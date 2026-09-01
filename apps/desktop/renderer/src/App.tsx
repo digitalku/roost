@@ -741,7 +741,12 @@ function LibraryView({
             onConfirm={setConfirming}
             onGone={clearSelection}
           >
-            <PreviewPane hash={focused} onClose={() => setPreviewing(false)} onStep={step} />
+            <PreviewPane
+              hash={focused}
+              generation={revision}
+              onClose={() => setPreviewing(false)}
+              onStep={step}
+            />
           </AssetContextMenu>
         ) : paging.assets.length === 0 && paging.done ? (
           <p className="grid-empty">

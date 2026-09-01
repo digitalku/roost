@@ -211,3 +211,106 @@
 .inspector-empty p {
   margin: 0;
 }
+
+/* Comments (UI_SPEC.md §3.2, ADR-0023). Several, where the note is one — so
+   they are a list rather than a field, and each one carries its own moment. */
+
+.comments,
+.comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.comment-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.comment {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: baseline;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+/* Monospace, so a column of moments lines up and the digits do not dance as
+   the numbers change. */
+.comment-at,
+.comment-moment {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
+}
+
+/* No preview open, so there is nothing to seek. It says where the comment
+   points and stops looking like a control (`Comments.tsx`). */
+.comment-at[data-idle] {
+  color: var(--text-subtle);
+}
+
+.comment-body {
+  flex: 1 1 8rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+/* Always drawn rather than revealed on hover: a control that appears only
+   under the pointer is one a keyboard cannot find. Subdued instead. */
+.comment-actions {
+  display: flex;
+  flex: none;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+
+.comment-actions button {
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+}
+
+.comment-actions button:hover,
+.comment-actions button:focus-visible {
+  color: var(--text);
+}
+
+.comment-moment button {
+  padding: 0 var(--space-1);
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.comment-compose {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.comment-input {
+  flex: 1 1 8rem;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+}
