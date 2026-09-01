@@ -475,6 +475,26 @@ derive queue is keeping up.
   set in the monospace stack, legible at the smallest zoom, over the surface colour — never a
   broken-image glyph and never an empty box.
 
+**How selection is drawn depends on the view, because the eye reads the item differently.**
+In **Icons** the name is a caption under a picture, so the picture takes a ring and the caption
+takes a filled pill — the icon-view idiom, and the only one that works when cells are not aligned
+in rows. In **Compact** and **Details** the cell *is* a row, so the whole row is filled and there
+is no second mark: a pill on the label plus a ring on a 40px thumbnail, inside an outline around
+the row, is three highlights for one selected thing. Reported as looking wrong on 2026-09-01, and
+it was.
+
+The roving ring is drawn **inside** a row rather than outside it, and hairline over a row that is
+already filled — the fill says "selected" as plainly as the sidebar's current row does, and the
+ring is only there to answer "and which of the selected ones is the keyboard on". It cannot be
+dropped over a selected row: focus and selection are separate, so with twelve rows selected there
+would be nothing to show where the next `Space` would land.
+
+**Hover never paints over a selected row.** `.grid[data-view] .cell:hover` outranks
+`.cell[data-view][data-selected]` on specificity, so the selection fill vanished under the
+pointer until the hover rule was told to skip selected rows — measured, not guessed. CSS has no
+warning for this, the same way it has none for an undefined token, and there is no test that can
+see it either: the guard is a real window (`TODO.md` §3).
+
 **Selection model.** Click selects; `Ctrl`-click toggles; `Shift`-click extends from the anchor;
 drag on the background marquee-selects; `Ctrl+A` selects the loaded set and says so, because
 "select all" over 900,000 unloaded rows is a promise the grid cannot keep.

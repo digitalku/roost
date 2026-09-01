@@ -354,6 +354,16 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   `roost://original/<hash>` and the protocol answers ranges down to the byte, tested both ways —
   but the thing they exist for is a player seeking, and there is still no real video fixture in
   the container (§2 above).
+- 🟡 **How the grid paints selection has no automated guard.** Fixed on 2026-09-01 after a
+  report: Compact and Details drew the Icons treatment — a filled pill on the label, a ring on a
+  40px thumbnail, and an outline around the whole row — where a filled row was wanted. Reading
+  the CSS to fix it turned up a second defect nothing could have caught: `.grid[data-view]
+  .cell:hover` outranks `.cell[data-view][data-selected]`, so **hovering a selected row erased
+  its fill**. Both were verified by measuring computed styles and sampling pixels out of a real
+  screenshot, and neither is reachable from a component test — happy-dom loads no stylesheet, so
+  the cascade is not there to get wrong. A `check-grid.mjs` beside `check-trash.mjs` is the
+  shape of the guard; what it needs first is the CDP plumbing lifted out of the three scripts
+  that now each carry a copy, which is the point at which a fourth copy stops being acceptable.
 - 🟢 **The grid's frame budget is asserted by construction, not measured.** The re-render count
   is a test, and the layout is a binary search per column; neither is a frame percentile. The
   scroll benchmark mode is what turns this into a number, and it is still an M3 item.

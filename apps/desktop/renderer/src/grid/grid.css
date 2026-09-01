@@ -94,11 +94,21 @@
   text-overflow: ellipsis;
 }
 
-.cell[data-selected] .cell-thumb {
+/*
+ * Selection is drawn where the eye reads the item, and that differs by view.
+ *
+ * In **Icons** the name is a caption under a picture, so the picture takes a
+ * ring and the caption takes a filled pill — the icon-view idiom every file
+ * manager uses, and the only one that works when cells are not aligned in rows.
+ * The row views get the opposite treatment below: there the cell *is* a row,
+ * and a pill on the label plus a ring on a 40px thumbnail reads as two
+ * competing highlights inside a third.
+ */
+.cell[data-view="icons"][data-selected] .cell-thumb {
   box-shadow: 0 0 0 2px var(--select-border);
 }
 
-.cell[data-selected] .cell-name {
+.cell[data-view="icons"][data-selected] .cell-name {
   color: var(--select-text);
   background: var(--select-bg);
 }
@@ -169,13 +179,70 @@
   white-space: nowrap;
 }
 
-/* Zebra striping, so the eye can carry a row across six columns. */
-.grid[data-view="details"] .cell:nth-child(even) {
+/*
+ * A selected row is filled, whole.
+ *
+ * One highlight per selected thing. The caption treatment Icons uses draws a
+ * pill on the label and a ring on the thumbnail, which in a row becomes a bar
+ * stretching the width of the cell beside a ringed 40px square — reported as
+ * looking wrong on 2026-09-01, and it was. Filling the row is what a list in
+ * any file manager does, and it needs no second mark.
+ */
+.cell[data-view="compact"][data-selected],
+.cell[data-view="details"][data-selected] {
+  background: var(--select-bg);
+}
+
+.cell[data-view="compact"][data-selected] .cell-name,
+.cell[data-view="details"][data-selected] .cell-name,
+.cell[data-view="details"][data-selected] .cell-field {
+  color: var(--select-text);
+}
+
+/*
+ * The roving ring, over a row.
+ *
+ * `outline-offset: 2px` puts the ring outside the cell, which over an unfilled
+ * icon is the only place it can go; over a row it draws a second rectangle
+ * around the fill, which is the other half of what was reported on 2026-09-01.
+ * Inside, and hairline over a row that is already filled: the fill says
+ * "selected" as plainly as the sidebar's current row does, and the ring is only
+ * there to answer "and which of the selected ones is the keyboard on".
+ *
+ * It cannot simply be dropped when the row is selected. Focus and selection are
+ * separate (`UI_SPEC.md` §6) — arrow keys move focus through a selection
+ * without changing it — so with twelve rows selected there would be no way to
+ * see where the next `Space` would land.
+ */
+.cell[data-view="compact"][data-focused],
+.cell[data-view="details"][data-focused] {
+  outline-offset: -2px;
+}
+
+.cell[data-view="compact"][data-focused][data-selected],
+.cell[data-view="details"][data-focused][data-selected] {
+  outline-width: 1px;
+  outline-color: var(--select-border);
+  outline-offset: -1px;
+}
+
+/* Zebra striping, so the eye can carry a row across six columns. Never over a
+   selected row: the fill above is the answer to "which one is this". */
+.grid[data-view="details"] .cell:nth-child(even):not([data-selected]) {
   background: var(--surface);
 }
 
-.grid[data-view="details"] .cell:hover,
-.grid[data-view="compact"] .cell:hover {
+/*
+ * Hover, and never over a selected row.
+ *
+ * `.grid[data-view] .cell:hover` outranks `.cell[data-view][data-selected]` —
+ * four of the second kind against three — so without this the selection fill
+ * vanished under the pointer. Measured 2026-09-01: a selected Details row went
+ * from the select background to `--surface-raised` on `mouseMoved`, which reads
+ * as the selection being lost by moving the mouse.
+ */
+.grid[data-view="details"] .cell:hover:not([data-selected]),
+.grid[data-view="compact"] .cell:hover:not([data-selected]) {
   background: var(--surface-raised);
 }
 
