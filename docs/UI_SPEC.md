@@ -64,7 +64,7 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 | Toolbar | full | no | Fixed height. Search is the widest thing in it. |
 | Sidebar | 220–420px, drag to resize | yes, `F9` | Remembers width and collapsed state per library. |
 | Content | fills | no | Hosts exactly one of: icons, compact, details, preview. |
-| Inspector | 280–480px, drag to resize | yes, `F4` | **Always drawn.** An empty selection gets the empty state from §8, never a shell of disabled controls. |
+| Inspector | 280–480px, drag to resize | yes, `F4` | **Always drawn.** An empty selection gets the empty state from §8, never a shell of disabled controls. Reserves a scrollbar gutter, as the grid does: how tall its content is depends on the asset, so without one the panel's fields shift sideways as the selection moves. |
 | Status bar | full | no | Counts on the left, background jobs on the right. |
 
 **The preview is a pane, not a lightbox.** It replaces the content region, leaving the sidebar
@@ -182,7 +182,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over existing tags, creates on Enter |
 | `NoteField` | inspector | draft | Autosaves on blur and after 1s idle |
-| `MetadataTable` | inspector | — | Key/value, monospace values, copy on click. Since M4 it also carries duration, page count, and whatever the format's own backend reported — a font's family and style, a video's codec — labelled where the label is known and under the property's own name where it is not, so a new backend is visible before any interface code is written for it |
+| `MetadataTable` | inspector | — | Key/value, monospace values, copy on click. Since M4 it also carries duration, page count, and whatever the format's own backend reported — a font's family and style, a video's codec — labelled where the label is known and under the property's own name where it is not, so a new backend is visible before any interface code is written for it. **Labels are qualified where two properties would otherwise share one**: `Video codec` and `Audio codec`, never two rows both saying `Codec` |
 | `StatusBar` | status | — | Counts, and one row per running job |
 | `ImportDropZone` | overlay | — | Whole-window drop target; appears only while dragging |
 | `ContextMenu` | overlay | — | One implementation, driven by a descriptor |

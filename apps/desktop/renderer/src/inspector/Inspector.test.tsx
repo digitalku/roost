@@ -77,6 +77,26 @@ describe("the inspector", () => {
     expect(screen.getByText(HASH)).toBeDefined();
   });
 
+  it("tells a video's codec apart from its audio's", async () => {
+    // Both rows said "Codec" — reported from a real library on 2026-09-01,
+    // where a webm showed `av1` over `opus` with nothing to say which was
+    // which. Qualifying only the audio one would have moved the ambiguity to
+    // a file with a single track rather than removed it.
+    show({
+      props: {
+        "video.codec": "av1",
+        "video.fps": "29.97",
+        "audio.codec": "opus",
+        "audio.channels": "2",
+      },
+    });
+    expect(await screen.findByText("Video codec")).toBeDefined();
+    expect(screen.getByText("Audio codec")).toBeDefined();
+    expect(screen.queryByText("Codec")).toBeNull();
+    expect(screen.getByText("av1")).toBeDefined();
+    expect(screen.getByText("opus")).toBeDefined();
+  });
+
   it("shows the 512px preview, served over roost://", async () => {
     // Invariant 12 and ADR-0008. The 512 is generated on first use, so an
     // asset nobody has opened has none and the extension shows through — the

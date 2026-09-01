@@ -8,6 +8,14 @@
   padding: var(--space-3);
   border-left: 1px solid var(--border);
   background: var(--surface);
+  /*
+   * The strip is reserved whether or not there is anything to scroll, the same
+   * way the grid reserves one. How tall this panel's content is depends on the
+   * asset — a video reports nine derived properties and a PNG reports none — so
+   * without the gutter the scrollbar appears and disappears as the selection
+   * moves, and every field in the panel shifts sideways with it.
+   */
+  scrollbar-gutter: stable;
 }
 
 .inspector-preview {

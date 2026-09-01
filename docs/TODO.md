@@ -512,6 +512,16 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
     applies to an explicit `undefined` — so "renders nothing when nothing is selected" was
     reading the first render before the detail arrived, and would have passed with no
     empty-selection logic at all. Lesson 9 again, from a third direction.
+- ☑ ~~**The inspector's scrollbar moved its own content.**~~ Asked about on 2026-09-01 — the
+  scrollbar at the window's right edge reads as a page scrollbar because the panel is the
+  rightmost pane, and it is really the panel's own. It scrolls because a video reports nine
+  derived properties where a PNG reports none. It reserves the gutter now, as the grid already
+  did. Measured at a viewport where the video's panel scrolls and the image's does not: the
+  panel's fields were 240px wide against 255px, jumping 15px as the selection moved, and they
+  hold at 240 now.
+  - **`Codec` appeared twice**, once for the video track and once for the audio, with nothing
+    saying which was which. Both are qualified now: qualifying only the audio one would have
+    moved the ambiguity to a file with a single track rather than removed it.
 - 🟡 **The inspector says nothing about a trashed asset.** `AssetDetail` and the wire both carry
   `trashedAt` and nothing draws it, so an asset opened from Trash looks like any other.
 - 🟢 **`doctor` does not mention the trash.** Trashed assets are still rows, so their bytes are

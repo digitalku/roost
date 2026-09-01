@@ -520,9 +520,12 @@ const PROPERTY_LABELS: readonly (readonly [string, string])[] = [
   ["font.family", "Family"],
   ["font.style", "Style"],
   ["font.glyphs", "Glyphs"],
-  ["video.codec", "Codec"],
+  // Both are qualified, not just the audio one. A file carrying video and
+  // audio showed two rows both labelled "Codec", and leaving the video row
+  // bare would only have moved the ambiguity to the file that has one track.
+  ["video.codec", "Video codec"],
   ["video.fps", "Frame rate"],
-  ["audio.codec", "Codec"],
+  ["audio.codec", "Audio codec"],
   ["audio.channels", "Channels"],
   ["audio.sampleRate", "Sample rate"],
 ];
