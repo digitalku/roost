@@ -18,23 +18,12 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   permanent removal stays `remove`. Migration 0007, the `trash`/`restore` ops, `is:trashed`,
   the Trash place, `roost trash`, and the window's `Delete` key all landed together.
 
-- 🟡 **ADR-0024 — a video transport of our own.** Proposed 2026-09-02, after the user asked what
-  media player Eagle uses. It is the same player: Eagle is an Electron application, so its
-  playback is Chromium's, with `controls` off and a transport drawn over it. Everything it does
-  that ours cannot — frame stepping, 0.25×–8×, hover-scrub previews, A-B loop, marks *on* the
-  timeline, "set this frame as the thumbnail" — follows from that one decision.
-  - **Stage 4 is asked for directly**: right click the video, set the frame it is paused on as the
-    thumbnail. Decided inside the ADR rather than deferred, because the part that looked
-    frightening has a clean answer — the journal records `poster_set {hash, at}`, **where to look
-    and never the pixels**, so a rebuild re-extracts the frame and invariant 1 is untouched.
-  - **What must be measured before it is Accepted**: `media-chrome`, Vidstack, Plyr, and video.js
-    against invariant 7, the bundle budget, and whether a mark can be put on their timeline
-    without forking them. ADR-0021 exists because the first answer to a question shaped like this
-    was wrong, and the same four-candidate measurement is owed here.
-  - Stage 3 (storyboard sprites for hover-scrub) stays a separate decision: it is a migration, and
-    `thumbs` is keyed `(hash, size)` where a sprite is not a size.
+- ☑ ~~**ADR-0024 — a video transport of our own.**~~ Accepted 2026-09-02, the same day it was
+  proposed, after the user asked what media player Eagle uses. It is the same player: Eagle is an
+  Electron application, so its playback is Chromium's, with `controls` off and a transport drawn
+  over it. The work is in §3 below.
 
-**Nothing else is blocking.** The five questions the language change forced were settled on 2026-08-24,
+**Nothing blocking.** The five questions the language change forced were settled on 2026-08-24,
 before any code was written against them — ADR-0006 through ADR-0012, all Accepted. What they
 decided is in `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
 
@@ -574,6 +563,54 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟢 **No `Shift+Delete`.** Deleting permanently is reachable from the menu and from `Delete`
   inside the Trash, and a shortcut that skips the trash from anywhere is one keystroke away from
   being the thing this ADR exists to prevent.
+
+### A transport of our own (ADR-0024, decided 2026-09-02)
+
+Four stages. Nothing here has started.
+
+- 🔴 **Measure four player libraries first**: `media-chrome`, Vidstack, Plyr, video.js. The ADR
+  was accepted before this was done, so it is a task rather than a gate — but no line of stage 1
+  should be written before it has numbers. What to measure, in the order that decides it:
+  1. **Invariant 7** — does it reach the network at run time, for a font, an icon set, or a ping.
+     Four candidates were clean on this in ADR-0021 and the constraint decided nothing there; it
+     is still the one that can rule a candidate out outright.
+  2. **Whether a mark can go on its timeline** without forking it. This is the whole reason we are
+     here, and a library that cannot take one is not a candidate however good it is otherwise.
+  3. **The bundle**, against the <1.5s cold start in `CONCEPT.md` §7. The renderer is 342 KB today.
+  4. **Whether its accessibility is real or claimed** — keyboard-only operation, and a slider that
+     is a slider to a screen reader.
+  The prior expectation is in-repo, for the reason `UI_SPEC.md` §3 gives about every other
+  component here. A prior expectation is not a measurement.
+- 🟡 **Stage 1 — parity, and the marks move onto the timeline.** Play/pause, a real
+  `role="slider"` timeline with `aria-valuetext` as a timecode, buffered ranges from
+  `video.buffered`, elapsed/duration, volume and mute, fullscreen on our own container, and
+  picture-in-picture. `<audio>` gets the same component: two implementations of one control is how
+  they come to disagree.
+  - **The way this fails quietly is accessibility.** The native bar's is free and invisible, so
+    losing it costs nothing a test notices. `UI_SPEC.md` §10 is the acceptance criterion, and a
+    transport reachable only by mouse is not parity.
+  - `UI_SPEC.md` §7 is rewritten, §3 gains the components, §9 gains the media keys — in the same
+    change, not after it.
+  - The strip from ADR-0023 goes away, and `preview/playhead.ts` is where the seek already lives.
+- 🟡 **Stage 2 — what the native bar withholds.** Frame stepping at 1 and 10 frames off the probed
+  `video.fps`, playback rate 0.25×–8×, A-B loop. No schema, and cheap once stage 1 exists.
+  - `requestVideoFrameCallback` reports the frame actually presented; arithmetic on `currentTime`
+    reports where we asked to be. A frame counter built on the second one is a frame counter that
+    lies on every long-GOP file.
+- 🟡 **Stage 4 — set this frame as the thumbnail.** Asked for directly. A migration for
+  `assets.poster_ms`, a `poster_set` journal op carrying `{hash, at}`, both thumbnail sizes
+  regenerated together, `roost poster` in the CLI, and one item in the context menu that already
+  wraps the preview — enabled for video and nothing else.
+  - **The journal records where to look, never the pixels**, which is what keeps invariant 1
+    intact: a rebuild replays the op and the derive pass re-extracts the frame.
+  - A different ffmpeg build may land a frame away. Acceptable, and worth saying out loud in the
+    ADR rather than discovering in a conformance test: the instruction is the durable thing and
+    the thumbnail is a cache.
+- 🟡 **Stage 3 — hover-scrub previews. Still a decision, not yet work.** A storyboard sprite
+  generated on first open, not a frame per request: a PDF page is pdfium in WebAssembly and a
+  video frame is an ffmpeg process, and a pointer crossing a timeline asks for tens a second.
+  `thumbs` is keyed `(hash, size)` and a sprite is not a size, so it needs a table or a
+  vocabulary — `DATA_MODEL.md` §2 governs it, and it wants its own ADR.
 
 ### The view menu (ADR-0018, decided 2026-08-30)
 
