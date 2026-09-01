@@ -258,8 +258,9 @@ is listed here, so the order stays visible instead of becoming folklore.
   Eagle's player feels part of the application and ours does not. Four stages: parity plus the
   comment marks moved onto the timeline, then frame stepping and speed and A-B loop, then
   hover-scrub previews (still a decision of its own), then **set this frame as the thumbnail**,
-  which the user asked for directly. Not started: four player libraries owe a measurement first,
-  and `TODO.md` §3 carries what to measure and in which order
+  which the user asked for directly. **Stage 1 done 2026-09-02**: `controls` is off, the bar is
+  ours, the marks are on the timeline, and `scripts/check-transport.mjs` holds it to `UI_SPEC.md`
+  §10 in a real window. Stages 2 and 4 are work; stage 3 is a decision of its own
 
 ## M5 — Discovery features ☐
 
@@ -298,10 +299,12 @@ support · library merge · on-image annotation.
 
 **Nothing open, as of 2026-09-02.** ADR-0024 — a video transport of our own — was accepted the
 same day it was proposed, after the user asked what media player Eagle uses and the answer turned
-out to be "the same one, with the controls turned off". It is accepted with a measurement still
-owed rather than done: four player libraries against invariant 7, the bundle budget, and whether a
-mark can go on their timeline without a fork. That decides *how* the transport is built, not
-whether. Before it, ADR-0023 — comments that carry a moment — was accepted the
+out to be "the same one, with the controls turned off". It was accepted with a measurement owed
+rather than done — four player libraries against invariant 7, the bundle budget, and whether a mark
+can go on their timeline without a fork — and stage 1 was then built ahead of it, at the user's
+asking, over the slider primitive this repository already depends on. That question decided *how*,
+never whether, and it is deferred rather than closed: `TODO.md` §3 keeps it, now with a real
+baseline to beat. Before it, ADR-0023 — comments that carry a moment — was accepted the
 day after it was proposed. The five questions the language change forced were settled together,
 before any code was written against them — which is the cheapest moment they could
 have been settled, and the reason M0 can start without working around an unknown.

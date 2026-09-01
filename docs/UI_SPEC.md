@@ -179,12 +179,12 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `AssetCell` | content | — | `memo`, primitive props only |
 | `AssetList` | content | scroll, pages | Details view; same paging hook |
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
+| `Transport` | content | position | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, and the comment marks; §7. ADR-0024 |
 | `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over existing tags, creates on Enter |
 | `NoteField` | inspector | draft | Autosaves on blur and after 1s idle |
 | `Comments` | inspector | drafts | Several comments where the note is one; each may carry a moment. §3.5 |
-| `CommentMarkers` | content | — | One tick per timed comment, under the player's own control bar; §7 |
 | `MetadataTable` | inspector | — | Key/value, monospace values, copy on click. Since M4 it also carries duration, page count, and whatever the format's own backend reported — a font's family and style, a video's codec — labelled where the label is known and under the property's own name where it is not, so a new backend is visible before any interface code is written for it. **Labels are qualified where two properties would otherwise share one**: `Video codec` and `Audio codec`, never two rows both saying `Codec` |
 | `StatusBar` | status | — | Counts, and one row per running job |
 | `ImportDropZone` | overlay | — | Whole-window drop target; appears only while dragging |
@@ -347,6 +347,10 @@ how the same field writes a comment about the whole asset while a player is on s
 **A timecode is a control only when there is somewhere to go.** With a preview open it seeks;
 with none open it is text. A control that does nothing when pressed is worse than no control,
 because it claims the timecode is a way to get somewhere.
+
+**A timed comment is drawn twice: as a row here, and as a mark on the timeline** (§7). The row is
+how it is read and edited; the mark is how it is navigated to. Untimed comments have no mark — a
+tick at zero would say something the comment does not.
 
 | Gesture | What happens |
 | --- | --- |
@@ -582,23 +586,43 @@ list, and **stepping changes the selection**, so the inspector follows what is o
 | --- | --- |
 | Image | `<img src="roost://original/<hash>">`, fit to pane, click to toggle 1:1, drag to pan |
 | SVG | Same, sandboxed — scripts in an SVG do not run |
-| Video / audio | `<video>` / `<audio>` over `roost://original/`, which answers range requests, with the comment strip under the control bar |
+| Video / audio | `<video>` / `<audio>` over `roost://original/`, which answers range requests, under a transport of ours — `controls` is off |
 | PDF | Page-through: `PageUp` / `PageDown` and two buttons, each page an `<img>` over `roost://page/<hash>/<n>@1024`. Arrow keys keep stepping between assets, so a document does not trap the keyboard |
 | Font | The specimen sheet the derive pass drew, with the family and style under it |
 | Anything else | The thumbnail, the metadata, and **Open externally** |
 
-**The comment strip sits under the native control bar, not instead of it** (ADR-0023). The
-browser's bar cannot carry marks of ours, and the only other way past that is a custom transport —
-which means owning buffering, fullscreen, the keyboard map, and the accessibility of a media
-player, a commitment this section has avoided on purpose. So: a thin track below the bar, one tick
-per **timed** comment placed along the medium's own timeline, each seeking when clicked and naming
-its moment and its text to a screen reader. Untimed comments are not on it — a tick at zero would
-say something the comment does not — and they are in the inspector's list, which holds both.
+**The transport is ours** (ADR-0024). The browser's control bar is a closed widget — nothing can be
+drawn on it, nothing added to it, and it cannot be styled — so `controls` is off and the bar under
+the picture is drawn here. That is what puts a comment mark **on** the timeline rather than beside
+it, and it is the only reason the transport exists: everything else it does, the native bar also
+did.
 
-The strip is drawn whether or not anything is on it, so writing the first comment does not move
-the picture it is about. Nothing on it follows the playhead: the native bar draws the position a
-pixel above, and a second indicator would be an animation frame loop for the length of a film to
-redraw what is already on screen.
+| Control | Notes |
+| --- | --- |
+| Play / pause | The button, `Space`, and `K` |
+| Timeline | A `role="slider"` whose `aria-valuetext` is a timecode, never a count of milliseconds. Arrow keys move a tenth of a second, which is the precision a comment's moment carries |
+| Buffered ranges | Drawn from `video.buffered`, behind the played range — the difference between a slow file and a broken one |
+| Elapsed / duration | Monospace and tabular, so the digits do not dance |
+| Volume and mute | `M`, and a slider that is also a slider to a screen reader |
+| Fullscreen | On the **player's box**, not on the video: sending the video alone takes the controls off the screen with it |
+| Picture-in-picture | Video only. Audio has no picture |
+| **Comment marks** | One per **timed** comment, at its moment. Click to seek, hover for the text, and each names its moment and its words to a screen reader |
+
+Both platform controls are drawn **only where the platform has them**: a window with no Fullscreen
+API gets no fullscreen button, for the same reason §3.5 gives about a timecode.
+
+`<audio>` gets the same transport, with the element itself hidden — it is the decoder, and there
+is nothing to look at. Two implementations of one control is how they come to disagree.
+
+**The transport is drawn from the element, never from a copy of it.** Paused, muted, volume,
+duration and the buffered ranges are read back out of the media element whenever it says they
+changed, which is what lets a key pressed on the pane and a button pressed in the bar drive the
+same player without either knowing about the other. The position is the one exception — no event
+reports it often enough to scrub with — so it is sampled in an animation frame **while playing**,
+and on the element's own events when it is still.
+
+The transport is drawn whether or not anything is on the timeline, so writing the first comment
+does not move the picture it is about.
 
 **Open externally** hands the file to the desktop's own handler. A Roost library is not only a
 media collection, and a format Roost cannot draw should not be a dead end.
@@ -668,13 +692,29 @@ becomes a preference in M6.
 | `[` / `]` | Zoom cells down · up |
 | `Ctrl+K` | Command palette (**M6**) |
 
+In the preview, with a video or an audio file open (ADR-0024):
+
+| Key | Action |
+| --- | --- |
+| `Space` / `K` | Play / pause |
+| `J` / `L` | Seek ten seconds back · on |
+| `M` | Mute |
+| `Arrows` on the timeline | Seek a tenth of a second. Everywhere else in the preview the arrows still step between assets, and whichever control acted on the key keeps it |
+
+**Fullscreen has a button and no key.** `F` is the favourite, and a key that means one thing beside
+a video and another beside a picture is worse than a button. The media keys are read only while
+the pane itself has focus, so `Space` on a focused button still presses the button.
+
 ## 10. Accessibility
 
 Not a milestone; a constraint on every component.
 
 - The grid uses `role="grid"` with `aria-rowcount`/`aria-colcount` reflecting the *total*, not
   the rendered window, so a screen reader is not told the library holds forty items.
-- One tab stop per region, roving focus inside. Tab order follows the visual order.
+- One tab stop per region, roving focus inside. Tab order follows the visual order. **The media
+  transport is the exception**: its controls are individual tab stops, because roving arrow-key
+  focus over a toolbar containing a slider collides with the slider's own arrow keys, and the
+  timeline's arrows are how it is seeked from the keyboard (§7).
 - Focus is always visible, uses `--border-focus`, and is never removed — `:focus-visible` may
   narrow *when* it shows, never *whether*.
 - Every icon-only control has an accessible name and a tooltip with the same text.

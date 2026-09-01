@@ -390,9 +390,10 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   the cascade is not there to get wrong. A `check-grid.mjs` beside `check-trash.mjs` is the
   shape of the guard; what it needs first is the CDP plumbing lifted out of the three scripts
   that now each carry a copy, which is the point at which a fourth copy stops being acceptable.
-  **The marquee is the fifth thing waiting on it** (2026-09-01), and the comment strip the sixth
+  **The marquee is the fifth thing waiting on it** (2026-09-01), and the transport the sixth
   (2026-09-02) — the last of which had to build a library with a real video in it, which is one
-  more thing the harness would own: the marquee's autoscroll, its paint, and its refusal to start on the scrollbar are
+  more thing the harness would own. `scripts/check-transport.mjs` is now the fourth copy of the
+  plumbing, and it carries the ffmpeg fixture too: the marquee's autoscroll, its paint, and its refusal to start on the scrollbar are
   all invisible to a DOM that lays nothing out. A
   twelve-check version of exactly that script was written and passed three times against a real
   window — and then not landed, because landing it is the fourth copy of the CDP plumbing. What
@@ -566,32 +567,36 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 ### A transport of our own (ADR-0024, decided 2026-09-02)
 
-Four stages. Nothing here has started.
+Four stages. **Stage 1 is done**; the other three have not started.
 
-- 🔴 **Measure four player libraries first**: `media-chrome`, Vidstack, Plyr, video.js. The ADR
-  was accepted before this was done, so it is a task rather than a gate — but no line of stage 1
-  should be written before it has numbers. What to measure, in the order that decides it:
+- 🟢 **Measure four player libraries**: `media-chrome`, Vidstack, Plyr, video.js. **Not done, and
+  no longer blocking**: the user asked for stage 1 ahead of it, and stage 1 was built in-repo over
+  the slider primitive this repository already depends on (ADR-0021, already measured against
+  invariant 7). It cost 15.8 KB of bundle, which is the baseline any candidate now has to beat.
+  Still the way to decide it if stage 2 or 3 wants something a library ships. What to measure, in
+  the order that decides it:
   1. **Invariant 7** — does it reach the network at run time, for a font, an icon set, or a ping.
      Four candidates were clean on this in ADR-0021 and the constraint decided nothing there; it
      is still the one that can rule a candidate out outright.
   2. **Whether a mark can go on its timeline** without forking it. This is the whole reason we are
      here, and a library that cannot take one is not a candidate however good it is otherwise.
-  3. **The bundle**, against the <1.5s cold start in `CONCEPT.md` §7. The renderer is 342 KB today.
+  3. **The bundle**, against the <1.5s cold start in `CONCEPT.md` §7. The renderer is 357.8 KB
+     today, 342 KB before the transport.
   4. **Whether its accessibility is real or claimed** — keyboard-only operation, and a slider that
      is a slider to a screen reader.
   The prior expectation is in-repo, for the reason `UI_SPEC.md` §3 gives about every other
   component here. A prior expectation is not a measurement.
-- 🟡 **Stage 1 — parity, and the marks move onto the timeline.** Play/pause, a real
-  `role="slider"` timeline with `aria-valuetext` as a timecode, buffered ranges from
-  `video.buffered`, elapsed/duration, volume and mute, fullscreen on our own container, and
-  picture-in-picture. `<audio>` gets the same component: two implementations of one control is how
-  they come to disagree.
-  - **The way this fails quietly is accessibility.** The native bar's is free and invisible, so
-    losing it costs nothing a test notices. `UI_SPEC.md` §10 is the acceptance criterion, and a
-    transport reachable only by mouse is not parity.
-  - `UI_SPEC.md` §7 is rewritten, §3 gains the components, §9 gains the media keys — in the same
-    change, not after it.
-  - The strip from ADR-0023 goes away, and `preview/playhead.ts` is where the seek already lives.
+- ☑ ~~**Stage 1 — parity, and the marks move onto the timeline.**~~ Done 2026-09-02.
+  `preview/Transport.tsx` over a `<video controls={false}>`: play/pause, a Radix slider as the
+  timeline with `aria-valuetext` as a timecode, buffered ranges, elapsed/duration, volume and mute,
+  fullscreen on the player's own box, picture-in-picture, and the comment marks on the timeline.
+  `<audio>` gets the same component with the element hidden. `UI_SPEC.md` §7 rewritten, §3 and §9
+  and §10 updated, ADR-0023 §6 amended, and `scripts/check-transport.mjs` asserts the lot against a
+  running window — 26 checks, including the two controls that do not exist outside one.
+  - **The way this could have failed quietly was accessibility**, and it is the reason the window
+    check asserts the names, the tooltips, the tab stops and the `aria-valuetext` rather than only
+    the pixels. The native bar's accessibility is free and invisible, so losing it would have cost
+    nothing a test noticed.
 - 🟡 **Stage 2 — what the native bar withholds.** Frame stepping at 1 and 10 frames off the probed
   `video.fps`, playback rate 0.25×–8×, A-B loop. No schema, and cheap once stage 1 exists.
   - `requestVideoFrameCallback` reports the frame actually presented; arithmetic on `currentTime`
@@ -797,3 +802,13 @@ repository's session log, because a lesson nobody rereads is a lesson nobody has
     the state did not. It self-heals whenever the media element loads and reports its own
     duration, which is why every test passed; it does not heal when the element will not load,
     which is how a real window found it. If a value is a function of a prop, derive it.
+16. **Subscribe to the element, not to your copy of what the element is doing.** The transport's
+    first sampler attached its `seeked` listener only while React believed the media was paused,
+    and skipped every sample while `seeking` was set. Both looked careful and both were wrong:
+    `currentTime` is the *official playback position*, which a seek sets straight away, so a seek
+    in flight already reads as where it is going — and gating a subscription on rendered state
+    means the subscription is missing for exactly as long as that state is behind. Attach to the
+    element's own events for the element's whole life, and let its `play` and `pause` decide which
+    sampler runs. Found in a window as a timecode frozen at the previous moment for the length of
+    a seek; the regression test has to set `seeking` by hand, because a decoder in happy-dom never
+    takes long enough to show it.

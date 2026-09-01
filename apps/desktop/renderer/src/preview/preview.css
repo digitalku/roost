@@ -110,53 +110,188 @@
   font-size: var(--text-sm);
 }
 
-/* The player, and the comment markers under it (ADR-0023 §6). The strip is
-   below the browser's own control bar rather than a replacement for it: the
-   native bar cannot carry marks of ours, and owning a transport means owning
-   buffering, fullscreen, and the accessibility of a media player. */
+/* The player and its transport (UI_SPEC.md §7, ADR-0024). `controls` is off and
+   the bar below the picture is ours, which is the only way a comment mark can be
+   drawn *on* the timeline rather than beside it. */
 
 .preview-player {
-  /* Shrink-wraps the media, so the strip is exactly as wide as the picture it
-     is a timeline for rather than as wide as the pane. */
+  /* Shrink-wraps the media, so the transport is exactly as wide as the picture
+     it belongs to rather than as wide as the pane. */
   display: inline-flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-height: 0;
   max-width: 100%;
   max-height: 100%;
+}
+
+/* Audio has no picture. The element stays in the document — it is the decoder —
+   and the transport is the whole of what is drawn. */
+.preview-player[data-kind="audio"] {
+  width: 100%;
+  max-width: 480px;
 }
 
 .preview-player .preview-media {
   min-height: 0;
 }
 
-/* Drawn whether or not anything is on it: writing the first comment must not
-   move the picture it is about. */
-.preview-markers {
-  position: relative;
+.preview-audio {
+  display: none;
+}
+
+/* Fullscreen is requested on this box rather than on the video, which is what
+   keeps the transport reachable once it is there. */
+.preview-player:fullscreen {
+  gap: 0;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  background: var(--bg);
+}
+
+.transport {
+  display: flex;
   flex: none;
-  height: 8px;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* The timeline. A Radix slider (ADR-0021) rather than a div with a pointer
+   handler: the keyboard, the ARIA, and the drag are the part of a transport
+   that is easy to leave half-done. */
+.transport-timeline,
+.transport-volume {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  height: var(--space-4);
+  touch-action: none;
+  user-select: none;
+}
+
+.transport-volume {
+  flex: none;
+  width: 72px;
+}
+
+.transport-track {
+  position: relative;
+  flex: 1;
+  height: 4px;
   border-radius: var(--radius-full);
   background: var(--surface-raised);
 }
 
-.preview-marker {
+/* What has arrived. Between the track and the played range in z-order, because
+   it is a fact about the file rather than about the playhead. */
+.transport-buffered {
   position: absolute;
   top: 0;
-  width: 3px;
+  left: 0;
   height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--border-strong);
+}
+
+.transport-played {
+  position: absolute;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+.transport-thumb {
+  display: block;
+  width: var(--space-3);
+  height: var(--space-3);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-full);
+  background: var(--text);
+  cursor: grab;
+}
+
+.transport-thumb:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.transport-timeline[data-disabled] .transport-thumb {
+  display: none;
+}
+
+/* One per timed comment, over the track it is a moment on. Drawn after the
+   slider so a 3px target is not covered by the surface that seeks. */
+.transport-mark {
+  position: absolute;
+  top: 50%;
+  width: 3px;
+  height: var(--space-3);
   padding: 0;
   border: 0;
   border-radius: var(--radius-full);
-  background: var(--accent);
-  /* Centred on its moment rather than starting at it: a 3px tick drawn from
-     the offset would sit consistently late. */
-  transform: translateX(-50%);
+  background: var(--warning);
+  /* Centred on its moment rather than starting at it: a tick drawn from the
+     offset would sit consistently late. */
+  transform: translate(-50%, -50%);
 }
 
-.preview-marker:hover,
-.preview-marker:focus-visible {
-  background: var(--accent-hover);
-  /* Reaches past the strip so a tick can be found without hitting 3 pixels. */
-  transform: translateX(-50%) scaleY(1.75);
+.transport-mark:hover,
+.transport-mark:focus-visible {
+  background: var(--warning);
+  /* Reaches past the track so a tick can be found without hitting 3 pixels. */
+  transform: translate(-50%, -50%) scaleY(1.4) scaleX(1.6);
+}
+
+.transport-controls {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.transport-gap {
+  flex: 1;
+}
+
+.transport-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+}
+
+.transport-button:hover {
+  background: var(--surface-raised);
+}
+
+.transport-icon {
+  width: var(--space-4);
+  height: var(--space-4);
+}
+
+/* Monospace and tabular, so the digits do not dance while it plays. */
+.transport-time {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.transport-time-total {
+  color: var(--text-muted);
+}
+
+/* Room to breathe once it is the whole screen. Last in the file because it is
+   the less specific `.transport` rules it overrides. */
+.preview-player:fullscreen .transport {
+  padding: var(--space-3) var(--space-4);
 }

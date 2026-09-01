@@ -52,19 +52,25 @@ describe("the preview pane", () => {
     expect(document.querySelector("iframe, object, embed")).toBeNull();
   });
 
-  it("renders a video with controls, so it can seek", async () => {
+  it("renders a video under a transport of ours, not the browser's bar", async () => {
     show("video", "mp4");
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
     const video = document.querySelector("video");
     expect(video?.getAttribute("src")).toBe(`roost://original/${HASH}`);
-    // Seeking is what the range support in ADR-0008 exists for.
-    expect(video?.hasAttribute("controls")).toBe(true);
+    // `controls` off is the whole of ADR-0024: the native bar is a closed
+    // widget, so a comment mark could only ever sit beside the timeline.
+    expect(video?.hasAttribute("controls")).toBe(false);
+    expect(screen.getByRole("slider", { name: "Timeline" })).toBeDefined();
   });
 
-  it("renders audio with controls", async () => {
+  it("gives audio the same transport", async () => {
+    // Two implementations of one control is how they come to disagree, and an
+    // audio file has the same timeline and the same comments (ADR-0024).
     show("audio", "mp3");
     await waitFor(() => expect(document.querySelector("audio")).not.toBeNull());
     expect(document.querySelector("audio")?.getAttribute("src")).toBe(`roost://original/${HASH}`);
+    expect(document.querySelector("audio")?.hasAttribute("controls")).toBe(false);
+    expect(screen.getByRole("slider", { name: "Timeline" })).toBeDefined();
   });
 
   it("offers the desktop's own application for anything it cannot draw", async () => {
@@ -136,10 +142,10 @@ describe("the preview pane", () => {
   });
 });
 
-describe("the comment markers under the player", () => {
+describe("the transport", () => {
   const HOUR = 3_600_000;
 
-  const showVideo = (comments: readonly WireComment[], durationMs: number | null = HOUR) => {
+  const showVideo = (comments: readonly WireComment[] = [], durationMs: number | null = HOUR) => {
     const engine = new FakeEngine({
       details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs, comments })],
     });
@@ -148,63 +154,82 @@ describe("the comment markers under the player", () => {
     return { engine, user: userEvent.setup() };
   };
 
-  it("places a tick along the medium's own timeline", async () => {
+  /** The element, once React has mounted it. */
+  const player = async (): Promise<HTMLVideoElement> => {
+    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
+    const video = document.querySelector("video");
+    if (video === null) throw new Error("no player");
+    return video;
+  };
+
+  /**
+   * What a real element announces after a change, and happy-dom does not.
+   *
+   * `volumechange` is an explicit gap in happy-dom's media element — the
+   * property is set and no event follows it. Dispatching it by hand is the
+   * honest test of the claim this transport is built on: it holds no copy of
+   * what the element knows, and redraws from what the element says.
+   */
+  const announce = (media: HTMLMediaElement, event: string): void => {
+    media.dispatchEvent(new Event(event));
+  };
+
+  it("places a mark along the medium's own timeline", async () => {
     showVideo([
       { id: 7, atMs: HOUR / 4, body: "the cut lands early", createdAt: 1, updatedAt: null },
     ]);
 
-    const tick = await screen.findByRole("button", {
+    const mark = await screen.findByRole("button", {
       name: "Play from 15:00.0: the cut lands early",
     });
-    // A quarter of the way in, and centred on the moment rather than starting
-    // at it — a 3px tick drawn from the offset would sit consistently late.
-    expect((tick as HTMLElement).style.left).toBe("25%");
+    // On the timeline, at its moment — which is the whole reason the transport
+    // is ours (ADR-0024). A quarter of the way in, centred on the moment.
+    expect(mark.classList.contains("transport-mark")).toBe(true);
+    expect((mark as HTMLElement).style.left).toBe("25%");
   });
 
-  it("seeks the player, which is the whole point of the strip", async () => {
+  it("seeks the player from a mark", async () => {
     const { user } = showVideo([
       { id: 7, atMs: 91_500, body: "the cut lands early", createdAt: 1, updatedAt: null },
     ]);
+    const video = await player();
 
     await user.click(
       await screen.findByRole("button", { name: "Play from 1:31.5: the cut lands early" }),
     );
-    // The native control bar cannot carry marks of ours, so the strip drives
-    // the element directly (ADR-0023 §6).
-    expect(document.querySelector("video")?.currentTime).toBe(91.5);
+    expect(video.currentTime).toBe(91.5);
   });
 
-  it("leaves untimed comments off it", async () => {
-    // They are about the asset rather than about a moment in it, and a tick at
+  it("leaves untimed comments off the timeline", async () => {
+    // They are about the asset rather than about a moment in it, and a mark at
     // zero would say something the comment does not. The inspector's list holds
     // both.
     showVideo([{ id: 7, atMs: null, body: "the export is 8-bit", createdAt: 1, updatedAt: null }]);
 
-    await waitFor(() => expect(document.querySelector(".preview-markers")).not.toBeNull());
-    expect(document.querySelectorAll(".preview-marker")).toHaveLength(0);
-  });
-
-  it("draws the strip with nothing on it, so the first comment moves nothing", async () => {
-    showVideo([]);
-    await waitFor(() => expect(document.querySelector(".preview-markers")).not.toBeNull());
+    await player();
+    expect(document.querySelectorAll(".transport-mark")).toHaveLength(0);
   });
 
   it("places nothing while the duration is unknown", async () => {
     // `durationMs` is null until the probe has been over the file, and happy-dom
     // reports the element's own duration as NaN — which is what an element that
-    // has loaded no media really does say. A marker at 0% would be a guess.
+    // has loaded no media really does say. A mark at 0% would be a guess.
     showVideo(
       [{ id: 7, atMs: 91_500, body: "the cut lands early", createdAt: 1, updatedAt: null }],
       null,
     );
 
-    await waitFor(() => expect(document.querySelector(".preview-markers")).not.toBeNull());
-    expect(document.querySelectorAll(".preview-marker")).toHaveLength(0);
+    await player();
+    expect(document.querySelectorAll(".transport-mark")).toHaveLength(0);
+    // And the timeline says so rather than pretending to be at the start.
+    expect(screen.getByRole("slider", { name: "Timeline" }).getAttribute("aria-valuetext")).toBe(
+      "Duration unknown",
+    );
   });
 
-  it("places the ticks once the probe answers, even if the element never loads", async () => {
+  it("places the marks once the probe answers, even if the element never loads", async () => {
     // Found in a real window on 2026-09-02, against a video Chromium refused to
-    // decode: the library knew the duration and the strip stayed empty. The
+    // decode: the library knew the duration and the timeline stayed empty. The
     // duration was seeded into state from the first detail, so a preview opened
     // before the derive pass had been over the file held `null` for as long as
     // it stayed open — and `loadedmetadata` never fires to correct it when the
@@ -223,8 +248,8 @@ describe("the comment markers under the player", () => {
     const view = render(
       <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
     );
-    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
-    expect(document.querySelectorAll(".preview-marker")).toHaveLength(0);
+    await player();
+    expect(document.querySelectorAll(".transport-mark")).toHaveLength(0);
 
     const held = engine.details.get(HASH);
     if (held === undefined) throw new Error("the fake lost the asset");
@@ -236,8 +261,8 @@ describe("the comment markers under the player", () => {
 
   it("re-reads when the library changes, so a comment written beside it appears", async () => {
     // The inspector is on screen next to the preview and edits the same asset.
-    // Without the re-read the strip would be right only until somebody used the
-    // panel beside it.
+    // Without the re-read the timeline would be right only until somebody used
+    // the panel beside it.
     const engine = new FakeEngine({
       details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs: HOUR })],
     });
@@ -245,8 +270,8 @@ describe("the comment markers under the player", () => {
     const view = render(
       <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
     );
-    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
-    expect(document.querySelectorAll(".preview-marker")).toHaveLength(0);
+    await player();
+    expect(document.querySelectorAll(".transport-mark")).toHaveLength(0);
 
     await engine
       .bridge()
@@ -266,14 +291,172 @@ describe("the comment markers under the player", () => {
     const view = render(
       <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
     );
-    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
-    const playing = document.querySelector("video");
+    const playing = await player();
 
     view.rerender(<PreviewPane hash={HASH} generation={1} onClose={vi.fn()} onStep={vi.fn()} />);
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail")).toHaveLength(2),
     );
     expect(document.querySelector("video")).toBe(playing);
+  });
+
+  it("draws the button the element's own state says, not one it kept itself", async () => {
+    const { user } = showVideo();
+    const video = await player();
+
+    await user.click(screen.getByRole("button", { name: "Play" }));
+    expect(video.paused).toBe(false);
+    // The element announced `play` and the transport read it back. Nothing here
+    // decided it was playing on its own, which is what lets the keyboard and
+    // the button drive the same element without agreeing on anything.
+    await screen.findByRole("button", { name: "Pause" });
+
+    await user.click(screen.getByRole("button", { name: "Pause" }));
+    expect(video.paused).toBe(true);
+    await screen.findByRole("button", { name: "Play" });
+  });
+
+  it("plays on Space and on K, without stepping to the next asset", async () => {
+    const steps: number[] = [];
+    const engine = new FakeEngine({
+      details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs: HOUR })],
+    });
+    install(engine);
+    render(
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        onClose={vi.fn()}
+        onStep={(delta) => steps.push(delta)}
+      />,
+    );
+    const user = userEvent.setup();
+    const video = await player();
+
+    await user.keyboard(" ");
+    expect(video.paused).toBe(false);
+    await user.keyboard("k");
+    expect(video.paused).toBe(true);
+    expect(steps).toEqual([]);
+  });
+
+  it("seeks ten seconds with J and L, because the arrows step assets", async () => {
+    const { user } = showVideo();
+    const video = await player();
+
+    await user.keyboard("l");
+    expect(video.currentTime).toBe(10);
+    await user.keyboard("j");
+    // Clamped at the start rather than run negative.
+    expect(video.currentTime).toBe(0);
+  });
+
+  it("mutes on M, and redraws from what the element says", async () => {
+    const { user } = showVideo();
+    const video = await player();
+
+    await user.keyboard("m");
+    expect(video.muted).toBe(true);
+    // happy-dom sets the property and sends nothing; a real element announces
+    // it, which is when the button changes.
+    announce(video, "volumechange");
+    await screen.findByRole("button", { name: "Unmute" });
+  });
+
+  it("seeks from the timeline's own arrow keys instead of stepping the asset", async () => {
+    // The pane's arrows step through the list, and a slider's arrows seek. Both
+    // are right, and the one that acted first keeps the key.
+    const steps: number[] = [];
+    const engine = new FakeEngine({
+      details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs: HOUR })],
+    });
+    install(engine);
+    render(
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        onClose={vi.fn()}
+        onStep={(delta) => steps.push(delta)}
+      />,
+    );
+    const user = userEvent.setup();
+    const video = await player();
+
+    screen.getByRole("slider", { name: "Timeline" }).focus();
+    await user.keyboard("{ArrowRight}");
+
+    // A tenth of a second, which is the precision a comment's moment carries.
+    expect(video.currentTime).toBeCloseTo(0.1, 5);
+    expect(steps).toEqual([]);
+  });
+
+  it("announces a timecode rather than a count of milliseconds", async () => {
+    showVideo();
+    const video = await player();
+
+    video.currentTime = 91.5;
+    announce(video, "timeupdate");
+
+    await waitFor(() =>
+      expect(screen.getByRole("slider", { name: "Timeline" }).getAttribute("aria-valuetext")).toBe(
+        "1:31.5 of 1:00:00.0",
+      ),
+    );
+  });
+
+  it("follows a seek that has not landed yet", async () => {
+    // Found in a real window on 2026-09-02: the timecode froze at the old
+    // moment for as long as a seek took, which on a stalled decoder was most of
+    // a second. The sampler skipped anything while `seeking` was set — but
+    // `currentTime` is the *official* playback position, which a seek sets
+    // straight away, so it already reads as where the playhead is going.
+    showVideo();
+    const video = await player();
+
+    Object.defineProperty(video, "seeking", { value: true, configurable: true });
+    video.currentTime = 91.5;
+    announce(video, "timeupdate");
+
+    await waitFor(() =>
+      expect(screen.getByRole("slider", { name: "Timeline" }).getAttribute("aria-valuetext")).toBe(
+        "1:31.5 of 1:00:00.0",
+      ),
+    );
+  });
+
+  it("offers fullscreen only where the platform has one", async () => {
+    // A control that does nothing when pressed is worse than no control, and
+    // the transport is drawn in windows that have no Fullscreen API at all.
+    showVideo();
+    await player();
+    expect(screen.queryByRole("button", { name: "Fullscreen" })).toBeNull();
+  });
+
+  it("asks the player's own box to go fullscreen, not the video", async () => {
+    // The box, so the transport is still there once it arrives — a video sent
+    // fullscreen on its own takes the whole screen and the controls with it.
+    const enabled = Object.getOwnPropertyDescriptor(document, "fullscreenEnabled");
+    Object.defineProperty(document, "fullscreenEnabled", { value: true, configurable: true });
+    const asked: string[] = [];
+    Object.defineProperty(Element.prototype, "requestFullscreen", {
+      value(this: Element) {
+        asked.push(this.className);
+        return Promise.resolve();
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    try {
+      const { user } = showVideo();
+      await player();
+      await user.click(screen.getByRole("button", { name: "Fullscreen" }));
+      expect(asked).toEqual(["preview-player"]);
+    } finally {
+      if (enabled === undefined) Reflect.deleteProperty(document, "fullscreenEnabled");
+      else Object.defineProperty(document, "fullscreenEnabled", enabled);
+      Reflect.deleteProperty(Element.prototype, "requestFullscreen");
+    }
   });
 });
 

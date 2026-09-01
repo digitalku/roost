@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * The player on screen, for whoever needs to seek it.
+ * The player on screen, for whoever needs to drive it.
  *
  * A store rather than a prop, because the two things that seek are in different
  * subtrees: the marker strip is under the player in the preview, and the
@@ -15,10 +15,12 @@ import { useSyncExternalStore } from "react";
  * hold. That is the same argument that puts the selection outside the cell tree
  * (§6), for a much smaller thing.
  *
- * Nothing here polls. The position is read at the moment somebody asks for it,
- * because the only two questions are "where are we now" (asked once, when a
- * comment is started) and "go here" — neither of which is a subscription. The
- * native control bar already draws the position, a pixel above the strip.
+ * Nothing here polls, and nothing here holds a copy of what the element knows.
+ * The position is read at the moment somebody asks for it, and the transport
+ * keys go straight through to `play()` and `muted` — the element then announces
+ * the change and the transport redraws itself from it (ADR-0024). A store that
+ * kept its own idea of "playing" would be a second answer to a question the
+ * element already answers.
  */
 class Playhead {
   #media: HTMLMediaElement | undefined;
@@ -66,6 +68,43 @@ class Playhead {
     const media = this.#media;
     if (media === undefined) return false;
     media.currentTime = ms / 1000;
+    return true;
+  }
+
+  /**
+   * Seeks by a step, staying inside the medium.
+   *
+   * What the preview's `J` and `L` are: the arrow keys step between assets, so
+   * coarse seeking needs keys of its own (`UI_SPEC.md` §9).
+   */
+  nudge(deltaMs: number): boolean {
+    const media = this.#media;
+    if (media === undefined) return false;
+    const seconds = media.currentTime + deltaMs / 1000;
+    const end = media.duration;
+    media.currentTime = Math.max(
+      0,
+      Number.isFinite(end) && end > 0 ? Math.min(end, seconds) : seconds,
+    );
+    return true;
+  }
+
+  /** Plays or pauses, and answers whether there was a player. */
+  toggle(): boolean {
+    const media = this.#media;
+    if (media === undefined) return false;
+    // The promise rejects when the platform refuses to start playing, which is
+    // a policy rather than a fault: the element stays paused and says so.
+    if (media.paused) void media.play().catch(() => undefined);
+    else media.pause();
+    return true;
+  }
+
+  /** Mutes or unmutes, and answers whether there was a player. */
+  toggleMute(): boolean {
+    const media = this.#media;
+    if (media === undefined) return false;
+    media.muted = !media.muted;
     return true;
   }
 
