@@ -349,6 +349,25 @@ succeeds and replays to the same state.
 them, by cascade. The assets are untouched: folders are collections, not
 locations.
 
+**M3 addendum, 2026-09-01 (ADR-0022).** Two more, under the same rule:
+
+```json
+{"ts":1755648600,"op":"trash","hash":"a3f2..."}
+{"ts":1755648610,"op":"restore","hash":"a3f2..."}
+```
+
+`trash` marks an asset trashed and changes nothing else about it — the row, its
+tags, its rating, its note, its folder memberships, and its thumbnail all stay.
+It carries **no timestamp of its own**: the line already has `ts`, and replay
+writes `assets.trashed_at` from it, so a live edit and a rebuild cannot disagree
+about when something was trashed. Two `trash` ops for one asset are idempotent
+in the way an append-only log makes natural — the later one wins.
+
+`remove` keeps exactly the meaning it has always had, and is what emptying the
+trash writes. An older build that does not know these two ops skips them and
+sees every asset as live, which is the correct degradation: it shows more than
+it should rather than losing anything.
+
 Still undefined, for want of a feature that needs them: stacking, watched
 roots, and the partial-to-full hash upgrade described above.
 

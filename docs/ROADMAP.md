@@ -252,7 +252,10 @@ TIFF container), animated thumbnails, a PDF text layer, and EXIF beyond dimensio
 
 - ☐ Command palette and the full, rebindable shortcut map
 - ☐ Preferences: theme, density, default import mode, watched roots
-- ☐ Trash + retention, undo for destructive actions
+- ☑ ~~Trash~~ — landed 2026-09-01 with ADR-0022, ahead of this milestone, because the asset
+  context menu needed `Delete` to mean something. **Retention is not coming**: the ADR refuses a
+  timer outright. Undo for edits other than deletion is still M6
+- ☐ Undo for destructive actions other than deletion
 - ☐ Export/backup a selection with metadata
 - ☐ Packaging: AppImage, Flatpak, .rpm, .deb, with native modules bundled;
   `.desktop` and MIME registration
@@ -271,7 +274,7 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-08-29.** The five questions the language change forced were settled
+**Nothing open, as of 2026-09-01.** The five questions the language change forced were settled
 together, before any code was written against them — which is the cheapest moment they could
 have been settled, and the reason M0 can start without working around an unknown.
 
@@ -298,6 +301,12 @@ not draw, all settled before any of them was written against:
 | Question | Outcome | Record |
 | --- | --- | --- |
 | The view control | A menu in the file manager idiom — Icons, Compact, Details, Zoom, Sort By, Group By — replacing the masonry/uniform toggle. Masonry becomes a checkbox under Icons rather than a peer view or a deletion: it is the only layout that does not crop | ADR-0018 |
+
+**And one on 2026-09-01, the last one that was open:**
+
+| Question | Outcome | Record |
+| --- | --- | --- |
+| What `Delete` means | Trash, and trash is a `trashed_at` column (migration 0007) with `trash` and `restore` journal ops. A trashed asset keeps everything and stops matching every query but `is:trashed`. **Nothing is ever emptied on a timer** — permanent removal is `remove`, which is what "Empty trash" and "Delete permanently" send | ADR-0022 |
 
 | Where settings live | `settings.json` inside `<Name>.roost`, which is the default; `stateDir()` and `configDir()` hold only what cannot live in a library — the recent list that finds one, window geometry, and the theme the picker is drawn in | ADR-0019 |
 | Windows | Several windows onto one library. Several libraries at once is refused for now, and the work it would need is named | ADR-0020 |

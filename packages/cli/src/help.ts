@@ -24,6 +24,7 @@ export const COMMANDS = [
   "note",
   "favorite",
   "rename",
+  "trash",
   "remove",
   "doctor",
 ] as const;
@@ -61,6 +62,7 @@ Commands:
   note      Set or clear an asset's note
   favorite  Mark assets as favourites
   rename    Change an asset's display name. The file on disk is untouched
+  trash     Move assets to the trash, restore them, or empty it
   remove    Remove assets from the library. Originals are not deleted
   doctor    Check a library against itself, and reclaim what nothing references
 
@@ -303,7 +305,30 @@ Options:
 ${LIBRARY_FLAG}
 ${GLOBAL}`,
 
+  trash: `Move assets to the trash.
+
+Nothing is deleted and nothing on disk moves. A trashed asset keeps its tags,
+its rating, its note, and its folder memberships, and stops appearing in every
+query but \`is:trashed\` — which is the query the Trash place carries.
+
+There is no timer. The trash is emptied when you empty it, never on a schedule.
+
+Usage: roost trash <ASSET>... [OPTIONS]
+       roost trash --restore <ASSET>...
+       roost trash --empty
+
+Options:
+      --restore          Bring the named assets back out of the trash
+      --empty            Remove everything in the trash from the library.
+                         This is \`roost remove\` over what the trash holds, and
+                         it is not reversible
+${LIBRARY_FLAG}
+${GLOBAL}`,
+
   remove: `Remove assets from the library.
+
+Not reversible, and not what \`Delete\` does in the window — see \`roost trash\`.
+This is what emptying the trash sends.
 
 Index rows only. The bytes under originals/ stay where they are: reclaiming them
 is a separate, reviewable step, because deleting someone's only copy of a file

@@ -6,6 +6,7 @@ export {
   DEFAULT_PAGE_LIMIT,
   type Filter,
   MATCH_ALL,
+  MATCH_LIVE,
   MATCH_NONE,
   type Page,
   type Param,

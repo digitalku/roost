@@ -10,6 +10,8 @@ import {
   PartialHashCollisionError,
   queueStatus,
   retryFailed,
+  tagAdd,
+  trashAssets,
 } from "@roost/library";
 import { GRID_SIZE, gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -37,6 +39,28 @@ describe("importing", () => {
     await writeFile(path, await gradient(120, 80, seed, format));
     return path;
   };
+
+  it("brings a trashed asset back when the same file is imported again", async () => {
+    // Otherwise the import reports a duplicate and the asset stays invisible,
+    // which reads as the import having silently done nothing. Deliberately
+    // adding a file is the clearest statement there is that it is wanted
+    // (ADR-0022).
+    const path = await picture("returning.png", 7);
+    await importInto(library, [path]);
+    await tagAdd(library, library.db.repo.allHashes(), ["kept"]);
+    await trashAssets(library, library.db.repo.allHashes());
+    expect(count(library, "is:trashed")).toBe(1);
+
+    const again = await importInto(library, [path]);
+
+    // Still a duplicate — nothing was added — and the row is live again with
+    // everything it carried. `imported_at` is not rewritten, so it does not
+    // jump to the top of a grid it has been in for months.
+    expect(again.duplicates).toBe(1);
+    expect(again.imported).toBe(0);
+    expect(count(library, "is:trashed")).toBe(0);
+    expect(count(library, "tag:kept")).toBe(1);
+  });
 
   it("indexes what it walked, and puts the bytes where the hash says", async () => {
     await picture("one.png", 1);

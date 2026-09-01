@@ -119,8 +119,14 @@
   --accent-text: var(--gray-0);
 
   --danger: var(--danger-3);
+  --danger-hover: var(--danger-4);
   --danger-text: var(--gray-12);
   --warning: var(--warning-3);
+
+  /* Behind a modal dialog. Darker on the dark theme than on the light one,
+     because the surface it dims is already dark and a light scrim would read
+     as a second panel rather than as everything else stepping back. */
+  --scrim: rgb(0 0 0 / 60%);
 
   --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
   --shadow-2: 0 8px 24px rgb(0 0 0 / 50%);
@@ -151,8 +157,11 @@
   --accent-text: var(--gray-12);
 
   --danger: var(--danger-2);
+  --danger-hover: var(--danger-1);
   --danger-text: var(--gray-12);
   --warning: var(--warning-2);
+
+  --scrim: rgb(0 0 0 / 35%);
 
   --shadow-1: 0 1px 2px rgb(0 0 0 / 12%);
   --shadow-2: 0 8px 24px rgb(0 0 0 / 18%);

@@ -24,6 +24,15 @@ export interface PlaceEntry {
   readonly id: string;
   readonly name: string;
   readonly query: string;
+  /**
+   * `null` where a count would be a query nobody asked for.
+   *
+   * Trash is the exception, and the count is what makes it worth a row
+   * (`UI_SPEC.md` §4.1): an empty trash and a trash holding four hundred assets
+   * look identical without one, and the second is the state somebody needs to
+   * be told about.
+   */
+  readonly count: number | null;
 }
 
 export interface FolderEntry {
@@ -88,7 +97,7 @@ export function readSidebar(library: Library): Sidebar {
     count: tag.count,
   }));
 
-  return { places: places(), folders, tags, smartFolders: repo.smartFolders() };
+  return { places: places(repo.trashedCount()), folders, tags, smartFolders: repo.smartFolders() };
 }
 
 /** How far back "Recent" reaches, in days (`UI_SPEC.md` §4.1). */
@@ -105,16 +114,20 @@ const RECENT_DAYS = 7;
  * sidebar is re-read whenever the library changes, and a day-old boundary on a
  * seven-day window is not a wrong answer.
  *
- * "Trash" is absent until M6, because a row that filters nothing is worse than
- * no row.
+ * "Trash" carries `is:trashed` and nothing else, because that is all it is: the
+ * scoping in `@roost/search` hides trashed assets from every other query, and
+ * naming the flag is what opts this one out (ADR-0022). It is a place rather
+ * than a mode, so nothing in the grid, the toolbar, or the renderer has to
+ * learn that Trash exists.
  */
-function places(): PlaceEntry[] {
+function places(trashed: number): PlaceEntry[] {
   const since = new Date((nowUnix() - RECENT_DAYS * 86_400) * 1000).toISOString().slice(0, 10);
   return [
-    { id: "all", name: "All assets", query: "" },
-    { id: "recent", name: "Recent", query: `imported:>${since}` },
-    { id: "favorites", name: "Favorites", query: "is:favorite" },
-    { id: "untagged", name: "Untagged", query: "is:untagged" },
+    { id: "all", name: "All assets", query: "", count: null },
+    { id: "recent", name: "Recent", query: `imported:>${since}`, count: null },
+    { id: "favorites", name: "Favorites", query: "is:favorite", count: null },
+    { id: "untagged", name: "Untagged", query: "is:untagged", count: null },
+    { id: "trash", name: "Trash", query: "is:trashed", count: trashed },
   ];
 }
 

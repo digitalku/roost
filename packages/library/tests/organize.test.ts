@@ -11,11 +11,13 @@ import {
   createTagGroup,
   deleteFolder,
   EmptyNameError,
+  emptyTrash,
   FolderCycleError,
   InvalidRatingError,
   importInto,
   Library,
   moveFolder,
+  pageOf,
   pages,
   rate,
   readSidebar,
@@ -25,6 +27,7 @@ import {
   resolveAsset,
   resolveFolder,
   resolveTagGroup,
+  restoreAssets,
   search,
   setFavorite,
   setNote,
@@ -32,6 +35,7 @@ import {
   tagAdd,
   tagRemove,
   tagRename,
+  trashAssets,
   UnknownAssetError,
   UnknownFolderPathError,
 } from "@roost/library";
@@ -270,6 +274,91 @@ describe("organizing a library", () => {
     expect(new Set(collected).size).toBe(3);
   });
 
+  it("hides a trashed asset from every query but the one that asks for it", async () => {
+    const [first] = hashes as [ContentHash, ContentHash, ContentHash];
+    await tagAdd(library, hashes, ["shared"]);
+    await rate(library, [first], 5);
+
+    await trashAssets(library, [first]);
+
+    // The listing, the filter, and the rating query all lose it — three
+    // different paths into `searchSql`, and the scoping has to be on all of
+    // them or "deleted" means "deleted from wherever I happened to look".
+    expect(pageOf(library, "", PAGE)).toHaveLength(2);
+    expect(count(library, "tag:shared")).toBe(2);
+    expect(count(library, "rating:5")).toBe(0);
+    // And exactly one query still finds it.
+    expect(count(library, "is:trashed")).toBe(1);
+  });
+
+  it("keeps everything a trashed asset carried, and gives it all back", async () => {
+    // The whole reason trash is a column rather than a `remove` (ADR-0022): the
+    // bytes could be imported again, and forty tags applied by hand could not.
+    const [first] = hashes as [ContentHash, ContentHash, ContentHash];
+    const folder = await createFolder(library, "Moodboards", null);
+    await addToFolder(library, [first], folder);
+    await tagAdd(library, [first], ["timber"]);
+    await rate(library, [first], 4);
+    await setNote(library, first, "client approved");
+
+    await trashAssets(library, [first]);
+    await restoreAssets(library, [first]);
+
+    expect(library.db.repo.assetDetail(first)).toMatchObject({
+      tags: ["timber"],
+      folders: ["Moodboards"],
+      rating: 4,
+      note: "client approved",
+      trashedAt: null,
+    });
+    expect(count(library, "tag:timber")).toBe(1);
+  });
+
+  it("counts a folder and a tag by what their query answers with", async () => {
+    // A count beside a query has to be the count of that query. The sidebar
+    // saying 3 while the grid shows 2 is the version of this that shipped in
+    // every implementation that added trash to an existing schema.
+    const [first] = hashes as [ContentHash, ContentHash, ContentHash];
+    const folder = await createFolder(library, "Moodboards", null);
+    await addToFolder(library, hashes, folder);
+    await tagAdd(library, hashes, ["shared"]);
+
+    await trashAssets(library, [first]);
+
+    const sidebar = readSidebar(library);
+    expect(sidebar.folders.find((row) => row.name === "Moodboards")?.count).toBe(2);
+    expect(sidebar.tags.find((row) => row.name === "shared")?.count).toBe(2);
+    expect(sidebar.places.find((place) => place.id === "trash")?.count).toBe(1);
+  });
+
+  it("empties the trash by removing exactly what is in it", async () => {
+    const [first, second] = hashes as [ContentHash, ContentHash, ContentHash];
+    await trashAssets(library, [first, second]);
+    await restoreAssets(library, [second]);
+
+    expect(await emptyTrash(library)).toBe(1);
+    expect(library.stats().assets).toBe(2);
+    expect(count(library, "is:trashed")).toBe(0);
+    // Restoring did not merely hide the second one from Trash: it is still a
+    // row, and emptying must not have taken it.
+    expect(library.db.repo.assetDetail(second)).toBeDefined();
+    // The bytes stay for a deliberate `doctor --reclaim`, as `remove` always has.
+    expect(library.db.repo.orphanSearchRows()).toBe(0);
+  });
+
+  it("re-stamps rather than refusing when something is trashed twice", async () => {
+    const [first] = hashes as [ContentHash, ContentHash, ContentHash];
+    await trashAssets(library, [first]);
+    const firstTime = library.db.repo.trashedAt(first);
+    expect(typeof firstTime).toBe("number");
+
+    await restoreAssets(library, [first]);
+    expect(library.db.repo.trashedAt(first)).toBeNull();
+
+    await trashAssets(library, [first]);
+    expect(typeof library.db.repo.trashedAt(first)).toBe("number");
+  });
+
   it("rebuilds to the same library after every kind of edit", async () => {
     // The strongest statement this suite makes: if any edit above reached the
     // index without reaching the journal, the rebuilt index would differ here.
@@ -288,6 +377,9 @@ describe("organizing a library", () => {
     await renameAsset(library, hashes[2] as ContentHash, "renamed.jpg");
     await createSmartFolder(library, "Five stars", "rating:5", null);
     await removeAssets(library, [hashes[1] as ContentHash]);
+    await trashAssets(library, [hashes[2] as ContentHash]);
+    await trashAssets(library, [hashes[0] as ContentHash]);
+    await restoreAssets(library, [hashes[0] as ContentHash]);
 
     const before = withoutDerived(library.stats());
     const found = names(search(library, "tag:timber", PAGE));
@@ -297,7 +389,11 @@ describe("organizing a library", () => {
     expect(withoutDerived(library.stats())).toEqual(before);
     expect(names(search(library, "tag:timber", PAGE))).toEqual(found);
     expect(count(library, "rating:5")).toBe(1);
-    expect(count(library, "renamed")).toBe(1);
+    // `renamed.jpg` is the asset that was trashed, so the query that found it
+    // before the rebuild must still find nothing after one — a `trash` that
+    // replayed as a no-op would pass every other assertion here.
+    expect(count(library, "renamed")).toBe(0);
+    expect(count(library, "is:trashed")).toBe(1);
     expect(library.db.repo.orphanSearchRows()).toBe(0);
   });
 });

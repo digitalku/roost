@@ -549,3 +549,61 @@ button:disabled {
 .zoom-controls button[data-disabled] {
   color: var(--text-subtle);
 }
+
+/* ── The confirmation dialog (`UI_SPEC.md` §3.4), on Radix (ADR-0021) ──────── */
+
+/* Above the context menu that opened it: `.menu` sits at 10, and a dialog
+   raised by a menu item has to cover the menu rather than appear under it. */
+.dialog-overlay {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  background: var(--scrim);
+}
+
+.dialog {
+  position: fixed;
+  z-index: 21;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: min(28rem, calc(100vw - var(--space-8)));
+  padding: var(--space-6);
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-2);
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--leading-lg);
+  font-weight: 600;
+}
+
+.dialog-body {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.dialog-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+/* Destructive only (`UI_SPEC.md` §2): the danger ramp is not a way to draw
+   attention, it is what an action that cannot be undone looks like. */
+.button-danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: var(--danger-text);
+}
+
+.button-danger:hover:not(:disabled) {
+  background: var(--danger-hover);
+}

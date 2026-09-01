@@ -233,6 +233,9 @@ function toFlag(value: string, at: number): Flag {
     case "partial-hash":
     case "partial":
       return "partial-hash";
+    case "trashed":
+    case "trash":
+      return "trashed";
     default:
       throw queryError("unknown-flag", `There is no "is:${value}"`, at, { value });
   }

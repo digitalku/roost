@@ -29,8 +29,28 @@ export interface Filter {
   readonly params: readonly Param[];
 }
 
-/** Matches every asset. */
+/**
+ * Matches every asset, trashed ones included.
+ *
+ * Rarely what a *view* wants — see {@link MATCH_LIVE}. This is the filter for
+ * the questions asked about the library itself rather than about what is in it:
+ * `doctor` counts every row, because a trashed asset still holds its bytes and
+ * an audit that skipped it would report those bytes as orphaned.
+ */
 export const MATCH_ALL: Filter = { sql: "1", params: [] };
+
+/**
+ * Matches every asset that is not in the trash.
+ *
+ * The unfiltered grid, which is a listing rather than a search and so never
+ * reaches `@roost/search`'s compiler. Everything that *does* reach it is scoped
+ * there instead, in one place (ADR-0022).
+ *
+ * The predicate is spelled exactly as the partial indexes in migration 0007 are
+ * — `a.trashed_at IS NULL` — because SQLite will only use a partial index when
+ * the query's WHERE contains a term implying the index's.
+ */
+export const MATCH_LIVE: Filter = { sql: "a.trashed_at IS NULL", params: [] };
 
 /**
  * Matches nothing.

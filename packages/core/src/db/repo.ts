@@ -24,6 +24,8 @@ export interface Stats {
   readonly rated: number;
   readonly favorites: number;
   readonly notes: number;
+  /** Assets in the trash. They are still rows, and still hold their bytes. */
+  readonly trashed: number;
   readonly thumbnails: number;
 }
 
@@ -149,6 +151,8 @@ export interface AssetDetail {
   readonly isPartialHash: boolean;
   readonly createdAt: number | null;
   readonly importedAt: number;
+  /** Unix seconds if this asset is in the trash, `null` if it is live. */
+  readonly trashedAt: number | null;
   readonly rating: number | null;
   readonly note: string | null;
   readonly isFavorite: boolean;
@@ -294,6 +298,52 @@ export class Repo {
     if (row !== undefined) {
       this.#s("DELETE FROM assets_fts WHERE rowid = ?").run(row.rowid);
     }
+  }
+
+  /**
+   * Marks an asset trashed as of `ts`, the timestamp on its journal line.
+   *
+   * Nothing else changes: the row, its tags, its rating, its note, its folder
+   * memberships, and its thumbnail all stay. Only what sees it changes, and
+   * that is one predicate (ADR-0022).
+   *
+   * A second `trash` overwrites the first with the later time rather than being
+   * refused, so replay is order-dependent and idempotent in the way the journal
+   * needs — trash, restore, trash again folds to the last one.
+   */
+  applyTrash(hash: ContentHash, ts: number): void {
+    this.#s("UPDATE assets SET trashed_at = ? WHERE hash = ?").run(ts, hash);
+  }
+
+  applyRestore(hash: ContentHash): void {
+    this.#s("UPDATE assets SET trashed_at = NULL WHERE hash = ?").run(hash);
+  }
+
+  /** Whether an asset is in the trash. `undefined` when there is no such asset. */
+  trashedAt(hash: ContentHash): number | null | undefined {
+    const row = this.#s("SELECT trashed_at AS trashedAt FROM assets WHERE hash = ?").get(hash) as
+      | { trashedAt: number | null }
+      | undefined;
+    return row === undefined ? undefined : row.trashedAt;
+  }
+
+  /** How many assets are in the trash. */
+  trashedCount(): number {
+    return this.#count("SELECT count(*) AS n FROM assets WHERE trashed_at IS NOT NULL");
+  }
+
+  /**
+   * Every trashed asset.
+   *
+   * For "Empty trash", which turns each one into a `remove`. Ordered by hash
+   * rather than by `trashed_at`: the answer is a set the caller journals in one
+   * batch, and a total order makes two runs write the same file.
+   */
+  trashedHashes(): ContentHash[] {
+    const rows = this.#s(
+      "SELECT hash FROM assets WHERE trashed_at IS NOT NULL ORDER BY hash",
+    ).all() as { hash: ContentHash }[];
+    return rows.map((row) => row.hash);
   }
 
   applyTagAdd(hash: ContentHash, tags: readonly string[]): void {
@@ -540,7 +590,8 @@ export class Repo {
               page_count AS pageCount, orig_name AS origName,
               storage_mode AS storageMode, ref_path AS refPath,
               is_partial_hash AS isPartialHash, created_at AS createdAt,
-              imported_at AS importedAt, rating, note, is_favorite AS isFavorite
+              imported_at AS importedAt, trashed_at AS trashedAt,
+              rating, note, is_favorite AS isFavorite
          FROM assets WHERE hash = ?`,
     ).get(hash) as
       | (Omit<AssetDetail, "isPartialHash" | "isFavorite" | "tags" | "folders" | "props"> & {
@@ -650,6 +701,7 @@ export class Repo {
       rated: this.#count("SELECT count(*) AS n FROM assets WHERE rating IS NOT NULL"),
       favorites: this.#count("SELECT count(*) AS n FROM assets WHERE is_favorite = 1"),
       notes: this.#count("SELECT count(*) AS n FROM assets WHERE note IS NOT NULL"),
+      trashed: this.#count("SELECT count(*) AS n FROM assets WHERE trashed_at IS NOT NULL"),
       thumbnails: this.#count("SELECT count(*) AS n FROM thumbs"),
     };
   }
@@ -1070,18 +1122,34 @@ export class Repo {
    * rather than paying for a recursive query per folder.
    */
   folderCounts(): Map<number, number> {
+    // Trashed assets are excluded, because `folder:` excludes them too — a
+    // count beside a query has to be the count *of* that query, or the sidebar
+    // is telling the user something the grid then contradicts (ADR-0022).
     const rows = this.#s(
-      "SELECT folder_id AS folderId, count(hash) AS n FROM asset_folders GROUP BY folder_id",
+      `SELECT af.folder_id AS folderId, count(*) AS n
+         FROM asset_folders af
+         JOIN assets a ON a.hash = af.hash
+        WHERE a.trashed_at IS NULL
+        GROUP BY af.folder_id`,
     ).all() as { folderId: number; n: number }[];
     return new Map(rows.map((row) => [row.folderId, row.n]));
   }
 
-  /** Every tag, with its asset count and its group. */
+  /**
+   * Every tag, with its live asset count and its group.
+   *
+   * The count excludes trashed assets, for the reason {@link folderCounts}
+   * gives. The joins stay `LEFT` so that a tag every one of whose assets is in
+   * the trash is still listed, at zero — the tag has not been deleted, and a
+   * row vanishing from the sidebar is a different statement from a count
+   * falling to nothing.
+   */
   tags(): TagRow[] {
     return this.#s(
-      `SELECT t.name AS name, count(at.hash) AS count, g.name AS "group"
+      `SELECT t.name AS name, count(a.hash) AS count, g.name AS "group"
          FROM tags t
          LEFT JOIN asset_tags at ON at.tag_id = t.id
+         LEFT JOIN assets a ON a.hash = at.hash AND a.trashed_at IS NULL
          LEFT JOIN tag_groups g ON g.id = t.group_id
         GROUP BY t.id
         ORDER BY t.name`,

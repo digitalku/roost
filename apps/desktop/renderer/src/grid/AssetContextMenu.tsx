@@ -2,16 +2,17 @@ import type { WireExportReport, WireProblem } from "@roost/contract";
 import { ContextMenu } from "radix-ui";
 import { useRef } from "react";
 import { invoke } from "../bridge.js";
+import { type ConfirmRequest, useTrashActions } from "./trash-actions.js";
 
 /**
  * Right-click on the grid or on an open preview (`UI_SPEC.md` §3.3).
  *
  * The file actions a file manager has, on the assets a person has selected:
  * open in whatever the desktop uses, show it where it lives, copy the paths,
- * and copy the originals out to a folder they choose. Everything here acts on
- * the **selection**, never on the asset the pointer happens to be over — that
- * distinction was a real bug on 2026-08-30, and the fix was to give every edit
- * a list of hashes and no way to learn how long it is.
+ * copy the originals out to a folder they choose, and delete. Everything here
+ * acts on the **selection**, never on the asset the pointer happens to be over
+ * — that distinction was a real bug on 2026-08-30, and the fix was to give
+ * every edit a list of hashes and no way to learn how long it is.
  *
  * Right-clicking an asset that is not selected selects it first; right-clicking
  * one that is leaves the selection alone. `Grid` does that, because it is the
@@ -20,24 +21,33 @@ import { invoke } from "../bridge.js";
  * whatever else is selected — "export…" while looking at one picture cannot
  * sensibly mean the other eleven.
  *
- * **Move to trash is here and disabled.** Trash is ADR-0022 and is not decided
- * yet — it needs a column, two journal ops, and partial indexes. An item that
- * is present and disabled says the feature is coming; one that is absent
- * teaches nothing, which is the same reasoning ADR-0018 used for Sort By.
+ * **The menu changes inside the Trash.** Deleting is reversible everywhere else
+ * and irreversible there, so the two spellings are never on screen together:
+ * `Move to trash` outside it, `Restore` and `Delete permanently` inside it
+ * (ADR-0022). Which one applies is decided by the query the grid is showing —
+ * `inTrash` — rather than by asking the engine on every right-click, which is
+ * what the rating and tag items are still waiting for.
  */
 
 export interface AssetContextMenuProps {
   /** The selection. Empty means there is no menu to open. */
   readonly hashes: readonly string[];
-  readonly onExported: (report: WireExportReport) => void;
+  /** Whether what is on screen is the Trash place. */
+  readonly inTrash: boolean;
+  /** Something happened and the status bar should say so. */
+  readonly onNote: (line: string) => void;
   readonly onProblem: (problem: WireProblem) => void;
+  /** Asks for the confirmation an irreversible action needs. */
+  readonly onConfirm: (request: ConfirmRequest) => void;
   readonly children: React.ReactNode;
 }
 
 export function AssetContextMenu({
   hashes,
-  onExported,
+  inTrash,
+  onNote,
   onProblem,
+  onConfirm,
   children,
 }: AssetContextMenuProps): React.JSX.Element {
   const count = hashes.length;
@@ -60,8 +70,15 @@ export function AssetContextMenu({
 
     const done = await invoke({ type: "assets:export", hashes, destination: chosen.value });
     if (!done.ok) return onProblem(done.problem);
-    onExported(done.value);
+    onNote(exportLine(done.value));
   };
+
+  const { trash, restore, deletePermanently, emptyTrash } = useTrashActions({
+    hashes,
+    onNote,
+    onProblem,
+    onConfirm,
+  });
 
   return (
     <ContextMenu.Root
@@ -128,11 +145,36 @@ export function AssetContextMenu({
 
           <ContextMenu.Separator className="menu-separator" />
 
-          <ContextMenu.Item className="menu-item" disabled>
-            <span className="menu-mark" />
-            <span className="menu-label">Move to trash</span>
-            <span className="menu-accelerator">Del</span>
-          </ContextMenu.Item>
+          {inTrash ? (
+            <>
+              <ContextMenu.Item className="menu-item" onSelect={restore}>
+                <span className="menu-mark" />
+                <span className="menu-label">
+                  {count === 1 ? "Restore" : `Restore ${count} assets`}
+                </span>
+              </ContextMenu.Item>
+
+              <ContextMenu.Item className="menu-item" onSelect={deletePermanently}>
+                <span className="menu-mark" />
+                <span className="menu-label">Delete permanently</span>
+              </ContextMenu.Item>
+
+              <ContextMenu.Separator className="menu-separator" />
+
+              <ContextMenu.Item className="menu-item" onSelect={emptyTrash}>
+                <span className="menu-mark" />
+                <span className="menu-label">Empty trash</span>
+              </ContextMenu.Item>
+            </>
+          ) : (
+            <ContextMenu.Item className="menu-item" onSelect={trash}>
+              <span className="menu-mark" />
+              <span className="menu-label">
+                {count === 1 ? "Move to trash" : `Move ${count} assets to trash`}
+              </span>
+              <span className="menu-accelerator">Del</span>
+            </ContextMenu.Item>
+          )}
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>

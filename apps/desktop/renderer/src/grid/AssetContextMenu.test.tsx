@@ -1,9 +1,9 @@
-import type { WireExportReport } from "@roost/contract";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeEngine, fakeAsset, install } from "../testing/fake-engine.js";
 import { AssetContextMenu, exportLine } from "./AssetContextMenu.js";
+import type { ConfirmRequest } from "./trash-actions.js";
 
 /**
  * The menu, driven the way a person drives it.
@@ -18,19 +18,27 @@ const HASHES = [0, 1, 2].map((index) => fakeAsset(index).hash);
 
 describe("the asset context menu", () => {
   let engine: FakeEngine;
-  let exported: WireExportReport[];
+  let notes: string[];
   let problems: string[];
+  let confirmations: ConfirmRequest[];
 
-  const show = (hashes: readonly string[] = HASHES, options = {}) => {
+  const show = (
+    hashes: readonly string[] = HASHES,
+    options = {},
+    { inTrash = false }: { inTrash?: boolean } = {},
+  ) => {
     engine = new FakeEngine(options);
     install(engine);
-    exported = [];
+    notes = [];
     problems = [];
+    confirmations = [];
     const view = render(
       <AssetContextMenu
         hashes={hashes}
-        onExported={(report) => exported.push(report)}
+        inTrash={inTrash}
+        onNote={(line) => notes.push(line)}
         onProblem={(problem) => problems.push(problem.message)}
+        onConfirm={(request) => confirmations.push(request)}
       >
         <div data-testid="surface" tabIndex={-1}>
           the grid
@@ -91,7 +99,7 @@ describe("the asset context menu", () => {
     const request = sentTo("assets:export")[0] as { hashes: string[]; destination: string };
     expect(request.hashes).toEqual(HASHES);
     expect(request.destination).toBe("/home/someone/Desktop");
-    expect(exported[0]?.exported).toBe(3);
+    expect(notes[0]).toBe("Exported 3");
   });
 
   it("exports nothing when the dialog is cancelled", async () => {
@@ -103,7 +111,7 @@ describe("the asset context menu", () => {
 
     await waitFor(() => expect(sentTo("dialog:chooseLocation")).toHaveLength(1));
     expect(sentTo("assets:export")).toHaveLength(0);
-    expect(exported).toHaveLength(0);
+    expect(notes).toHaveLength(0);
     expect(problems).toHaveLength(0);
   });
 
@@ -126,12 +134,70 @@ describe("the asset context menu", () => {
     expect(sentTo("asset:reveal")[0]?.hash).toBe(HASHES[0]);
   });
 
-  it("shows Move to trash, disabled, because trash is not decided yet", async () => {
-    // ADR-0022. Present and disabled says the feature is coming; absent teaches
-    // nothing — the same reasoning ADR-0018 used for Sort By.
+  it("moves the whole selection to the trash, and asks nothing first", async () => {
+    // Trashing is reversible (ADR-0022), so a confirmation would be a dialog
+    // that teaches people to dismiss dialogs. The count is what is asserted,
+    // because the version that sent one hash would pass a test that only
+    // checked a request happened.
+    const { user } = show();
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: /Move 3 assets to trash/ }));
+
+    await waitFor(() => expect(sentTo("assets:trash")).toHaveLength(1));
+    expect(sentTo("assets:trash")[0]?.hashes).toEqual(HASHES);
+    expect(confirmations).toHaveLength(0);
+    expect(notes[0]).toBe("Moved 3 assets to the trash");
+  });
+
+  it("offers restoring and permanent deletion only inside the trash", async () => {
     show();
     await open();
-    expect(disabled("Move to trash Del")).toBe(true);
+    expect(screen.queryByRole("menuitem", { name: "Restore 3 assets" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Delete permanently" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Empty trash" })).toBeNull();
+  });
+
+  it("swaps trashing for restoring once the Trash place is on screen", async () => {
+    const { user } = show(HASHES, {}, { inTrash: true });
+    await open();
+    // The reversible spelling is gone: the two are never offered together, or
+    // "delete" would mean two things in one menu.
+    expect(screen.queryByRole("menuitem", { name: /Move 3 assets to trash/ })).toBeNull();
+    await user.click(screen.getByRole("menuitem", { name: "Restore 3 assets" }));
+
+    await waitFor(() => expect(sentTo("assets:restore")).toHaveLength(1));
+    expect(sentTo("assets:restore")[0]?.hashes).toEqual(HASHES);
+  });
+
+  it("confirms before removing anything permanently, and sends nothing until it is", async () => {
+    const { user } = show(HASHES, {}, { inTrash: true });
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "Delete permanently" }));
+
+    await waitFor(() => expect(confirmations).toHaveLength(1));
+    // Nothing has been sent yet. The dialog is the gate, not a notification
+    // shown beside a request that already went.
+    expect(sentTo("assets:remove")).toHaveLength(0);
+    expect(confirmations[0]?.confirmLabel).toBe("Delete");
+
+    confirmations[0]?.run();
+    await waitFor(() => expect(sentTo("assets:remove")).toHaveLength(1));
+    expect(sentTo("assets:remove")[0]?.hashes).toEqual(HASHES);
+  });
+
+  it("confirms before emptying the trash, and reports what the engine removed", async () => {
+    // The count comes back from the engine: emptying is over what the trash
+    // holds, which is not the selection the renderer sent.
+    const { user } = show(HASHES, { trashSize: 12 }, { inTrash: true });
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "Empty trash" }));
+
+    await waitFor(() => expect(confirmations).toHaveLength(1));
+    expect(sentTo("assets:emptyTrash")).toHaveLength(0);
+
+    confirmations[0]?.run();
+    await waitFor(() => expect(notes).toHaveLength(1));
+    expect(notes[0]).toBe("Deleted 12 assets");
   });
 
   /*

@@ -28,6 +28,7 @@ export const OP_NAMES = [
   "note_set",
   "rate",
   "remove",
+  "restore",
   "smart_folder_create",
   "smart_folder_delete",
   "smart_folder_update",
@@ -38,6 +39,7 @@ export const OP_NAMES = [
   "tag_group_set",
   "tag_remove",
   "tag_rename",
+  "trash",
 ] as const;
 
 export type OpName = (typeof OP_NAMES)[number];
@@ -91,6 +93,20 @@ export interface AddRecord {
 export type Op =
   | ({ readonly op: "add" } & AddRecord)
   | { readonly op: "remove"; readonly hash: ContentHash }
+  /**
+   * Trash and restore (ADR-0022).
+   *
+   * Neither carries a timestamp of its own: the journal line already has `ts`,
+   * and replay writes `assets.trashed_at` from it. Two `trash` ops for one
+   * asset are idempotent — the later one wins, which is what somebody who
+   * trashed, restored, and trashed again would expect Trash to show.
+   *
+   * `trash` is reversible and `remove` is not. That is the whole distinction:
+   * `remove` keeps exactly the meaning it has always had, and is what "Empty
+   * trash" and "Delete permanently" send.
+   */
+  | { readonly op: "trash"; readonly hash: ContentHash }
+  | { readonly op: "restore"; readonly hash: ContentHash }
   | { readonly op: "tag_add"; readonly hash: ContentHash; readonly tags: readonly string[] }
   | { readonly op: "tag_remove"; readonly hash: ContentHash; readonly tags: readonly string[] }
   | {
@@ -262,6 +278,8 @@ export function toRecord(source: Raw): JournalRecord {
     case "add":
       return { ts, op, ...parseAdd(source) };
     case "remove":
+    case "trash":
+    case "restore":
       return { ts, op, hash: hash(source, "hash") };
     case "tag_add":
     case "tag_remove":

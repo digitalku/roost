@@ -104,6 +104,7 @@ export interface LibraryStats {
   readonly rated: number;
   readonly favorites: number;
   readonly notes: number;
+  readonly trashed: number;
   readonly thumbnails: number;
 }
 
@@ -249,6 +250,8 @@ export interface WireAssetDetail {
   /** The source file's mtime, unix seconds. `null` when it was not readable. */
   readonly createdAt: number | null;
   readonly importedAt: number;
+  /** Unix seconds if this asset is in the trash, `null` if it is live. */
+  readonly trashedAt: number | null;
   readonly rating: number | null;
   readonly note: string | null;
   readonly isFavorite: boolean;

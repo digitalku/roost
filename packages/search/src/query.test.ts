@@ -210,7 +210,7 @@ describe("compiling", () => {
 
   it("answers a folder nobody created with an empty match, not an error", () => {
     const filter = buildQuery("folder:Nowhere");
-    expect(filter.sql).toBe("0");
+    expect(filter.sql).toBe("(0) AND a.trashed_at IS NULL");
     expect(filter.params).toEqual([]);
   });
 
@@ -230,16 +230,34 @@ describe("compiling", () => {
   it("makes negation total", () => {
     // `-tag:wip` is NOT over the whole library, so it includes assets with no
     // tags at all.
-    expect(buildQuery("-tag:wip").sql.startsWith("NOT (")).toBe(true);
+    expect(buildQuery("-tag:wip").sql.startsWith("(NOT (")).toBe(true);
   });
 
   it("compiles a flag without binding anything it did not have to", () => {
     expect(compileQuery(parse("is:favorite"), NO_FOLDERS)).toEqual({
-      sql: "a.is_favorite = 1",
+      sql: "(a.is_favorite = 1) AND a.trashed_at IS NULL",
       params: [],
     });
     // Except the two that name a column value, which stay bound like any other.
     expect(buildQuery("is:managed").params).toEqual(["managed"]);
+  });
+
+  it("scopes every query to live assets", () => {
+    // Trash is a state, not a place (ADR-0022), so a trashed asset is still a
+    // row `tag:wip` would otherwise match. The scoping is what makes deleting
+    // something mean it stops turning up.
+    for (const query of ["tag:wip", "is:favorite", "rating:>=4", "beach", "-tag:wip"]) {
+      expect(buildQuery(query).sql.endsWith(" AND a.trashed_at IS NULL")).toBe(true);
+    }
+  });
+
+  it("lets `is:trashed` out of the scoping, at any depth and in any polarity", () => {
+    expect(buildQuery("is:trashed").sql).toBe("a.trashed_at IS NOT NULL");
+    // Nested, so that the check is over the whole tree rather than the root.
+    expect(buildQuery("is:trashed AND tag:wip").sql).not.toContain("IS NULL");
+    // Negated, where the default scoping would have produced the same predicate
+    // anyway — opting out must not be able to widen a query.
+    expect(buildQuery("-is:trashed").sql).toBe("NOT (a.trashed_at IS NOT NULL)");
   });
 });
 

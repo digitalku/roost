@@ -262,7 +262,61 @@ export async function renameAsset(
 }
 
 /**
- * Removes assets from the library.
+ * Moves assets to the trash (ADR-0022).
+ *
+ * What `Delete` means. The row and everything hanging off it stay — tags,
+ * rating, note, folder memberships, thumbnail — and only what sees the asset
+ * changes. Nothing on disk moves, in either storage mode.
+ *
+ * Trashing something already in the trash is not an error: it re-stamps
+ * `trashed_at` with the later time, which is what somebody who trashed,
+ * restored, and trashed again would expect Trash to show.
+ */
+export async function trashAssets(library: Library, assets: readonly ContentHash[]): Promise<void> {
+  return apply(
+    library,
+    assets.map((hash) => {
+      requireAsset(library, hash);
+      return { op: "trash", hash } as const;
+    }),
+  );
+}
+
+/** Brings assets back out of the trash. Restoring a live asset is a no-op. */
+export async function restoreAssets(
+  library: Library,
+  assets: readonly ContentHash[],
+): Promise<void> {
+  return apply(
+    library,
+    assets.map((hash) => {
+      requireAsset(library, hash);
+      return { op: "restore", hash } as const;
+    }),
+  );
+}
+
+/**
+ * Removes every trashed asset from the library, and answers with how many.
+ *
+ * "Empty trash" is {@link removeAssets} over what the trash holds, which is why
+ * emptying needs no operation of its own: `remove` already means exactly this,
+ * and giving the destructive case a second spelling would be two things to keep
+ * in step. **There is no timer** — Eagle empties after thirty days, and an
+ * application that deletes a person's files on a schedule, possibly while they
+ * are not looking, is not one this project ships (ADR-0022).
+ */
+export async function emptyTrash(library: Library): Promise<number> {
+  const trashed = library.db.repo.trashedHashes();
+  await removeAssets(library, trashed);
+  return trashed.length;
+}
+
+/**
+ * Removes assets from the library, permanently as far as the index goes.
+ *
+ * Not what `Delete` does — see {@link trashAssets}. This is what "Empty trash"
+ * and "Delete permanently" send, and what `roost remove` has always done.
  *
  * Index rows only. The bytes under `originals/` stay where they are: reclaiming
  * them is a separate, reviewable step (`roost doctor --reclaim`), because

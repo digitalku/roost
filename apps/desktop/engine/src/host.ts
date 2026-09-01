@@ -29,6 +29,7 @@ import {
 import {
   compileFor,
   type DeriveReport,
+  emptyTrash,
   enqueueMissing,
   ensurePreview,
   exportAssets,
@@ -46,7 +47,9 @@ import {
   rate,
   readSidebar,
   rememberLibrary,
+  removeAssets,
   renameAsset,
+  restoreAssets,
   retryBlocked,
   retryFailed,
   runDerives,
@@ -54,6 +57,7 @@ import {
   setNote,
   tagAdd,
   tagRemove,
+  trashAssets,
 } from "@roost/library";
 import { capabilities } from "@roost/media";
 import { formatFromExtension, kindOf } from "@roost/media/serving";
@@ -166,6 +170,18 @@ export class EngineHost {
 
       case "asset:tagRemove":
         return this.#edit(() => tagRemove(this.#require(), hashes(request.hashes), request.tags));
+
+      case "assets:trash":
+        return this.#edit(() => trashAssets(this.#require(), hashes(request.hashes)));
+
+      case "assets:restore":
+        return this.#edit(() => restoreAssets(this.#require(), hashes(request.hashes)));
+
+      case "assets:remove":
+        return this.#edit(() => removeAssets(this.#require(), hashes(request.hashes)));
+
+      case "assets:emptyTrash":
+        return this.#editReporting(() => emptyTrash(this.#require()));
 
       case "import:paths":
         return this.#import(request.paths, request.mode, request.tags);
@@ -364,6 +380,19 @@ export class EngineHost {
   }
 
   /**
+   * An edit whose answer is more than "it happened".
+   *
+   * Emptying the trash is the one so far: the count is over what the engine
+   * sees rather than over a selection the renderer sent, so the renderer has no
+   * way to compute what to put in the status bar.
+   */
+  async #editReporting<T>(run: () => Promise<T>): Promise<T> {
+    const result = await run();
+    this.onChanged?.();
+    return result;
+  }
+
+  /**
    * Called after every mutation, so the window can re-read what it shows.
    *
    * Set by `serve`, which owns the port. The host holds no message plumbing —
@@ -465,6 +494,7 @@ function statsOf(library: Library): LibraryStats {
     rated: counts.rated,
     favorites: counts.favorites,
     notes: counts.notes,
+    trashed: counts.trashed,
     thumbnails: counts.thumbnails,
   };
 }
@@ -514,9 +544,9 @@ function sidebarOf(library: Library): WireSidebar {
         id: place.id,
         name: place.name,
         query: place.query,
-        // No count: it would be one query per place on every sidebar read, and
-        // nothing in `UI_SPEC.md` §4.1 shows one.
-        count: null,
+        // Only Trash carries one — every other place would cost a query per
+        // sidebar read for a number `UI_SPEC.md` §4.1 does not show.
+        count: place.count,
         depth: 0,
         group: null,
       }),
@@ -609,6 +639,7 @@ function detailOf(detail: AssetDetail): WireAssetDetail {
     isPartialHash: detail.isPartialHash,
     createdAt: detail.createdAt,
     importedAt: detail.importedAt,
+    trashedAt: detail.trashedAt,
     rating: detail.rating,
     note: detail.note,
     isFavorite: detail.isFavorite,

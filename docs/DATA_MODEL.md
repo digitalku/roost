@@ -53,6 +53,7 @@ violates invariant 6.
 | M2 | `smart_folders(id, name, query, parent_id)` | yes — `smart_folder_*` |
 | M2 | folder rename/move/delete, asset rename, tag rename | yes — new ops, see spec notes |
 | M4 | `assets.page_count`, capability/probe results | no — derived from the file |
+| M3 | `assets.trashed_at` | yes — `trash`, `restore` |
 | M5 | `asset_colors(hash, rank, l, a, b, ratio)` | no — derived |
 | M5 | `asset_hashes(hash, dhash, phash)` | no — derived |
 | M5 | `asset_stacks(stack_id, hash, position, is_cover)` | yes — user-authored grouping |
@@ -283,6 +284,58 @@ obligation on 2026-08-29: `roost-old` is not a target, schema growth is what M4 
 of, and holding v5 to keep a dead build readable would trade every later milestone for it. The
 direction that still matters — a library it wrote opening *here* — is tested and unaffected.
 
+### 2.6 Migration 0007 — trash is a column (schema v7)
+
+Decided by the user on 2026-09-01 and recorded as ADR-0022: `Delete` moves an asset to the
+trash, nothing is ever emptied on a schedule, and permanent removal is a second, deliberate
+gesture.
+
+```sql
+ALTER TABLE assets ADD COLUMN trashed_at INTEGER;
+
+DROP INDEX idx_assets_imported;
+DROP INDEX idx_assets_ext;
+DROP INDEX idx_assets_rating;
+DROP INDEX idx_assets_favorite;
+
+CREATE INDEX idx_assets_imported ON assets(imported_at DESC, hash)
+                                 WHERE trashed_at IS NULL;
+
+CREATE INDEX idx_assets_ext      ON assets(ext, imported_at DESC, hash)
+                                 WHERE trashed_at IS NULL;
+
+CREATE INDEX idx_assets_rating   ON assets(rating, imported_at DESC, hash)
+                                 WHERE rating IS NOT NULL AND trashed_at IS NULL;
+
+CREATE INDEX idx_assets_favorite ON assets(is_favorite, imported_at DESC, hash)
+                                 WHERE is_favorite = 1 AND trashed_at IS NULL;
+
+CREATE INDEX idx_assets_trashed  ON assets(imported_at DESC, hash)
+                                 WHERE trashed_at IS NOT NULL;
+```
+
+**A column, because trash is a state.** A `Trash` folder was the obvious alternative and is
+wrong: a folder is a collection an asset can be in *as well as* others, so being in Trash would
+not take it out of anything. Moving the bytes to a `trash/` directory is wrong twice over — it
+breaks the content-addressed layout invariant 2 exists to protect, and for a `referenced` asset
+it would write into a user's own directory, which invariant 6 forbids.
+
+**It preserves the row, because the row is the expensive half.** `remove` already leaves the
+bytes for a deliberate `doctor --reclaim`, so the *file* had a grace period all along; what had
+none was the tags, the rating, the note, and the folder memberships. A file imported once can be
+imported again. Forty tags applied by hand over a month cannot.
+
+**The scope predicate is part of the schema.** SQLite uses a partial index only when the query's
+WHERE clause contains a term implying the index's, so `a.trashed_at IS NULL` has to be spelled
+exactly that way to keep the plans migration 0005 bought. It is written in one place —
+`@roost/search`'s compiler, which scopes every query unless it mentions `is:trashed` — and
+`repo.test.ts` asserts the plans in both directions rather than trusting it.
+
+**Nothing empties on a timer.** Eagle empties after thirty days. An application that deletes a
+person's files on a schedule, possibly while they are not looking, is not one this project ships:
+`CONCEPT.md` §2 makes the library outlive the application, and a background deleter is the one
+thing that could make that false.
+
 ## 3. Roost Query Language (RQL)
 
 The search bar and smart folders share one grammar. It compiles to SQL with **bound
@@ -314,6 +367,7 @@ imported:>2026-01-01
 rating:>=4                    1 to 5; anything else is a parse error, not an empty result
 is:favorite is:untagged is:tagged is:rated is:unrated
 is:managed is:referenced is:partial-hash
+is:trashed                    in the trash; also `is:trash`
 "free text"                   FTS5 over orig_name and tags
 ```
 
@@ -333,6 +387,14 @@ Four behaviours are worth stating because they are decisions, not accidents:
   search. Quoting the whole input is what a person typing into a search box means.
 - **Negation is total.** `-tag:wip` is `NOT (…)` over the whole library, so it includes
   assets with no tags at all.
+- **Every query is scoped to live assets unless it mentions `is:trashed`.** Trash is a state,
+  not a place (ADR-0022), so a trashed asset is still a row `tag:wip` would otherwise match —
+  and an application where deleting something leaves it in every search is one where deleting
+  does not work. The compiler appends `a.trashed_at IS NULL` to anything that does not name the
+  flag, in any polarity and at any depth. The consequence worth knowing: `is:favorite OR
+  is:trashed` is *not* scoped, so it answers with live favourites and every trashed asset. The
+  alternative — a scope argument threaded through the engine, the CLI, and the renderer — puts
+  the same rule in three places, and one of the three eventually forgets it.
 - **`group:` reaches assets through the tags in the group**, since a group arranges tags
   rather than containing assets. It was added with the groups themselves so the CLI can
   answer "everything tagged with anything in Materials" — ADR-0005 does not let the GUI

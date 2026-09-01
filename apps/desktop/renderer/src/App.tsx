@@ -9,12 +9,14 @@ import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
+import { ConfirmDialog } from "./ConfirmDialog.js";
 import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
-import { AssetContextMenu, exportLine } from "./grid/AssetContextMenu.js";
+import { AssetContextMenu } from "./grid/AssetContextMenu.js";
 import { Grid } from "./grid/Grid.js";
 import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, zoomBy } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
+import { type ConfirmRequest, useTrashActions } from "./grid/trash-actions.js";
 import { ViewMenu } from "./grid/ViewMenu.js";
 import { DropZone } from "./import/DropZone.js";
 import { type Importing, useImport } from "./import/useImport.js";
@@ -76,13 +78,17 @@ export function App(): React.JSX.Element {
   }, [creating]);
 
   /**
-   * The asset count as of the last read.
+   * The counts that decide whether the grid's pages are still valid.
    *
-   * A ref rather than reading it back out of `opened` inside a state updater:
+   * A ref rather than reading them back out of `opened` inside a state updater:
    * an updater must be pure, and deciding whether to bump another piece of
    * state inside one is exactly the impurity React is entitled to run twice.
+   *
+   * Two numbers, not one. `assets` counts every row, trashed ones included, so
+   * trashing something leaves it unchanged — and the grid would keep showing an
+   * asset that has just stopped matching every query it is in (ADR-0022).
    */
-  const lastCount = useRef<number | undefined>(undefined);
+  const lastCounts = useRef<{ assets: number; trashed: number } | undefined>(undefined);
 
   const readStats = useCallback(async (summary: LibrarySummary, sameLibrary = false) => {
     const stats = await invoke({ type: "library:stats" });
@@ -90,10 +96,14 @@ export function App(): React.JSX.Element {
 
     // A different asset count means rows were added or removed — by an import
     // here, by another window, or by the CLI — and the grid's pages are then
-    // wrong rather than merely stale. Anything that leaves the count alone (a
-    // rating, a note, a tag) does not throw them away.
-    const rowsChanged = !sameLibrary || lastCount.current !== stats.value.assets;
-    lastCount.current = stats.value.assets;
+    // wrong rather than merely stale. A different trash count means the same
+    // thing without the total moving. Anything that leaves both alone (a
+    // rating, a note, a tag) does not throw the pages away.
+    const rowsChanged =
+      !sameLibrary ||
+      lastCounts.current?.assets !== stats.value.assets ||
+      lastCounts.current?.trashed !== stats.value.trashed;
+    lastCounts.current = { assets: stats.value.assets, trashed: stats.value.trashed };
 
     setProblem(undefined);
     setOpened({ summary, stats: stats.value });
@@ -532,6 +542,14 @@ function LibraryView({
   // biome-ignore lint/correctness/useExhaustiveDependencies: the revision is the trigger
   const selected = useMemo(() => selection.selected(), [selection, selectionRevision]);
   const [previewing, setPreviewing] = useState(false);
+  /**
+   * The one confirmation dialog in the window, and what it is asking about.
+   *
+   * Held here rather than inside the context menu because `Delete` on the
+   * keyboard has to ask the same question the menu item asks, and the menu is
+   * not on screen when it is pressed.
+   */
+  const [confirming, setConfirming] = useState<ConfirmRequest | undefined>();
 
   // Selecting something else is how a result stops being the current one.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the revision is the trigger
@@ -572,6 +590,56 @@ function LibraryView({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  /**
+   * Whether what is on screen is the Trash place.
+   *
+   * Decided by comparing against the query the **engine** sent for that row,
+   * never by writing `is:trashed` here: the renderer assembles no RQL
+   * (`UI_SPEC.md` §4.1), and a literal in this file would be a second, worse
+   * copy of the grammar that nothing would keep in step.
+   */
+  const inTrash = useMemo(() => {
+    const trash = sidebar?.places.find((place) => place.id === "trash");
+    return trash !== undefined && trash.query === query;
+  }, [sidebar, query]);
+
+  const noteResult = useCallback((line: string) => {
+    setActed(undefined);
+    setNote(line);
+  }, []);
+
+  const trashing = useTrashActions({
+    hashes: selected,
+    onNote: noteResult,
+    onProblem: setActed,
+    onConfirm: setConfirming,
+  });
+
+  /**
+   * `Delete` on the selection (`UI_SPEC.md` §9).
+   *
+   * Trash outside the Trash place, delete permanently inside it — the same two
+   * meanings the context menu offers, through the same hook, so the shortcut
+   * cannot skip a confirmation the menu asks for.
+   *
+   * On the window rather than on the grid, because the preview and the
+   * inspector are both places a person may be looking at the selection from.
+   * Typing is checked for first: `Delete` in a text field deletes a character.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "Delete" || event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && isTyping(target)) return;
+      if (selected.length === 0) return;
+      event.preventDefault();
+      if (inTrash) trashing.deletePermanently();
+      else trashing.trash();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inTrash, selected, trashing]);
 
   // An import changes the counts, the sidebar, and what the grid holds, so it
   // is the one thing in the window that has to reset the paging as well.
@@ -638,11 +706,10 @@ function LibraryView({
              looking at one picture cannot sensibly mean the other eleven. */
           <AssetContextMenu
             hashes={[focused]}
-            onExported={(report) => {
-              setActed(undefined);
-              setNote(exportLine(report));
-            }}
+            inTrash={inTrash}
+            onNote={noteResult}
             onProblem={setActed}
+            onConfirm={setConfirming}
           >
             <PreviewPane hash={focused} onClose={() => setPreviewing(false)} onStep={step} />
           </AssetContextMenu>
@@ -651,11 +718,10 @@ function LibraryView({
         ) : (
           <AssetContextMenu
             hashes={selected}
-            onExported={(report) => {
-              setActed(undefined);
-              setNote(exportLine(report));
-            }}
+            inTrash={inTrash}
+            onNote={noteResult}
             onProblem={setActed}
+            onConfirm={setConfirming}
           >
             <Grid
               assets={paging.assets}
@@ -676,7 +742,12 @@ function LibraryView({
       <footer className="status">
         {/* One text node, so what the status bar says is one readable string
             rather than four fragments a screen reader has to reassemble. */}
-        <span>{summaryLine(query === "" ? opened.stats.assets : matches, count)}</span>
+        {/* `assets` counts every row, trashed ones included, so the live total
+            is the difference — the same number the empty query answers with,
+            without a round trip and without a flash of "counting…". */}
+        <span>
+          {summaryLine(query === "" ? opened.stats.assets - opened.stats.trashed : matches, count)}
+        </span>
         {note !== undefined && (
           <span className="status-note" aria-live="polite">
             {note}
@@ -687,6 +758,17 @@ function LibraryView({
         <span className="path">{opened.summary.root}</span>
       </footer>
       {showing !== undefined && <Problem problem={showing} />}
+      <ConfirmDialog
+        open={confirming !== undefined}
+        title={confirming?.title ?? ""}
+        body={confirming?.body ?? ""}
+        confirmLabel={confirming?.confirmLabel ?? ""}
+        onConfirm={() => {
+          confirming?.run();
+          setConfirming(undefined);
+        }}
+        onCancel={() => setConfirming(undefined)}
+      />
     </div>
   );
 }

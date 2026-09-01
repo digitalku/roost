@@ -36,11 +36,19 @@ describe("against a journal written by the Rust implementation", () => {
     expect(isClean(report)).toBe(true);
   });
 
-  it("covers all 22 operations, so the check is not accidentally narrow", async () => {
+  it("covers every operation the two implementations share", async () => {
     const sink = new CollectingSink();
     await replay(FIXTURE_DIR, sink);
 
-    expect([...new Set(sink.records.map((r) => r.op))].sort()).toEqual([...OP_NAMES]);
+    // The fixture holds the 22 operations that existed when both builds were
+    // writing journals. `trash` and `restore` are this repository's own
+    // (ADR-0022) and the Rust build cannot write them, so they are subtracted
+    // by name rather than by loosening the comparison — the point of this test
+    // is that the shared vocabulary cannot shrink unnoticed.
+    const ours = new Set(["trash", "restore"]);
+    expect([...new Set(sink.records.map((r) => r.op))].sort()).toEqual(
+      OP_NAMES.filter((name) => !ours.has(name)),
+    );
   });
 
   it("re-serialises every record byte for byte", async () => {

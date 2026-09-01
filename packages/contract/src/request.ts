@@ -178,6 +178,31 @@ export type Request =
    */
   | { readonly type: "asset:copyPath"; readonly hashes: readonly string[] }
   /**
+   * Move the selection to the trash, or bring it back out (ADR-0022).
+   *
+   * Reversible, and the only thing `Delete` does. Nothing on disk moves and no
+   * metadata is lost — a trashed asset keeps its tags, rating, note, and folder
+   * memberships, and simply stops matching every query but `is:trashed`.
+   */
+  | { readonly type: "assets:trash"; readonly hashes: readonly string[] }
+  | { readonly type: "assets:restore"; readonly hashes: readonly string[] }
+  /**
+   * Remove the selection from the library, permanently.
+   *
+   * What "Delete permanently" sends. Not reversible: the row and everything
+   * hanging off it are gone, and only the bytes survive for a deliberate
+   * `roost doctor --reclaim`.
+   */
+  | { readonly type: "assets:remove"; readonly hashes: readonly string[] }
+  /**
+   * Remove everything the trash holds, and answer with how many.
+   *
+   * The count comes back because the renderer cannot compute it: emptying is
+   * over what the *engine* sees in the trash, not over a selection, and the
+   * status bar has to be able to say what happened.
+   */
+  | { readonly type: "assets:emptyTrash" }
+  /**
    * Copy the selection's originals into a directory the user chose.
    *
    * The one place Roost writes into a user's directory, and it does so only
@@ -285,6 +310,11 @@ export interface Responses {
   "asset:reveal": boolean;
   /** `false` when nothing could be located, so nothing was put on the clipboard. */
   "asset:copyPath": boolean;
+  "assets:trash": null;
+  "assets:restore": null;
+  "assets:remove": null;
+  /** How many assets emptying removed. */
+  "assets:emptyTrash": number;
   "assets:export": WireExportReport;
   "import:paths": WireImportReport;
   "derive:status": WireDeriveStatus;
@@ -447,6 +477,23 @@ export const REQUEST_VALIDATORS: {
     const hashes = readHashArray(source, "hashes");
     return hashes.ok ? ok({ type: "asset:copyPath", hashes: hashes.value }) : hashes;
   },
+
+  "assets:trash": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    return hashes.ok ? ok({ type: "assets:trash", hashes: hashes.value }) : hashes;
+  },
+
+  "assets:restore": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    return hashes.ok ? ok({ type: "assets:restore", hashes: hashes.value }) : hashes;
+  },
+
+  "assets:remove": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    return hashes.ok ? ok({ type: "assets:remove", hashes: hashes.value }) : hashes;
+  },
+
+  "assets:emptyTrash": () => ok({ type: "assets:emptyTrash" }),
 
   "assets:export": (source) => {
     const hashes = readHashArray(source, "hashes");

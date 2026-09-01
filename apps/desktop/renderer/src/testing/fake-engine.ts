@@ -85,6 +85,8 @@ export interface FakeEngineOptions {
   readonly desktopAnswers?: boolean;
   /** What an export reports. */
   readonly exportReport?: Partial<WireExportReport>;
+  /** How many assets `assets:emptyTrash` reports having removed. */
+  readonly trashSize?: number;
   /** What `dialog:chooseImport` answers with. `null` is a cancelled dialog. */
   readonly importDialog?: readonly string[] | null;
   /** What an import reports, and the progress it emits on the way. */
@@ -124,6 +126,7 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     isPartialHash: false,
     createdAt: null,
     importedAt: card.importedAt,
+    trashedAt: null,
     rating: null,
     note: null,
     durationMs: null,
@@ -172,6 +175,7 @@ const EMPTY_STATS: LibraryStats = {
   rated: 0,
   favorites: 0,
   notes: 0,
+  trashed: 0,
   thumbnails: 0,
 };
 
@@ -436,6 +440,28 @@ export class FakeEngine {
           tags: detail.tags.filter((tag) => !gone.has(tag.toLowerCase())),
         }));
       }
+
+      // Trashing is modelled as removal from `assets`, because that is what the
+      // window sees: every query but the Trash place is scoped to live assets,
+      // and the fake has no query engine to scope with. Restoring is deliberately
+      // *not* modelled — a fake that could put a row back would be pretending to
+      // a query language it does not have, and the tests that matter here are
+      // about what the renderer sends.
+      case "assets:trash":
+      case "assets:remove": {
+        const gone = new Set(request.hashes);
+        this.assets = this.assets.filter((asset) => !gone.has(asset.hash));
+        this.emit({ type: "library:changed" });
+        return ok(null);
+      }
+
+      case "assets:restore":
+        this.emit({ type: "library:changed" });
+        return ok(null);
+
+      case "assets:emptyTrash":
+        this.emit({ type: "library:changed" });
+        return ok(this.#options.trashSize ?? 0);
 
       case "asset:openExternally":
         return ok(this.#options.opensExternally ?? true);

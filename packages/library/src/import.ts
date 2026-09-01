@@ -289,6 +289,21 @@ async function ingest(
 
   if (claim.kind !== "free") {
     await recordDuplicate(claim, path, hashed.isPartial, report);
+    // Importing a file the library has already trashed brings it back.
+    // Otherwise the import would report a duplicate and the asset would stay
+    // invisible, which reads as the import having silently done nothing — and
+    // deliberately adding a file is the clearest statement there is that the
+    // user wants it. `add` is not journalled again: nothing about the asset
+    // changed, and re-adding would rewrite `imported_at` and move it to the
+    // top of a grid it has been in for months (ADR-0022).
+    // A number, not merely "not null": `trashedAt` answers `undefined` for a
+    // hash with no row, which is what an in-batch duplicate looks like — the
+    // first copy is journalled but not yet indexed. Restoring that would write
+    // a journal line for an asset nothing has added.
+    if (typeof library.db.repo.trashedAt(hashed.hash) === "number") {
+      const ts = nowUnix();
+      return { hash: hashed.hash, records: [{ ts, op: "restore", hash: hashed.hash }] };
+    }
     return undefined;
   }
 

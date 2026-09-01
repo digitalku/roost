@@ -327,6 +327,7 @@ describe("the engine's message loop", () => {
       "Recent",
       "Favorites",
       "Untagged",
+      "Trash",
     ]);
     // "All assets" is the empty string — the engine's word for the whole
     // library — and not a term in the grammar.
@@ -422,6 +423,7 @@ describe("the engine's message loop", () => {
         "size",
         "storageMode",
         "tags",
+        "trashedAt",
         "width",
       ].sort(),
     );
@@ -633,6 +635,7 @@ describe("the engine's message loop", () => {
         "tags",
         "thumbnails",
         "totalBytes",
+        "trashed",
       ].sort(),
     );
     expect(value["assets"]).toBe(0);

@@ -87,6 +87,15 @@ export class IndexSink implements ReplaySink {
       case "remove":
         repo.applyRemove(record.hash);
         return;
+      case "trash":
+        // The line's own `ts` is the trashing time; the op carries no second
+        // one (ADR-0022). Replay and a live edit therefore agree by
+        // construction rather than by both remembering to use the same clock.
+        repo.applyTrash(record.hash, record.ts);
+        return;
+      case "restore":
+        repo.applyRestore(record.hash);
+        return;
       case "tag_add":
         repo.applyTagAdd(record.hash, record.tags);
         return;

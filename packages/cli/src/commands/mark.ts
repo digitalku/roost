@@ -1,4 +1,13 @@
-import { rate as applyRate, removeAssets, renameAsset, setFavorite, setNote } from "@roost/library";
+import {
+  rate as applyRate,
+  emptyTrash,
+  removeAssets,
+  renameAsset,
+  restoreAssets,
+  setFavorite,
+  setNote,
+  trashAssets,
+} from "@roost/library";
 import { assets, resolveAll, short } from "../assets.js";
 import { EXIT, type Streams, usage } from "../io.js";
 import { withLibrary } from "../open.js";
@@ -84,6 +93,50 @@ export async function rename(
     await renameAsset(library, hash, name);
     streams.out(`Renamed ${short(hash)} to ${name}`);
     streams.out("  The file on disk is still named for its hash, as it always is.");
+    return EXIT.ok;
+  });
+}
+
+/**
+ * `roost trash` and its two other modes.
+ *
+ * Trashing is reversible and removing is not (ADR-0022), so they stay separate
+ * verbs even though the destructive one is reachable from here: `--empty` is
+ * `remove` over everything the trash holds, and saying that out loud is the
+ * point of the line it prints.
+ */
+export async function trash(
+  root: string,
+  needles: readonly string[],
+  streams: Streams,
+): Promise<number> {
+  return withLibrary(root, async (library) => {
+    const hashes = resolveAll(library, needles);
+    await trashAssets(library, hashes);
+    streams.out(`Moved ${assets(hashes.length)} to the trash`);
+    streams.out("  Nothing was deleted. `roost trash --restore` brings them back.");
+    return EXIT.ok;
+  });
+}
+
+export async function restore(
+  root: string,
+  needles: readonly string[],
+  streams: Streams,
+): Promise<number> {
+  return withLibrary(root, async (library) => {
+    const hashes = resolveAll(library, needles);
+    await restoreAssets(library, hashes);
+    streams.out(`Restored ${assets(hashes.length)} from the trash`);
+    return EXIT.ok;
+  });
+}
+
+export async function emptyTheTrash(root: string, streams: Streams): Promise<number> {
+  return withLibrary(root, async (library) => {
+    const removed = await emptyTrash(library);
+    streams.out(`Removed ${assets(removed)} from the library`);
+    streams.out("  Originals were not deleted. Nothing under originals/ is reclaimed yet.");
     return EXIT.ok;
   });
 }

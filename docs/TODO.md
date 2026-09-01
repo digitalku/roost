@@ -4,7 +4,7 @@ Everything known to be outstanding, in priority order. `ROADMAP.md` holds the mi
 this file holds the working list, including the small things that surface during implementation
 and would otherwise be forgotten.
 
-Last reviewed: 2026-08-30. M5 and M6 are deferred at the user's request — feature work first,
+Last reviewed: 2026-09-01. M5 and M6 are deferred at the user's request — feature work first,
 and those two milestones get planned once the feature set has settled.
 
 Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 whenever
@@ -13,15 +13,12 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
 
 ## 1. Needs a decision from the user
 
-- 🔴 **ADR-0022 — what `Delete` means.** The asset context menu shipped on 2026-08-31 with
-  **Move to trash present and disabled**, because trash is not an afternoon: a `trashed_at`
-  column (migration 0007), two journal ops, four partial indexes, and one more flag in RQL. The
-  recommendation is in the ADR, and the finding that shaped it is that **Roost already has half a
-  trash** — `removeAssets` leaves the bytes for `doctor --reclaim` and destroys the metadata,
-  which is the expensive half the wrong way round. Nothing else waits on this; the menu works
-  without it.
+- ☑ ~~**ADR-0022 — what `Delete` means.**~~ Accepted 2026-09-01 and built the same day: trash
+  marks the row and keeps everything hanging off it, **nothing is ever emptied on a timer**, and
+  permanent removal stays `remove`. Migration 0007, the `trash`/`restore` ops, `is:trashed`,
+  the Trash place, `roost trash`, and the window's `Delete` key all landed together.
 
-**Otherwise nothing blocking.** The five questions the language change forced were settled on 2026-08-24,
+**Nothing blocking.** The five questions the language change forced were settled on 2026-08-24,
 before any code was written against them — ADR-0006 through ADR-0012, all Accepted. What they
 decided is in `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
 
@@ -395,7 +392,8 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 ### The asset context menu (2026-08-31)
 
 - ☑ ~~**The menu itself, on the selection.**~~ Open, Show in file manager, Copy path, Export…,
-  and Move to trash disabled pending ADR-0022. `UI_SPEC.md` §3.3 is the design of record.
+  and Move to trash, which was disabled pending ADR-0022 and is live since 2026-09-01.
+  `UI_SPEC.md` §3.3 is the design of record.
   Right-clicking an asset already in the selection keeps it; right-clicking one outside makes it
   the selection — the regression test drives both, because the version that called `click()` for
   both would have passed a test that only checked the menu opened.
@@ -404,6 +402,15 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   content-addressed one, a collision gets a numbered suffix via `COPYFILE_EXCL` rather than
   check-then-write, and the name is `basename`d — it is user-authored, so `../escaped.png` would
   otherwise have made an export a way to write outside the chosen directory. Pinned by a test.
+- ☑ ~~**Move to trash, Restore, Delete permanently, and Empty trash.**~~ Landed 2026-09-01
+  (ADR-0022). Inside the Trash the reversible spelling is *replaced* rather than extended, so
+  "delete" never means two things in one menu, and which one applies is decided by comparing the
+  query on screen against the one the engine sent for the Trash row — the renderer still
+  assembles no RQL.
+- ☑ ~~**A confirmation dialog.**~~ `UI_SPEC.md` §3 had reserved `Dialog` and a `--danger-` ramp
+  and neither had been built. `ConfirmDialog` is an *alert* dialog: no close button, no dismissal
+  by clicking outside, focus starting on Cancel. Trashing asks nothing — it is reversible, and a
+  dialog there teaches people to dismiss dialogs.
 - 🟡 **Rating, favourite, and tags are not in the menu.** They would need the selection summary
   the inspector already fetches, which is a round trip on every right-click. Worth doing, and
   worth doing after trash rather than instead of it.
@@ -428,11 +435,44 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   the inspector all stay rendered and usable beside it, and `UI_SPEC.md` §7 says "into the content
   region" rather than over it. Found while wrapping the pane in the context menu; not changed in
   the same breath because the role is what `PreviewPane.test.tsx` finds the pane by.
+- 🔴 **Trash has not been seen in a real window either.** Everything below is a component,
+  service, or CLI claim: 21 tests over the library, 15 over the menu, and the whole flow driven
+  through `roost trash` against a real library on disk — trash, restore, rebuild, empty, and the
+  journal lines checked by eye against ADR-0022. What none of that covers is the pixels: the
+  Trash row and its count, the menu swapping its last item, the dialog's focus starting on
+  Cancel, and whether the grid re-pages when an asset is trashed out from under it. **This is
+  now three sessions in a row**, so it is a workflow gap rather than bad luck, and the first
+  thing the next session should do is take the single-instance lock and drive it.
 - 🟡 **Not seen in a real window.** An Electron instance opened outside this session held the
   single-instance lock again. Twelve component tests, one at the App level and seven service tests
   cover it; the pixels do not — and this is the second time in two sessions, so it is a workflow
   gap rather than bad luck. What most needs a window: focus after the menu closes, and whether the
   grid and the preview still fill their new wrapper.
+
+### Trash (ADR-0022, decided and built 2026-09-01)
+
+- ☑ ~~Migration 0007, the `trash` and `restore` ops, and replay.~~ The rebuild test in
+  `organize.test.ts` carries both now, and it earned it: a `trash` that replayed as a no-op
+  passes every other assertion in that test.
+- ☑ ~~`is:trashed`, and scoping every other query to live assets.~~ Done in the compiler rather
+  than threaded through the engine, the CLI, and the renderer — one place cannot forget it.
+- ☑ ~~Folder and tag counts stop counting trashed assets.~~ Found while writing the sidebar
+  test: a count beside a query has to be the count *of* that query.
+- ☑ ~~Re-importing a trashed file restores it.~~ It journals a `restore`, never a second `add`:
+  re-adding would rewrite `imported_at` and move the asset to the top of a grid it has been in
+  for months.
+- 🟡 **The grid re-pages on a trash rather than dropping the row.** `readStats` now compares the
+  trashed count as well as the asset count, so trashing does invalidate the pages — but it
+  invalidates *all* of them and the scroll position goes with them. That is the same targeted-update
+  gap §M3 already carries, now reachable one gesture sooner.
+- 🟡 **The inspector says nothing about a trashed asset.** `AssetDetail` and the wire both carry
+  `trashedAt` and nothing draws it, so an asset opened from Trash looks like any other.
+- 🟢 **`doctor` does not mention the trash.** Trashed assets are still rows, so their bytes are
+  correctly *not* orphans and `--reclaim` is unaffected — but a library with four hundred
+  trashed assets holding gigabytes has no way to learn that except `roost stats`.
+- 🟢 **No `Shift+Delete`.** Deleting permanently is reachable from the menu and from `Delete`
+  inside the Trash, and a shortcut that skips the trash from anywhere is one keystroke away from
+  being the thing this ADR exists to prevent.
 
 ### The view menu (ADR-0018, decided 2026-08-30)
 

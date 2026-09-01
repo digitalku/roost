@@ -5,7 +5,7 @@ import {
   type FolderRow,
   lastCursor,
   logger,
-  MATCH_ALL,
+  MATCH_LIVE,
   type Page,
   type SearchHit,
 } from "@roost/core";
@@ -95,15 +95,20 @@ export function count(library: Library, query: string): number {
 }
 
 /**
- * One page of every asset, newest first.
+ * One page of every asset that is not in the trash, newest first.
  *
  * Not `search(library, "*", page)`: RQL has no match-everything term, and an
  * empty query is an error rather than a wildcard — a typo that compiles to the
  * whole library is worse than one that fails. An unfiltered grid is a listing
- * rather than a search, so it asks for {@link MATCH_ALL} directly.
+ * rather than a search, so it asks for {@link MATCH_LIVE} directly.
+ *
+ * `MATCH_LIVE` rather than `MATCH_ALL` because this is the *view* of a library
+ * and a trashed asset is not in it (ADR-0022). Every query that goes through
+ * the compiler is scoped the same way, in `@roost/search`; this listing is the
+ * one read that never reaches it, so it carries the predicate itself.
  */
 export function list(library: Library, page: Page): SearchHit[] {
-  return library.db.repo.search(MATCH_ALL, page);
+  return library.db.repo.search(MATCH_LIVE, page);
 }
 
 /**
@@ -119,7 +124,7 @@ export function pageOf(library: Library, query: string, page: Page): SearchHit[]
 
 /** How many assets that same string matches. */
 export function matches(library: Library, query: string): number {
-  return query.trim() === "" ? library.db.repo.count(MATCH_ALL) : count(library, query);
+  return query.trim() === "" ? library.db.repo.count(MATCH_LIVE) : count(library, query);
 }
 
 /**
@@ -134,7 +139,7 @@ export function* pages(
   query: string,
   pageSize: number = DEFAULT_PAGE_LIMIT,
 ): Generator<SearchHit[]> {
-  const filter = query.trim() === "" ? MATCH_ALL : compileFor(library, query);
+  const filter = query.trim() === "" ? MATCH_LIVE : compileFor(library, query);
   const repo = library.db.repo;
   let after: Cursor | undefined;
 

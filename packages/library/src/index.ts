@@ -32,6 +32,7 @@ export {
   deleteFolder,
   deleteSmartFolder,
   deleteTagGroup,
+  emptyTrash,
   MAX_RATING,
   moveFolder,
   rate,
@@ -44,12 +45,14 @@ export {
   resolveFolder,
   resolveSmartFolder,
   resolveTagGroup,
+  restoreAssets,
   setFavorite,
   setNote,
   setTagGroup,
   tagAdd,
   tagRemove,
   tagRename,
+  trashAssets,
   updateSmartFolder,
 } from "./edit.js";
 export {

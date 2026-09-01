@@ -187,6 +187,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `ImportDropZone` | overlay | — | Whole-window drop target; appears only while dragging |
 | `ContextMenu` | overlay | — | One implementation, driven by a descriptor |
 | `Dialog` | overlay | — | Focus trap, Escape, one at a time |
+| `ConfirmDialog` | overlay | — | An alert dialog, not a panel: no close button, no dismiss on an outside click, focus starts on Cancel. Irreversible actions only; §3.4 |
 | `Toast` | overlay | — | Non-blocking results and failures; never for progress |
 | `EmptyState` | any | — | Heading, one sentence, at most one action; §8 |
 
@@ -268,7 +269,19 @@ the grid's roving ring and the preview's stepping both dead until something is c
 | **Show in file manager** | reveals it, selected | disabled, same reason |
 | **Copy path** | one path | `Copy N paths`, one per line |
 | **Export…** | a directory chooser, then a copy out | `Export N assets…` |
-| **Move to trash** | disabled pending ADR-0022 | disabled |
+| **Move to trash** | reversible, so it asks nothing | `Move N assets to trash` |
+
+**Inside the Trash the last row is replaced, not extended.** `Move to trash` is gone there and
+`Restore`, `Delete permanently`, and `Empty trash` take its place, so "delete" never means two
+things in one menu. Which one applies is decided by comparing the query on screen against the one
+the **engine** sent for the Trash row — the renderer assembles no RQL (§4.1), and a literal
+`is:trashed` in a component would be a second copy of the grammar that nothing keeps in step.
+
+| Item (in the Trash) | Behaviour |
+| --- | --- |
+| **Restore** | takes the selection back out of the trash. Asks nothing: it is the undo |
+| **Delete permanently** | confirms, then removes the selection from the library |
+| **Empty trash** | confirms, then removes everything the trash holds — which is not the selection, so the count comes back from the engine |
 
 **Nothing here hands a path to the renderer.** Open, reveal, and copy are all answered by main,
 which resolves the hash, acts, and returns a boolean. Copying is the one case where a path
@@ -287,6 +300,22 @@ interrupting anyone for, and one that partly did not is not worth losing. The li
 the selection changes, which is the next thing a person does after acting on one — so it needs no
 timer, and nothing vanishes while it is still being read.
 
+### 3.4 Confirming what cannot be undone
+
+One dialog in the window, raised by whatever needs it — the context menu and the `Delete` key
+both ask through the same code, because a shortcut that skipped a question the menu asks is the
+version of this that ships by accident.
+
+**Only irreversible actions get one.** Moving assets to the trash is undone by restoring them, so
+it asks nothing; a dialog there would teach people to dismiss dialogs, and the next one would be
+the permanent delete. Emptying the trash and deleting permanently both ask.
+
+It is an **alert** dialog rather than a panel, and the three differences are the point: no close
+button, no dismissal by clicking outside it, and focus starting on **Cancel**. The accident being
+prevented is a stray click or a stray `Enter`, and a dialog either of those can confirm is
+decoration. The confirming button says the verb — `Delete`, `Empty trash` — never `OK`, and it is
+the only place the `--danger-` ramp is used (§2).
+
 ## 4. Navigation
 
 ### 4.1 What the sidebar contains
@@ -299,7 +328,9 @@ PLACES
   Recent                         imported in the last 7 days
   Favorites
   Untagged                       the pile that needs work — the reason this is here
-  Trash                          ADR-0022, and the count is what makes it worth a row
+  Trash                     3    ADR-0022. The only place with a count, and the count is what
+                                 makes it worth a row — an empty trash and one holding four
+                                 hundred assets look identical without it
 
 FOLDERS                          user tree, drag to reorder and re-parent
   ▸ Clients
@@ -317,6 +348,12 @@ TAGS                             grouped, groups collapsible
 
 Counts are subtree counts for folders and match counts for smart folders, computed by the
 engine — the renderer never counts anything it did not receive.
+
+**A count beside a query is the count *of* that query.** Folder and tag counts therefore exclude
+trashed assets, exactly as `folder:` and `tag:` do (ADR-0022) — a sidebar saying 3 while the grid
+shows 2 is the shape this goes wrong in. A tag every one of whose assets is in the trash stays
+listed at zero: the tag has not been deleted, and a row vanishing says something different from a
+count falling.
 
 **Every row carries the RQL that selects it**, built in `@roost/library`. The renderer never
 assembles a query string; clicking `Logos` sends the row's query to the search field, which is
@@ -511,7 +548,7 @@ becomes a preference in M6.
 | `0`–`5` | Set rating on the selection (`0` clears to unrated) |
 | `F` | Toggle favourite |
 | `T` | Focus the tag editor for the selection |
-| `Delete` | Move to trash (ADR-0022). Until that lands, the menu item is present and disabled |
+| `Delete` | Move the selection to the trash — and, inside the Trash place, delete it permanently after confirming (ADR-0022) |
 | `Ctrl+Delete` | Remove from the current folder only |
 | `[` / `]` | Zoom cells down · up |
 | `Ctrl+K` | Command palette (**M6**) |

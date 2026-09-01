@@ -42,12 +42,12 @@ describe("the schema on disk against the schema in the documents", () => {
     expect(statements(migration?.sql ?? "")).toEqual(published);
   });
 
-  it("keeps migrations 0002 to 0006 identical to what DATA_MODEL publishes", () => {
+  it("keeps migrations 0002 to 0007 identical to what DATA_MODEL publishes", () => {
     // `DATA_MODEL.md` §2.1 through §2.5 publish one block each, in migration
     // order, because the specification's schema block is v1 and stays v1 —
     // growth lives in that file (its §2).
     const published = sqlBlocks(docs("DATA_MODEL.md"));
-    expect(published).toHaveLength(5);
+    expect(published).toHaveLength(6);
 
     for (const [index, block] of published.entries()) {
       const migration = allMigrations()[index + 1];
@@ -63,8 +63,8 @@ describe("the schema on disk against the schema in the documents", () => {
     // disagree with it about what version it is. 0006 is the first migration
     // this repository authors, and it is where the two builds part company:
     // see `DATA_MODEL.md` §2.5 on what a library that goes back has to do.
-    expect(allMigrations().map((m) => m.version)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(latestSchemaVersion()).toBe(6);
+    expect(allMigrations().map((m) => m.version)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(latestSchemaVersion()).toBe(7);
   });
 });
 
@@ -85,7 +85,16 @@ describe("the schema a fresh library actually gets", () => {
         "idx_assets_favorite",
         "idx_assets_imported",
         "idx_assets_rating",
+        "idx_assets_trashed",
       ]);
+
+      // Migration 0007 made every one of them partial: four scoped to live
+      // assets and one to the trash. An index that covered both would make
+      // SQLite filter after the seek, which is the cost 0005 exists to avoid.
+      const partial = (db.pragma("index_list(assets)") as { name: string; partial: number }[])
+        .filter((row) => row.name.startsWith("idx_"))
+        .every((row) => row.partial === 1);
+      expect(partial).toBe(true);
 
       for (const index of indexes) {
         const columns = (db.pragma(`index_info(${index})`) as { name: string | null }[]).map(

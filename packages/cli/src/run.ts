@@ -12,7 +12,16 @@ import { fixture } from "./commands/fixture.js";
 import { folder } from "./commands/folder.js";
 import { runImport } from "./commands/import.js";
 import { init } from "./commands/init.js";
-import { favorite, note, rate, remove, rename } from "./commands/mark.js";
+import {
+  emptyTheTrash,
+  favorite,
+  note,
+  rate,
+  remove,
+  rename,
+  restore,
+  trash,
+} from "./commands/mark.js";
 import { query } from "./commands/query.js";
 import { rebuild } from "./commands/rebuild.js";
 import { show } from "./commands/show.js";
@@ -74,6 +83,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   note: { clear: { type: "boolean" } },
   favorite: { off: { type: "boolean" } },
   rename: {},
+  trash: { restore: { type: "boolean" }, empty: { type: "boolean" } },
   remove: {},
   doctor: {
     deep: { type: "boolean" },
@@ -300,6 +310,26 @@ async function dispatch(
         return usage(streams, command, "rename needs an asset and a new name");
       }
       return rename(await library(), asset, name, streams);
+    }
+
+    case "trash": {
+      const empty = flag(values, "empty");
+      const restoring = flag(values, "restore");
+      if (empty && restoring) {
+        return usage(streams, command, "--empty and --restore ask for opposite things");
+      }
+      if (empty) {
+        if (positionals.length > 0) {
+          return usage(streams, command, "--empty takes no assets — it empties the whole trash");
+        }
+        return emptyTheTrash(await library(), streams);
+      }
+      if (positionals.length === 0) {
+        return usage(streams, command, "trash needs at least one asset");
+      }
+      return restoring
+        ? restore(await library(), positionals, streams)
+        : trash(await library(), positionals, streams);
     }
 
     case "remove": {

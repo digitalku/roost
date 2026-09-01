@@ -21,6 +21,14 @@ export const FLAGS = [
   "managed",
   "referenced",
   "partial-hash",
+  /**
+   * In the trash (ADR-0022).
+   *
+   * The one flag that changes the *scope* of a query rather than narrowing it:
+   * every query is scoped to live assets unless it mentions this one. See
+   * `compile.ts`, which is where that happens.
+   */
+  "trashed",
 ] as const;
 
 export type Flag = (typeof FLAGS)[number];

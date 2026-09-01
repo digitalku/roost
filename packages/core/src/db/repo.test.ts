@@ -301,6 +301,26 @@ describe("the plan a grid query actually gets", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  /**
+   * The plan for one compiled filter.
+   *
+   * Read through a second connection because `EXPLAIN QUERY PLAN` is not a
+   * repository statement; WAL is what makes that free.
+   */
+  function planFor(filterSql: string, ...params: unknown[]): string {
+    const raw = new BetterSqlite3(db.path, { readonly: true });
+    try {
+      const plan = raw
+        .prepare(`EXPLAIN QUERY PLAN ${searchSql(filterSql, true)}`)
+        .all(...params, { cursorTs: 1_700_000_100, cursorHash: hashOf(1), limit: 200 }) as {
+        detail: string;
+      }[];
+      return plan.map((row) => row.detail).join("\n");
+    } finally {
+      raw.close();
+    }
+  }
+
   it("answers a filtered page from the index, without sorting the match set", () => {
     // Migration 0005 carries the sort key inside each filter index precisely so
     // this plan has no temporary B-tree in it. With a single-column index on
@@ -308,22 +328,29 @@ describe("the plan a grid query actually gets", () => {
     // screen — 18.9 ms at 96,666 assets in the Rust build, against a 100 ms p95
     // budget that has to hold at a million.
     //
-    // Read through a second connection because `EXPLAIN QUERY PLAN` is not a
-    // repository statement; WAL is what makes that free.
-    const raw = new BetterSqlite3(db.path, { readonly: true });
-    try {
-      const plan = raw
-        .prepare(`EXPLAIN QUERY PLAN ${searchSql("a.ext = ?", true)}`)
-        .all("png", { cursorTs: 1_700_000_100, cursorHash: hashOf(1), limit: 200 }) as {
-        detail: string;
-      }[];
-      const detail = plan.map((row) => row.detail).join("\n");
+    // The filter is spelled as `@roost/search` compiles it, trailing scope and
+    // all, because that is the only shape this statement is ever given.
+    const detail = planFor("(a.ext = ?) AND a.trashed_at IS NULL", "png");
 
-      expect(detail).toContain("idx_assets_ext");
-      expect(detail).not.toContain("TEMP B-TREE");
-    } finally {
-      raw.close();
-    }
+    expect(detail).toContain("idx_assets_ext");
+    expect(detail).not.toContain("TEMP B-TREE");
+  });
+
+  it("uses the partial indexes only when the query says it is looking at live assets", () => {
+    // Migration 0007 made the four grid indexes partial, and SQLite will use a
+    // partial index only when the query's WHERE contains a term implying the
+    // index's. That makes the exact spelling of the scope predicate part of the
+    // schema rather than a detail of the compiler — so it is asserted, and the
+    // unscoped version is asserted to lose the index rather than silently
+    // falling back to a scan nobody measured.
+    expect(planFor("a.ext = ?", "png")).not.toContain("idx_assets_ext");
+    expect(planFor("(1) AND a.trashed_at IS NULL")).toContain("idx_assets_imported");
+  });
+
+  it("gives the Trash place its own index, in the same order as every other view", () => {
+    const detail = planFor("a.trashed_at IS NOT NULL");
+    expect(detail).toContain("idx_assets_trashed");
+    expect(detail).not.toContain("TEMP B-TREE");
   });
 });
 

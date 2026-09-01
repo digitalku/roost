@@ -1,4 +1,4 @@
-import type { Filter, Param } from "@roost/core";
+import { type Filter, MATCH_LIVE, type Param } from "@roost/core";
 import type { Compare, Expr, Flag, Term } from "./ast.js";
 
 /**
@@ -29,11 +29,48 @@ export interface Folders {
 /** A resolver that finds no folders, for compiling without a database. */
 export const NO_FOLDERS: Folders = { subtree: () => [] };
 
-/** Compiles an expression into a filter. */
+/**
+ * Compiles an expression into a filter.
+ *
+ * **A query is scoped to live assets unless it mentions `is:trashed`.** Trash
+ * is a state rather than a place (ADR-0022), so a trashed asset is still a row
+ * that `tag:wip` would otherwise match — and an application where deleting
+ * something leaves it in every search is one where deleting does not work.
+ *
+ * Scoping here rather than in each caller is what makes the Trash place an
+ * ordinary sidebar row: it carries `is:trashed` the way Favorites carries
+ * `is:favorite`, and nothing outside the grammar has to know that Trash is
+ * special. The alternative — a scope flag threaded through every read — would
+ * put the same rule in the engine, the CLI, and the renderer, and one of the
+ * three would eventually forget it.
+ *
+ * Mentioning the flag in any polarity opts out, including under a `NOT`:
+ * `-is:trashed` then compiles to the same predicate the default would have
+ * added, so opting out cannot accidentally widen anything.
+ */
 export function compileQuery(expr: Expr, folders: Folders = NO_FOLDERS): Filter {
   const params: Param[] = [];
   const sql = write(expr, folders, params);
-  return { sql, params };
+  if (mentionsTrash(expr)) return { sql, params };
+  // `AND` at the top level, never nested inside the user's expression: SQLite
+  // flattens a conjunction in the WHERE clause into separate terms, and it is
+  // that flattening which lets migration 0007's partial indexes apply.
+  return { sql: `(${sql}) AND ${MATCH_LIVE.sql}`, params };
+}
+
+/** Whether `is:trashed` appears anywhere in a query, at any depth. */
+function mentionsTrash(expr: Expr): boolean {
+  switch (expr.kind) {
+    case "all":
+      return false;
+    case "term":
+      return expr.term.field === "flag" && expr.term.flag === "trashed";
+    case "not":
+      return mentionsTrash(expr.expr);
+    case "and":
+    case "or":
+      return expr.branches.some(mentionsTrash);
+  }
 }
 
 function write(expr: Expr, folders: Folders, params: Param[]): string {
@@ -147,6 +184,8 @@ function flagSql(flag: Flag, params: Param[]): string {
       return "a.rating IS NULL";
     case "partial-hash":
       return "a.is_partial_hash = 1";
+    case "trashed":
+      return "a.trashed_at IS NOT NULL";
     case "managed":
     case "referenced":
       params.push(flag);
