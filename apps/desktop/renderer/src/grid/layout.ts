@@ -233,6 +233,47 @@ function firstBelow(column: readonly Tile[], y: number): number {
   return low;
 }
 
+/** A region of the canvas, in content coordinates. */
+export interface Rect {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/**
+ * The tiles a marquee touches.
+ *
+ * **Touching, not enclosing** (`UI_SPEC.md` §6). Enclosing is unusable in
+ * proportional Icons, where a cell is routinely taller than the sweep that was
+ * meant to catch it, and touching is what every file manager does.
+ *
+ * The same binary search per column as {@link visibleTiles}, for the same
+ * reason: a sweep runs once per frame, so it cannot afford to look at rows it
+ * is nowhere near. A degenerate rect touches nothing, which is what makes a
+ * click on the background a click rather than a sweep of whatever sits under
+ * the pointer.
+ */
+export function tilesIn(grid: Layout, rect: Rect): Tile[] {
+  const found: Tile[] = [];
+  if (rect.right <= rect.left || rect.bottom <= rect.top) return found;
+
+  for (const column of grid.columns) {
+    // Every tile in a column shares its x and width, so one of them answers for
+    // the column and a column the sweep misses costs nothing.
+    const first = column[0];
+    if (first === undefined) continue;
+    if (first.x >= rect.right || first.x + first.width <= rect.left) continue;
+
+    for (let i = firstBelow(column, rect.top); i < column.length; i += 1) {
+      const tile = column[i];
+      if (tile === undefined || tile.y >= rect.bottom) break;
+      found.push(tile);
+    }
+  }
+  return found.sort((a, b) => a.index - b.index);
+}
+
 export type Direction = "left" | "right" | "up" | "down";
 
 /**

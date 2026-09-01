@@ -108,6 +108,7 @@ review failure; it references `--surface-raised`.
 --border              --border-strong        --border-focus
 --text                --text-muted           --text-subtle         --text-inverse
 --select-bg           --select-border        --select-text
+--marquee-bg          --marquee-border
 --accent              --accent-hover         --accent-text
 --shadow-1            --shadow-2
 ```
@@ -508,6 +509,21 @@ see it either: the guard is a real window (`TODO.md` §3).
 **Selection model.** Click selects; `Ctrl`-click toggles; `Shift`-click extends from the anchor;
 drag on the background marquee-selects; `Ctrl+A` selects the loaded set and says so, because
 "select all" over 900,000 unloaded rows is a promise the grid cannot keep.
+
+**The marquee**, in the four decisions it actually is:
+
+- **It takes what it touches, not what it encloses.** Enclosing is unusable in proportional
+  Icons, where a cell is routinely taller than the sweep meant to catch it, and touching is what
+  every file manager does.
+- **The clear happens on release, not on press.** A press on the background is a sweep until it
+  turns out to be a click — clearing on `pointerdown` would empty the inspector at the start of
+  every drag, and the panel would flash on each one.
+- **`Ctrl` adds to what was already selected** rather than toggling through it. A rect that grows
+  and shrinks over the same cell would otherwise flip it on and off as the hand wobbled.
+- **Holding at the top or bottom edge scrolls**, so a sweep can be longer than the window. The
+  roving ring does not move with a sweep and the grid does not scroll to it while one is running:
+  focus and selection are separate, and hauling the viewport back to the ring mid-drag would take
+  the grid out from under the pointer.
 
 **Focus.** The grid is one tab stop with a roving focus ring. Arrow keys move focus; `Space`
 toggles selection; `Enter` opens the preview. Focus and selection are separate — moving focus

@@ -65,6 +65,10 @@ describe("the grid", () => {
       return 0;
     });
     vi.stubGlobal("cancelAnimationFrame", () => {});
+    // happy-dom reports no padding, and the layout depends on the width it
+    // leaves — so this says so rather than inheriting whatever the last test
+    // that stubbed it left behind.
+    vi.stubGlobal("getComputedStyle", () => ({ paddingLeft: "0px", paddingRight: "0px" }));
   });
 
   it("renders only what is near the viewport", () => {
@@ -181,6 +185,82 @@ describe("the grid", () => {
 
     await user.click(screen.getByRole("listbox"));
     expect(selection.size).toBe(0);
+  });
+
+  /**
+   * A drag on the background, in the coordinates happy-dom gives.
+   *
+   * It lays nothing out, so every box it reports is at the origin with no size
+   * — which makes a client coordinate a content coordinate here, and makes the
+   * autoscroll silent, since a viewport with no height has no edge to pull
+   * from. The layout arithmetic is real either way: four columns of 244px.
+   */
+  const drag = (
+    from: readonly [number, number],
+    to: readonly [number, number],
+    modifier: { ctrlKey?: boolean } = {},
+  ): void => {
+    const grid = screen.getByRole("listbox");
+    const [x, y] = from;
+    const [toX, toY] = to;
+    fireEvent.pointerDown(grid, { button: 0, pointerId: 1, clientX: x, clientY: y, ...modifier });
+    fireEvent.pointerMove(grid, { pointerId: 1, clientX: toX, clientY: toY });
+    fireEvent.pointerUp(grid, { pointerId: 1, clientX: toX, clientY: toY });
+  };
+
+  it("sweeps up everything a drag on the background crosses", () => {
+    const { assets } = show(40);
+    // Across the first row, into the third column and no further.
+    drag([0, 0], [600, 10]);
+    expect(selection.selected()).toEqual([assets[0]?.hash, assets[1]?.hash, assets[2]?.hash]);
+  });
+
+  it("takes a cell the sweep only touches, rather than one it encloses", () => {
+    // `UI_SPEC.md` §6: enclosing is unusable in proportional icons, where a
+    // cell is routinely taller than the sweep meant to catch it.
+    const { assets } = show(40);
+    drag([0, 0], [4, 4]);
+    expect(selection.selected()).toEqual([assets[0]?.hash]);
+  });
+
+  it("adds to the selection when the drag starts with ctrl held", () => {
+    const { assets } = show(40);
+    fireEvent.pointerDown(screen.getAllByRole("option")[8] as HTMLElement, {
+      button: 0,
+      pointerId: 1,
+    });
+    expect(selection.selected()).toEqual([assets[8]?.hash]);
+
+    drag([0, 0], [300, 10], { ctrlKey: true });
+    expect(selection.selected()).toEqual([assets[0]?.hash, assets[1]?.hash, assets[8]?.hash]);
+  });
+
+  it("stays a click when the pointer barely moves, and still clears", () => {
+    const { assets } = show(40);
+    fireEvent.pointerDown(screen.getAllByRole("option")[8] as HTMLElement, {
+      button: 0,
+      pointerId: 1,
+    });
+    expect(selection.selected()).toEqual([assets[8]?.hash]);
+
+    // Two pixels of travel is a shaky hand, not a sweep — and a press on the
+    // background that never becomes a drag clears on release.
+    drag([500, 500], [502, 501]);
+    expect(selection.size).toBe(0);
+  });
+
+  it("does not haul the viewport back to the ring while a sweep is running", () => {
+    // The ring does not move with a sweep, so without a guard every frame of
+    // the drag would scroll the grid back to wherever focus was left.
+    const { assets } = show(60);
+    const far = assets[40]?.hash;
+    if (far === undefined) throw new Error("expected an asset");
+    act(() => selection.focus(far));
+
+    const grid = screen.getByRole("listbox");
+    grid.scrollTop = 0;
+    drag([0, 0], [600, 10]);
+    expect(grid.scrollTop).toBe(0);
   });
 
   it("moves focus with the arrows and keeps selection separate under ctrl", async () => {

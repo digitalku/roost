@@ -172,7 +172,8 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ☑ Library picker and creator; single-instance lock taken on open. A library is a folder
   called `<Name>.roost` (ADR-0014)
 - ☑ Virtualized grid: masonry and uniform, keyset paging, the cell contract from `UI_SPEC.md` §6.
-  The list view, the zoom control, marquee selection, and hover-in-the-store are in `TODO.md`
+  The list view and the zoom control arrived with ADR-0018; marquee selection on 2026-09-01.
+  Hover-in-the-store is in `TODO.md`
 - ☑ Sidebar: places, folders with subtree counts, smart folders, grouped tags — each row
   carrying the RQL that selects it. Collapsing, drag-to-reparent, and the library switcher are
   in `TODO.md`
@@ -207,7 +208,8 @@ against a running window, verified by weakening three settings and watching four
 What M3 does **not** include is written down rather than left to be discovered: the list view,
 the zoom control, marquee selection, autocomplete, chips, sidebar collapsing and
 drag-to-reparent, the library switcher, and 1:1 zoom in the preview are all in `TODO.md` §M3
-with the reason each one waited.
+with the reason each one waited. Three have since arrived: the list view and the zoom control
+with ADR-0018, and marquee selection on 2026-09-01.
 
 ## M4 — Format breadth ☑
 

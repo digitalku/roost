@@ -23,6 +23,32 @@
   outline-offset: -2px;
 }
 
+/*
+ * While a marquee is in flight, nothing under it is text to be dragged.
+ *
+ * Only while sweeping: a name in Details is worth selecting with the pointer
+ * the rest of the time, and turning it off permanently would take that away to
+ * fix a gesture that lasts a second.
+ */
+.grid[data-sweeping] {
+  user-select: none;
+}
+
+/*
+ * The marquee itself: positioned by transform like the cells, because it moves
+ * on every frame of the drag and must not invalidate layout for the four
+ * hundred it is drawn over.
+ */
+.grid-marquee {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  border: 1px solid var(--marquee-border);
+  background: var(--marquee-bg);
+  pointer-events: none;
+}
+
 .grid-canvas {
   position: relative;
   width: 100%;

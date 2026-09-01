@@ -135,6 +135,28 @@ export class SelectionStore {
     });
   }
 
+  /**
+   * What a marquee sweep is holding, as one replacement.
+   *
+   * Applied per frame rather than per pointer event, and only when the swept
+   * set has actually changed — so a drag across four hundred cells wakes each
+   * of them once, on the frame it was crossed, rather than on every move.
+   *
+   * `base` is the selection the drag started from, passed when the gesture is
+   * additive (`Ctrl` held): the sweep adds to it rather than toggling through
+   * it, because a rect that grows and shrinks over the same cell would
+   * otherwise flip it on and off as the pointer wobbled.
+   *
+   * Focus and the anchor are deliberately left alone. They are separate from
+   * the selection (`UI_SPEC.md` §6), and moving the ring per frame would drag
+   * the viewport along with it — the grid scrolls focus back into view.
+   */
+  sweep(hashes: readonly string[], base?: ReadonlySet<string>): void {
+    this.#change(() => {
+      this.#selected = base === undefined ? new Set(hashes) : new Set([...base, ...hashes]);
+    });
+  }
+
   clear(): void {
     this.#change(() => {
       this.#selected = new Set();

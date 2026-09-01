@@ -5,6 +5,7 @@ import {
   moveFocus,
   type Shaped,
   type Tile,
+  tilesIn,
   visibleTiles,
 } from "./layout.js";
 
@@ -170,6 +171,54 @@ describe("culling to what is on screen", () => {
     const early = visibleTiles(grid, 0, 900, 400).length;
     const late = visibleTiles(grid, grid.height - 900, grid.height, 400).length;
     expect(Math.abs(early - late)).toBeLessThan(early);
+  });
+});
+
+describe("what a marquee sweeps", () => {
+  // Uniform, so the arithmetic in the assertions is readable: four columns of
+  // 244px on a 1000px container, and every cell 244 + 20 tall.
+  const uniform = () =>
+    layout(shaped(16), { ...OPTIONS, proportional: false, view: "icons" as const });
+
+  it("takes a tile it touches, not only one it encloses", () => {
+    const grid = uniform();
+    const first = grid.order[0];
+    if (first === undefined) throw new Error("expected a tile");
+
+    // A rect over the bottom-right corner of the first cell and nothing else.
+    const swept = tilesIn(grid, {
+      left: first.x + first.width - 4,
+      top: first.y + first.height - 4,
+      right: first.x + first.width - 1,
+      bottom: first.y + first.height - 1,
+    });
+    expect(swept.map((tile) => tile.index)).toEqual([0]);
+  });
+
+  it("takes every tile the rect crosses, in result order", () => {
+    const grid = uniform();
+    const swept = tilesIn(grid, { left: 0, top: 0, right: 1000, bottom: 10 });
+    // The whole first row, and nothing from the second.
+    expect(swept.map((tile) => tile.index)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("skips the columns it is nowhere near", () => {
+    const grid = uniform();
+    const swept = tilesIn(grid, { left: 0, top: 0, right: 4, bottom: 10 });
+    expect(swept.map((tile) => tile.index)).toEqual([0]);
+  });
+
+  it("sweeps nothing when the rect has no area", () => {
+    // What makes a press on the background a click rather than a sweep of
+    // whatever happens to sit under the pointer.
+    const grid = uniform();
+    expect(tilesIn(grid, { left: 300, top: 300, right: 300, bottom: 300 })).toEqual([]);
+  });
+
+  it("reaches past the loaded window, because content coordinates do", () => {
+    const grid = uniform();
+    const swept = tilesIn(grid, { left: 0, top: 0, right: 1000, bottom: 100_000 });
+    expect(swept).toHaveLength(16);
   });
 });
 

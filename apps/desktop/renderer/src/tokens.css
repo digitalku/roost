@@ -119,6 +119,11 @@
   --select-border: var(--accent-4);
   --select-text: var(--gray-12);
 
+  /* The marquee. A wash rather than a fill: it is drawn *over* the cells it is
+     selecting, and they have to stay recognisable underneath it. */
+  --marquee-bg: rgb(79 170 161 / 18%);
+  --marquee-border: var(--accent-5);
+
   --accent: var(--accent-4);
   --accent-hover: var(--accent-5);
   --accent-text: var(--gray-0);
@@ -158,6 +163,11 @@
      lighter rather than one step darker. */
   --select-border: var(--accent-4);
   --select-text: var(--gray-0);
+
+  /* Denser on the light ramp than on the dark one: the same alpha over a white
+     grid is barely a tint. */
+  --marquee-bg: rgb(44 106 101 / 20%);
+  --marquee-border: var(--accent-3);
 
   --accent: var(--accent-3);
   --accent-hover: var(--accent-2);

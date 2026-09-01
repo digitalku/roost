@@ -288,8 +288,14 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   - **The list view and the zoom control** are both now part of ADR-0018 below, which gave them
     the place in the interface they were missing. Neither was built for the same reason: a
     two-button toggle had nowhere to put them.
-  - **Marquee selection.** Dragging on the background clears the selection today rather than
-    sweeping one. The store has every operation it needs; what is missing is the drag.
+  - ☑ ~~**Marquee selection.**~~ Landed 2026-09-01. `tilesIn` reuses the culling's binary search
+    per column, so a sweep costs the columns it crosses rather than the result set; the store
+    gained one operation (`sweep`), applied once per frame and only when the swept set actually
+    changed. It takes what it touches, adds under `Ctrl`, scrolls from the edge, and clears on
+    release rather than on press (`UI_SPEC.md` §6). Driven in a real window the same day: twelve
+    checks over CDP, including the autoscroll, the marquee's computed paint, and a press on the
+    scrollbar strip — none of which happy-dom can see. That script is not landed yet; it belongs
+    in the `check-grid.mjs` below, on the shared harness.
   - **Hover in the store.** Hover is CSS-only, which is right until something outside the cell
     has to know what is under the pointer — the inspector's preview-on-hover is the first thing
     that will.
@@ -366,6 +372,13 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   the cascade is not there to get wrong. A `check-grid.mjs` beside `check-trash.mjs` is the
   shape of the guard; what it needs first is the CDP plumbing lifted out of the three scripts
   that now each carry a copy, which is the point at which a fourth copy stops being acceptable.
+  **The marquee is the fifth thing waiting on it** (2026-09-01): its autoscroll, its paint, and
+  its refusal to start on the scrollbar are all invisible to a DOM that lays nothing out. A
+  twelve-check version of exactly that script was written and passed three times against a real
+  window — and then not landed, because landing it is the fourth copy of the CDP plumbing. What
+  it found is the argument for landing the harness: **`setPointerCapture` throws for any pointer
+  the browser does not consider active**, so a sweep begun from a dispatched event died on its
+  first frame. Capture is best-effort now.
   - **A third defect was in the tokens, not the rules.** `--select-border` and `--border-focus`
     resolved to the same colour in *both* themes, so "the focused one is brighter" was a claim
     nothing could see — a selected card and a selected-and-focused card differed by one pixel of

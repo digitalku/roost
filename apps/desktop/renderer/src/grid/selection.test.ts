@@ -76,6 +76,33 @@ describe("selecting in the grid", () => {
     expect(store.size).toBe(5);
   });
 
+  it("replaces the selection with what a sweep is holding", () => {
+    const store = stored();
+    store.click("e");
+    store.sweep(["b", "c"]);
+    expect(store.selected()).toEqual(["b", "c"]);
+  });
+
+  it("adds to what was already selected when the sweep is additive", () => {
+    const store = stored();
+    store.click("e");
+    store.sweep(["b"], new Set(["e"]));
+    expect(store.selected()).toEqual(["b", "e"]);
+  });
+
+  it("leaves focus and the anchor where a sweep found them", () => {
+    const store = stored();
+    store.click("e");
+    store.sweep(["a", "b"]);
+    // The ring stays put: moving it per frame would drag the viewport along
+    // with it, because the grid scrolls focus back into view.
+    expect(store.focused).toBe("e");
+    // And so does the anchor, so a Shift-click after a sweep still measures
+    // from the last cell that was actually clicked.
+    store.extendTo("c");
+    expect(store.selected()).toEqual(["c", "d", "e"]);
+  });
+
   it("keeps a selection whose rows a later page pushed out of the order", () => {
     // A page can arrive while a selection is held. Dropping it would make
     // scrolling lose the user's work.
@@ -106,6 +133,13 @@ describe("what a selection change wakes", () => {
     const woken = watch(store);
     store.click("d");
     // `a` loses selection and focus, `d` gains both. Nothing else moved.
+    expect(woken()).toBe(2);
+  });
+
+  it("wakes only the cells a sweep crossed", () => {
+    const store = stored();
+    const woken = watch(store);
+    store.sweep(["b", "c"]);
     expect(woken()).toBe(2);
   });
 

@@ -2,7 +2,15 @@ import type { AssetCard } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { benchTarget } from "../bench/bench.js";
 import { AssetCell, cellId } from "./AssetCell.js";
-import { type Direction, type GridView, layout, moveFocus, visibleTiles } from "./layout.js";
+import {
+  type Direction,
+  type GridView,
+  layout,
+  moveFocus,
+  type Rect,
+  tilesIn,
+  visibleTiles,
+} from "./layout.js";
 import { FOCUSED, SELECTED, type SelectionStore } from "./selection.js";
 
 /**
@@ -20,8 +28,15 @@ import { FOCUSED, SELECTED, type SelectionStore } from "./selection.js";
  * is none.
  */
 
-/** `PointerEvent.button` for the right mouse button. */
+/** `PointerEvent.button`, for the two that mean something here. */
+const PRIMARY = 0;
 const SECONDARY = 2;
+
+/** How far the pointer must travel before a press becomes a sweep. */
+const SLOP = 4;
+
+/** The band at the top and bottom of the viewport that a sweep scrolls from. */
+const EDGE = 32;
 
 /** How far past the viewport to keep rendered, so a fling has somewhere to land. */
 const OVERSCAN = 900;
@@ -55,6 +70,9 @@ export function Grid({
 }: GridProps): React.JSX.Element {
   const frame = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
+  const canvas = useRef<HTMLDivElement>(null);
+  const sweeping = useRef<Sweep | undefined>(undefined);
+  const [marquee, setMarquee] = useState<Rect | null>(null);
   const [width, setWidth] = useState(0);
   const [height, setHeight] = useState(0);
   const [top, setTop] = useState(0);
@@ -163,6 +181,11 @@ export function Grid({
       }
       element.setAttribute("aria-activedescendant", cellId(hash));
 
+      // Not while a sweep is running: the selection changes every frame, focus
+      // does not move with it, and scrolling an off-screen ring back into view
+      // would drag the grid out from under the drag.
+      if (sweeping.current !== undefined) return;
+
       const tile = grid.order.find((candidate) => candidate.hash === hash);
       if (tile === undefined) return;
       const visibleTop = element.scrollTop;
@@ -192,6 +215,103 @@ export function Grid({
     return map;
   }, [assets]);
 
+  /**
+   * One step of a sweep, on a frame.
+   *
+   * Scrolls first if the pointer is holding at an edge, then selects what the
+   * rect now covers — in that order, because the scroll is what changes which
+   * cells the same pointer position is over.
+   */
+  const step = useCallback(() => {
+    const sweep = sweeping.current;
+    const element = viewport.current;
+    const surface = canvas.current;
+    if (sweep === undefined || element === null || surface === null) return;
+    sweep.frame = undefined;
+
+    // Measured from the box rather than from `clientHeight`: a DOM that does no
+    // layout then reports no edge and asks for no further frame, instead of
+    // driving this loop for ever.
+    const box = element.getBoundingClientRect();
+    let scrolled = 0;
+    if (box.height > 0) {
+      const above = sweep.clientY - (box.top + EDGE);
+      const below = sweep.clientY - (box.bottom - EDGE);
+      const pull = above < 0 ? above : below > 0 ? below : 0;
+      if (pull !== 0) {
+        const before = element.scrollTop;
+        element.scrollTop = before + Math.max(-EDGE, Math.min(EDGE, pull));
+        scrolled = element.scrollTop - before;
+      }
+    }
+
+    // The canvas box moves with the scroll, so reading the pointer against it
+    // gives content coordinates — and the origin, already in them, stays put
+    // while the view travels under it.
+    const surfaceBox = surface.getBoundingClientRect();
+    const x = sweep.clientX - surfaceBox.left;
+    const y = sweep.clientY - surfaceBox.top;
+    const rect: Rect = {
+      left: Math.min(sweep.origin.x, x),
+      right: Math.max(sweep.origin.x, x),
+      top: Math.min(sweep.origin.y, y),
+      bottom: Math.max(sweep.origin.y, y),
+    };
+
+    const hashes = tilesIn(grid, rect).map((tile) => tile.hash);
+    if (!same(hashes, sweep.swept)) {
+      sweep.swept = hashes;
+      selection.sweep(hashes, sweep.base);
+    }
+    setMarquee(rect);
+
+    // Keep pulling while the pointer sits at the edge, even if it never moves
+    // again — otherwise the sweep stops the moment the hand does.
+    if (scrolled !== 0) sweep.frame = requestAnimationFrame(step);
+  }, [grid, selection]);
+
+  const beginSweep = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const element = viewport.current;
+      const surface = canvas.current;
+      if (element === null || surface === null) return;
+
+      // The scrollbar strip is inside the element's box and outside its
+      // content, and a press on it means "scroll", not "select nothing".
+      if (event.clientX >= element.getBoundingClientRect().left + element.clientWidth) return;
+
+      const surfaceBox = surface.getBoundingClientRect();
+      sweeping.current = {
+        pointerId: event.pointerId,
+        origin: { x: event.clientX - surfaceBox.left, y: event.clientY - surfaceBox.top },
+        startX: event.clientX,
+        startY: event.clientY,
+        // `Ctrl` adds to what was already selected rather than toggling through
+        // it: a rect that grows and shrinks over the same cell would otherwise
+        // flip it on and off as the hand wobbled.
+        base: event.ctrlKey || event.metaKey ? new Set(selection.selected()) : undefined,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        active: false,
+        swept: undefined,
+        frame: undefined,
+      };
+      // Captured, so a sweep that leaves the window keeps arriving here.
+      //
+      // Best-effort: `setPointerCapture` throws for a pointer the browser does
+      // not consider active, which is every synthetic one and a real one
+      // released between the dispatch and this handler. Capture is what keeps a
+      // drag alive *outside* the window; the sweep itself runs on the events it
+      // receives either way, so losing it must not lose the gesture.
+      try {
+        element.setPointerCapture(event.pointerId);
+      } catch {
+        // No capture. The drag still works while the pointer is over the grid.
+      }
+    },
+    [selection],
+  );
+
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const hash = hashAt(event.target);
@@ -207,14 +327,66 @@ export function Grid({
         return;
       }
 
-      // A click on the background clears, which is what makes a mis-click
-      // recoverable without a keyboard.
-      if (hash === undefined) return selection.clear();
+      if (hash === undefined) {
+        // A press on the background is a sweep until it turns out to be a
+        // click; the clear happens on release (`UI_SPEC.md` §6). Clearing here
+        // instead would empty the inspector at the start of every drag.
+        if (event.button === PRIMARY) return beginSweep(event);
+        return selection.clear();
+      }
       if (event.shiftKey) selection.extendTo(hash);
       else if (event.ctrlKey || event.metaKey) selection.toggle(hash);
       else selection.click(hash);
     },
+    [selection, beginSweep],
+  );
+
+  const onPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const sweep = sweeping.current;
+      if (sweep === undefined || event.pointerId !== sweep.pointerId) return;
+      sweep.clientX = event.clientX;
+      sweep.clientY = event.clientY;
+
+      if (!sweep.active) {
+        // A few pixels of slop, so a click from a shaky hand stays a click
+        // rather than becoming a sweep of whatever it landed beside.
+        if (
+          Math.abs(event.clientX - sweep.startX) < SLOP &&
+          Math.abs(event.clientY - sweep.startY) < SLOP
+        ) {
+          return;
+        }
+        sweep.active = true;
+      }
+      // One publish per frame, whatever the pointer is doing — the same rule
+      // the scroll handler follows, and for the same reason.
+      if (sweep.frame === undefined) sweep.frame = requestAnimationFrame(step);
+    },
+    [step],
+  );
+
+  const endSweep = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const sweep = sweeping.current;
+      if (sweep === undefined || event.pointerId !== sweep.pointerId) return;
+      sweeping.current = undefined;
+      if (sweep.frame !== undefined) cancelAnimationFrame(sweep.frame);
+      // The press that never travelled is the click on the background, and this
+      // is where it clears — which is what keeps a mis-click recoverable
+      // without a keyboard.
+      if (!sweep.active) selection.clear();
+      setMarquee(null);
+    },
     [selection],
+  );
+
+  useEffect(
+    () => () => {
+      const sweep = sweeping.current;
+      if (sweep?.frame !== undefined) cancelAnimationFrame(sweep.frame);
+    },
+    [],
   );
 
   const onDoubleClick = useCallback(
@@ -284,9 +456,14 @@ export function Grid({
       <div
         className="grid"
         data-view={view}
+        data-sweeping={marquee === null ? undefined : ""}
         ref={viewport}
         onScroll={onScroll}
         onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endSweep}
+        onPointerCancel={endSweep}
+        onLostPointerCapture={endSweep}
         onDoubleClick={onDoubleClick}
         onKeyDown={onKeyDown}
         role="listbox"
@@ -294,7 +471,18 @@ export function Grid({
         aria-label="Assets"
         tabIndex={0}
       >
-        <div className="grid-canvas" style={{ height: grid.height }}>
+        <div className="grid-canvas" style={{ height: grid.height }} ref={canvas}>
+          {marquee !== null && (
+            <div
+              className="grid-marquee"
+              aria-hidden="true"
+              style={{
+                transform: `translate(${marquee.left}px, ${marquee.top}px)`,
+                width: marquee.right - marquee.left,
+                height: marquee.bottom - marquee.top,
+              }}
+            />
+          )}
           {tiles.map((tile) => {
             const asset = byHash.get(tile.hash);
             return asset === undefined ? null : (
@@ -314,6 +502,30 @@ export function Grid({
       </div>
     </div>
   );
+}
+
+/** A marquee in flight, held on a ref because it changes faster than a render. */
+interface Sweep {
+  readonly pointerId: number;
+  /** Where the drag began, in content coordinates, so scrolling does not move it. */
+  readonly origin: { readonly x: number; readonly y: number };
+  readonly startX: number;
+  readonly startY: number;
+  /** What an additive sweep adds to; `undefined` when it replaces instead. */
+  readonly base: ReadonlySet<string> | undefined;
+  clientX: number;
+  clientY: number;
+  /** Whether the press has travelled far enough to be a drag. */
+  active: boolean;
+  /** What was last applied, so a frame that changes nothing wakes nothing. */
+  swept: readonly string[] | undefined;
+  frame: number | undefined;
+}
+
+/** Whether a sweep found what it found last frame. Both are in result order. */
+function same(a: readonly string[], b: readonly string[] | undefined): boolean {
+  if (b === undefined || a.length !== b.length) return false;
+  return a.every((hash, at) => hash === b[at]);
 }
 
 /** A computed length, or zero where there is no layout to read one from. */
