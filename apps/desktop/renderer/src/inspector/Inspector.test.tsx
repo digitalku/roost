@@ -31,19 +31,40 @@ describe("the inspector", () => {
     vi.useRealTimers();
   });
 
-  it("renders nothing when nothing is selected", () => {
-    show({}, undefined);
-    expect(screen.queryByRole("complementary")).toBeNull();
+  it("keeps its place when nothing is selected, and says why it is empty", () => {
+    // It used to render nothing at all, which took the grid from four columns
+    // to two and back on every click on the background — measured in a real
+    // window, 1040px against 760px. The panel stays; what changes is what is
+    // in it, and an empty *state* is not the shell of disabled controls the
+    // old rule was avoiding (`UI_SPEC.md` §8).
+    //
+    // **Rendered directly rather than through `show`.** Its `hash` parameter
+    // has a default, so `show({}, undefined)` selects the default rather than
+    // an empty selection — which is why the test this replaces passed while
+    // asserting something else entirely: it was reading the first render,
+    // before the detail arrived, and would have passed with no selection logic
+    // in the component at all (`TODO.md` §4, lesson 9).
+    engine = new FakeEngine({});
+    install(engine);
+    render(<Inspector hashes={[]} generation={0} />);
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeDefined();
+    expect(screen.getByText("Nothing selected")).toBeDefined();
+    // Nothing editable: a control here would act on no asset at all.
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("renders nothing for an asset the library no longer holds", async () => {
+  it("empties itself for an asset the library no longer holds, without vanishing", async () => {
     // A selection can outlive the asset it points at. An empty panel is the
-    // answer to that, not an error.
+    // answer to that, not an error — and not a missing panel either, or the
+    // grid reflows behind a selection that is still there.
     engine = new FakeEngine({ details: [] });
     install(engine);
     render(<Inspector hashes={[HASH]} generation={0} />);
     await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:detail")).toBe(true));
-    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeDefined();
+    // Not the empty-selection wording: something *is* selected.
+    expect(screen.queryByText("Nothing selected")).toBeNull();
   });
 
   it("shows what the library knows", async () => {

@@ -481,6 +481,19 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - ☑ ~~**An empty Trash reported a failed search.**~~ It said "Nothing matches this query.",
   which reads as a query that did not work rather than as a trash with nothing in it.
   `UI_SPEC.md` §8 carries the state now.
+- ☑ ~~**The inspector vanished on an empty selection, and the grid reflowed behind it.**~~
+  Changed 2026-09-01 at the user's request, after Eagle's panel — which is always there. Measured
+  first: selecting one asset took the grid from 1040px and four columns to 760px and two, and
+  deselecting took it back, so every cell moved twice for every click on the background. The
+  panel is drawn always now and carries §8's empty state; the spec's objection to it — that a
+  shell of disabled controls looks broken rather than idle — is answered by drawing a state
+  rather than controls. `UI_SPEC.md` §3 and §8 changed with it, and `check-trash.mjs` asserts
+  the width.
+  - **The test that guarded the old behaviour was testing something else.**
+    `show({}, undefined)` selected the *default* hash, because a JavaScript default parameter
+    applies to an explicit `undefined` — so "renders nothing when nothing is selected" was
+    reading the first render before the detail arrived, and would have passed with no
+    empty-selection logic at all. Lesson 9 again, from a third direction.
 - 🟡 **The inspector says nothing about a trashed asset.** `AssetDetail` and the wire both carry
   `trashedAt` and nothing draws it, so an asset opened from Trash looks like any other.
 - 🟢 **`doctor` does not mention the trash.** Trashed assets are still rows, so their bytes are
@@ -615,11 +628,16 @@ repository's session log, because a lesson nobody rereads is a lesson nobody has
     then wiped one commit later satisfies it. Written that way, the regression test for the
     status line passed with the fix removed — the same shape as lesson 9, reached from a
     different direction. Wait for the *settled* state first, then read synchronously.
-12. **`pkill -f` matches the shell running it.** `pkill -f check-trash.mjs` from a shell whose
+12. **A default parameter swallows an explicit `undefined`.** `show({}, undefined)` in
+    `Inspector.test.tsx` selected the default hash rather than an empty selection, so a test
+    named "renders nothing when nothing is selected" was reading the first render before the
+    detail arrived. It would have passed against a component with no empty-selection logic in
+    it. A sentinel that means "absent" has to be one the default cannot supply.
+13. **`pkill -f` matches the shell running it.** `pkill -f check-trash.mjs` from a shell whose
     own command line contains that string kills the shell, and the symptom is a command that
     produces no output and never returns — which reads as the script hanging. It cost twenty
     minutes here. Match on a pattern the invocation cannot contain.
-13. **Measure before naming the cause.** The obvious reason a sequential JavaScript pipeline
+14. **Measure before naming the cause.** The obvious reason a sequential JavaScript pipeline
     loses to Rust is that the Rust one is parallel. It is not: `/usr/bin/time` put `roost-old`'s
     import at 98% CPU — one core — while this build sat at 199% and still took three times as
     long. The difference is six times the CPU *per file*, not threads. The write-up that assumed

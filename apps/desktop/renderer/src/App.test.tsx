@@ -373,7 +373,7 @@ describe("the library view", () => {
     // something nobody can see — the inspector would go on editing it. The
     // total is the fake's own and is pinned, so what is asserted is the
     // disappearance of the selection clause rather than the count beside it.
-    await waitFor(() => expect(screen.queryByText(/selected/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/ · 1 selected/)).toBeNull());
     expect(screen.getByText("12 assets")).toBeDefined();
 
     // **Read after the clear has rendered, never with `findByText`.** The

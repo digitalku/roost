@@ -1,4 +1,4 @@
-/* The inspector (UI_SPEC.md §3). Renders nothing on an empty selection. */
+/* The inspector (UI_SPEC.md §3). Always drawn, so the grid never reflows. */
 
 .inspector {
   display: flex;
@@ -180,4 +180,26 @@
   border: 1px dashed var(--border-strong);
   background: none;
   color: var(--text-muted);
+}
+
+/* The empty state (UI_SPEC.md §8), not a shell of disabled controls: the panel
+   holds its width so the grid keeps its columns, and says why it is empty. */
+.inspector-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+  color: var(--text-muted);
+}
+
+.inspector-empty h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  font-weight: 600;
+}
+
+.inspector-empty p {
+  margin: 0;
 }

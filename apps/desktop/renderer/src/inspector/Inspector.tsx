@@ -24,8 +24,13 @@ import { fallbackToGrid, previewSrc } from "../thumbnail.js";
  * inspector that displayed what it had typed would show a state the library
  * does not hold — and the next reload would silently correct it.
  *
- * Renders nothing on an empty selection (`UI_SPEC.md` §3). A panel of disabled
- * controls is worse than no panel: it looks broken rather than idle.
+ * **The panel is always drawn** (`UI_SPEC.md` §3). It used to render nothing on
+ * an empty selection, on the reasoning that a shell of disabled controls looks
+ * broken rather than idle — which is true, and is answered by drawing an empty
+ * *state* instead of disabled controls (§8). What the old behaviour cost was
+ * measured in a real window on 2026-09-01: selecting one asset took the grid
+ * from 1040px and four columns to 760px and two, and deselecting took it back,
+ * so every cell moved twice for every click on the background.
  */
 
 /** How long after the last keystroke a note saves itself. */
@@ -82,11 +87,26 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
     void read();
   }, [read, generation]);
 
+  if (hashes.length === 0) {
+    return (
+      <aside className="inspector" aria-label="Inspector">
+        <div className="inspector-empty">
+          <h2>Nothing selected</h2>
+          <p>Pick an asset to see its tags, rating, note, and metadata.</p>
+        </div>
+      </aside>
+    );
+  }
+
   if (summary !== undefined) {
     return <Selection hashes={hashes} summary={summary} onSaved={read} />;
   }
 
-  if (detail === undefined) return null;
+  // Something is selected and its record has not arrived — still loading, or an
+  // asset another window removed while this one still points at it. An empty
+  // panel is the right answer to both, and it has to keep its width or the
+  // reflow this component exists to avoid comes back on every selection.
+  if (detail === undefined) return <aside className="inspector" aria-label="Inspector" />;
 
   return (
     <aside className="inspector" aria-label="Inspector">

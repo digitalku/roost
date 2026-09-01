@@ -71,11 +71,24 @@ const placesExpression = `
   })()`;
 
 const statusExpression = `
-  (() => ({
-    total: document.querySelector(".status")?.firstElementChild?.textContent ?? null,
-    note: document.querySelector(".status-note")?.textContent ?? null,
-    inspector: document.querySelector(".inspector") === null ? null : "present",
-  }))()`;
+  (() => {
+    const panel = document.querySelector(".inspector");
+    const grid = document.querySelector(".grid-frame") ?? document.querySelector(".grid");
+    const cells = [...document.querySelectorAll(".cell")];
+    const top = cells[0]?.getBoundingClientRect().top;
+    return {
+      total: document.querySelector(".status")?.firstElementChild?.textContent ?? null,
+      note: document.querySelector(".status-note")?.textContent ?? null,
+      inspector:
+        panel === null
+          ? "absent"
+          : panel.querySelector(".inspector-empty") === null
+            ? "detail"
+            : "empty",
+      gridWidth: Math.round(grid?.getBoundingClientRect().width ?? 0),
+      columns: cells.filter((c) => Math.abs(c.getBoundingClientRect().top - top) < 2).length,
+    };
+  })()`;
 
 const dialogExpression = `
   (() => {
@@ -125,7 +138,13 @@ try {
   await settle(cdp, "window.roostBench?.firstPaintAt ?? null", (v) => typeof v === "number");
 
   console.log("The Trash place");
-  const places = await cdp.evaluate(placesExpression);
+  // `firstPaintAt` fires when the *grid* has rows, which is a different request
+  // from the sidebar's — reading once here is a race, and it lost one.
+  const places = await settle(
+    cdp,
+    placesExpression,
+    (rows) => Array.isArray(rows) && rows.length > 0,
+  );
   check(
     "it is in Places",
     places.some((p) => p.name === "Trash"),
@@ -137,18 +156,28 @@ try {
   );
 
   console.log("\nDelete, over the grid");
-  const before = await cdp.evaluate("document.querySelectorAll('.cell').length");
+  // The asset itself, not a count of rendered cells: the grid is virtualised,
+  // so how many cells exist depends on how many fit, and "one fewer" stopped
+  // being true the moment the inspector started holding its width.
+  const doomed = await cdp.evaluate("document.querySelector('.cell')?.dataset.hash ?? null");
   await cdp.evaluate(clickFirstCell);
   await settle(
     cdp,
     "document.querySelectorAll('.cell[aria-selected=\"true\"]').length",
     (n) => n === 1,
   );
+  // The layout while something is selected, so the check after the delete has
+  // something to compare against.
+  const selectedLayout = await cdp.evaluate(statusExpression);
   await cdp.evaluate(
     'document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }))',
   );
-  await settle(cdp, "document.querySelectorAll('.cell').length", (n) => n === before - 1);
-  check("the asset leaves the grid", true, `${before} -> ${before - 1}`);
+  await settle(
+    cdp,
+    `[...document.querySelectorAll(".cell")].some((c) => c.dataset.hash === ${JSON.stringify(doomed)})`,
+    (present) => present === false,
+  );
+  check("the asset leaves the grid", true, `${doomed?.slice(0, 8)}… gone`);
 
   const trashRow = await cdp.evaluate(
     `(${placesExpression}).find((p) => p.name === "Trash")?.count ?? null`,
@@ -166,7 +195,21 @@ try {
     !/selected/.test(status.total ?? ""),
     `total=${JSON.stringify(status.total)}`,
   );
-  check("the inspector lets go", status.inspector === null);
+  // The panel is always drawn (`UI_SPEC.md` §3), so it empties rather than
+  // disappearing — and the grid keeps its width. Measured before that change:
+  // selecting one asset took the grid from 1040px and four columns to 760px and
+  // two, and deselecting took it back, so every cell moved twice per click on
+  // the background.
+  //
+  // Width rather than column count: icons take the asset's own proportions by
+  // default (ADR-0018), so how many fit on the first row depends on which
+  // assets are in it, and removing one legitimately changes that.
+  check("the inspector empties without vanishing", status.inspector === "empty", status.inspector);
+  check(
+    "the grid keeps its width whatever the selection does",
+    status.gridWidth === selectedLayout.gridWidth,
+    `${selectedLayout.gridWidth}px -> ${status.gridWidth}px`,
+  );
   check(
     "and it still says what happened",
     status.note === "Moved 1 asset to the trash",

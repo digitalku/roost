@@ -64,7 +64,7 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 | Toolbar | full | no | Fixed height. Search is the widest thing in it. |
 | Sidebar | 220–420px, drag to resize | yes, `F9` | Remembers width and collapsed state per library. |
 | Content | fills | no | Hosts exactly one of: icons, compact, details, preview. |
-| Inspector | 280–480px, drag to resize | yes, `F4` | Renders nothing when the selection is empty — not an empty shell. |
+| Inspector | 280–480px, drag to resize | yes, `F4` | **Always drawn.** An empty selection gets the empty state from §8, never a shell of disabled controls. |
 | Status bar | full | no | Counts on the left, background jobs on the right. |
 
 **The preview is a pane, not a lightbox.** It replaces the content region, leaving the sidebar
@@ -178,7 +178,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `AssetCell` | content | — | `memo`, primitive props only |
 | `AssetList` | content | scroll, pages | Details view; same paging hook |
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
-| `Inspector` | inspector | field drafts | Renders nothing on empty selection |
+| `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over existing tags, creates on Enter |
 | `NoteField` | inspector | draft | Autosaves on blur and after 1s idle |
@@ -524,6 +524,13 @@ button, because it is the only one a person can act on.
   query rendered in monospace and a "clear filter" action. Never a generic "no results".
 - An empty **Trash** → "The trash is empty." Its emptiness is a *state*, not a search that
   found nothing, and "nothing matches this query" reads as a query that did not work.
+- **Nothing selected** → the inspector says so: "Nothing selected", and one sentence naming
+  what the panel would hold. It does **not** disappear, and it does not draw disabled controls
+  either — the first makes the grid reflow, the second looks broken rather than idle, and an
+  empty state is neither. Measured on 2026-09-01, before the panel became permanent: selecting
+  one asset took the grid from 1040px and four columns to 760px and two, and deselecting took it
+  back, so every cell moved twice for every click on the background. `scripts/check-trash.mjs`
+  asserts the width now.
 - A parse error → handled at the field (§5), never as an empty grid.
 
 **Loading.** Skeleton cells at the right sizes, not a spinner, and only after 150ms — anything
