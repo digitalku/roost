@@ -4,15 +4,19 @@ import { join } from "node:path";
 import { type ContentHash, DEFAULT_PAGE_LIMIT, IndexSink, withoutDerived } from "@roost/core";
 import {
   AmbiguousFolderNameError,
+  addComment,
   addToFolder,
+  comments,
   count,
   createFolder,
   createSmartFolder,
   createTagGroup,
   deleteFolder,
+  EmptyCommentError,
   EmptyNameError,
   emptyTrash,
   FolderCycleError,
+  InvalidMomentError,
   InvalidRatingError,
   importInto,
   Library,
@@ -22,6 +26,7 @@ import {
   rate,
   readSidebar,
   removeAssets,
+  removeComment,
   renameAsset,
   renameFolder,
   resolveAsset,
@@ -29,6 +34,7 @@ import {
   resolveTagGroup,
   restoreAssets,
   search,
+  setComment,
   setFavorite,
   setNote,
   setTagGroup,
@@ -37,6 +43,7 @@ import {
   tagRename,
   trashAssets,
   UnknownAssetError,
+  UnknownCommentError,
   UnknownFolderPathError,
 } from "@roost/library";
 import { gradient } from "@roost/media";
@@ -73,6 +80,16 @@ describe("organizing a library", () => {
 
   const names = (hits: readonly { origName: string }[]): string[] =>
     hits.map((hit) => hit.origName).sort();
+
+  /** Every journal line written so far, parsed. */
+  const journalLines = async (): Promise<Record<string, unknown>[]> => {
+    await library.journal.sync();
+    const month = (await library.journal.months())[0] as string;
+    return (await readFile(library.journal.pathFor(month), "utf8"))
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+  };
 
   it("journals every edit before it indexes one", async () => {
     // Invariant 9, checked against the file rather than against the report: a
@@ -359,6 +376,131 @@ describe("organizing a library", () => {
     expect(typeof library.db.repo.trashedAt(first)).toBe("number");
   });
 
+  it("keeps a comment at the moment it was left at", async () => {
+    const hash = hashes[0] as ContentHash;
+    const id = await addComment(library, hash, 91_500, "the cut lands early");
+    expect(comments(library, hash)).toEqual([
+      {
+        id,
+        hash,
+        atMs: 91_500,
+        body: "the cut lands early",
+        createdAt: expect.any(Number),
+        updatedAt: null,
+      },
+    ]);
+  });
+
+  it("takes a comment about the asset rather than about a moment in it", async () => {
+    // The null is what lets an asset with no timeline carry comments at all,
+    // which is why this table is not video-only (ADR-0023).
+    const hash = hashes[0] as ContentHash;
+    await addComment(library, hash, null, "no timeline here");
+    expect(comments(library, hash)[0]?.atMs).toBeNull();
+  });
+
+  it("lists timed comments in timeline order and untimed ones last", async () => {
+    const hash = hashes[0] as ContentHash;
+    await addComment(library, hash, null, "about the whole thing");
+    await addComment(library, hash, 5_000, "later");
+    await addComment(library, hash, 1_000, "earlier");
+    expect(comments(library, hash).map((c) => c.body)).toEqual([
+      "earlier",
+      "later",
+      "about the whole thing",
+    ]);
+  });
+
+  it("edits a comment in place, keeping its id and its place in the list", async () => {
+    // Remove-and-re-add would move it to the end of a list ordered by creation,
+    // and somebody who fixed a typo did not ask for that.
+    const hash = hashes[0] as ContentHash;
+    const first = await addComment(library, hash, 1_000, "first");
+    await addComment(library, hash, 2_000, "second");
+
+    await setComment(library, first, 1_000, "first, corrected");
+    const listed = comments(library, hash);
+    expect(listed.map((c) => c.body)).toEqual(["first, corrected", "second"]);
+    expect(listed[0]?.id).toBe(first);
+    expect(listed[0]?.updatedAt).toEqual(expect.any(Number));
+  });
+
+  it("moves a comment to another moment without losing it", async () => {
+    const hash = hashes[0] as ContentHash;
+    const id = await addComment(library, hash, 1_000, "here");
+    await setComment(library, id, 9_000, "here");
+    expect(comments(library, hash)[0]?.atMs).toBe(9_000);
+  });
+
+  it("removes a comment, and refuses to touch one that is gone", async () => {
+    const hash = hashes[0] as ContentHash;
+    const id = await addComment(library, hash, 1_000, "temporary");
+    await removeComment(library, id);
+    expect(comments(library, hash)).toEqual([]);
+    await expect(removeComment(library, id)).rejects.toBeInstanceOf(UnknownCommentError);
+    await expect(setComment(library, id, null, "back")).rejects.toBeInstanceOf(UnknownCommentError);
+  });
+
+  it("refuses an empty body rather than deleting the comment", async () => {
+    // Emptying the box and removing the comment are different intentions, and
+    // only one of them can be undone by typing again.
+    const hash = hashes[0] as ContentHash;
+    await expect(addComment(library, hash, 0, "   ")).rejects.toBeInstanceOf(EmptyCommentError);
+    const id = await addComment(library, hash, 0, "real");
+    await expect(setComment(library, id, 0, "")).rejects.toBeInstanceOf(EmptyCommentError);
+    expect(comments(library, hash)).toHaveLength(1);
+  });
+
+  it("refuses a moment that is not one", async () => {
+    const hash = hashes[0] as ContentHash;
+    await expect(addComment(library, hash, -1, "before the start")).rejects.toBeInstanceOf(
+      InvalidMomentError,
+    );
+    await expect(addComment(library, hash, 1.5, "half a millisecond")).rejects.toBeInstanceOf(
+      InvalidMomentError,
+    );
+  });
+
+  it("refuses a comment on an asset the library does not hold", async () => {
+    await expect(
+      addComment(library, "f".repeat(64) as ContentHash, 0, "ghost"),
+    ).rejects.toBeInstanceOf(UnknownAssetError);
+  });
+
+  it("journals every comment before indexing it", async () => {
+    // Invariant 9, stated the way this suite states it above: a row with no
+    // journal line is data loss the next rebuild would reveal.
+    const hash = hashes[0] as ContentHash;
+    const id = await addComment(library, hash, 91_500, "the cut lands early");
+    await setComment(library, id, 91_000, "two frames early");
+    await removeComment(library, id);
+
+    const ours = (await journalLines()).filter((line) => String(line.op).startsWith("comment_"));
+    expect(ours.map((line) => line.op)).toEqual(["comment_add", "comment_set", "comment_remove"]);
+    // Milliseconds in `at`, seconds in `ts`: two different clocks, kept apart
+    // by name so neither can be read as the other (ADR-0023).
+    expect(ours[0]).toMatchObject({ id, hash, at: 91_500, body: "the cut lands early" });
+    expect(ours[1]).toMatchObject({ id, at: 91_000 });
+    expect(ours[2]).toEqual({ ts: expect.any(Number), op: "comment_remove", id });
+  });
+
+  it("keeps comments through the trash and takes them on a remove", async () => {
+    const kept = hashes[0] as ContentHash;
+    const doomed = hashes[1] as ContentHash;
+    await addComment(library, kept, 1_000, "survives");
+    await addComment(library, doomed, 1_000, "goes with it");
+
+    await trashAssets(library, [kept]);
+    expect(comments(library, kept)).toHaveLength(1);
+    await restoreAssets(library, [kept]);
+    expect(comments(library, kept)).toHaveLength(1);
+
+    // `remove` deletes the row, and the foreign key takes the comments with it
+    // — the same cascade tags and folder memberships already ride on.
+    await removeAssets(library, [doomed]);
+    expect(library.stats().comments).toBe(1);
+  });
+
   it("rebuilds to the same library after every kind of edit", async () => {
     // The strongest statement this suite makes: if any edit above reached the
     // index without reaching the journal, the rebuilt index would differ here.
@@ -374,6 +516,11 @@ describe("organizing a library", () => {
     await rate(library, [hashes[0] as ContentHash], 5);
     await setFavorite(library, [hashes[1] as ContentHash], true);
     await setNote(library, hashes[2] as ContentHash, "a note");
+    const comment = await addComment(library, hashes[0] as ContentHash, 91_500, "a comment");
+    await setComment(library, comment, 91_000, "an edited comment");
+    await addComment(library, hashes[0] as ContentHash, null, "and one about the asset");
+    const doomedComment = await addComment(library, hashes[0] as ContentHash, 1, "removed again");
+    await removeComment(library, doomedComment);
     await renameAsset(library, hashes[2] as ContentHash, "renamed.jpg");
     await createSmartFolder(library, "Five stars", "rating:5", null);
     await removeAssets(library, [hashes[1] as ContentHash]);
@@ -394,6 +541,12 @@ describe("organizing a library", () => {
     // replayed as a no-op would pass every other assertion here.
     expect(count(library, "renamed")).toBe(0);
     expect(count(library, "is:trashed")).toBe(1);
+    // Comments come back with their moments, their edits, and their absences:
+    // the removed one must not reappear, and the edited one must not revert.
+    expect(comments(library, hashes[0] as ContentHash).map((c) => [c.atMs, c.body])).toEqual([
+      [91_000, "an edited comment"],
+      [null, "and one about the asset"],
+    ]);
     expect(library.db.repo.orphanSearchRows()).toBe(0);
   });
 });

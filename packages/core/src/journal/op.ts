@@ -18,6 +18,9 @@ import {
 export const OP_NAMES = [
   "add",
   "asset_rename",
+  "comment_add",
+  "comment_remove",
+  "comment_set",
   "favorite_set",
   "folder_add",
   "folder_create",
@@ -124,6 +127,34 @@ export type Op =
   | { readonly op: "tag_rename"; readonly from: string; readonly to: string }
   | { readonly op: "rate"; readonly hash: ContentHash; readonly rating: number | null }
   | { readonly op: "note_set"; readonly hash: ContentHash; readonly note: string | null }
+  /**
+   * Comments, which carry a moment (ADR-0023).
+   *
+   * `at` is **milliseconds** into the medium, or `null` for a comment about the
+   * asset rather than about a moment in it. It is the one number in the format
+   * that is not seconds: this is an offset, not a date, and a second of
+   * granularity on a 24fps cut is twenty-four frames of ambiguity. Named `at`
+   * rather than `ts` so it cannot be misread as the line's own timestamp, which
+   * is what `created_at` is replayed from.
+   *
+   * `comment_set` follows `note_set` — last write wins, and editing keeps the
+   * comment's identity. Removing and re-adding would move it in every list
+   * ordered by creation and lose anything that referred to its id.
+   */
+  | {
+      readonly op: "comment_add";
+      readonly id: number;
+      readonly hash: ContentHash;
+      readonly at: number | null;
+      readonly body: string;
+    }
+  | {
+      readonly op: "comment_set";
+      readonly id: number;
+      readonly at: number | null;
+      readonly body: string;
+    }
+  | { readonly op: "comment_remove"; readonly id: number }
   | { readonly op: "favorite_set"; readonly hash: ContentHash; readonly favorite: boolean }
   | {
       readonly op: "smart_folder_create";
@@ -302,6 +333,7 @@ export function toRecord(source: Raw): JournalRecord {
     case "folder_delete":
     case "smart_folder_delete":
     case "tag_group_delete":
+    case "comment_remove":
       return { ts, op, id: int(source, "id") };
     case "asset_rename":
       return { ts, op, hash: hash(source, "hash"), name: str(source, "name") };
@@ -316,6 +348,17 @@ export function toRecord(source: Raw): JournalRecord {
     }
     case "note_set":
       return { ts, op, hash: hash(source, "hash"), note: nullableStr(source, "note") };
+    case "comment_add":
+      return {
+        ts,
+        op,
+        id: int(source, "id"),
+        hash: hash(source, "hash"),
+        at: moment(source),
+        body: str(source, "body"),
+      };
+    case "comment_set":
+      return { ts, op, id: int(source, "id"), at: moment(source), body: str(source, "body") };
     case "favorite_set":
       return { ts, op, hash: hash(source, "hash"), favorite: bool(source, "favorite") };
     case "smart_folder_create":
@@ -343,6 +386,19 @@ export function toRecord(source: Raw): JournalRecord {
     default:
       throw new MalformedRecordError("op", `unhandled operation "${op}"`);
   }
+}
+
+/**
+ * A comment's `at`, in milliseconds, or `null` for one about the whole asset.
+ *
+ * Rejected rather than clamped when negative: a negative offset is a writer
+ * that computed a position wrongly, and replaying it as zero would put the
+ * comment somewhere the person never placed it.
+ */
+function moment(source: Raw): number | null {
+  const at = nullableInt(source, "at");
+  if (at !== null && at < 0) throw new MalformedRecordError("at", "negative");
+  return at;
 }
 
 /**

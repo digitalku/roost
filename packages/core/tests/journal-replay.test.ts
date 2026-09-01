@@ -55,6 +55,8 @@ describe("folding a journal the Rust implementation wrote", () => {
         rated: 0,
         favorites: 1,
         notes: 1,
+        // The fixture is a journal the Rust build wrote, which has no comment ops.
+        comments: 0,
         trashed: 0,
         // Derived, and therefore deliberately absent from the journal.
         thumbnails: 0,

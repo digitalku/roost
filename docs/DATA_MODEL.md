@@ -58,6 +58,7 @@ violates invariant 6.
 | M5 | `asset_hashes(hash, dhash, phash)` | no — derived |
 | M5 | `asset_stacks(stack_id, hash, position, is_cover)` | yes — user-authored grouping |
 | M5 | `watched_roots(path, recursive, enabled, last_scan)` | yes — configuration |
+| — | `asset_comments(id, hash, at_ms, body, created_at, updated_at)` | yes — `comment_add`, `comment_set`, `comment_remove` |
 
 Rule of thumb, and the cleanest test for whether an op is required: **if a user typed it or
 clicked it, it goes in the journal. If a machine derived it from bytes, it does not.**
@@ -335,6 +336,46 @@ exactly that way to keep the plans migration 0005 bought. It is written in one p
 person's files on a schedule, possibly while they are not looking, is not one this project ships:
 `CONCEPT.md` §2 makes the library outlive the application, and a background deleter is the one
 thing that could make that false.
+
+### 2.7 Migration 0008 — comments carry a moment (schema v8)
+
+Decided by the user on 2026-09-02 and recorded as ADR-0023, after they asked for comments at a
+video timestamp: a comment is a row of its own, the moment is a column, and the whole thing is
+journalled so that it survives a rebuild like every other thing a person types.
+
+```sql
+CREATE TABLE asset_comments (
+  id         INTEGER PRIMARY KEY,
+  hash       TEXT    NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
+  at_ms      INTEGER CHECK (at_ms IS NULL OR at_ms >= 0),
+  body       TEXT    NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER
+);
+
+CREATE INDEX idx_comments_asset ON asset_comments(hash, at_ms, id);
+```
+
+**A row, not a field.** `assets.note` is one note and stays one note — the thing an asset is
+*about*. A comment is one of many and is edited on its own, so it needs an identity a journal op
+can name. The alternative, a JSON array in a column, fails on concurrent editing before it fails
+on anything else: every edit rewrites the whole array, so two windows editing two different
+comments on one asset would each write a complete set and the later one would discard the other's
+work without saying so. Per-comment ops cannot lose an edit that way.
+
+**`at_ms` is nullable, and the null means something.** No moment is a comment about the asset —
+so a `.zip` can carry comments too, and the timeline case is one value of one column rather than a
+second feature beside it. It is the one number in the format that is **not** seconds; `at` in the
+journal line is milliseconds, while the line's own `ts` stays unix seconds and is what
+`created_at` is replayed from.
+
+**Positions other than time are deliberately absent.** A PDF has pages, an image has rectangles,
+and both are different decisions. Eagle unifies all three in one comment type — worth knowing, and
+worth revisiting when the second one is actually wanted rather than guessed at here.
+
+**Cascade, so trash and remove keep meaning what they mean.** Trashing marks the asset and its
+comments stay with it, exactly as its tags do (ADR-0022); `remove` deletes the row, and the
+foreign key takes the comments with it.
 
 ## 3. Roost Query Language (RQL)
 

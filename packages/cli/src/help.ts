@@ -22,6 +22,7 @@ export const COMMANDS = [
   "smart",
   "rate",
   "note",
+  "comment",
   "favorite",
   "rename",
   "trash",
@@ -60,6 +61,7 @@ Commands:
   smart     Save, list, and update smart folders — RQL queries under a name
   rate      Rate assets from 1 to 5, or \`none\` to clear
   note      Set or clear an asset's note
+  comment   Comment on an asset, or on a moment in one
   favorite  Mark assets as favourites
   rename    Change an asset's display name. The file on disk is untouched
   trash     Move assets to the trash, restore them, or empty it
@@ -283,6 +285,28 @@ whitespace is removed too, rather than stored as an empty badge forever.
 Options:
 ${LIBRARY_FLAG}
       --clear            Remove the note
+${GLOBAL}`,
+
+  comment: `Comment on an asset, or on a moment in one.
+
+Usage: roost comment <ASSET> <TEXT>... [--at TIME]
+       roost comment --list <ASSET>
+       roost comment --edit <ID> <TEXT>... [--at TIME]
+       roost comment --remove <ID>
+
+Without --at, the comment is about the asset as a whole. With it, the comment
+is about that moment in a video or an audio track — \`1:31.5\`, \`91.5s\`, and
+\`91500ms\` all name the same one.
+
+An edit keeps the comment's id and its place in the list, so correcting a typo
+does not move it to the end.
+
+Options:
+${LIBRARY_FLAG}
+      --at <TIME>        The moment the comment is about
+      --list             List an asset's comments, with their ids
+      --edit <ID>        Replace a comment's text, and its moment with --at
+      --remove <ID>      Remove a comment
 ${GLOBAL}`,
 
   favorite: `Mark assets as favourites.

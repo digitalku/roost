@@ -103,6 +103,7 @@ Legend: **M** = must have (v1.0) · **S** = should have · **C** = could have ·
 - M — Star ratings (0–5)
 - M — Smart folders (saved queries that auto-populate)
 - M — Notes / annotations per asset
+- M — Comments, many per asset, each optionally at a moment in a video or an audio track
 - S — Colors auto-extracted per asset, filterable
 - S — Version stacking (group revisions of the same asset)
 - C — On-image annotations (arrows, boxes, comments)

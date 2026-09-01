@@ -16,6 +16,7 @@ export { READ_ONLY_OPTIONS, ReadOnlyIndex } from "./reader.js";
 export {
   type AssetDetail,
   type AssetSummary,
+  type CommentRow,
   type DerivedMetadata,
   type FolderRow,
   type JobClaim,

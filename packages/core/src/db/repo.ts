@@ -24,6 +24,8 @@ export interface Stats {
   readonly rated: number;
   readonly favorites: number;
   readonly notes: number;
+  /** Comments, not assets: one asset can carry many. */
+  readonly comments: number;
   /** Assets in the trash. They are still rows, and still hold their bytes. */
   readonly trashed: number;
   readonly thumbnails: number;
@@ -181,6 +183,23 @@ export interface SmartFolderRow {
 export interface TagGroupRow {
   readonly id: number;
   readonly name: string;
+}
+
+/**
+ * One comment, and where in the asset it sits (ADR-0023).
+ *
+ * `atMs` is milliseconds into the medium, or `null` for a comment about the
+ * asset rather than about a moment in it — which is what lets an asset with no
+ * timeline carry comments at all.
+ */
+export interface CommentRow {
+  readonly id: number;
+  readonly hash: string;
+  readonly atMs: number | null;
+  readonly body: string;
+  readonly createdAt: number;
+  /** `null` until the comment is edited. */
+  readonly updatedAt: number | null;
 }
 
 /** A tag, how many assets carry it, and the group it is arranged under. */
@@ -466,6 +485,67 @@ export class Repo {
     this.#s("UPDATE assets SET note = ? WHERE hash = ?").run(note, hash);
   }
 
+  /**
+   * Creates a comment at the id the journal recorded (ADR-0023).
+   *
+   * `ON CONFLICT` rather than a plain insert, for the reason `folder_create`
+   * has one: replaying a journal twice must land on the same database, and a
+   * duplicate id is what that looks like from here.
+   */
+  applyCommentAdd(
+    id: number,
+    hash: ContentHash,
+    atMs: number | null,
+    body: string,
+    createdAt: number,
+  ): void {
+    this.#s(
+      `INSERT INTO asset_comments (id, hash, at_ms, body, created_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         hash = excluded.hash, at_ms = excluded.at_ms, body = excluded.body,
+         created_at = excluded.created_at, updated_at = NULL`,
+    ).run(id, hash, atMs, body, createdAt);
+  }
+
+  /** Edits a comment in place, so it keeps its identity and its place in a list. */
+  applyCommentSet(id: number, atMs: number | null, body: string, updatedAt: number): void {
+    this.#s("UPDATE asset_comments SET at_ms = ?, body = ?, updated_at = ? WHERE id = ?").run(
+      atMs,
+      body,
+      updatedAt,
+      id,
+    );
+  }
+
+  applyCommentRemove(id: number): void {
+    this.#s("DELETE FROM asset_comments WHERE id = ?").run(id);
+  }
+
+  /**
+   * One asset's comments, timed ones first and in timeline order.
+   *
+   * Untimed comments sort last rather than first: they are about the asset, and
+   * a list that opens with them would bury the moment the person came for. `id`
+   * breaks the tie so two comments on the same frame keep the order they were
+   * written in.
+   */
+  commentsFor(hash: ContentHash): CommentRow[] {
+    return this.#s(
+      `SELECT id, hash, at_ms AS atMs, body, created_at AS createdAt, updated_at AS updatedAt
+         FROM asset_comments
+        WHERE hash = ?
+        ORDER BY at_ms IS NULL, at_ms, id`,
+    ).all(hash) as CommentRow[];
+  }
+
+  /** One comment, or `undefined` — which is how an edit learns the id is stale. */
+  comment(id: number): CommentRow | undefined {
+    return this.#s(
+      `SELECT id, hash, at_ms AS atMs, body, created_at AS createdAt, updated_at AS updatedAt
+         FROM asset_comments WHERE id = ?`,
+    ).get(id) as CommentRow | undefined;
+  }
+
   applyFavoriteSet(hash: ContentHash, favorite: boolean): void {
     // `better-sqlite3` refuses to bind a boolean — it accepts numbers, strings,
     // bigints, buffers, and null, and throws on anything else. The column is
@@ -701,6 +781,7 @@ export class Repo {
       rated: this.#count("SELECT count(*) AS n FROM assets WHERE rating IS NOT NULL"),
       favorites: this.#count("SELECT count(*) AS n FROM assets WHERE is_favorite = 1"),
       notes: this.#count("SELECT count(*) AS n FROM assets WHERE note IS NOT NULL"),
+      comments: this.#count("SELECT count(*) AS n FROM asset_comments"),
       trashed: this.#count("SELECT count(*) AS n FROM assets WHERE trashed_at IS NOT NULL"),
       thumbnails: this.#count("SELECT count(*) AS n FROM thumbs"),
     };
@@ -1032,6 +1113,10 @@ export class Repo {
 
   nextTagGroupId(): number {
     return this.#count("SELECT coalesce(max(id), 0) + 1 AS n FROM tag_groups");
+  }
+
+  nextCommentId(): number {
+    return this.#count("SELECT coalesce(max(id), 0) + 1 AS n FROM asset_comments");
   }
 
   /**

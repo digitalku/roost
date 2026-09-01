@@ -1,12 +1,22 @@
-import { type ContentHash, IndexSink, type JournalRecord, logger, type Op } from "@roost/core";
+import {
+  type CommentRow,
+  type ContentHash,
+  IndexSink,
+  type JournalRecord,
+  logger,
+  type Op,
+} from "@roost/core";
 import { parse } from "@roost/search";
 import {
   AmbiguousFolderNameError,
   AmbiguousHashError,
+  EmptyCommentError,
   EmptyNameError,
   FolderCycleError,
+  InvalidMomentError,
   InvalidRatingError,
   UnknownAssetError,
+  UnknownCommentError,
   UnknownFolderError,
   UnknownFolderPathError,
   UnknownSmartFolderError,
@@ -232,6 +242,86 @@ export async function setNote(
   requireAsset(library, hash);
   const trimmed = note === null ? null : note.trim();
   return apply(library, [{ op: "note_set", hash, note: trimmed === "" ? null : trimmed }]);
+}
+
+// --- Comments (ADR-0023) -----------------------------------------------------
+
+/**
+ * Adds a comment, at a moment or about the asset as a whole.
+ *
+ * `atMs` is milliseconds into the medium, and `null` means the comment is about
+ * the asset — which is what lets a `.zip` carry one. Returns the id, because
+ * every later edit names the comment by it.
+ *
+ * The id is minted `max(id) + 1` from this process's own view of the index, as
+ * folders are, so a second *window* has to be refused at open (`Library`'s
+ * `exclusive`). Two CLI runs are fine; two minting windows are not.
+ */
+export async function addComment(
+  library: Library,
+  hash: ContentHash,
+  atMs: number | null,
+  body: string,
+): Promise<number> {
+  requireAsset(library, hash);
+  const id = library.db.repo.nextCommentId();
+  await apply(library, [
+    { op: "comment_add", id, hash, at: requireMoment(atMs), body: requireBody(body) },
+  ]);
+  return id;
+}
+
+/**
+ * Edits a comment in place.
+ *
+ * In place rather than remove-and-re-add, so the comment keeps its identity:
+ * re-adding would move it to the end of every list ordered by creation, and a
+ * person who fixed a typo did not ask for that.
+ */
+export async function setComment(
+  library: Library,
+  id: number,
+  atMs: number | null,
+  body: string,
+): Promise<void> {
+  requireComment(library, id);
+  return apply(library, [
+    { op: "comment_set", id, at: requireMoment(atMs), body: requireBody(body) },
+  ]);
+}
+
+export async function removeComment(library: Library, id: number): Promise<void> {
+  requireComment(library, id);
+  return apply(library, [{ op: "comment_remove", id }]);
+}
+
+/** The comments on one asset, timed ones first and in timeline order. */
+export function comments(library: Library, hash: ContentHash): readonly CommentRow[] {
+  requireAsset(library, hash);
+  return library.db.repo.commentsFor(hash);
+}
+
+function requireComment(library: Library, id: number): CommentRow {
+  const found = library.db.repo.comment(id);
+  if (found === undefined) throw new UnknownCommentError(id);
+  return found;
+}
+
+function requireBody(body: string): string {
+  const trimmed = body.trim();
+  if (trimmed === "") throw new EmptyCommentError();
+  return trimmed;
+}
+
+/**
+ * Validated here rather than in the repository, because replay has to accept
+ * whatever the journal already holds and this is the layer that keeps a bad
+ * moment out of it in the first place.
+ */
+function requireMoment(atMs: number | null): number | null {
+  if (atMs === null) return atMs;
+  if (!Number.isSafeInteger(atMs) || atMs < 0) throw new InvalidMomentError(atMs);
+  return atMs;
 }
 
 export async function setFavorite(

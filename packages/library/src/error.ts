@@ -75,6 +75,33 @@ export class UnknownAssetError extends RoostError {
   }
 }
 
+export class UnknownCommentError extends RoostError {
+  readonly code = "unknown_comment";
+
+  constructor(id: number) {
+    super(`No comment has id ${id}`, { id });
+  }
+}
+
+export class EmptyCommentError extends RoostError {
+  readonly code = "empty_comment";
+
+  constructor() {
+    // Refused rather than silently deleted: emptying the box and removing the
+    // comment are different intentions, and only one of them is reversible by
+    // typing again.
+    super("A comment needs a body — remove it instead of emptying it");
+  }
+}
+
+export class InvalidMomentError extends RoostError {
+  readonly code = "invalid_moment";
+
+  constructor(at: number) {
+    super(`${at} is not a moment — expected whole milliseconds, zero or more`, { at });
+  }
+}
+
 export class AmbiguousHashError extends RoostError {
   readonly code = "ambiguous_hash";
 

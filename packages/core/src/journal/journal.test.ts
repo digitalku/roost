@@ -41,11 +41,12 @@ describe("against a journal written by the Rust implementation", () => {
     await replay(FIXTURE_DIR, sink);
 
     // The fixture holds the 22 operations that existed when both builds were
-    // writing journals. `trash` and `restore` are this repository's own
-    // (ADR-0022) and the Rust build cannot write them, so they are subtracted
-    // by name rather than by loosening the comparison — the point of this test
-    // is that the shared vocabulary cannot shrink unnoticed.
-    const ours = new Set(["trash", "restore"]);
+    // writing journals. The rest are this repository's own — `trash` and
+    // `restore` from ADR-0022, the three comment ops from ADR-0023 — and the
+    // Rust build cannot write them, so they are subtracted by name rather than
+    // by loosening the comparison: the point of this test is that the *shared*
+    // vocabulary cannot shrink unnoticed.
+    const ours = new Set(["trash", "restore", "comment_add", "comment_set", "comment_remove"]);
     expect([...new Set(sink.records.map((r) => r.op))].sort()).toEqual(
       OP_NAMES.filter((name) => !ours.has(name)),
     );

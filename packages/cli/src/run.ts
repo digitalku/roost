@@ -7,6 +7,7 @@ import {
   stderrSink,
   toWire,
 } from "@roost/core";
+import { comment, drop, edit, listOn } from "./commands/comment.js";
 import { doctor } from "./commands/doctor.js";
 import { fixture } from "./commands/fixture.js";
 import { folder } from "./commands/folder.js";
@@ -81,6 +82,12 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   smart: { rename: { type: "string" }, query: { type: "string" } },
   rate: {},
   note: { clear: { type: "boolean" } },
+  comment: {
+    at: { type: "string" },
+    list: { type: "boolean" },
+    edit: { type: "string" },
+    remove: { type: "string" },
+  },
   favorite: { off: { type: "boolean" } },
   rename: {},
   trash: { restore: { type: "boolean" }, empty: { type: "boolean" } },
@@ -295,6 +302,36 @@ async function dispatch(
       // note means everywhere else in the library too.
       const text_ = flag(values, "clear") || words.length === 0 ? undefined : words.join(" ");
       return note(await library(), asset, text_, streams);
+    }
+
+    case "comment": {
+      const listing = flag(values, "list");
+      const editing = text(values, "edit");
+      const removing = text(values, "remove");
+      // Three flags naming three different verbs. Two of them at once is a
+      // typo, and guessing which was meant would edit the wrong comment.
+      if ([listing, editing !== undefined, removing !== undefined].filter(Boolean).length > 1) {
+        return usage(streams, command, "--list, --edit, and --remove ask for different things");
+      }
+
+      if (removing !== undefined) return drop(await library(), removing, streams);
+      if (listing) {
+        const [asset] = positionals;
+        if (asset === undefined) return usage(streams, command, "--list needs an asset");
+        return listOn(await library(), asset, streams);
+      }
+      if (editing !== undefined) {
+        if (positionals.length === 0) {
+          return usage(streams, command, "--edit needs the text to replace the comment with");
+        }
+        return edit(await library(), editing, positionals, text(values, "at"), streams);
+      }
+
+      const [asset, ...words] = positionals;
+      if (asset === undefined || words.length === 0) {
+        return usage(streams, command, "comment needs an asset and some text");
+      }
+      return comment(await library(), asset, words, text(values, "at"), streams);
     }
 
     case "favorite": {

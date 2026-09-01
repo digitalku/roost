@@ -20,6 +20,7 @@ export async function stats(root: string, out: (line: string) => void): Promise<
     out(row("rated", counts.rated));
     out(row("favourites", counts.favorites));
     out(row("notes", counts.notes));
+    out(row("comments", counts.comments));
     // Only when there is one. An empty trash is the normal state and does not
     // need a line saying so — the same rule the queue below follows.
     if (counts.trashed > 0) out(row("trashed", counts.trashed));

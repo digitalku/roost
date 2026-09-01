@@ -627,6 +627,15 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
 - 🟢 **A referenced original cannot be byte-verified** on a partial-hash duplicate, because
   there is no object store to compare against. It is merged on probability. Reaching it needs
   the asset's `ref_path` at the point the duplicate is decided.
+- 🟡 **Comments exist below the window and not in it** (ADR-0023, 2026-09-02). Migration 0008,
+  the three journal ops, the repository, the library API, and `roost comment` are in and proven
+  through a real rebuild — the index was deleted outright and all three comments came back, the
+  edited one at its new moment. What is missing is everything above `@roost/library`: the
+  contract requests, the IPC handlers, the inspector's list, and the marker strip under the video
+  player. `UI_SPEC.md` §3.2 and §7 gain a component each in the change that builds them.
+- 🟢 **A comment can only be at a time, never at a place.** `at_ms` or nothing. A PDF page and a
+  rectangle on an image are the two anchors Eagle also supports, in one comment type; both are
+  separate decisions and neither is wanted yet (ADR-0023).
 - 🟢 **Journal ops still undefined**, for want of a feature that needs them: stacking, watched
   roots, and the hash upgrade above.
 

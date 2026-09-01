@@ -241,6 +241,19 @@ cannot be raised by the process that wants it at all.
 **Deferred out of M4**, with the reason each one waited, in `TODO.md`: CR3 and RAF (neither is a
 TIFF container), animated thumbnails, a PDF text layer, and EXIF beyond dimensions.
 
+## Asked for directly, outside the milestone order
+
+M5 and M6 are deferred at the user's request (below), so a feature they ask for lands when they
+ask for it rather than waiting for a milestone nobody has planned yet. What has arrived that way
+is listed here, so the order stays visible instead of becoming folklore.
+
+- ☑ **Trash** — 2026-09-01, ADR-0022. Also listed under M6, which is where the Trash place was
+  first promised
+- ☑ **Marquee selection** — 2026-09-01, the last of `UI_SPEC.md` §6's grid gestures
+- ◐ **Comments that carry a moment** — ADR-0023, accepted 2026-09-02. Migration 0008, three
+  journal ops, the library API, and `roost comment` are in; the IPC surface and the two
+  components the window needs are in `TODO.md`
+
 ## M5 — Discovery features ☐
 
 - ☐ Dominant colour extraction → CIELAB, colour filter UI
@@ -276,9 +289,9 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**One open, as of 2026-09-01: ADR-0023**, comments that carry a moment — a table, three journal
-ops, and where a position lives. Everything in the table below is settled. The five questions the
-language change forced were settled together, before any code was written against them — which is the cheapest moment they could
+**Nothing open, as of 2026-09-02.** ADR-0023 — comments that carry a moment — was accepted the
+day after it was proposed. The five questions the language change forced were settled together,
+before any code was written against them — which is the cheapest moment they could
 have been settled, and the reason M0 can start without working around an unknown.
 
 | Question | Outcome | Record |
