@@ -71,6 +71,15 @@ export interface ThumbnailTarget {
   readonly ext: string;
   readonly storageMode: string;
   readonly refPath: string | null;
+  /**
+   * The moment a video's thumbnail is pinned to, or `null` for the default
+   * frame (ADR-0024 stage 4).
+   *
+   * Carried with the target rather than looked up by the derive runner, because
+   * the runner is handed a claim and never the asset: a second query per job
+   * would be a round trip per thumbnail on a hundred thousand of them.
+   */
+  readonly posterMs: number | null;
 }
 
 /**
@@ -99,6 +108,8 @@ export interface JobClaim {
   readonly ext: string;
   readonly storageMode: string;
   readonly refPath: string | null;
+  /** The moment a video's thumbnail is pinned to (ADR-0024 stage 4). */
+  readonly posterMs: number | null;
 }
 
 /** How many jobs are in each state, for a status line. */
@@ -155,6 +166,8 @@ export interface AssetDetail {
   readonly importedAt: number;
   /** Unix seconds if this asset is in the trash, `null` if it is live. */
   readonly trashedAt: number | null;
+  /** The moment a video's thumbnail is pinned to (ADR-0024 stage 4). */
+  readonly posterMs: number | null;
   readonly rating: number | null;
   readonly note: string | null;
   readonly isFavorite: boolean;
@@ -486,6 +499,39 @@ export class Repo {
   }
 
   /**
+   * Which frame a video's thumbnail comes from (ADR-0024 stage 4).
+   *
+   * `null` is the default frame, not the first one: the video backend takes a
+   * frame a tenth of the way in, because a first frame tends to be a slate.
+   * Nothing here touches `thumbs` — the picture is derived work, and this is
+   * the instruction that produces it.
+   */
+  applyPosterSet(hash: ContentHash, posterMs: number | null): void {
+    this.#s("UPDATE assets SET poster_ms = ? WHERE hash = ?").run(posterMs, hash);
+  }
+
+  /**
+   * Forgets one derived picture, so the next derive makes it rather than
+   * finding it already there.
+   *
+   * The preview size is generated on first use and never revisited
+   * (`ensurePreview`), so a thumbnail whose *instruction* changed has to be
+   * dropped or it would outlive the frame it was drawn from — a preview that
+   * disagrees with its own grid cell is worse than either (ADR-0024).
+   */
+  dropThumbnail(hash: ContentHash, size: number): void {
+    this.#s("DELETE FROM thumbs WHERE hash = ? AND size = ?").run(hash, size);
+  }
+
+  /** The moment a thumbnail is pinned to, or `null` for the default frame. */
+  posterOf(hash: ContentHash): number | null {
+    const row = this.#s("SELECT poster_ms AS posterMs FROM assets WHERE hash = ?").get(hash) as
+      | { posterMs: number | null }
+      | undefined;
+    return row?.posterMs ?? null;
+  }
+
+  /**
    * Creates a comment at the id the journal recorded (ADR-0023).
    *
    * `ON CONFLICT` rather than a plain insert, for the reason `folder_create`
@@ -671,7 +717,7 @@ export class Repo {
               storage_mode AS storageMode, ref_path AS refPath,
               is_partial_hash AS isPartialHash, created_at AS createdAt,
               imported_at AS importedAt, trashed_at AS trashedAt,
-              rating, note, is_favorite AS isFavorite
+              rating, note, is_favorite AS isFavorite, poster_ms AS posterMs
          FROM assets WHERE hash = ?`,
     ).get(hash) as
       | (Omit<AssetDetail, "isPartialHash" | "isFavorite" | "tags" | "folders" | "props"> & {
@@ -816,7 +862,7 @@ export class Repo {
   /** Where one asset's bytes are, for generating a thumbnail on demand. */
   thumbnailTarget(hash: ContentHash): ThumbnailTarget | undefined {
     return this.#s(
-      `SELECT hash, ext, storage_mode AS storageMode, ref_path AS refPath
+      `SELECT hash, ext, storage_mode AS storageMode, ref_path AS refPath, poster_ms AS posterMs
          FROM assets WHERE hash = ?`,
     ).get(hash) as ThumbnailTarget | undefined;
   }
@@ -843,7 +889,7 @@ export class Repo {
 
     return this.#s(
       `SELECT a.hash AS hash, a.ext AS ext, a.storage_mode AS storageMode,
-              a.ref_path AS refPath
+              a.ref_path AS refPath, a.poster_ms AS posterMs
          FROM assets a
         WHERE ${probes}
         ORDER BY a.imported_at DESC
@@ -1346,7 +1392,8 @@ export function searchSql(filterSql: string, hasCursor: boolean): string {
 
   return `SELECT a.hash AS hash, a.orig_name AS origName, a.ext AS ext, a.size AS size,
                  a.width AS width, a.height AS height, a.imported_at AS importedAt,
-                 a.rating AS rating, a.is_favorite AS isFavorite
+                 a.rating AS rating, a.is_favorite AS isFavorite,
+                 a.poster_ms AS posterMs
             FROM assets a
            WHERE (${filterSql})${keyset}
            ORDER BY a.imported_at DESC, a.hash

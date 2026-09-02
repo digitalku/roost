@@ -156,8 +156,12 @@ export function readProbe(json: string): MediaProbe {
  * (ADR-0017). Scaling happens in ffmpeg rather than afterwards so that a 4K
  * frame never crosses the pipe.
  */
-export async function grabFrame(path: string, durationMs?: number): Promise<Buffer> {
-  const at = frameTimestamp(durationMs);
+export async function grabFrame(
+  path: string,
+  durationMs?: number,
+  posterMs?: number,
+): Promise<Buffer> {
+  const at = frameTimestamp(durationMs, posterMs);
   const args = (seconds: number): string[] => [
     "-v",
     "error",
@@ -190,8 +194,17 @@ export async function grabFrame(path: string, durationMs?: number): Promise<Buff
   return first;
 }
 
-/** Where in a file the thumbnail frame is taken from. */
-export function frameTimestamp(durationMs?: number): number {
+/**
+ * Where in a file the thumbnail frame is taken from.
+ *
+ * `posterMs` is a moment somebody chose (ADR-0024 stage 4) and wins outright,
+ * including over the cap: a person who picked a frame twelve minutes into a
+ * film meant that frame, and the cap exists to stop *guessing* that far in.
+ * Past the end it falls through to the first frame, which is what `grabFrame`
+ * already does for a clip shorter than its container claims.
+ */
+export function frameTimestamp(durationMs?: number, posterMs?: number): number {
+  if (posterMs !== undefined && posterMs >= 0) return posterMs;
   if (durationMs === undefined || durationMs <= 0) return 1000;
   return Math.min(durationMs * FRAME_AT_FRACTION, FRAME_AT_MAX_MS);
 }

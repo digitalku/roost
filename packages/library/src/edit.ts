@@ -2,10 +2,12 @@ import {
   type CommentRow,
   type ContentHash,
   IndexSink,
+  JOB_PRIORITY,
   type JournalRecord,
   logger,
   type Op,
 } from "@roost/core";
+import { formatFromExtension, kindOf, PREVIEW_SIZE } from "@roost/media/serving";
 import { parse } from "@roost/search";
 import {
   AmbiguousFolderNameError,
@@ -15,6 +17,7 @@ import {
   FolderCycleError,
   InvalidMomentError,
   InvalidRatingError,
+  NotAVideoError,
   UnknownAssetError,
   UnknownCommentError,
   UnknownFolderError,
@@ -22,7 +25,9 @@ import {
   UnknownSmartFolderError,
   UnknownTagGroupError,
 } from "./error.js";
+import { enqueueDerives } from "./jobs.js";
 import { type Library, nowUnix } from "./library.js";
+import { redrawPoster } from "./thumbnails.js";
 
 /**
  * User-authored mutations: tags, folders, ratings, notes, favourites, and saved
@@ -293,6 +298,69 @@ export async function setComment(
 export async function removeComment(library: Library, id: number): Promise<void> {
   requireComment(library, id);
   return apply(library, [{ op: "comment_remove", id }]);
+}
+
+/**
+ * Pins a video's thumbnail to a moment, or lets it go back to the default
+ * (ADR-0024 stage 4).
+ *
+ * **The journal records where to look, never the pixels.** A rebuild replays
+ * `poster_set` into `assets.poster_ms` and the derive pass re-extracts the
+ * frame, so the thumbnail comes back from `originals/` plus the journal like
+ * every other derived artefact (invariant 1). Storing the image would be base64
+ * in a text file, which the forbidden-patterns list refuses twice over.
+ *
+ * The picture is not made here. This queues the derive at interactive priority
+ * and drops the preview-size thumbnail, which is generated on first use and
+ * would otherwise outlive the frame it was drawn from; whoever works the queue
+ * — the engine in the background, `roost thumb` from a terminal — replaces the
+ * grid size. That is the same path a rebuild takes, which is why there is only
+ * one of it.
+ *
+ * Answers whether anything was written: pinning the moment it is already pinned
+ * to, or clearing one nobody set, journals nothing. An append-only file is read
+ * by people, and a line that changes nothing is a line they have to rule out.
+ */
+export async function setPoster(
+  library: Library,
+  hash: ContentHash,
+  atMs: number | null,
+): Promise<boolean> {
+  requireVideo(library, hash);
+  const at = atMs === null ? null : requireMoment(atMs);
+  if (library.db.repo.posterOf(hash) === at) return false;
+
+  await apply(library, [{ op: "poster_set", hash, at }]);
+  // Dropped before anything else: the preview size is made on first use and
+  // never revisited, so one left behind would outlive the frame it was drawn
+  // from if the redraw below cannot run.
+  library.db.repo.dropThumbnail(hash, PREVIEW_SIZE);
+  if (!(await redrawPoster(library, hash))) {
+    // No ffmpeg, or an original that moved. The queue reads the same column, so
+    // the picture arrives whenever it can rather than not at all.
+    enqueueDerives(library, [hash], JOB_PRIORITY.interactive);
+  }
+  return true;
+}
+
+/** The moment a thumbnail is pinned to, or `null` for the default frame. */
+export function poster(library: Library, hash: ContentHash): number | null {
+  requireAsset(library, hash);
+  return library.db.repo.posterOf(hash);
+}
+
+/**
+ * An asset with frames to choose between.
+ *
+ * The kind comes from the format table rather than from a column, exactly as
+ * the window's does: `@roost/media` owns that table, and a second answer here
+ * would disagree with the inspector the first time a format is added.
+ */
+function requireVideo(library: Library, hash: ContentHash): void {
+  const asset = library.db.repo.findAsset(hash);
+  if (asset === undefined) throw new UnknownAssetError(hash);
+  const kind = kindOf(formatFromExtension(asset.ext));
+  if (kind !== "video") throw new NotAVideoError(hash, kind);
 }
 
 /** The comments on one asset, timed ones first and in timeline order. */

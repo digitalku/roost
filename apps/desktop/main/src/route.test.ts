@@ -19,9 +19,21 @@ describe("parsing a roost:// URL", () => {
       ok: true,
       value: { kind: "thumb", hash: HASH, size: 512 },
     });
+
     expect(parseRoostUrl(`roost://original/${HASH}`)).toEqual({
       ok: true,
       value: { kind: "original", hash: HASH },
+    });
+  });
+
+  it("ignores a query, which is a cache key rather than an address", () => {
+    // A pinned frame changes a thumbnail's pixels without changing its hash
+    // (ADR-0024 stage 4), so the renderer puts the moment in the query — the
+    // response stays `immutable`, and a new frame is a new address. Nothing
+    // here reads it: what is addressed is still the hash and the size.
+    expect(parseRoostUrl(`roost://thumb/${HASH}@256?at=91500`)).toEqual({
+      ok: true,
+      value: { kind: "thumb", hash: HASH, size: 256 },
     });
   });
 

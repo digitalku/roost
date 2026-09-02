@@ -90,6 +90,7 @@ describe("validating a request", () => {
       "asset:rate",
       "asset:favorite",
       "asset:note",
+      "asset:poster",
       "asset:rename",
       "asset:tagAdd",
       "asset:tagRemove",
@@ -164,6 +165,33 @@ describe("validating a page of the grid", () => {
       reason: "assets:page: limit: expected a safe integer",
     });
     expect(page({ limit: MAX_PAGE_LIMIT }).ok).toBe(true);
+  });
+});
+
+describe("validating a thumbnail moment", () => {
+  const HASH = "a".repeat(64);
+
+  it("takes a moment and takes its absence", () => {
+    expect(checkRequest({ type: "asset:poster", hash: HASH, atMs: 91_500 })).toMatchObject({
+      ok: true,
+    });
+    // `null` is the default frame, which is not the first one — clearing is
+    // this request with the value absent rather than a request of its own.
+    expect(checkRequest({ type: "asset:poster", hash: HASH, atMs: null })).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("refuses a moment before the start", () => {
+    expect(checkRequest({ type: "asset:poster", hash: HASH, atMs: -1 })).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("refuses a moment that is not whole milliseconds", () => {
+    expect(checkRequest({ type: "asset:poster", hash: HASH, atMs: 1.5 })).toMatchObject({
+      ok: false,
+    });
   });
 });
 

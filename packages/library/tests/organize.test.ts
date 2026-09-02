@@ -21,8 +21,11 @@ import {
   importInto,
   Library,
   moveFolder,
+  NotAVideoError,
   pageOf,
   pages,
+  poster,
+  queueStatus,
   rate,
   readSidebar,
   removeAssets,
@@ -37,6 +40,7 @@ import {
   setComment,
   setFavorite,
   setNote,
+  setPoster,
   setTagGroup,
   tagAdd,
   tagRemove,
@@ -46,7 +50,7 @@ import {
   UnknownCommentError,
   UnknownFolderPathError,
 } from "@roost/library";
-import { gradient } from "@roost/media";
+import { GRID_SIZE, gradient, PREVIEW_SIZE } from "@roost/media";
 import { QueryError } from "@roost/search";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -501,6 +505,99 @@ describe("organizing a library", () => {
     expect(library.stats().comments).toBe(1);
   });
 
+  /**
+   * A file the format table calls a video.
+   *
+   * The bytes are not one, and nothing here decodes them: `setPoster` decides
+   * what an asset *is* from the format table, the same table the window's
+   * inspector uses, so a `.mp4` is a video whether or not ffmpeg is installed
+   * on the machine running this suite.
+   */
+  const importVideo = async (name = "clip.mp4"): Promise<ContentHash> => {
+    const source = join(dir, "video");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, name), `not really a video: ${name}`);
+    await importInto(library, [join(source, name)]);
+    const found = library.db.repo
+      .allHashes()
+      .find((hash) => library.db.repo.findAsset(hash)?.origName === name);
+    if (found === undefined) throw new Error("the video did not import");
+    return found;
+  };
+
+  it("pins a thumbnail to a moment, and journals where to look rather than the picture", async () => {
+    const hash = await importVideo();
+    expect(await setPoster(library, hash, 91_500)).toBe(true);
+    expect(poster(library, hash)).toBe(91_500);
+
+    const ours = (await journalLines()).filter((line) => line.op === "poster_set");
+    expect(ours).toEqual([{ ts: expect.any(Number), op: "poster_set", hash, at: 91_500 }]);
+    // The instruction, never the pixels: a journal carrying an image would be
+    // base64 in a text file, which the forbidden-patterns list refuses twice.
+    expect(JSON.stringify(ours[0])).not.toMatch(/data:|base64/);
+  });
+
+  it("clears back to the default frame with the same op", async () => {
+    const hash = await importVideo();
+    await setPoster(library, hash, 91_500);
+    expect(await setPoster(library, hash, null)).toBe(true);
+    expect(poster(library, hash)).toBeNull();
+
+    const ours = (await journalLines()).filter((line) => line.op === "poster_set");
+    expect(ours.map((line) => line.at)).toEqual([91_500, null]);
+  });
+
+  it("writes nothing when the thumbnail is already where it is being put", async () => {
+    // An append-only file is read by people, and a line that changes nothing is
+    // a line they have to rule out.
+    const hash = await importVideo();
+    await setPoster(library, hash, 91_500);
+    expect(await setPoster(library, hash, 91_500)).toBe(false);
+
+    const ours = (await journalLines()).filter((line) => line.op === "poster_set");
+    expect(ours).toHaveLength(1);
+  });
+
+  it("clears nothing when the thumbnail is already on the default frame", async () => {
+    const hash = await importVideo();
+    expect(await setPoster(library, hash, null)).toBe(false);
+    expect((await journalLines()).filter((line) => line.op === "poster_set")).toEqual([]);
+  });
+
+  it("drops the preview it can no longer draw, and queues what it could not redraw", async () => {
+    const hash = await importVideo();
+    library.db.repo.putThumbnail(hash, GRID_SIZE, 8, 8, Buffer.from("grid"));
+    library.db.repo.putThumbnail(hash, PREVIEW_SIZE, 8, 8, Buffer.from("preview"));
+
+    await setPoster(library, hash, 91_500);
+
+    // The bytes here are not a video, so the immediate redraw fails — which is
+    // also what a machine without ffmpeg looks like. The preview size is made
+    // on first use and never revisited, so leaving one behind would let it
+    // outlive the frame it was drawn from; the grid size stays until something
+    // replaces it, because a cell that goes blank is worse than one that is a
+    // quarter of a second stale.
+    expect(library.db.repo.thumbnail(hash, PREVIEW_SIZE)).toBeUndefined();
+    expect(library.db.repo.thumbnail(hash, GRID_SIZE)).toBeDefined();
+    // Queued, so the picture arrives whenever it can rather than not at all.
+    expect(queueStatus(library).ready).toBeGreaterThan(0);
+  });
+
+  it("refuses a thumbnail moment on something with no frames", async () => {
+    // Audio has no picture to take and a document already has a page. A
+    // journal line that means nothing is one a later build has to keep
+    // understanding.
+    await expect(setPoster(library, hashes[0] as ContentHash, 1_000)).rejects.toBeInstanceOf(
+      NotAVideoError,
+    );
+    expect((await journalLines()).filter((line) => line.op === "poster_set")).toEqual([]);
+  });
+
+  it("refuses a negative moment, as a comment's does", async () => {
+    const hash = await importVideo();
+    await expect(setPoster(library, hash, -1)).rejects.toBeInstanceOf(InvalidMomentError);
+  });
+
   it("rebuilds to the same library after every kind of edit", async () => {
     // The strongest statement this suite makes: if any edit above reached the
     // index without reaching the journal, the rebuilt index would differ here.
@@ -522,6 +619,8 @@ describe("organizing a library", () => {
     const doomedComment = await addComment(library, hashes[0] as ContentHash, 1, "removed again");
     await removeComment(library, doomedComment);
     await renameAsset(library, hashes[2] as ContentHash, "renamed.jpg");
+    const clip = await importVideo("pinned.mp4");
+    await setPoster(library, clip, 91_500);
     await createSmartFolder(library, "Five stars", "rating:5", null);
     await removeAssets(library, [hashes[1] as ContentHash]);
     await trashAssets(library, [hashes[2] as ContentHash]);
@@ -547,6 +646,9 @@ describe("organizing a library", () => {
       [91_000, "an edited comment"],
       [null, "and one about the asset"],
     ]);
+    // The poster comes back as an instruction, which is the whole of stage 4:
+    // the journal said where to look and the derive pass is what looks.
+    expect(poster(library, clip)).toBe(91_500);
     expect(library.db.repo.orphanSearchRows()).toBe(0);
   });
 });

@@ -286,7 +286,10 @@ async function deriveOne(
   }
 
   try {
-    const outcome = await derive(path, sizes);
+    // The moment somebody pinned the thumbnail to, if they did. A rebuild
+    // replays `poster_set` into this column and the frame is re-extracted here,
+    // which is what makes a poster survive one (ADR-0024 stage 4).
+    const outcome = await derive(path, sizes, claim.posterMs ?? undefined);
     return outcome.ok
       ? { kind: "ok", claim, thumbnails: outcome.thumbnails, metadata: outcome.metadata }
       : { kind: "blocked", claim, reason: outcome.reason };

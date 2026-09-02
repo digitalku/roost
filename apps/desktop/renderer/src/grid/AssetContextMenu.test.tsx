@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { playhead } from "../preview/playhead.js";
 import { FakeEngine, fakeAsset, install } from "../testing/fake-engine.js";
 import { AssetContextMenu, exportLine } from "./AssetContextMenu.js";
 import type { ConfirmRequest } from "./trash-actions.js";
@@ -243,5 +244,114 @@ describe("what the status bar says after an export", () => {
     expect(exportLine({ exported: 3, renamed: 2, missing: 1, failed: 1 })).toBe(
       "Exported 3 · 2 renamed to avoid a collision · 1 not on this machine · 1 failed",
     );
+  });
+});
+
+describe("choosing which frame a video's thumbnail comes from", () => {
+  let engine: FakeEngine;
+  let notes: string[];
+  let detach: (() => void) | undefined;
+
+  const show = (hashes: readonly string[] = [HASHES[0] as string]) => {
+    engine = new FakeEngine({});
+    install(engine);
+    notes = [];
+    render(
+      <AssetContextMenu
+        hashes={hashes}
+        inTrash={false}
+        onNote={(line) => notes.push(line)}
+        onProblem={() => undefined}
+        onConfirm={() => undefined}
+        onGone={() => undefined}
+      >
+        <div data-testid="surface" tabIndex={-1}>
+          the preview
+        </div>
+      </AssetContextMenu>,
+    );
+    return userEvent.setup();
+  };
+
+  const open = async (): Promise<void> => {
+    screen
+      .getByTestId("surface")
+      .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await screen.findByRole("menu");
+  };
+
+  /** A `<video>` on screen, standing in for an open preview. */
+  const playing = (at: number): HTMLVideoElement => {
+    const video = document.createElement("video");
+    video.currentTime = at;
+    // happy-dom's video element has no `requestVideoFrameCallback`, and the
+    // menu decides "has frames" by asking for exactly that — so the feature
+    // test has to be given something to find.
+    Object.defineProperty(video, "requestVideoFrameCallback", {
+      value: () => 0,
+      configurable: true,
+    });
+    detach = playhead.attach(video);
+    return video;
+  };
+
+  afterEach(() => {
+    detach?.();
+    detach = undefined;
+  });
+
+  it("is not offered when there is no player on screen", async () => {
+    // Over the grid the menu is about files, and a right-click there has no
+    // frame to point at.
+    show();
+    await open();
+    expect(screen.queryByRole("menuitem", { name: "Set this frame as the thumbnail" })).toBeNull();
+  });
+
+  it("is not offered over audio, which has no frames", async () => {
+    const audio = document.createElement("audio");
+    detach = playhead.attach(audio);
+    show();
+    await open();
+    expect(screen.queryByRole("menuitem", { name: "Set this frame as the thumbnail" })).toBeNull();
+  });
+
+  it("sends the moment the player is at", async () => {
+    playing(91.5);
+    const user = show();
+    await open();
+
+    await user.click(screen.getByRole("menuitem", { name: "Set this frame as the thumbnail" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:poster")).toEqual([
+        { type: "asset:poster", hash: HASHES[0], atMs: 91_500 },
+      ]),
+    );
+    // The cell changes when the derive lands, so the status bar is what says
+    // the gesture worked.
+    expect(notes).toEqual(["Thumbnail set to the frame at 1:31.5"]);
+  });
+
+  it("goes back to the default frame with an absent moment", async () => {
+    playing(91.5);
+    const user = show();
+    await open();
+
+    await user.click(screen.getByRole("menuitem", { name: "Use the default frame" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:poster")).toEqual([
+        { type: "asset:poster", hash: HASHES[0], atMs: null },
+      ]),
+    );
+    expect(notes).toEqual(["Thumbnail back to the default frame"]);
+  });
+
+  it("is not offered over several assets, because one frame is one asset's", async () => {
+    playing(91.5);
+    show(HASHES);
+    await open();
+    expect(screen.queryByRole("menuitem", { name: "Set this frame as the thumbnail" })).toBeNull();
   });
 });

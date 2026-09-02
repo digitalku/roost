@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { gridSrc } from "../thumbnail.js";
 import type { GridView } from "./layout.js";
 
 /**
@@ -45,6 +46,8 @@ export interface AssetCellProps {
   readonly hash: string;
   readonly name: string;
   readonly ext: string;
+  /** Part of the thumbnail's address, not something the cell draws. */
+  readonly posterMs: number | null;
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -67,6 +70,7 @@ export interface AssetCellProps {
 
 export const AssetCell = memo(function AssetCell({
   hash,
+  posterMs,
   name,
   ext,
   x,
@@ -103,7 +107,7 @@ export const AssetCell = memo(function AssetCell({
           <span className="cell-kind">{kind}</span>
           <img
             className="cell-image"
-            src={`roost://thumb/${hash}@256`}
+            src={gridSrc(hash, posterMs)}
             alt=""
             loading="lazy"
             decoding="async"
@@ -159,7 +163,7 @@ export const AssetCell = memo(function AssetCell({
         <span className="cell-kind">{kind}</span>
         <img
           className="cell-image"
-          src={`roost://thumb/${hash}@256`}
+          src={gridSrc(hash, posterMs)}
           alt=""
           loading="lazy"
           decoding="async"

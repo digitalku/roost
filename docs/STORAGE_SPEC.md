@@ -368,6 +368,45 @@ trash writes. An older build that does not know these two ops skips them and
 sees every asset as live, which is the correct degradation: it shows more than
 it should rather than losing anything.
 
+**M4 addendum, 2026-09-02 (ADR-0023, ADR-0024).** Four more, under the same
+rule. The first three were built on 2026-09-02 and this list was not updated
+with them at the time; they are recorded here now, with the fourth.
+
+```json
+{"ts":1755648700,"op":"comment_add","id":1,"hash":"a3f2...","at":91500,"body":"the cut lands early"}
+{"ts":1755648710,"op":"comment_set","id":1,"at":91000,"body":"two frames early"}
+{"ts":1755648720,"op":"comment_remove","id":1}
+{"ts":1755648730,"op":"poster_set","hash":"a3f2...","at":91500}
+```
+
+**`at` is milliseconds, and it is the only number in this format that is not
+unix seconds.** It is an offset into a medium rather than a date, and a second
+of granularity on a 24fps cut is twenty-four frames of ambiguity. It is named
+`at` and not `ts` so that it cannot be read as the line's own timestamp, which
+is what `created_at` is replayed from.
+
+Both carry meaning in a `null` that an absent field would lose, so the field is
+always written. `comment_add` and `comment_set` with `"at":null` are a comment
+about the **asset** rather than about a moment in it, which is what lets a
+`.zip` carry one. `poster_set` with `"at":null` returns a video's thumbnail to
+the default frame — which is not the first frame, but one a tenth of the way in.
+
+`comment_add` mints its `id` as `max(id) + 1` and journals it, exactly as
+`folder_create` does, so a rebuild reproduces it by construction rather than
+from insertion order. `comment_set` edits in place and keeps that id.
+
+**`poster_set` records where to look, never the pixels.** The thumbnail does not
+stop being a function of the file — it becomes a function of the file *and one
+number*, so a rebuild replays the op and the derive pass re-extracts the frame.
+An image in a journal line would be base64 in a text file, which the forbidden
+patterns refuse twice over. A different ffmpeg build may land a frame away on a
+long-GOP file; that is acceptable precisely because the instruction is the
+durable thing and the picture is a cache.
+
+An older build that does not know these four skips them: it shows an asset with
+no comments and a thumbnail at the default frame, which is showing less rather
+than losing anything.
+
 Still undefined, for want of a feature that needs them: stacking, watched
 roots, and the partial-to-full hash upgrade described above.
 

@@ -94,6 +94,21 @@ export class EmptyCommentError extends RoostError {
   }
 }
 
+/**
+ * A thumbnail moment on something with no frames (ADR-0024 stage 4).
+ *
+ * Audio has no picture to take, and a document already has a page. Refused
+ * rather than recorded and ignored: a journal line that means nothing is one a
+ * later build has to keep understanding.
+ */
+export class NotAVideoError extends RoostError {
+  readonly code = "not_a_video";
+
+  constructor(needle: string, kind: string) {
+    super(`Only a video can have a thumbnail moment — ${needle} is ${kind}`, { needle, kind });
+  }
+}
+
 export class InvalidMomentError extends RoostError {
   readonly code = "invalid_moment";
 

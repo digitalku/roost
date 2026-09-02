@@ -567,7 +567,7 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 ### A transport of our own (ADR-0024, decided 2026-09-02)
 
-Four stages. **Stages 1 and 2 are done**; stage 4 is work and stage 3 is a decision.
+Four stages. **Stages 1, 2 and 4 are done**; stage 3 is a decision of its own.
 
 - 🟢 **Measure four player libraries**: `media-chrome`, Vidstack, Plyr, video.js. **Not done, and
   no longer blocking**: the user asked for stage 1 ahead of it, and stage 1 was built in-repo over
@@ -610,15 +610,23 @@ Four stages. **Stages 1 and 2 are done**; stage 4 is work and stage 3 is a decis
   - The transport registers `,` `.` `<` `>` `I` `O` with `playhead` rather than the pane holding
     them: the frame step needs the probed rate and the loop needs two numbers, and both belong to
     the transport. The pane keeps the keys that are operations on the element alone.
-- 🟡 **Stage 4 — set this frame as the thumbnail.** Asked for directly. A migration for
-  `assets.poster_ms`, a `poster_set` journal op carrying `{hash, at}`, both thumbnail sizes
-  regenerated together, `roost poster` in the CLI, and one item in the context menu that already
-  wraps the preview — enabled for video and nothing else.
+- ☑ ~~**Stage 4 — set this frame as the thumbnail.**~~ Done 2026-09-02. Migration 0009 and
+  `assets.poster_ms`, a `poster_set` journal op carrying `{hash, at}`, both sizes redrawn from one
+  decode, `roost poster` in the CLI, and two rows in the context menu that already wraps the
+  preview — drawn only over a video with a player on screen.
   - **The journal records where to look, never the pixels**, which is what keeps invariant 1
-    intact: a rebuild replays the op and the derive pass re-extracts the frame.
-  - A different ffmpeg build may land a frame away. Acceptable, and worth saying out loud in the
-    ADR rather than discovering in a conformance test: the instruction is the durable thing and
-    the thumbnail is a cache.
+    intact: the rebuild test pins a frame and asserts the moment comes back.
+  - **The thumbnail's address had to change with it.** `roost://thumb/<hash>@<size>` is served
+    `immutable` for a year on the promise that a hash and a size fix the pixels, and this is the
+    first thing that ever changed them. The moment rides in the query, the card and the detail
+    carry it, and ADR-0008 is amended. It is also the only way an `<img>` already showing the old
+    picture asks for a new one — a cache header alone would not have done it.
+  - **The redraw is immediate, not queued.** One asset, a quarter of a second, and somebody is
+    looking at the cell — and the new address must have bytes behind it the moment the reply lands
+    or it would 404 into a cached blank. The queue still reads the same column, so a machine
+    without ffmpeg catches up later, and a rebuild takes exactly that path.
+  - A different ffmpeg build may land a frame away on a long-GOP file. Said out loud in the ADR
+    rather than discovered in a conformance test: the instruction is the durable thing.
 - 🟡 **Stage 3 — hover-scrub previews. Still a decision, not yet work.** A storyboard sprite
   generated on first open, not a frame per request: a PDF page is pdfium in WebAssembly and a
   video frame is an ffmpeg process, and a pointer crossing a timeline asks for tens a second.
@@ -820,3 +828,11 @@ repository's session log, because a lesson nobody rereads is a lesson nobody has
     sampler runs. Found in a window as a timecode frozen at the previous moment for the length of
     a seek; the regression test has to set `seeking` by hand, because a decoder in happy-dom never
     takes long enough to show it.
+17. **A cache header is a promise, and a feature can turn it into a lie.**
+    `roost://thumb/<hash>@<size>` was served `immutable` for a year on the stated ground that a
+    hash and a size fix the pixels. Pinning a thumbnail to a chosen frame made that false, and
+    nothing would have failed — the old picture would simply have stayed for a year. The fix is
+    that the address has to carry everything that decides the bytes, not that the header has to be
+    weakened: a new frame is a new address. It is also the only thing that makes an `<img>` already
+    holding the old picture ask for a new one; no header does that. Read the caching claims before
+    changing what is behind an address.

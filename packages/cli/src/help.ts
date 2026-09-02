@@ -23,6 +23,7 @@ export const COMMANDS = [
   "rate",
   "note",
   "comment",
+  "poster",
   "favorite",
   "rename",
   "trash",
@@ -62,6 +63,7 @@ Commands:
   rate      Rate assets from 1 to 5, or \`none\` to clear
   note      Set or clear an asset's note
   comment   Comment on an asset, or on a moment in one
+  poster    Choose which frame a video's thumbnail comes from
   favorite  Mark assets as favourites
   rename    Change an asset's display name. The file on disk is untouched
   trash     Move assets to the trash, restore them, or empty it
@@ -307,6 +309,26 @@ ${LIBRARY_FLAG}
       --list             List an asset's comments, with their ids
       --edit <ID>        Replace a comment's text, and its moment with --at
       --remove <ID>      Remove a comment
+${GLOBAL}`,
+
+  poster: `Choose which frame a video's thumbnail comes from.
+
+Usage: roost poster <ASSET> --at TIME
+       roost poster <ASSET> --clear
+       roost poster <ASSET>
+
+Without a flag it says where the thumbnail is taken from. With --at it is
+pinned to that moment — \`1:31.5\`, \`91.5s\`, and \`91500ms\` all name the same
+one. With --clear it goes back to the default frame, which is not the first
+one: a frame a tenth of the way in, because a first frame tends to be a slate.
+
+The journal records the moment, never the picture, so a rebuild re-extracts
+the frame. Nothing is redrawn here — run \`roost thumb\` afterwards.
+
+Options:
+${LIBRARY_FLAG}
+      --at <TIME>        The moment to take the thumbnail from
+      --clear            Go back to the default frame
 ${GLOBAL}`,
 
   favorite: `Mark assets as favourites.

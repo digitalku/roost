@@ -1,6 +1,6 @@
 import { access } from "node:fs/promises";
 import { parseContentHash } from "@roost/core";
-import { derive, EAGER_SIZES, GRID_SIZE, PREVIEW_SIZE } from "@roost/media";
+import { derive, EAGER_SIZES, GRID_SIZE, PREVIEW_SIZE, THUMBNAIL_SIZES } from "@roost/media";
 import { type DeriveReport, enqueueMissing, runDerives } from "./jobs.js";
 import type { Library } from "./library.js";
 
@@ -85,6 +85,53 @@ function asThumbnailReport(report: DeriveReport): ThumbnailReport {
  *
  * Returns whether the preview exists now.
  */
+/**
+ * Redraws both thumbnails from the frame the asset is now pinned to
+ * (ADR-0024 stage 4).
+ *
+ * Immediately rather than through the queue, and this is the one derive that
+ * earns it: the moment is journalled, the address of the thumbnail changes with
+ * it, and a person who just chose a frame is looking at the cell. A quarter of
+ * a second here is the difference between "the picture changed" and a
+ * placeholder that fills in whenever the queue gets round to it.
+ *
+ * Best effort. Without ffmpeg, or with a referenced original that has moved,
+ * this answers `false` and the caller leaves the job queued — the queue reads
+ * the same `poster_ms`, so nothing is lost but time.
+ */
+export async function redrawPoster(library: Library, hash: string): Promise<boolean> {
+  const asset = parseContentHash(hash);
+  const target = library.db.repo.thumbnailTarget(asset);
+  if (target === undefined) return false;
+  const path =
+    target.storageMode === "referenced"
+      ? target.refPath
+      : library.storageFor("managed").locate(asset, target.ext);
+  if (path === null) return false;
+
+  try {
+    await access(path);
+    // Both sizes together, from one decode: a preview that disagrees with its
+    // own grid cell is worse than either.
+    const outcome = await derive(path, THUMBNAIL_SIZES, target.posterMs ?? undefined);
+    if (!outcome.ok) return false;
+    library.db.transaction(() => {
+      for (const thumbnail of outcome.thumbnails) {
+        library.db.repo.putThumbnail(
+          asset,
+          thumbnail.size,
+          thumbnail.width,
+          thumbnail.height,
+          thumbnail.data,
+        );
+      }
+    });
+    return outcome.thumbnails.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function ensurePreview(library: Library, hash: string): Promise<boolean> {
   const asset = parseContentHash(hash);
   if (library.db.repo.thumbnail(asset, PREVIEW_SIZE) !== undefined) return true;
@@ -100,7 +147,9 @@ export async function ensurePreview(library: Library, hash: string): Promise<boo
 
   try {
     await access(path);
-    const outcome = await derive(path, [PREVIEW_SIZE]);
+    // The same pinned frame the grid thumbnail was drawn from, or the preview
+    // would disagree with its own cell.
+    const outcome = await derive(path, [PREVIEW_SIZE], target.posterMs ?? undefined);
     if (!outcome.ok) return false;
     library.db.transaction(() => {
       for (const thumbnail of outcome.thumbnails) {

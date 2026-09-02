@@ -26,6 +26,19 @@ export interface Paging {
   readonly problem: WireProblem | undefined;
   /** Asks for the next page. Ignored while one is in flight or when done. */
   readonly more: () => void;
+  /**
+   * Records a pinned thumbnail moment on a card already held (ADR-0024 stage 4).
+   *
+   * The grid does not re-page on an edit — that is deliberate, and the comment
+   * on `revision` in `App.tsx` says why — so a card here would keep the moment
+   * it was fetched with, and the cell would keep asking for the thumbnail's old
+   * address. The window that made the change is the one that knows, and the
+   * engine has already confirmed the write by the time this is called.
+   *
+   * Another window onto the same library still shows the old picture until it
+   * re-pages, which is what every other edit already does (ADR-0020).
+   */
+  readonly pinPoster: (hash: string, posterMs: number | null) => void;
 }
 
 export function useAssetPages(query: string, generation: number): Paging {
@@ -124,5 +137,9 @@ export function useAssetPages(query: string, generation: number): Paging {
     more();
   }, [query, generation, more]);
 
-  return { assets, done, loading, problem, more };
+  const pinPoster = useCallback((hash: string, posterMs: number | null): void => {
+    setAssets((held) => held.map((card) => (card.hash === hash ? { ...card, posterMs } : card)));
+  }, []);
+
+  return { assets, done, loading, problem, more, pinPoster };
 }

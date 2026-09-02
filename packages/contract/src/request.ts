@@ -139,6 +139,19 @@ export type Request =
     }
   /** `null` clears the note, and so does an all-whitespace one. */
   | { readonly type: "asset:note"; readonly hash: string; readonly note: string | null }
+  /**
+   * Pin a video's thumbnail to a moment, or let it go back to the default
+   * (ADR-0024 stage 4).
+   *
+   * `atMs` is milliseconds into the video; `null` restores the default frame,
+   * which is not the first one — the backend takes a frame a tenth of the way
+   * in, because a first frame tends to be a slate. Clearing is this request
+   * with the value absent rather than a request of its own.
+   *
+   * The engine refuses it for anything that is not a video, and pinning the
+   * moment it is already pinned to writes nothing.
+   */
+  | { readonly type: "asset:poster"; readonly hash: string; readonly atMs: number | null }
   /** Renames what the library shows. Nothing under `originals/` is touched. */
   | { readonly type: "asset:rename"; readonly hash: string; readonly name: string }
   | {
@@ -332,6 +345,7 @@ export interface Responses {
   "asset:rate": null;
   "asset:favorite": null;
   "asset:note": null;
+  "asset:poster": null;
   "asset:rename": null;
   "asset:tagAdd": null;
   "asset:tagRemove": null;
@@ -471,6 +485,14 @@ export const REQUEST_VALIDATORS: {
     const note = readNullable(source, "note", readString);
     if (!note.ok) return note;
     return ok({ type: "asset:note", hash: hash.value, note: note.value });
+  },
+
+  "asset:poster": (source) => {
+    const hash = readHash(source, "hash");
+    if (!hash.ok) return hash;
+    const atMs = readMoment(source);
+    if (!atMs.ok) return atMs;
+    return ok({ type: "asset:poster", hash: hash.value, atMs: atMs.value });
   },
 
   "asset:rename": (source) => {

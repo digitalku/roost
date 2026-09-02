@@ -11,12 +11,29 @@
  * allocating a closure each (`UI_SPEC.md` §6).
  */
 
-export function previewSrc(hash: string): string {
-  return `roost://thumb/${hash}@512`;
+export function previewSrc(hash: string, posterMs: number | null = null): string {
+  return `roost://thumb/${hash}@512${pinned(posterMs)}`;
 }
 
-export function gridSrc(hash: string): string {
-  return `roost://thumb/${hash}@256`;
+export function gridSrc(hash: string, posterMs: number | null = null): string {
+  return `roost://thumb/${hash}@256${pinned(posterMs)}`;
+}
+
+/**
+ * The moment a video's thumbnail is pinned to, as part of its address.
+ *
+ * `roost://thumb/<hash>@<size>` is served with `immutable` and a year's
+ * lifetime, on the promise that a hash and a size fix the pixels. A pinned
+ * frame is the one thing that can change them (ADR-0024 stage 4), so it goes in
+ * the URL: the bytes behind any one address still cannot change, a new frame is
+ * a new address, and an `<img>` already showing the old one is asked for the
+ * new one rather than left holding a picture nothing will replace.
+ *
+ * The query is not part of what is addressed — `route.ts` reads the path and
+ * nothing else — it is part of the cache key, which is exactly what is needed.
+ */
+function pinned(posterMs: number | null): string {
+  return posterMs === null ? "" : `?at=${posterMs}`;
 }
 
 /**

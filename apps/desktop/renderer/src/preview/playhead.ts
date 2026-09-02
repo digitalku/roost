@@ -54,6 +54,18 @@ class Playhead {
   /** Whether there is anything to seek. A primitive, so it is a stable snapshot. */
   attached = (): boolean => this.#media !== undefined;
 
+  /**
+   * Whether what is on screen has frames to choose between.
+   *
+   * A feature test rather than a tag name: an element that can report the frame
+   * it presented is one with frames. Audio has neither, which is why "set this
+   * frame as the thumbnail" is not offered over it (ADR-0024 stage 4).
+   */
+  frames(): boolean {
+    const media = this.#media;
+    return media !== undefined && "requestVideoFrameCallback" in media;
+  }
+
   /** Where the player is, in milliseconds, or `null` when there is no player. */
   now(): number | null {
     const media = this.#media;

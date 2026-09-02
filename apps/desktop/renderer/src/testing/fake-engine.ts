@@ -119,6 +119,7 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     name: card.name,
     ext: card.ext,
     kind: "image",
+    posterMs: null,
     size: card.size,
     width: card.width,
     height: card.height,
@@ -154,6 +155,7 @@ export function fakeAsset(index: number, over: Partial<AssetCard> = {}): AssetCa
     hash: index.toString(16).padStart(64, "0"),
     name: `asset-${index}.png`,
     ext: "png",
+    posterMs: null,
     size: 1024 + index,
     width: 800,
     height: 600,
@@ -446,6 +448,12 @@ export class FakeEngine {
           ...detail,
           isFavorite: request.favorite,
         }));
+
+      case "asset:poster":
+        // Nothing on the wire detail changes: the moment lives in the library
+        // and what it produces is a thumbnail, which this fake does not draw.
+        // The request itself is what a component test asserts on.
+        return ok(null);
 
       case "asset:note": {
         // The engine drops an all-whitespace note; the fake does too, because a

@@ -23,6 +23,7 @@ export const ERROR_CODES = [
   "malformed_record",
   "migration_failed",
   "not_a_library",
+  "not_a_video",
   "not_in_object_store",
   "partial_hash_collision",
   "schema_too_new",

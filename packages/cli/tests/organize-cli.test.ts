@@ -204,6 +204,46 @@ describe("the organize commands", () => {
     expect(await run(["doctor", "-L", root, "--force"], lonely.streams)).toBe(EXIT.usage);
   });
 
+  it("chooses which frame a video's thumbnail comes from, and says so", async () => {
+    // ADR-0005: every user-authored mutation has a verb here, so nothing is
+    // writable only from the window and the rebuild test can author one.
+    const clips = join(dir, "clips");
+    await mkdir(clips, { recursive: true });
+    await writeFile(join(clips, "clip.mp4"), "not really a video");
+    await ok("import", clips);
+    const clip = (await ok("query", "ext:mp4", "--hashes"))[0] as string;
+
+    expect(await ok("poster", clip)).toEqual([expect.stringContaining("default frame")]);
+
+    const pinned = await ok("poster", clip, "--at", "1:31.5");
+    // The picture is not drawn here: `import` and `thumb` are separate commands
+    // and this is a third, so the line says which one redraws it.
+    expect(pinned[0]).toContain("1:31.500");
+    expect(pinned[0]).toContain("roost thumb");
+    expect(await ok("poster", clip)).toEqual([expect.stringContaining("1:31.500")]);
+
+    // The same moment again writes nothing, and says that rather than nothing.
+    expect((await ok("poster", clip, "--at", "91500ms"))[0]).toContain("already");
+
+    expect((await ok("poster", clip, "--clear"))[0]).toContain("default frame");
+    expect(await ok("poster", clip)).toEqual([expect.stringContaining("default frame")]);
+  });
+
+  it("refuses a thumbnail moment on something with no frames", async () => {
+    const { streams, warn } = capture();
+    expect(await run(["poster", hashes[0] as string, "--at", "1:00", "-L", root], streams)).toBe(
+      EXIT.failed,
+    );
+    expect(warn.join("\n")).toContain("[not_a_video]");
+  });
+
+  it("refuses --clear and --at together, which ask for different things", async () => {
+    const { streams } = capture();
+    expect(
+      await run(["poster", hashes[0] as string, "--clear", "--at", "1:00", "-L", root], streams),
+    ).toBe(EXIT.usage);
+  });
+
   it("lets two commands spell the same flag differently", async () => {
     // `--count` is a number for fixture and a bare switch for query. One shared
     // option table could hold only one of them, and did.

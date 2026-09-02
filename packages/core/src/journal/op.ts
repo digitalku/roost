@@ -29,6 +29,7 @@ export const OP_NAMES = [
   "folder_remove",
   "folder_rename",
   "note_set",
+  "poster_set",
   "rate",
   "remove",
   "restore",
@@ -155,6 +156,19 @@ export type Op =
       readonly body: string;
     }
   | { readonly op: "comment_remove"; readonly id: number }
+  /**
+   * Which frame a video's thumbnail is taken from (ADR-0024 stage 4).
+   *
+   * `at` is **milliseconds**, like a comment's, and `null` restores the
+   * default — a frame a tenth of the way in. Clearing is this op with the value
+   * absent rather than an op of its own, because "use the default again" and
+   * "use this moment" are the same decision.
+   *
+   * The line records **where to look, never the pixels**: a rebuild replays it
+   * and the derive pass re-extracts the frame, which is what keeps the index
+   * rebuildable from `originals/` plus the journal (invariant 1).
+   */
+  | { readonly op: "poster_set"; readonly hash: ContentHash; readonly at: number | null }
   | { readonly op: "favorite_set"; readonly hash: ContentHash; readonly favorite: boolean }
   | {
       readonly op: "smart_folder_create";
@@ -359,6 +373,8 @@ export function toRecord(source: Raw): JournalRecord {
       };
     case "comment_set":
       return { ts, op, id: int(source, "id"), at: moment(source), body: str(source, "body") };
+    case "poster_set":
+      return { ts, op, hash: hash(source, "hash"), at: moment(source) };
     case "favorite_set":
       return { ts, op, hash: hash(source, "hash"), favorite: bool(source, "favorite") };
     case "smart_folder_create":
@@ -389,7 +405,11 @@ export function toRecord(source: Raw): JournalRecord {
 }
 
 /**
- * A comment's `at`, in milliseconds, or `null` for one about the whole asset.
+ * An `at`, in milliseconds, or `null`.
+ *
+ * A comment's moment, or a poster's. `null` means different things to the two —
+ * a comment about the whole asset, a thumbnail at the default frame — and both
+ * are the absence of a moment.
  *
  * Rejected rather than clamped when negative: a negative offset is a writer
  * that computed a position wrongly, and replaying it as zero would put the

@@ -2,6 +2,8 @@ import type { WireExportReport, WireProblem } from "@roost/contract";
 import { ContextMenu } from "radix-ui";
 import { useRef } from "react";
 import { invoke } from "../bridge.js";
+import { playhead, usePlayer } from "../preview/playhead.js";
+import { timecode } from "../timecode.js";
 import { type ConfirmRequest, useTrashActions } from "./trash-actions.js";
 
 /**
@@ -41,6 +43,13 @@ export interface AssetContextMenuProps {
   readonly onConfirm: (request: ConfirmRequest) => void;
   /** The assets acted on have left the view, so the selection naming them has to go. */
   readonly onGone: () => void;
+  /**
+   * A thumbnail was pinned to a moment, and the grid holds a card that still
+   * says otherwise (ADR-0024 stage 4).
+   *
+   * Absent over the grid, where there is no player and so nothing to pin.
+   */
+  readonly onPosterPinned?: (hash: string, posterMs: number | null) => void;
   readonly children: React.ReactNode;
 }
 
@@ -51,11 +60,40 @@ export function AssetContextMenu({
   onProblem,
   onConfirm,
   onGone,
+  onPosterPinned,
   children,
 }: AssetContextMenuProps): React.JSX.Element {
   const count = hashes.length;
   const only = count === 1 ? hashes[0] : undefined;
   const restoreTo = useRef<HTMLElement | null>(null);
+  // Subscribed rather than read once: the menu is mounted around the content
+  // region, and what is in that region changes under it.
+  usePlayer();
+  const frames = only !== undefined && playhead.frames();
+
+  /**
+   * Pins the thumbnail to the frame on screen, or lets it go back to the
+   * default (ADR-0024 stage 4).
+   *
+   * The moment comes from the player rather than from a prop: the menu is over
+   * the preview, and the preview is the only thing that knows where the
+   * playhead is. Nothing is drawn here — the engine queues the derive, and the
+   * cell changes when it lands, which is why the status bar says what happened.
+   */
+  const pinPoster = (atMs: number | null): void => {
+    if (only === undefined) return;
+    void invoke({ type: "asset:poster", hash: only, atMs }).then((outcome) => {
+      if (!outcome.ok) return onProblem(outcome.problem);
+      // Told rather than re-read: the grid does not re-page on an edit, so the
+      // card it holds would keep asking for the thumbnail's old address.
+      onPosterPinned?.(only, atMs);
+      onNote(
+        atMs === null
+          ? "Thumbnail back to the default frame"
+          : `Thumbnail set to the frame at ${timecode(atMs)}`,
+      );
+    });
+  };
 
   const copyPaths = (): void => {
     void invoke({ type: "asset:copyPath", hashes }).then((outcome) => {
@@ -132,6 +170,26 @@ export function AssetContextMenu({
             <span className="menu-mark" />
             <span className="menu-label">Show in file manager</span>
           </ContextMenu.Item>
+
+          {frames && (
+            <>
+              <ContextMenu.Separator className="menu-separator" />
+
+              <ContextMenu.Item className="menu-item" onSelect={() => pinPoster(playhead.now())}>
+                <span className="menu-mark" />
+                <span className="menu-label">Set this frame as the thumbnail</span>
+              </ContextMenu.Item>
+
+              {/* Always beside it rather than only when a moment is set: the
+                  engine writes nothing when the thumbnail is already on the
+                  default frame, and a menu whose items appear and disappear
+                  with state nothing on screen shows is a menu people misread. */}
+              <ContextMenu.Item className="menu-item" onSelect={() => pinPoster(null)}>
+                <span className="menu-mark" />
+                <span className="menu-label">Use the default frame</span>
+              </ContextMenu.Item>
+            </>
+          )}
 
           <ContextMenu.Separator className="menu-separator" />
 

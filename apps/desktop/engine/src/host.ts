@@ -60,6 +60,7 @@ import {
   setComment,
   setFavorite,
   setNote,
+  setPoster,
   tagAdd,
   tagRemove,
   trashAssets,
@@ -164,6 +165,20 @@ export class EngineHost {
         return this.#edit(() =>
           setNote(this.#require(), parseContentHash(request.hash), request.note),
         );
+
+      case "asset:poster":
+        return this.#edit(async () => {
+          const pinned = await setPoster(
+            this.#require(),
+            parseContentHash(request.hash),
+            request.atMs,
+          );
+          // The picture is not made here: the service queues the derive at
+          // interactive priority and this works the queue in the background,
+          // which is the same path a rebuild takes. Nothing to work when the
+          // moment was already the one asked for.
+          if (pinned) void this.#runDerives();
+        });
 
       case "asset:rename":
         return this.#edit(() =>
@@ -538,6 +553,9 @@ function cardOf(hit: SearchHit): AssetPage["assets"][number] {
     name: hit.origName,
     ext: hit.ext,
     size: hit.size,
+    // Part of the thumbnail's address rather than something a cell draws: see
+    // `AssetCard` in the contract.
+    posterMs: hit.posterMs,
     width: hit.width,
     height: hit.height,
     importedAt: hit.importedAt,
@@ -658,6 +676,7 @@ function detailOf(detail: AssetDetail, comments: readonly CommentRow[]): WireAss
     ext: detail.ext,
     kind: kindOf(formatFromExtension(detail.ext)) satisfies AssetKind,
     size: detail.size,
+    posterMs: detail.posterMs,
     width: detail.width,
     height: detail.height,
     storageMode: storageMode(detail.storageMode),

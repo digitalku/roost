@@ -575,6 +575,7 @@ function ConnectedCell({
       hash={asset.hash}
       name={asset.name}
       ext={asset.ext}
+      posterMs={asset.posterMs}
       x={x}
       y={y}
       width={width}

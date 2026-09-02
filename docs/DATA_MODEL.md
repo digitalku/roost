@@ -377,6 +377,41 @@ worth revisiting when the second one is actually wanted rather than guessed at h
 comments stay with it, exactly as its tags do (ADR-0022); `remove` deletes the row, and the
 foreign key takes the comments with it.
 
+### 2.8 Migration 0009 — a thumbnail can be pinned to a moment (schema v9)
+
+Asked for by the user on 2026-09-02 while ADR-0024 was being written, and decided there as its
+fourth stage: right-click a video, and set the frame it is paused on as the asset's thumbnail.
+
+```sql
+ALTER TABLE assets ADD COLUMN poster_ms INTEGER CHECK (poster_ms IS NULL OR poster_ms >= 0);
+```
+
+**The thumbnail does not stop being a function of the file — it becomes a function of the file and
+one number.** That is the whole design, and it is what keeps invariant 1 intact. The journal
+records *where to look*, never the pixels: a rebuild replays `poster_set`, the derive pass
+re-extracts the frame at that offset, and the picture comes back from `originals/` plus the journal
+like every other derived artefact. Storing the image itself would be base64 in a text file, which
+the forbidden-patterns list refuses twice over.
+
+**`NULL` is the default frame, and it is not the first one.** The video backend takes a frame a
+tenth of the way in, capped at ten seconds, because a first frame tends to be a slate or a fade
+from black. Clearing is `poster_set` with `"at":null` rather than an op of its own: "use the
+default again" and "use this moment" are the same decision with one value absent.
+
+**Milliseconds, like a comment's `at_ms`**, and for the same reason — this is an offset into a
+medium, not a date.
+
+**No index.** It is read one asset at a time, by the derive pass and by nothing else, always beside
+the row it belongs to. It also travels on the grid's card and on the asset detail, because it is
+part of the thumbnail's *address*: `roost://thumb/<hash>@<size>` is served as immutable on the
+promise that a hash and a size fix the pixels, and a pinned frame is the one thing that can change
+them. The moment goes in the URL's query so the promise stays true and a changed thumbnail is a
+changed address (ADR-0008, amended).
+
+**A different ffmpeg build may land a frame away** on a long-GOP file, where a seek resolves to the
+nearest decodable frame. Acceptable, and said out loud rather than discovered in a conformance
+test: the instruction is the durable thing and the thumbnail is a cache.
+
 ## 3. Roost Query Language (RQL)
 
 The search bar and smart folders share one grammar. It compiles to SQL with **bound

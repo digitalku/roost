@@ -99,6 +99,16 @@ export interface SearchHit {
   readonly importedAt: number;
   readonly rating: number | null;
   readonly isFavorite: boolean;
+  /**
+   * The moment a video's thumbnail is pinned to (ADR-0024 stage 4).
+   *
+   * On a grid row because it is part of the thumbnail's **address**, not
+   * because a cell draws it: `roost://thumb/<hash>@256` is served as immutable
+   * on the promise that a hash and a size fix the pixels, and a pinned frame is
+   * the one thing that can change them. The moment goes in the URL so the
+   * promise stays true and a changed thumbnail is a changed address.
+   */
+  readonly posterMs: number | null;
 }
 
 /** The cursor that resumes a listing after `hit`. */

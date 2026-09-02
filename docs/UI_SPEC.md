@@ -274,6 +274,19 @@ the grid's roving ring and the preview's stepping both dead until something is c
 | **Export…** | a directory chooser, then a copy out | `Export N assets…` |
 | **Move to trash** | reversible, so it asks nothing | `Move N assets to trash` |
 
+**Two more rows over a video that is playing** (ADR-0024 stage 4): **Set this frame as the
+thumbnail** takes the moment the transport is at, and **Use the default frame** puts it back. They
+are drawn only when there is a video player on screen — over the grid there is no frame to point
+at, and audio has none at all — and only over one asset, because one frame belongs to one video.
+The test for "has frames" is the element's own `requestVideoFrameCallback`, not its tag name.
+
+Neither draws a picture: the engine journals the moment, redraws both thumbnails from it, and the
+status bar says what happened, because the cell changes a beat later and a gesture with no visible
+result reads as a gesture that failed. **Use the default frame** is drawn beside the other whether
+or not a moment is set — the engine writes nothing when the thumbnail is already on the default
+frame, and a menu whose rows appear and vanish with state nothing on screen shows is a menu people
+misread.
+
 **Inside the Trash the last row is replaced, not extended.** `Move to trash` is gone there and
 `Restore`, `Delete permanently`, and `Empty trash` take its place, so "delete" never means two
 things in one menu. Which one applies is decided by comparing the query on screen against the one

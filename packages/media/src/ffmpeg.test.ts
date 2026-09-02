@@ -94,6 +94,15 @@ describe("where a thumbnail frame comes from", () => {
     expect(frameTimestamp(undefined)).toBe(1000);
     expect(frameTimestamp(0)).toBe(1000);
   });
+
+  it("takes a pinned moment over the guess, cap included", () => {
+    // The cap exists to stop *guessing* twelve minutes into a film, not to
+    // overrule somebody who picked a frame there (ADR-0024 stage 4).
+    expect(frameTimestamp(2 * 60 * 60 * 1000, 91_500)).toBe(91_500);
+    expect(frameTimestamp(30_000, 0)).toBe(0);
+    // Absent means nothing was pinned, and the guess stands.
+    expect(frameTimestamp(30_000, undefined)).toBe(3_000);
+  });
 });
 
 describe("handing a path to a tool that reads a leading dash as an option", () => {

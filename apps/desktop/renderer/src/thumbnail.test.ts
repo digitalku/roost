@@ -33,3 +33,27 @@ describe("when the preview size is not there", () => {
     expect(image.hidden).toBe(true);
   });
 });
+
+describe("a thumbnail's address", () => {
+  const HASH = "c".repeat(64);
+
+  it("says nothing about a frame nobody pinned", () => {
+    expect(gridSrc(HASH)).toBe(`roost://thumb/${HASH}@256`);
+    expect(previewSrc(HASH)).toBe(`roost://thumb/${HASH}@512`);
+  });
+
+  it("carries the pinned moment, so a new frame is a new address", () => {
+    // The protocol serves a thumbnail as `immutable` for a year on the promise
+    // that a hash and a size fix the pixels. A pinned frame is the one thing
+    // that can change them (ADR-0024 stage 4), and an `<img>` already showing
+    // the old picture is only asked for a new one when the URL differs.
+    expect(gridSrc(HASH, 91_500)).toBe(`roost://thumb/${HASH}@256?at=91500`);
+    expect(previewSrc(HASH, 91_500)).toBe(`roost://thumb/${HASH}@512?at=91500`);
+  });
+
+  it("still falls back from the preview size to the grid size with one on it", () => {
+    const { event, image } = imageEvent(previewSrc(HASH, 91_500));
+    fallbackToGrid(event);
+    expect(image.src).toBe(gridSrc(HASH, 91_500));
+  });
+});

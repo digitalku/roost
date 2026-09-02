@@ -144,6 +144,9 @@ export class IndexSink implements ReplaySink {
       case "comment_remove":
         repo.applyCommentRemove(record.id);
         return;
+      case "poster_set":
+        repo.applyPosterSet(record.hash, record.at);
+        return;
       case "favorite_set":
         repo.applyFavoriteSet(record.hash, record.favorite);
         return;

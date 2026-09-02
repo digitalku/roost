@@ -740,6 +740,7 @@ function LibraryView({
             onProblem={setActed}
             onConfirm={setConfirming}
             onGone={clearSelection}
+            onPosterPinned={paging.pinPoster}
           >
             <PreviewPane
               hash={focused}

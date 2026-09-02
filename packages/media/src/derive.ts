@@ -57,6 +57,7 @@ export type DeriveOutcome =
 export async function derive(
   path: string,
   sizes: readonly number[] = EAGER_SIZES,
+  posterMs?: number,
 ): Promise<DeriveOutcome> {
   const format = await sniffFile(path);
   const backend = capabilityFor(format);
@@ -66,7 +67,7 @@ export async function derive(
   if (backend === "media") {
     const media = await capability("media");
     if (!media.available) return { ok: false, reason: "missing:ffmpeg" };
-    return deriveMedia(path, format, sizes);
+    return deriveMedia(path, format, sizes, posterMs);
   }
 
   if (backend === "documents") return { ok: true, ...(await deriveDocument(path, sizes)) };
@@ -192,11 +193,17 @@ async function deriveVector(
  * is why this runs behind the queue and never inside import. The probe comes
  * first because the thumbnail depends on it: a frame is taken a tenth of the
  * way in, and that needs a duration.
+ *
+ * `posterMs` is a moment somebody pinned the thumbnail to (ADR-0024 stage 4),
+ * and it replaces that guess. It reaches here from `assets.poster_ms`, which a
+ * rebuild replays from the journal — the frame is re-extracted rather than
+ * stored, so a poster survives a rebuild the way every derived artefact does.
  */
 async function deriveMedia(
   path: string,
   format: Format,
   sizes: readonly number[],
+  posterMs?: number,
 ): Promise<DeriveOutcome> {
   const probe = await probeMedia(path);
   const metadata: DerivedMetadata = {
@@ -212,7 +219,7 @@ async function deriveMedia(
   const hasVideo = probe.width !== undefined && probe.height !== undefined;
 
   if (hasVideo) {
-    const frame = await grabFrame(path, probe.durationMs);
+    const frame = await grabFrame(path, probe.durationMs, posterMs);
     return { ok: true, thumbnails: await renderThumbnails({ bytes: frame }, sizes), metadata };
   }
 

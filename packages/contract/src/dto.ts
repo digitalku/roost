@@ -158,6 +158,16 @@ export interface AssetCard {
   readonly importedAt: number;
   readonly rating: number | null;
   readonly isFavorite: boolean;
+  /**
+   * The moment a video's thumbnail is pinned to, or `null` (ADR-0024 stage 4).
+   *
+   * Here because it is part of the thumbnail's **address** rather than because
+   * a cell draws it. `roost://thumb/<hash>@<size>` is served as immutable on
+   * the promise that a hash and a size fix the pixels; a pinned frame is the
+   * one thing that can change them, so it goes in the URL and the promise
+   * stays true.
+   */
+  readonly posterMs: number | null;
 }
 
 /** One page of the grid, and where the next one starts. */
@@ -260,6 +270,8 @@ export interface WireAssetDetail {
   readonly folders: readonly string[];
   /** Video and audio only, in milliseconds. */
   readonly durationMs: number | null;
+  /** The moment this video's thumbnail is pinned to (ADR-0024 stage 4). */
+  readonly posterMs: number | null;
   /** Documents only. */
   readonly pageCount: number | null;
   /**

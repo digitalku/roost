@@ -135,7 +135,7 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
         <span className="cell-kind">{detail.ext === "" ? "file" : detail.ext}</span>
         <img
           className="cell-image"
-          src={previewSrc(detail.hash)}
+          src={previewSrc(detail.hash, detail.posterMs)}
           alt=""
           decoding="async"
           draggable={false}

@@ -37,6 +37,7 @@ export {
   emptyTrash,
   MAX_RATING,
   moveFolder,
+  poster,
   rate,
   removeAssets,
   removeComment,
@@ -52,6 +53,7 @@ export {
   setComment,
   setFavorite,
   setNote,
+  setPoster,
   setTagGroup,
   tagAdd,
   tagRemove,
@@ -72,6 +74,7 @@ export {
   LibraryBusyError,
   LibraryTooNewError,
   NotALibraryError,
+  NotAVideoError,
   PartialHashCollisionError,
   UnknownAssetError,
   UnknownCommentError,
@@ -154,4 +157,9 @@ export {
   type SmartFolderEntry,
   type TagEntry,
 } from "./sidebar.js";
-export { ensurePreview, generateMissing, type ThumbnailReport } from "./thumbnails.js";
+export {
+  ensurePreview,
+  generateMissing,
+  redrawPoster,
+  type ThumbnailReport,
+} from "./thumbnails.js";

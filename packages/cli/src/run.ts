@@ -23,6 +23,7 @@ import {
   restore,
   trash,
 } from "./commands/mark.js";
+import { poster } from "./commands/poster.js";
 import { query } from "./commands/query.js";
 import { rebuild } from "./commands/rebuild.js";
 import { show } from "./commands/show.js";
@@ -88,6 +89,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
     edit: { type: "string" },
     remove: { type: "string" },
   },
+  poster: { at: { type: "string" }, clear: { type: "boolean" } },
   favorite: { off: { type: "boolean" } },
   rename: {},
   trash: { restore: { type: "boolean" }, empty: { type: "boolean" } },
@@ -332,6 +334,12 @@ async function dispatch(
         return usage(streams, command, "comment needs an asset and some text");
       }
       return comment(await library(), asset, words, text(values, "at"), streams);
+    }
+
+    case "poster": {
+      const [asset] = positionals;
+      if (asset === undefined) return usage(streams, command, "poster needs an asset");
+      return poster(await library(), asset, text(values, "at"), flag(values, "clear"), streams);
     }
 
     case "favorite": {
