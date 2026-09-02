@@ -179,7 +179,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `AssetCell` | content | — | `memo`, primitive props only |
 | `AssetList` | content | scroll, pages | Details view; same paging hook |
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
-| `Transport` | content | position | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, and the comment marks; §7. ADR-0024 |
+| `Transport` | content | position, loop | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, the comment marks, and what the native bar withholds — frame stepping, playback rate, an A-B loop; §7. ADR-0024 |
 | `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over existing tags, creates on Enter |
@@ -607,6 +607,15 @@ did.
 | Fullscreen | On the **player's box**, not on the video: sending the video alone takes the controls off the screen with it |
 | Picture-in-picture | Video only. Audio has no picture |
 | **Comment marks** | One per **timed** comment, at its moment. Click to seek, hover for the text, and each names its moment and its words to a screen reader |
+| Frame stepping | One frame a press, ten from the keyboard. Only where the probe recorded a frame rate: a step is arithmetic on it, and a missing one has to mean no stepping rather than a step of `Infinity`. Stepping pauses first — a step while playing is not a step |
+| Playback rate | 0.25× to 8×, in a menu that shows the current one as text. The extremes play **silently**: the platform stops stretching sound outside roughly 0.5×–4×, and the menu says so rather than letting it read as a fault |
+| A-B loop | One button and three states — set the start, set the end, clear — plus `I` and `O`. The region is drawn along the track, and a start with no end is a mark rather than a band, because the loop is not running yet |
+
+**The frame counter is the frame that was presented, not the frame that was asked for.** A seek in
+a long-GOP codec lands on the nearest decodable frame, so arithmetic on `currentTime` is a counter
+that lies on exactly the files frame stepping exists for. It comes from
+`requestVideoFrameCallback`, which reports what the compositor showed — and which fires after a
+seek while paused, so a step is legible. Video only, and only with a probed frame rate.
 
 Both platform controls are drawn **only where the platform has them**: a window with no Fullscreen
 API gets no fullscreen button, for the same reason §3.5 gives about a timecode.
@@ -700,6 +709,9 @@ In the preview, with a video or an audio file open (ADR-0024):
 | `J` / `L` | Seek ten seconds back · on |
 | `M` | Mute |
 | `Arrows` on the timeline | Seek a tenth of a second. Everywhere else in the preview the arrows still step between assets, and whichever control acted on the key keeps it |
+| `,` / `.` | Step one frame back · on |
+| `<` / `>` | Step ten frames. Reachable with a pointer by pressing the button ten times; the key is the accelerator, not the only way |
+| `I` / `O` | Set the loop's start · end. The button beside the timeline does both, and clears |
 
 **Fullscreen has a button and no key.** `F` is the favourite, and a key that means one thing beside
 a video and another beside a picture is worse than a button. The media keys are read only while

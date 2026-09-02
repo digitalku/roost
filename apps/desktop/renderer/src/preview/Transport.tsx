@@ -1,7 +1,8 @@
 import type { WireComment } from "@roost/contract";
-import { Slider } from "radix-ui";
-import { type RefObject, useEffect, useState } from "react";
+import { DropdownMenu, Slider } from "radix-ui";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { timecode } from "../timecode.js";
+import { playhead } from "./playhead.js";
 
 /**
  * The transport under a video or an audio file (`UI_SPEC.md` §7, ADR-0024).
@@ -15,11 +16,11 @@ import { timecode } from "../timecode.js";
  * component fails quietly, because losing it breaks no test.
  *
  * **The element is the state.** Nothing here mirrors what the media element
- * already knows — `paused`, `muted`, `volume`, `duration` and the buffered
- * ranges are read back out of it whenever it says they changed. That is what
- * lets the keyboard shortcuts in the preview pane drive the same element
- * through {@link playhead} without telling this component anything: they call
- * `play()`, the element emits `play`, and the button redraws itself.
+ * already knows — `paused`, `muted`, `volume`, `playbackRate`, `duration` and
+ * the buffered ranges are read back out of it whenever it says they changed.
+ * That is what lets the keyboard shortcuts in the preview pane drive the same
+ * element through {@link playhead} without telling this component anything:
+ * they call `play()`, the element emits `play`, and the button redraws itself.
  *
  * The one exception is the position, which no event reports often enough to
  * scrub with — `timeupdate` fires about four times a second. It is sampled in
@@ -27,6 +28,11 @@ import { timecode } from "../timecode.js";
  * `CLAUDE.md` §8 asks for; a still playhead moves on the element's own events
  * and re-renders nothing. Which of the two is running is decided by the
  * element's `play` and `pause`, never by this component's copy of them.
+ *
+ * Stage 2 added what the native bar withholds: frame stepping, a playback rate,
+ * and an A-B loop. Two of the three are state the pane cannot reach, which is
+ * why the transport registers its own keys with the playhead rather than
+ * leaving them all in one switch beside the element-only ones.
  */
 
 export interface TransportProps {
@@ -49,6 +55,8 @@ export interface TransportProps {
    * window on 2026-09-02).
    */
   readonly probedMs: number | null;
+  /** Frames per second, from the probe. `null` disables frame stepping. */
+  readonly fps: number | null;
 }
 
 /** What the element says about itself, in the terms this component draws. */
@@ -57,15 +65,33 @@ interface Status {
   readonly muted: boolean;
   /** 0–1, as the element keeps it. */
   readonly volume: number;
+  readonly rate: number;
   readonly durationMs: number | null;
   /** The end of the buffered range the playhead is inside. */
   readonly bufferedMs: number;
 }
 
-const IDLE: Status = { paused: true, muted: false, volume: 1, durationMs: null, bufferedMs: 0 };
+const IDLE: Status = {
+  paused: true,
+  muted: false,
+  volume: 1,
+  rate: 1,
+  durationMs: null,
+  bufferedMs: 0,
+};
 
 /** A tenth of a second, which is the precision a comment's moment is written at. */
 const STEP_MS = 100;
+
+/**
+ * The rates offered, and where the platform stops stretching sound.
+ *
+ * Chromium plays the extremes silently rather than pitch-shifting them, which
+ * looks like a fault unless the menu says so (ADR-0024). The bounds are
+ * approximate and deliberately written as such — they are the platform's, they
+ * have moved between versions, and nothing here can measure them.
+ */
+const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8] as const;
 
 /** The events after which the element may describe itself differently. */
 const WATCHED = [
@@ -74,15 +100,26 @@ const WATCHED = [
   "ended",
   "emptied",
   "volumechange",
+  "ratechange",
   "durationchange",
   "loadedmetadata",
   "progress",
 ] as const;
 
-export function Transport({ media, stage, comments, probedMs }: TransportProps): React.JSX.Element {
+export function Transport({
+  media,
+  stage,
+  comments,
+  probedMs,
+  fps,
+}: TransportProps): React.JSX.Element {
   const [status, setStatus] = useState<Status>(IDLE);
   const [positionMs, setPositionMs] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
+  /** The frame actually presented, which is not the frame we asked for. */
+  const [frame, setFrame] = useState<number | null>(null);
+  const [loopA, setLoopA] = useState<number | null>(null);
+  const [loopB, setLoopB] = useState<number | null>(null);
 
   useEffect(() => {
     if (media === null) return;
@@ -100,33 +137,47 @@ export function Transport({ media, stage, comments, probedMs }: TransportProps):
    * is always right. An earlier version subscribed to `seeked` only while React
    * believed the media was paused; in a window it left the timecode frozen at
    * the old moment for as long as a seek took to land.
+   *
+   * The loop is in the dependencies rather than behind a ref: its two numbers
+   * change at human speed, and re-attaching a handful of listeners then is
+   * cheaper to read than a ref that has to be kept in step.
    */
   useEffect(() => {
     if (media === null) return;
-    let frame = 0;
+    let frames = 0;
     // `currentTime` is the *official* playback position, which a seek sets
     // straight away — so a seek in flight reads as where it is going, and the
     // timecode is right before the frame arrives.
-    const sample = (): void => setPositionMs(Math.round(media.currentTime * 1000));
+    const sample = (): void => {
+      const at = Math.round(media.currentTime * 1000);
+      if (loopA !== null && loopB !== null && at >= loopB) {
+        media.currentTime = loopA / 1000;
+        setPositionMs(loopA);
+        return;
+      }
+      setPositionMs(at);
+    };
     const follow = (): void => {
       sample();
-      frame = requestAnimationFrame(follow);
+      frames = requestAnimationFrame(follow);
     };
     const start = (): void => {
-      if (frame === 0) frame = requestAnimationFrame(follow);
+      if (frames === 0) frames = requestAnimationFrame(follow);
     };
     const stop = (): void => {
-      cancelAnimationFrame(frame);
-      frame = 0;
+      cancelAnimationFrame(frames);
+      frames = 0;
       sample();
     };
 
     sample();
     if (!media.paused) start();
     // While it plays, an animation frame — nothing else reports a position
-    // often enough to scrub with. Otherwise the element's own events, which is
-    // all a still playhead can move on, and React bails out of a state update
-    // to the same number, so those redraw nothing.
+    // often enough to scrub with, and it is also what makes the loop's end
+    // land within a frame rather than within `timeupdate`'s quarter second.
+    // Otherwise the element's own events, which is all a still playhead can
+    // move on, and React bails out of a state update to the same number, so
+    // those redraw nothing.
     media.addEventListener("play", start);
     media.addEventListener("playing", start);
     media.addEventListener("pause", stop);
@@ -134,7 +185,7 @@ export function Transport({ media, stage, comments, probedMs }: TransportProps):
     media.addEventListener("seeked", sample);
     media.addEventListener("timeupdate", sample);
     return () => {
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(frames);
       media.removeEventListener("play", start);
       media.removeEventListener("playing", start);
       media.removeEventListener("pause", stop);
@@ -142,7 +193,27 @@ export function Transport({ media, stage, comments, probedMs }: TransportProps):
       media.removeEventListener("seeked", sample);
       media.removeEventListener("timeupdate", sample);
     };
-  }, [media]);
+  }, [media, loopA, loopB]);
+
+  /*
+   * The frame counter, from the frame the compositor actually presented.
+   *
+   * `currentTime` says where we asked to be; a seek in a long-GOP codec lands
+   * on the nearest decodable frame, so arithmetic on it is a counter that lies
+   * on exactly the files frame stepping exists for.
+   * `requestVideoFrameCallback` reports what was shown, and it fires after a
+   * seek while paused too — which is what makes a step legible.
+   */
+  useEffect(() => {
+    if (media === null || fps === null || !("requestVideoFrameCallback" in media)) return;
+    let handle = 0;
+    const report = (_now: number, metadata: VideoFrameCallbackMetadata): void => {
+      setFrame(Math.round(metadata.mediaTime * fps));
+      handle = media.requestVideoFrameCallback(report);
+    };
+    handle = media.requestVideoFrameCallback(report);
+    return () => media.cancelVideoFrameCallback(handle);
+  }, [media, fps]);
 
   useEffect(() => {
     const read = (): void => setFullscreen(Boolean(document.fullscreenElement));
@@ -156,10 +227,18 @@ export function Transport({ media, stage, comments, probedMs }: TransportProps):
 
   const seek = (ms: number): void => {
     if (media === null) return;
-    media.currentTime = ms / 1000;
+    const bounded = Math.max(0, seekable ? Math.min(durationMs, ms) : ms);
+    media.currentTime = bounded / 1000;
     // Moved here rather than waited for: the element reports a completed seek,
     // and a thumb that only moves then lags the pointer dragging it.
-    setPositionMs(ms);
+    setPositionMs(bounded);
+  };
+
+  /** Steps whole frames, pausing first: a step while playing is not a step. */
+  const step = (frames: number): void => {
+    if (media === null || fps === null) return;
+    media.pause();
+    seek(Math.round((media.currentTime + frames / fps) * 1000));
   };
 
   const play = (): void => {
@@ -190,11 +269,66 @@ export function Transport({ media, stage, comments, probedMs }: TransportProps):
     if (box !== null) void box.requestFullscreen();
   };
 
+  /**
+   * The loop, one press at a time: start, then end, then gone.
+   *
+   * Three states on one control rather than three controls, because the middle
+   * one is the only moment "set the end" means anything and a button that is
+   * disabled two thirds of the time is worse than one that moves on.
+   */
+  const cycleLoop = (): void => {
+    if (loopA === null) setLoopA(at);
+    else if (loopB === null) setLoopB(Math.max(at, loopA + STEP_MS));
+    else {
+      setLoopA(null);
+      setLoopB(null);
+    }
+  };
+
+  /*
+   * The keys whose state is this component's rather than the element's. The
+   * pane holds the focus and the element-only keys (`UI_SPEC.md` §9), and hands
+   * the rest here — see `playhead.ts`. Registered through a ref so that binding
+   * happens once rather than on every frame of playback.
+   */
+  const keys = (name: string): boolean => {
+    switch (name) {
+      case ",":
+        step(-1);
+        return fps !== null;
+      case ".":
+        step(1);
+        return fps !== null;
+      case "<":
+        step(-10);
+        return fps !== null;
+      case ">":
+        step(10);
+        return fps !== null;
+      case "i":
+        setLoopA(at);
+        setLoopB((held) => (held !== null && held <= at ? null : held));
+        return true;
+      case "o":
+        if (loopA === null) return false;
+        setLoopB(Math.max(at, loopA + STEP_MS));
+        return true;
+      default:
+        return false;
+    }
+  };
+  const latest = useRef(keys);
+  useEffect(() => {
+    latest.current = keys;
+  });
+  useEffect(() => playhead.bindKeys((name) => latest.current(name)), []);
+
   // Narrowed by the property rather than by a cast: audio has no frames, so it
   // has no picture to put in a window (`HTMLAudioElement` has no such method).
   const inPicture = media !== null && "requestPictureInPicture" in media ? media : null;
   const muted = status.muted || status.volume === 0;
   const label = status.paused ? "Play" : "Pause";
+  const loop = loopA === null ? "Set loop start" : loopB === null ? "Set loop end" : "Clear loop";
 
   return (
     <div className="transport">
@@ -218,6 +352,18 @@ export function Transport({ media, stage, comments, probedMs }: TransportProps):
             style={{ width: seekable ? span(status.bufferedMs, durationMs) : "0%" }}
           />
           <Slider.Range className="transport-played" />
+          {seekable && loopA !== null && (
+            <div
+              className="transport-loop"
+              style={{
+                left: span(loopA, durationMs),
+                // An end that is not set yet is a mark rather than a band: the
+                // loop is not running, and a band to the end of the file would
+                // say it was.
+                width: loopB === null ? "2px" : span(Math.max(0, loopB - loopA), durationMs),
+              }}
+            />
+          )}
         </Slider.Track>
         {seekable &&
           comments.map((comment) => {
@@ -252,6 +398,18 @@ export function Transport({ media, stage, comments, probedMs }: TransportProps):
       </Slider.Root>
 
       <div className="transport-controls">
+        {fps !== null && (
+          <button
+            type="button"
+            className="transport-button"
+            aria-label="Previous frame"
+            title="Previous frame"
+            onClick={() => step(-1)}
+          >
+            <Icon of="stepBack" />
+          </button>
+        )}
+
         <button
           type="button"
           className="transport-button"
@@ -262,8 +420,21 @@ export function Transport({ media, stage, comments, probedMs }: TransportProps):
           <Icon of={status.paused ? "play" : "pause"} />
         </button>
 
+        {fps !== null && (
+          <button
+            type="button"
+            className="transport-button"
+            aria-label="Next frame"
+            title="Next frame"
+            onClick={() => step(1)}
+          >
+            <Icon of="stepOn" />
+          </button>
+        )}
+
         <span className="transport-time">
           {timecode(at)}
+          {frame !== null && <span className="transport-frame"> f{frame}</span>}
           <span className="transport-time-total">
             {" / "}
             {durationMs === null ? "—" : timecode(durationMs)}
@@ -271,6 +442,51 @@ export function Transport({ media, stage, comments, probedMs }: TransportProps):
         </span>
 
         <div className="transport-gap" />
+
+        <button
+          type="button"
+          className="transport-button"
+          aria-label={loop}
+          title={loop}
+          data-on={loopA !== null ? "" : undefined}
+          onClick={cycleLoop}
+        >
+          <Icon of="loop" />
+        </button>
+
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button type="button" className="transport-rate" aria-label="Playback speed">
+              {rate(status.rate)}
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="menu" sideOffset={4} align="end" collisionPadding={8}>
+              <DropdownMenu.RadioGroup
+                value={String(status.rate)}
+                onValueChange={(next) => {
+                  if (media !== null) media.playbackRate = Number(next);
+                }}
+              >
+                {RATES.map((candidate) => (
+                  <DropdownMenu.RadioItem
+                    key={candidate}
+                    className="menu-item"
+                    value={String(candidate)}
+                  >
+                    <span className="menu-mark">{status.rate === candidate ? "●" : ""}</span>
+                    <span className="menu-label">{rate(candidate)}</span>
+                  </DropdownMenu.RadioItem>
+                ))}
+              </DropdownMenu.RadioGroup>
+              <DropdownMenu.Separator className="menu-separator" />
+              <DropdownMenu.Label className="menu-note">
+                The extremes play silently: the platform stops stretching sound outside about 0.5×
+                to 4×.
+              </DropdownMenu.Label>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
 
         <button
           type="button"
@@ -350,6 +566,7 @@ function describe(media: HTMLMediaElement): Status {
     paused: media.paused,
     muted: media.muted,
     volume: media.volume,
+    rate: media.playbackRate,
     durationMs: Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : null,
     bufferedMs: bufferedTo(media),
   };
@@ -366,6 +583,7 @@ function keep(held: Status, next: Status): Status {
   return held.paused === next.paused &&
     held.muted === next.muted &&
     held.volume === next.volume &&
+    held.rate === next.rate &&
     held.durationMs === next.durationMs &&
     held.bufferedMs === next.bufferedMs
     ? held
@@ -386,11 +604,16 @@ function span(ms: number, durationMs: number): string {
   return `${Math.min(100, Math.max(0, (ms / durationMs) * 100))}%`;
 }
 
+/** `1×`, `0.25×` — a multiplication sign, never the letter. */
+function rate(of: number): string {
+  return `${of}×`;
+}
+
 /**
  * The transport's icons, drawn here.
  *
  * Inline paths rather than an icon package: invariant 7 forbids fetching one at
- * runtime, and six shapes are not a dependency. Every button that uses one
+ * runtime, and nine shapes are not a dependency. Every button that uses one
  * carries the same words in `aria-label` and `title` (`UI_SPEC.md` §10).
  */
 function Icon({ of }: { readonly of: keyof typeof PATHS }): React.JSX.Element {
@@ -404,6 +627,9 @@ function Icon({ of }: { readonly of: keyof typeof PATHS }): React.JSX.Element {
 const PATHS = {
   play: "M5 3.5v9l8-4.5-8-4.5z",
   pause: "M4.5 3h2.5v10H4.5V3zm4.5 0h2.5v10H9V3z",
+  stepBack: "M4 3.5h1.5v9H4v-9zm8 0v9l-6-4.5 6-4.5z",
+  stepOn: "M12 3.5h-1.5v9H12v-9zm-8 0v9l6-4.5-6-4.5z",
+  loop: "M4.5 4h6V2l3 2.75L10.5 7.5v-2h-6v3H3v-3A1.5 1.5 0 0 1 4.5 4zm7 4.5H13v3a1.5 1.5 0 0 1-1.5 1.5h-6v2L2.5 12.25 5.5 9.5v2h6v-3z",
   volume:
     "M3 6.5h2.5L9 3.5v9L5.5 9.5H3v-3zm8.2-1.1a4 4 0 0 1 0 5.2l-.9-.8a2.8 2.8 0 0 0 0-3.6l.9-.8z",
   muted:

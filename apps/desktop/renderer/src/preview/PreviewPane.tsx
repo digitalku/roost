@@ -42,7 +42,8 @@ export interface PreviewPaneProps {
  *
  * `Space` and `K` play, `M` mutes, and coarse seeking is `J` and `L` because
  * the arrow keys step between assets — the fine seek is on the timeline itself,
- * which is a slider and moves by a tenth of a second (`UI_SPEC.md` §9).
+ * which is a slider and moves by a tenth of a second (`UI_SPEC.md` §9). Frame
+ * stepping and the A-B loop are the transport's, and fall through to it.
  * Fullscreen has a button rather than `F`: `F` toggles the favourite, and a key
  * that means one thing beside a video and another beside a picture is worse
  * than a button.
@@ -62,7 +63,10 @@ function mediaKey(key: string): boolean {
     case "l":
       return playhead.nudge(10_000);
     default:
-      return false;
+      // Frame stepping and the A-B loop, which need state the pane has no
+      // reason to hold. `playhead.ts` says why they are delegated rather than
+      // lifted.
+      return playhead.key(key);
   }
 }
 
@@ -223,6 +227,20 @@ function Stage({
 }
 
 /**
+ * The probe's frame rate, if it recorded one.
+ *
+ * One known key read out of the property map, which the inspector otherwise
+ * shows without understanding (`UI_SPEC.md` §3). Frame stepping is arithmetic
+ * on this number, so a missing or nonsensical one has to mean "no stepping"
+ * rather than a step of `Infinity`.
+ */
+function frameRate(recorded: string | undefined): number | null {
+  if (recorded === undefined) return null;
+  const fps = Number(recorded);
+  return Number.isFinite(fps) && fps > 0 ? fps : null;
+}
+
+/**
  * A document, one page at a time (`UI_SPEC.md` §7).
  *
  * Each page is an `<img>` pointed at `roost://page/<hash>/<n>@1024`, rendered
@@ -314,6 +332,7 @@ function Player({
         stage={stage}
         comments={detail.comments}
         probedMs={detail.durationMs}
+        fps={frameRate(detail.props["video.fps"])}
       />
     </div>
   );

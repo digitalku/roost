@@ -523,6 +523,18 @@ button:disabled {
   background: var(--border);
 }
 
+/* A sentence rather than a choice: what the platform does at the extremes of a
+   playback rate, so a silent 8× reads as the platform's rule and not as a
+   fault (ADR-0024). Wraps, unlike every other line in a menu. */
+.menu-note {
+  display: block;
+  max-width: 15rem;
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
 /* Zoom is a row of controls on one menu line — the shape a file manager uses,
    and the one thing a native menu could not have carried (ADR-0021). */
 .menu-zoom {

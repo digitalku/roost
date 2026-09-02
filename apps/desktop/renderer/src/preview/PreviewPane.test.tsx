@@ -145,9 +145,13 @@ describe("the preview pane", () => {
 describe("the transport", () => {
   const HOUR = 3_600_000;
 
-  const showVideo = (comments: readonly WireComment[] = [], durationMs: number | null = HOUR) => {
+  const showVideo = (
+    comments: readonly WireComment[] = [],
+    durationMs: number | null = HOUR,
+    props: Record<string, string> = {},
+  ) => {
     const engine = new FakeEngine({
-      details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs, comments })],
+      details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs, comments, props })],
     });
     install(engine);
     render(<PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />);
@@ -457,6 +461,188 @@ describe("the transport", () => {
       else Object.defineProperty(document, "fullscreenEnabled", enabled);
       Reflect.deleteProperty(Element.prototype, "requestFullscreen");
     }
+  });
+});
+
+describe("what the native bar withholds", () => {
+  const HOUR = 3_600_000;
+  /** 25fps, so a frame is a round forty milliseconds. */
+  const PROBED = { "video.fps": "25" };
+
+  const showVideo = (props: Record<string, string> = PROBED) => {
+    const engine = new FakeEngine({
+      details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs: HOUR, props })],
+    });
+    install(engine);
+    render(<PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />);
+    return { engine, user: userEvent.setup() };
+  };
+
+  const player = async (): Promise<HTMLVideoElement> => {
+    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
+    const video = document.querySelector("video");
+    if (video === null) throw new Error("no player");
+    return video;
+  };
+
+  const announce = (media: HTMLMediaElement, event: string): void => {
+    media.dispatchEvent(new Event(event));
+  };
+
+  /**
+   * Moves the element, and waits for the transport to have noticed.
+   *
+   * The loop's points are taken from the moment the transport is *drawing*,
+   * not from the element — that is what a person is looking at when they press
+   * the key — so a test that pressed it before the redraw would be setting a
+   * point at the previous moment.
+   */
+  const moveTo = async (media: HTMLMediaElement, seconds: number): Promise<void> => {
+    media.currentTime = seconds;
+    announce(media, "timeupdate");
+    await waitFor(() =>
+      expect(
+        Number(screen.getByRole("slider", { name: "Timeline" }).getAttribute("aria-valuenow")),
+      ).toBe(Math.round(seconds * 1000)),
+    );
+  };
+
+  it("steps one frame at a time, off the rate the probe recorded", async () => {
+    const { user } = showVideo();
+    const video = await player();
+    video.currentTime = 1;
+
+    await user.click(screen.getByRole("button", { name: "Next frame" }));
+    expect(video.currentTime).toBeCloseTo(1.04, 5);
+
+    await user.click(screen.getByRole("button", { name: "Previous frame" }));
+    expect(video.currentTime).toBeCloseTo(1, 5);
+  });
+
+  it("offers no frame step for a file nobody has probed", async () => {
+    // A step is arithmetic on the frame rate, and a missing one has to mean no
+    // stepping rather than a step of `Infinity`.
+    showVideo({});
+    await player();
+    expect(screen.queryByRole("button", { name: "Next frame" })).toBeNull();
+  });
+
+  it("pauses to step, because a step while playing is not a step", async () => {
+    const { user } = showVideo();
+    const video = await player();
+    await video.play();
+    expect(video.paused).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Next frame" }));
+    expect(video.paused).toBe(true);
+  });
+
+  it("steps from the keyboard, one frame and ten", async () => {
+    const { user } = showVideo();
+    const video = await player();
+    video.currentTime = 10;
+
+    await user.keyboard(".");
+    expect(video.currentTime).toBeCloseTo(10.04, 5);
+    await user.keyboard(",");
+    expect(video.currentTime).toBeCloseTo(10, 5);
+    await user.keyboard(">");
+    expect(video.currentTime).toBeCloseTo(10.4, 5);
+    await user.keyboard("<");
+    expect(video.currentTime).toBeCloseTo(10, 5);
+  });
+
+  it("never steps behind the start of the file", async () => {
+    const { user } = showVideo();
+    const video = await player();
+
+    await user.keyboard("<");
+    expect(video.currentTime).toBe(0);
+  });
+
+  it("sets the playback rate on the element, and reads it back from there", async () => {
+    const { user } = showVideo();
+    const video = await player();
+
+    await user.click(screen.getByRole("button", { name: "Playback speed" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "2×" }));
+    expect(video.playbackRate).toBe(2);
+
+    // happy-dom sets the property and sends nothing; a real element announces
+    // it, which is when the trigger changes.
+    announce(video, "ratechange");
+    await screen.findByRole("button", { name: "Playback speed" });
+    expect(screen.getByRole("button", { name: "Playback speed" }).textContent).toBe("2×");
+  });
+
+  it("says why the extremes are silent rather than looking broken", async () => {
+    // The platform stops stretching sound outside roughly 0.5×–4×, and a menu
+    // that offers 8× without saying so offers a fault (ADR-0024).
+    const { user } = showVideo();
+    await player();
+
+    await user.click(screen.getByRole("button", { name: "Playback speed" }));
+    await screen.findByRole("menuitemradio", { name: "8×" });
+    expect(screen.getByText(/plays? silently/)).toBeDefined();
+  });
+
+  it("loops between two moments, and the button says which one is next", async () => {
+    const { user } = showVideo();
+    const video = await player();
+    await moveTo(video, 10);
+
+    await user.click(await screen.findByRole("button", { name: "Set loop start" }));
+    await moveTo(video, 12);
+    await user.click(await screen.findByRole("button", { name: "Set loop end" }));
+
+    // Past the end, and back to the start — within a frame, because the check
+    // rides the sampler rather than `timeupdate`'s quarter second.
+    video.currentTime = 12.5;
+    announce(video, "timeupdate");
+    await waitFor(() => expect(video.currentTime).toBeCloseTo(10, 3));
+
+    await user.click(await screen.findByRole("button", { name: "Clear loop" }));
+    video.currentTime = 12.5;
+    announce(video, "timeupdate");
+    await waitFor(() => expect(video.currentTime).toBeCloseTo(12.5, 3));
+  });
+
+  it("sets the two points from the keyboard, and draws the region", async () => {
+    const { user } = showVideo();
+    const video = await player();
+    await moveTo(video, 900);
+
+    await user.keyboard("i");
+    // A start with no end is a mark, not a band: the loop is not running, and a
+    // band to the end of the file would say it was.
+    await waitFor(() => expect(document.querySelector(".transport-loop")).not.toBeNull());
+    const mark = document.querySelector(".transport-loop") as HTMLElement;
+    expect(mark.style.left).toBe("25%");
+    expect(mark.style.width).toBe("2px");
+
+    await moveTo(video, 1800);
+    await user.keyboard("o");
+    await waitFor(() =>
+      expect((document.querySelector(".transport-loop") as HTMLElement).style.width).toBe("25%"),
+    );
+  });
+
+  it("refuses an end before a start", async () => {
+    const { user } = showVideo();
+    const video = await player();
+    await moveTo(video, 1800);
+    await user.keyboard("i");
+
+    // Back before the start, and `o` there would be a loop that runs backwards.
+    await moveTo(video, 900);
+    await user.keyboard("o");
+
+    const region = document.querySelector(".transport-loop") as HTMLElement;
+    // Clamped to a step past the start rather than accepted or dropped: the
+    // gesture was "end it here", and the nearest honest answer to that is the
+    // shortest loop this timeline can express.
+    expect(region.style.left).toBe("50%");
+    expect(region.style.width).toBe(`${(100 / 3_600_000) * 100}%`);
   });
 });
 

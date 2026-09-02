@@ -258,9 +258,10 @@ is listed here, so the order stays visible instead of becoming folklore.
   Eagle's player feels part of the application and ours does not. Four stages: parity plus the
   comment marks moved onto the timeline, then frame stepping and speed and A-B loop, then
   hover-scrub previews (still a decision of its own), then **set this frame as the thumbnail**,
-  which the user asked for directly. **Stage 1 done 2026-09-02**: `controls` is off, the bar is
-  ours, the marks are on the timeline, and `scripts/check-transport.mjs` holds it to `UI_SPEC.md`
-  §10 in a real window. Stages 2 and 4 are work; stage 3 is a decision of its own
+  which the user asked for directly. **Stages 1 and 2 done 2026-09-02**: `controls` is off, the
+  bar is ours, the marks are on the timeline, frame stepping runs off the probed rate with a
+  counter from `requestVideoFrameCallback`, and `scripts/check-transport.mjs` holds the lot to
+  `UI_SPEC.md` §10 in a real window — 33 checks. Stage 4 is work; stage 3 is a decision of its own
 
 ## M5 — Discovery features ☐
 

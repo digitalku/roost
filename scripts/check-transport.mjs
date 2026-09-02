@@ -19,7 +19,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { addComment, importInto, Library, pageOf } from "@roost/library";
+import { addComment, generateMissing, importInto, Library, pageOf } from "@roost/library";
 
 const PORT = 9600 + (process.pid % 100);
 const electron = createRequire(import.meta.url)("electron");
@@ -59,6 +59,9 @@ try {
   await importInto(library, [short]);
   await sleep(1100);
   await importInto(library, [clip]);
+  // The derive pass, because frame stepping is arithmetic on the probed frame
+  // rate: importing alone records neither `video.fps` nor a duration.
+  await generateMissing(library);
   const hash = pageOf(library, "", { limit: 1 })[0].hash;
   await addComment(library, hash, 5000, "the cut lands early");
   await addComment(library, hash, 15_000, "hold two frames");
@@ -139,6 +142,12 @@ const transportExpression = `
       muted: video.muted,
       name: document.querySelector(".preview-name")?.textContent ?? null,
       time: document.querySelector(".transport-time")?.textContent ?? null,
+      frame: document.querySelector(".transport-frame")?.textContent?.trim() ?? null,
+      rate: document.querySelector(".transport-rate")?.textContent ?? null,
+      loop: (() => {
+        const region = document.querySelector(".transport-loop");
+        return region === null ? null : { left: region.style.left, width: region.style.width };
+      })(),
     };
   })()`;
 
@@ -222,8 +231,8 @@ try {
     JSON.stringify(drawn.marks[0].label),
   );
   check(
-    "the elapsed and the total are both shown",
-    /0:00\.0 \/ 0:20\.0/.test(drawn.time ?? ""),
+    "the elapsed, the frame it is on, and the total are all shown",
+    /^0:00\.0 ?f0 \/ 0:20\.0$/.test((drawn.time ?? "").trim()),
     JSON.stringify(drawn.time),
   );
 
@@ -340,6 +349,85 @@ try {
     stepped.name === before.name,
     JSON.stringify(stepped.name),
   );
+
+  console.log("\nWhat the native bar withholds (stage 2)");
+  // testsrc at 10fps: a frame is a round tenth of a second, and the probe is
+  // where that number comes from.
+  const settleAt = (ms) =>
+    settle(cdp, transportExpression, (t) => t !== null && Math.abs(t.valueNow - ms) < 60);
+  await cdp.evaluate('document.querySelector("video").currentTime = 5');
+  const atFive = await settleAt(5000);
+  check(
+    "the frame counter reads the frame that was presented",
+    atFive.frame === "f50",
+    `${atFive.frame} at ${atFive.currentTime}s`,
+  );
+
+  await press("Next frame");
+  const stepped2 = await settle(cdp, transportExpression, (t) => t !== null && t.frame === "f51");
+  check(
+    "a frame step moves exactly one frame of a real decoder",
+    Math.abs(stepped2.currentTime - 5.1) < 0.02,
+    `${stepped2.frame} at ${stepped2.currentTime}s`,
+  );
+
+  await cdp.evaluate(key(".preview", ","));
+  const back = await settle(cdp, transportExpression, (t) => t !== null && t.frame === "f50");
+  check("and the comma key steps one back", Math.abs(back.currentTime - 5) < 0.02, back.frame);
+
+  await cdp.evaluate(key(".preview", ">"));
+  const ten = await settle(cdp, transportExpression, (t) => t !== null && t.frame === "f60");
+  check("and `>` steps ten", Math.abs(ten.currentTime - 6) < 0.02, ten.frame);
+
+  // Radix opens a menu on `pointerdown`, not on `click`, so a bare `.click()`
+  // leaves it shut and every assertion after it meaningless.
+  await cdp.evaluate(`
+    (() => {
+      const trigger = document.querySelector(".transport-rate");
+      trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      trigger.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+    })()`);
+  await settle(cdp, '[...document.querySelectorAll("[role=menuitemradio]")].length', (n) => n > 0);
+  await cdp.evaluate(
+    `[...document.querySelectorAll("[role=menuitemradio]")]
+      .find((item) => item.textContent.includes("2×"))
+      .click()`,
+  );
+  const faster = await settle(cdp, transportExpression, (t) => t !== null && t.rate === "2×");
+  check(
+    "the speed menu sets the rate on the element",
+    (await cdp.evaluate('document.querySelector("video").playbackRate')) === 2,
+    faster.rate,
+  );
+  await cdp.evaluate('document.querySelector("video").playbackRate = 1');
+
+  await cdp.evaluate('document.querySelector("video").currentTime = 5');
+  await settleAt(5000);
+  await cdp.evaluate(key(".preview", "i"));
+  await cdp.evaluate('document.querySelector("video").currentTime = 6');
+  await settleAt(6000);
+  await cdp.evaluate(key(".preview", "o"));
+  const looped = await settle(
+    cdp,
+    transportExpression,
+    (t) => t !== null && t.loop !== null && t.loop.width !== "2px",
+  );
+  check(
+    "the A-B loop is a region of the file, drawn where its two moments are",
+    looped.loop.left === `${(5000 / 20_000) * 100}%` &&
+      looped.loop.width === `${(1000 / 20_000) * 100}%`,
+    `${looped.loop.left} + ${looped.loop.width}`,
+  );
+
+  // Past the end of the loop from outside it: the sampler catches it, which is
+  // what makes the loop land within a frame rather than within `timeupdate`.
+  await cdp.evaluate('document.querySelector("video").currentTime = 7');
+  const rewound = await settle(
+    cdp,
+    'document.querySelector("video").currentTime',
+    (t) => Math.abs(t - 5) < 0.2,
+  );
+  check("and it takes the playhead back to the start", true, `t=${rewound}`);
 
   console.log("\nThe panel beside it");
   await cdp.evaluate('[...document.querySelectorAll("button.comment-at")][0].click()');

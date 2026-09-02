@@ -567,7 +567,7 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 ### A transport of our own (ADR-0024, decided 2026-09-02)
 
-Four stages. **Stage 1 is done**; the other three have not started.
+Four stages. **Stages 1 and 2 are done**; stage 4 is work and stage 3 is a decision.
 
 - 🟢 **Measure four player libraries**: `media-chrome`, Vidstack, Plyr, video.js. **Not done, and
   no longer blocking**: the user asked for stage 1 ahead of it, and stage 1 was built in-repo over
@@ -580,7 +580,7 @@ Four stages. **Stage 1 is done**; the other three have not started.
      is still the one that can rule a candidate out outright.
   2. **Whether a mark can go on its timeline** without forking it. This is the whole reason we are
      here, and a library that cannot take one is not a candidate however good it is otherwise.
-  3. **The bundle**, against the <1.5s cold start in `CONCEPT.md` §7. The renderer is 357.8 KB
+  3. **The bundle**, against the <1.5s cold start in `CONCEPT.md` §7. The renderer is 361.2 KB
      today, 342 KB before the transport.
   4. **Whether its accessibility is real or claimed** — keyboard-only operation, and a slider that
      is a slider to a screen reader.
@@ -597,11 +597,19 @@ Four stages. **Stage 1 is done**; the other three have not started.
     check asserts the names, the tooltips, the tab stops and the `aria-valuetext` rather than only
     the pixels. The native bar's accessibility is free and invisible, so losing it would have cost
     nothing a test noticed.
-- 🟡 **Stage 2 — what the native bar withholds.** Frame stepping at 1 and 10 frames off the probed
-  `video.fps`, playback rate 0.25×–8×, A-B loop. No schema, and cheap once stage 1 exists.
-  - `requestVideoFrameCallback` reports the frame actually presented; arithmetic on `currentTime`
-    reports where we asked to be. A frame counter built on the second one is a frame counter that
-    lies on every long-GOP file.
+- ☑ ~~**Stage 2 — what the native bar withholds.**~~ Done 2026-09-02. Frame stepping at 1 and 10
+  frames off the probed `video.fps`, a playback rate of 0.25×–8× in a menu that says why the
+  extremes are silent, and an A-B loop with a region drawn along the track. No schema, as the ADR
+  said.
+  - **The frame counter comes from `requestVideoFrameCallback`**, which reports the frame actually
+    presented; arithmetic on `currentTime` reports where we asked to be, and a counter built on
+    that lies on every long-GOP file — which is exactly the kind of file frame stepping is for.
+  - **The loop's end is caught in the animation-frame sampler**, not on `timeupdate`. The event
+    fires about four times a second, so a loop enforced there overshoots by up to a quarter of a
+    second — audible on a short one.
+  - The transport registers `,` `.` `<` `>` `I` `O` with `playhead` rather than the pane holding
+    them: the frame step needs the probed rate and the loop needs two numbers, and both belong to
+    the transport. The pane keeps the keys that are operations on the element alone.
 - 🟡 **Stage 4 — set this frame as the thumbnail.** Asked for directly. A migration for
   `assets.poster_ms`, a `poster_set` journal op carrying `{hash, at}`, both thumbnail sizes
   regenerated together, `roost poster` in the CLI, and one item in the context menu that already

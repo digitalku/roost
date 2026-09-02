@@ -24,6 +24,7 @@ import { useSyncExternalStore } from "react";
  */
 class Playhead {
   #media: HTMLMediaElement | undefined;
+  #keys: ((key: string) => boolean) | undefined;
   readonly #listeners = new Set<() => void>();
 
   /**
@@ -106,6 +107,29 @@ class Playhead {
     if (media === undefined) return false;
     media.muted = !media.muted;
     return true;
+  }
+
+  /**
+   * Registers the keys only the transport can answer, and hands back the way
+   * to unregister them.
+   *
+   * The preview pane holds the focus, so it is where a key arrives; but the
+   * frame step needs the probed frame rate and the A-B loop needs two numbers
+   * that belong to the transport and to nothing else. Everything above this
+   * line is an operation on the element and stays here; the rest is delegated
+   * rather than lifted, because lifting it would put a loop's endpoints in a
+   * component that has no other reason to know a loop exists (ADR-0024).
+   */
+  bindKeys(handler: (key: string) => boolean): () => void {
+    this.#keys = handler;
+    return () => {
+      if (this.#keys === handler) this.#keys = undefined;
+    };
+  }
+
+  /** Offers a key to the transport. `false` when nothing took it. */
+  key(name: string): boolean {
+    return this.#keys?.(name) ?? false;
   }
 
   #announce(): void {

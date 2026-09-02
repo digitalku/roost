@@ -223,6 +223,18 @@
   display: none;
 }
 
+/* The A-B loop, drawn along the track it is two moments on (ADR-0024). Behind
+   the marks and above the played range: it is a region of the file rather than
+   a thing to click, and the button beside the timeline is what clears it. */
+.transport-loop {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--warning);
+  opacity: 0.45;
+}
+
 /* One per timed comment, over the track it is a moment on. Drawn after the
    slider so a 3px target is not covered by the surface that seeks. */
 .transport-mark {
@@ -288,6 +300,36 @@
 
 .transport-time-total {
   color: var(--text-muted);
+}
+
+/* The frame actually presented, beside the moment it was presented at. */
+.transport-frame {
+  color: var(--text-subtle);
+}
+
+/* Text rather than an icon: `1.25×` is shorter than any drawing of it, and it
+   is the one control whose current value has to be readable at a glance. */
+.transport-rate {
+  min-width: 4ch;
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.transport-rate:hover {
+  background: var(--surface-raised);
+}
+
+/* A loop being set is a state, and it is not the accent: the accent is the
+   played range four pixels above, and two greens would be one green. */
+.transport-button[data-on] {
+  color: var(--warning);
 }
 
 /* Room to breathe once it is the whole screen. Last in the file because it is
