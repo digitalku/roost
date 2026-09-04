@@ -33,6 +33,16 @@ export class ReferencedStorage implements Storage {
     throw new NotInObjectStoreError(hash);
   }
 
+  /**
+   * Always throws. There is nowhere to write that is not a user directory,
+   * which invariant 6 forbids outright — which is also why ADR-0026 makes a
+   * referenced asset read-only rather than editable into a managed copy behind
+   * the user's back.
+   */
+  async putBytes(_bytes: Uint8Array, hash: ContentHash, _ext?: string): Promise<Placed> {
+    throw new NotInObjectStoreError(hash);
+  }
+
   /** A no-op. Deleting the user's file is forbidden. */
   async remove(_hash?: ContentHash, _ext?: string): Promise<void> {}
 

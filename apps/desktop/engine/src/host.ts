@@ -31,6 +31,7 @@ import {
 import {
   addComment,
   compileFor,
+  createAsset,
   type DeriveReport,
   emptyTrash,
   enqueueMissing,
@@ -57,6 +58,7 @@ import {
   retryBlocked,
   retryFailed,
   runDerives,
+  saveEdit,
   setComment,
   setFavorite,
   setNote,
@@ -180,6 +182,36 @@ export class EngineHost {
           if (pinned) void this.#runDerives();
         });
 
+      case "asset:save":
+        // Answers the new hash rather than `null`, because a save moves the
+        // asset the window is looking at (ADR-0026): the bytes are the
+        // identity, so the pane has a different thing on screen afterwards.
+        return this.#editReporting(async () => {
+          const saved = await saveEdit(
+            this.#require(),
+            parseContentHash(request.hash),
+            new TextEncoder().encode(request.text),
+          );
+          // A new asset has no thumbnail until something draws one, and the
+          // queue is the same path a rebuild takes.
+          if (saved !== request.hash) void this.#runDerives();
+          return saved as string;
+        });
+
+      case "asset:create":
+        // Not an import: there is no source file, and the name is not a
+        // filename anything found on disk. What it writes is the ordinary
+        // `add`, so nothing downstream has to know the difference.
+        return this.#editReporting(async () => {
+          const made = await createAsset(
+            this.#require(),
+            request.name,
+            new TextEncoder().encode(request.text),
+          );
+          if (made.created) void this.#runDerives();
+          return made;
+        });
+
       case "asset:rename":
         return this.#edit(() =>
           renameAsset(this.#require(), parseContentHash(request.hash), request.name),
@@ -248,15 +280,17 @@ export class EngineHost {
         // not a mutation.
         return exportAssets(this.#require(), hashes(request.hashes), request.destination);
 
+      case "clipboard:paste":
       case "dialog:chooseImport":
       case "asset:openExternally":
       case "asset:reveal":
       case "asset:copyPath":
       case "dialog:openLibrary":
       case "dialog:chooseLocation":
-        // A dialog belongs to a window and this process has none. Main answers
-        // these before forwarding; one arriving here is a routing bug, and it
-        // fails loudly rather than returning a plausible null.
+        // A dialog belongs to a window and this process has none, and the
+        // clipboard belongs to the desktop. Main answers these before
+        // forwarding; one arriving here is a routing bug, and it fails loudly
+        // rather than returning a plausible null.
         throw new Error(`${request.type} is answered by main, not by the engine`);
     }
   }
@@ -685,6 +719,7 @@ function detailOf(detail: AssetDetail, comments: readonly CommentRow[]): WireAss
     createdAt: detail.createdAt,
     importedAt: detail.importedAt,
     trashedAt: detail.trashedAt,
+    supersededBy: detail.supersededBy,
     rating: detail.rating,
     note: detail.note,
     isFavorite: detail.isFavorite,

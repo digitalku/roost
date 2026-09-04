@@ -42,6 +42,18 @@ export interface Storage {
   put(src: string, hash: ContentHash, ext: string): Promise<Placed>;
 
   /**
+   * Places bytes already in memory. Idempotent, like {@link put}.
+   *
+   * For content the application itself produced rather than found — an edited
+   * text asset on its way to becoming a new version (ADR-0026). There is no
+   * source file to link from, so `linkMethod` is always `copy`: the bytes are
+   * written once and renamed into place.
+   *
+   * Referenced mode refuses it, as it refuses everything that would write.
+   */
+  putBytes(bytes: Uint8Array, hash: ContentHash, ext: string): Promise<Placed>;
+
+  /**
    * The path bytes for this hash would occupy. **The only way a hash becomes a
    * path** — `ARCHITECTURE.md` invariant 2 reserves that to a `Storage`
    * implementation, and this is the door.

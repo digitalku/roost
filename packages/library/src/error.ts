@@ -117,6 +117,56 @@ export class InvalidMomentError extends RoostError {
   }
 }
 
+/**
+ * An edit aimed at an asset whose bytes are not ours to replace (ADR-0026 §3).
+ *
+ * A referenced asset lives in a user directory, and invariant 6 forbids writing
+ * there under any framing. The offer is to duplicate it into the library and
+ * edit that, which is a new file that happens to share an ancestor — never a
+ * managed asset that quietly supersedes the user's own and leaves it on disk,
+ * unchanged and now wrong.
+ */
+export class NotEditableError extends RoostError {
+  readonly code = "not_editable";
+
+  constructor(needle: string, reason: string) {
+    super(`${needle} cannot be edited: ${reason}`, { needle, reason });
+  }
+}
+
+/**
+ * A new file with nothing in it (ADR-0026 §4).
+ *
+ * Every empty file has one BLAKE3 hash and `assets.hash` is the primary key, so
+ * an empty `notes.txt` and an empty `notes.md` cannot both exist and "New File"
+ * twice would yield one row. A new file is therefore a draft in the window
+ * until it has bytes that make it itself — which is also the first moment its
+ * extension means anything.
+ */
+export class EmptyFileError extends RoostError {
+  readonly code = "empty_file";
+
+  constructor(name: string) {
+    super(`${name} has nothing in it — an empty file has nothing to identify it`, { name });
+  }
+}
+
+/**
+ * More bytes than an edit is allowed to carry.
+ *
+ * The window a text asset is *read* through and the ceiling on what a save may
+ * write are deliberately the same number: saving what was only partly read
+ * would silently discard everything past the window, which is the one way this
+ * feature could destroy a file rather than replace it.
+ */
+export class EditTooLargeError extends RoostError {
+  readonly code = "edit_too_large";
+
+  constructor(size: number, limit: number) {
+    super(`An edit may carry at most ${limit} bytes; this one is ${size}`, { size, limit });
+  }
+}
+
 export class AmbiguousHashError extends RoostError {
   readonly code = "ambiguous_hash";
 

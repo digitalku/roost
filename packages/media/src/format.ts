@@ -31,6 +31,7 @@ export const FORMATS = [
   "woff",
   "woff2",
   "zip",
+  "text",
   "unknown",
 ] as const;
 
@@ -63,6 +64,7 @@ const KIND_OF: Readonly<Record<Format, Kind>> = {
   woff: "font",
   woff2: "font",
   zip: "other",
+  text: "text",
   unknown: "other",
 };
 
@@ -102,6 +104,11 @@ const MEDIA_TYPE_OF: Readonly<Record<Format, string>> = {
   woff: "font/woff",
   woff2: "font/woff2",
   zip: "application/zip",
+  // No `charset`, deliberately. What a text file is encoded in is a question
+  // the reader answers after looking at the bytes (ADR-0026 §Stages), and
+  // asserting UTF-8 here would make a Windows-1252 subtitle render as mojibake
+  // that looks like the file's own fault.
+  text: "text/plain",
   // A guess would make a webview try to render bytes it cannot read; this makes
   // it offer to save the file instead.
   unknown: "application/octet-stream",
@@ -148,6 +155,28 @@ const FORMAT_OF_EXTENSION: Readonly<Record<string, Format>> = {
   woff: "woff",
   woff2: "woff2",
   zip: "zip",
+  // Text has no signature, so the extension carries more weight here than it
+  // does anywhere else in this table. The list is an allowlist on purpose: a
+  // format that is text underneath but has its own reader — SVG — is not on it.
+  txt: "text",
+  text: "text",
+  md: "text",
+  markdown: "text",
+  srt: "text",
+  vtt: "text",
+  ass: "text",
+  ssa: "text",
+  log: "text",
+  csv: "text",
+  tsv: "text",
+  json: "text",
+  yaml: "text",
+  yml: "text",
+  toml: "text",
+  ini: "text",
+  cfg: "text",
+  conf: "text",
+  xml: "text",
 };
 
 /**
@@ -253,5 +282,48 @@ export function sniff(bytes: Uint8Array): Format {
   // already claimed by its own signature.
   if (contains(bytes, "<svg")) return "svg";
 
+  // Text is decided by what the bytes are *not*, so it goes after every
+  // signature above — including SVG, which is text with a reader of its own.
+  if (looksLikeText(bytes)) return "text";
+
   return "unknown";
+}
+
+/**
+ * Whether a leading window reads as text.
+ *
+ * There is no magic number for text, so this is a negative test: no NUL, no
+ * stray C0 control, no DEL. Everything from 0x20 up is allowed, which passes
+ * UTF-8 and a legacy single-byte encoding alike — deliberately, because most
+ * subtitles in the wild are Windows-1252 rather than UTF-8. Deciding *which*
+ * encoding is the reader's problem (ADR-0026 §Stages), not the sniffer's, and
+ * a validity test here would reject exactly the files this exists to accept.
+ *
+ * **It can be fooled, and the cost of being fooled is small.** A headerless
+ * binary whose first 64 bytes happen to be printable will preview as text
+ * instead of offering "Open externally". Every binary format Roost knows is
+ * claimed by a signature before this is reached.
+ */
+function looksLikeText(bytes: Uint8Array): boolean {
+  // An empty file is not text; it is nothing. Calling it text would give the
+  // preview an editor over no bytes and a name with no content behind it.
+  if (bytes.length === 0) return false;
+
+  // UTF-16 is full of NULs, so it has to be recognised before the scan below
+  // rejects it. Only with a BOM: headerless UTF-16 is indistinguishable from
+  // binary at this width.
+  if (startsWith(bytes, [0xff, 0xfe]) || startsWith(bytes, [0xfe, 0xff])) return true;
+  if (startsWith(bytes, [0xef, 0xbb, 0xbf])) return true;
+
+  for (const byte of bytes) {
+    if (byte === 0x00) return false;
+    // Tab, line feed, form feed and carriage return are the only C0 controls a
+    // text file has any business carrying.
+    if (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0c && byte !== 0x0d) {
+      return false;
+    }
+    if (byte === 0x7f) return false;
+  }
+
+  return true;
 }

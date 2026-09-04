@@ -189,11 +189,15 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
   generated in the same run, unlike the CLI's two commands, because the grid an import produces
   is otherwise a screen of placeholders. Referenced mode and per-run tags are in `TODO.md`
 - ☑ CSS token check wired into the build **before the first component**
-- ◐ Frontend test harness — the thing `roost-old` never had, and the reason a transparent panel
-  shipped. In place before the first component; the grid, the preview, and the inspector get
-  their tests as they arrive
+- ☑ Frontend test harness — the thing `roost-old` never had, and the reason a transparent panel
+  shipped. In place before the first component; the grid, the preview, and the inspector got
+  their tests as they arrived. **Both halves are there from 2026-09-03**: the component tests in
+  `vitest`, and `scripts/lib/` for the claims a component test cannot make — layout, the cascade,
+  a real pointer, and a gesture. Five scripts drive a window on it
 - ☑ Scroll benchmark mode: frame percentiles, refusing to report when the window is not
   composited. `node scripts/bench-window.mjs <LIBRARY>`
+- ☑ The grid's layout, its selection paint, and its marquee held to `UI_SPEC.md` §6 in a real
+  window. `node scripts/check-grid.mjs`, which refuses on the same ground the benchmark does
 - ☑ Cold-start measurement from process launch to interactive grid — the same script, because
   the two share a window and neither is worth a second launch
 
@@ -254,6 +258,22 @@ is listed here, so the order stays visible instead of becoming folklore.
   Migration 0008, three journal ops, the library API, `roost comment`, the three contract
   requests, the inspector's list, and the marker strip under the player. What is **not** done is
   seeing it in a real window, which is the fifth thing now waiting on `check-grid.mjs`
+- ☐ **Making files in the library, and editing text** — asked for 2026-09-03. ADR-0026,
+  **Accepted** the same day, because an edit in a content-addressed store is a new asset rather
+  than a write. Four stages, **two of them done that day**. Stage 1: `text` is a kind, sniffed as
+  a negative test after every signature, and the preview reads a text asset itself — a 2 MB range
+  over `roost://original/`, decoded in the renderer, with the encoding named. Stage 2: migration
+  0010, the `supersede` op, `saveEdit` with everything user-authored carried across as journal
+  lines, `is:superseded` as the second scope rule, `roost save`, and the editor — with four
+  refusals said out loud rather than shown as a missing button. Stage 3, **done 2026-09-04**: the menu over the grid's empty space — Paste
+  (four gestures, and a link is never fetched), New text file, and New file… — with the clipboard
+  parsed in main and a draft that is a name and a buffer until its first save. **Stage 4 is not
+  started**: *Import from URL…*, invariant 7's one exception written out explicitly. One question
+  opened on the way and blocks nothing yet: *Duplicate into library to edit* cannot mean
+  duplicate, because identical bytes are one asset (`TODO.md` §3)
+- ☐ **Subtitles** — ADR-0025, **Accepted** 2026-09-03, from the user asking how Roost should do
+  what Eagle does with an `.srt` dropped beside a video. The `.srt` is an ordinary asset, the
+  attachment is a journal line, and the convention survives only as an import-time heuristic
 - ☐ **A video transport of our own** — ADR-0024, **Accepted** 2026-09-02, from the user asking why
   Eagle's player feels part of the application and ours does not. Four stages: parity plus the
   comment marks moved onto the timeline, then frame stepping and speed and A-B loop, then
@@ -300,17 +320,29 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-02.** ADR-0024 — a video transport of our own — was accepted the
-same day it was proposed, after the user asked what media player Eagle uses and the answer turned
-out to be "the same one, with the controls turned off". It was accepted with a measurement owed
-rather than done — four player libraries against invariant 7, the bundle budget, and whether a mark
+**Nothing open, as of 2026-09-03.** Two were decided that day, both on the day they were
+proposed, and the second had its first stage built the same afternoon. **ADR-0026 — an edit is
+a new asset** came from the user asking for Paste and New File on the grid's empty space and
+for text assets to be edited inside Roost; editing changes the bytes that *are* the identity,
+so a save is an import plus a `supersede`, everything hanging off the old asset travels to the
+new one, a referenced asset stays read-only because invariant 6 does not bend, and New File is
+a draft until it has bytes — an empty file being representable exactly once per library, which
+is the one part of the request that could not be served as asked and is said so in the ADR
+rather than quietly narrowed. **ADR-0025** — subtitles. It came from the user asking how Roost
+should do what Eagle does with an `.srt` dropped beside a video, and the answer could not be
+Eagle's, whose mechanism is a folder per asset. Here the convention survives as an import-time
+heuristic and the attachment becomes a journal line. It blocks nothing and nothing is built
+against it. Before it, ADR-0024 — a video transport of our own — was accepted the same day it
+was proposed, after the user asked what media player Eagle uses and the answer turned out to be
+"the same one, with the controls turned off". It was accepted with a measurement owed rather
+than done — four player libraries against invariant 7, the bundle budget, and whether a mark
 can go on their timeline without a fork — and stage 1 was then built ahead of it, at the user's
-asking, over the slider primitive this repository already depends on. That question decided *how*,
-never whether, and it is deferred rather than closed: `TODO.md` §3 keeps it, now with a real
-baseline to beat. Before it, ADR-0023 — comments that carry a moment — was accepted the
+asking, over the slider primitive this repository already depends on. That question decided
+*how*, never whether, and it is deferred rather than closed: `TODO.md` §3 keeps it, now with a
+real baseline to beat. Before it, ADR-0023 — comments that carry a moment — was accepted the
 day after it was proposed. The five questions the language change forced were settled together,
-before any code was written against them — which is the cheapest moment they could
-have been settled, and the reason M0 can start without working around an unknown.
+before any code was written against them — which is the cheapest moment they could have been
+settled, and the reason M0 can start without working around an unknown.
 
 | Question | Outcome | Record |
 | --- | --- | --- |
@@ -346,6 +378,13 @@ not draw, all settled before any of them was written against:
 | Windows | Several windows onto one library. Several libraries at once is refused for now, and the work it would need is named | ADR-0020 |
 
 | UI primitives | `radix-ui` 1.6.7, measured against three alternatives. Native `Menu.popup()` was recommended first, on the user's request for the OS's own menus, and reversed by finding that Electron draws its own menu on Linux — the only platform v1 ships | ADR-0021 |
+
+**And two on 2026-09-03, both from asking what Eagle does and finding that its answer does not fit a content-addressed store:**
+
+| Question | Outcome | Record |
+| --- | --- | --- |
+| Subtitles | The `.srt` is an ordinary content-addressed asset and the attachment is a journal line (`subtitle_attach`), so Eagle's "drop it in the folder" survives only as an import-time heuristic. An attached track leaves the grid and comes back with `is:subtitle`; cues in the index make `said:"…"` a search that answers with a moment | ADR-0025 |
+| What an edit is | A save is an import plus `supersede { from, to }`, everything user-authored carried across, `superseded_by` a column. A referenced asset is read-only. New File is a draft until it has bytes, because every empty file has one hash | ADR-0026 |
 
 **M5 and M6 are deferred**, at the user's request on 2026-08-30: feature work first, and both
 milestones get planned once the feature set has settled. Nothing below them is cancelled; the

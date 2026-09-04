@@ -236,6 +236,9 @@ function toFlag(value: string, at: number): Flag {
     case "trashed":
     case "trash":
       return "trashed";
+    case "superseded":
+    case "old":
+      return "superseded";
     default:
       throw queryError("unknown-flag", `There is no "is:${value}"`, at, { value });
   }

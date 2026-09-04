@@ -1,3 +1,4 @@
+import { MATCH_LIVE } from "@roost/core";
 import { describe, expect, it } from "vitest";
 import {
   buildQuery,
@@ -210,7 +211,7 @@ describe("compiling", () => {
 
   it("answers a folder nobody created with an empty match, not an error", () => {
     const filter = buildQuery("folder:Nowhere");
-    expect(filter.sql).toBe("(0) AND a.trashed_at IS NULL");
+    expect(filter.sql).toBe("(0) AND a.trashed_at IS NULL AND a.superseded_by IS NULL");
     expect(filter.params).toEqual([]);
   });
 
@@ -235,29 +236,54 @@ describe("compiling", () => {
 
   it("compiles a flag without binding anything it did not have to", () => {
     expect(compileQuery(parse("is:favorite"), NO_FOLDERS)).toEqual({
-      sql: "(a.is_favorite = 1) AND a.trashed_at IS NULL",
+      sql: "(a.is_favorite = 1) AND a.trashed_at IS NULL AND a.superseded_by IS NULL",
       params: [],
     });
     // Except the two that name a column value, which stay bound like any other.
     expect(buildQuery("is:managed").params).toEqual(["managed"]);
   });
 
-  it("scopes every query to live assets", () => {
+  it("scopes every query to live, current assets", () => {
     // Trash is a state, not a place (ADR-0022), so a trashed asset is still a
     // row `tag:wip` would otherwise match. The scoping is what makes deleting
-    // something mean it stops turning up.
+    // something mean it stops turning up — and superseding is the same argument
+    // about editing (ADR-0026): every intermediate save would otherwise be in
+    // every result.
     for (const query of ["tag:wip", "is:favorite", "rating:>=4", "beach", "-tag:wip"]) {
-      expect(buildQuery(query).sql.endsWith(" AND a.trashed_at IS NULL")).toBe(true);
+      expect(
+        buildQuery(query).sql.endsWith(" AND a.trashed_at IS NULL AND a.superseded_by IS NULL"),
+      ).toBe(true);
     }
   });
 
-  it("lets `is:trashed` out of the scoping, at any depth and in any polarity", () => {
-    expect(buildQuery("is:trashed").sql).toBe("a.trashed_at IS NOT NULL");
+  it("spells the scope exactly as the partial indexes require", () => {
+    // Migrations 0007 and 0010 made every grid index partial on this predicate,
+    // and SQLite uses a partial index only when the query's WHERE contains a
+    // term implying the index's. So the wording and the order are part of the
+    // schema, and `MATCH_LIVE` is the copy the listings use — the two must not
+    // drift, or a grid stops seeking and starts scanning with nothing failing.
+    expect(buildQuery("tag:wip").sql.endsWith(` AND ${MATCH_LIVE.sql}`)).toBe(true);
+  });
+
+  it("lets a scope flag out of its own rule and no other", () => {
+    // `is:trashed` opts out of the trash half. The superseded half stays: a
+    // superseded row in the trash is still a version rather than something
+    // somebody deleted.
+    expect(buildQuery("is:trashed").sql).toBe(
+      "(a.trashed_at IS NOT NULL) AND a.superseded_by IS NULL",
+    );
+    expect(buildQuery("is:superseded").sql).toBe(
+      "(a.superseded_by IS NOT NULL) AND a.trashed_at IS NULL",
+    );
+    // Both named, and the query is scoped by neither.
+    expect(buildQuery("is:trashed AND is:superseded").sql).not.toContain("IS NULL");
     // Nested, so that the check is over the whole tree rather than the root.
-    expect(buildQuery("is:trashed AND tag:wip").sql).not.toContain("IS NULL");
+    expect(buildQuery("is:trashed AND tag:wip").sql).not.toContain("a.trashed_at IS NULL");
     // Negated, where the default scoping would have produced the same predicate
     // anyway — opting out must not be able to widen a query.
-    expect(buildQuery("-is:trashed").sql).toBe("NOT (a.trashed_at IS NOT NULL)");
+    expect(buildQuery("-is:trashed").sql).toBe(
+      "(NOT (a.trashed_at IS NOT NULL)) AND a.superseded_by IS NULL",
+    );
   });
 });
 

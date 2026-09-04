@@ -26,6 +26,7 @@ import {
 import { poster } from "./commands/poster.js";
 import { query } from "./commands/query.js";
 import { rebuild } from "./commands/rebuild.js";
+import { save } from "./commands/save.js";
 import { show } from "./commands/show.js";
 import { smart } from "./commands/smart.js";
 import { stats } from "./commands/stats.js";
@@ -90,6 +91,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
     remove: { type: "string" },
   },
   poster: { at: { type: "string" }, clear: { type: "boolean" } },
+  save: { clear: { type: "boolean" } },
   favorite: { off: { type: "boolean" } },
   rename: {},
   trash: { restore: { type: "boolean" }, empty: { type: "boolean" } },
@@ -340,6 +342,12 @@ async function dispatch(
       const [asset] = positionals;
       if (asset === undefined) return usage(streams, command, "poster needs an asset");
       return poster(await library(), asset, text(values, "at"), flag(values, "clear"), streams);
+    }
+
+    case "save": {
+      const [asset, file] = positionals;
+      if (asset === undefined) return usage(streams, command, "save needs an asset");
+      return save(await library(), asset, file, flag(values, "clear"), streams);
     }
 
     case "favorite": {

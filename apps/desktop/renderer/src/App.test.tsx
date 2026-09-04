@@ -500,6 +500,103 @@ describe("the library view", () => {
   });
 });
 
+describe("making files in the window (ADR-0026 §4, §5)", () => {
+  const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+  const open = async (options: ConstructorParameters<typeof FakeEngine>[0] = {}) => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 0 },
+      assets: [],
+      ...options,
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+    return { engine, user };
+  };
+
+  /** Right-clicks the empty library, where the menu over nothing lives. */
+  const openMenu = async (): Promise<void> => {
+    const empty = await screen.findByText("Nothing in this library yet.");
+    empty.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await screen.findByRole("menu");
+  };
+
+  it("makes a file from a draft, and refuses one with nothing in it", async () => {
+    const { engine, user } = await open();
+    await openMenu();
+    await user.click(screen.getByRole("menuitem", { name: "New text file" }));
+
+    const editor = await screen.findByRole("textbox", { name: "New file" });
+    // Nothing is written yet: a draft is a name and a buffer with no row behind
+    // them, and an empty file has no identity to be saved under.
+    expect(engine.seen.some((request) => request.type === "asset:create")).toBe(false);
+    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
+
+    await user.type(editor, "- write it down");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:create")).toEqual([
+        { type: "asset:create", name: "untitled.txt", text: "- write it down" },
+      ]),
+    );
+  });
+
+  it("lets the extension be typed, because that is what New file… is for", async () => {
+    const { engine, user } = await open();
+    await openMenu();
+    await user.click(screen.getByRole("menuitem", { name: "New file…" }));
+
+    const name = await screen.findByLabelText("Name");
+    expect((name as HTMLInputElement).value).toBe("untitled");
+    await user.clear(name);
+    await user.type(name, "notes.md");
+    await user.type(screen.getByRole("textbox", { name: "New file" }), "# notes");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:create")).toEqual([
+        { type: "asset:create", name: "notes.md", text: "# notes" },
+      ]),
+    );
+  });
+
+  it("opens a draft when the clipboard holds words", async () => {
+    const { user } = await open({ clipboard: { kind: "text", text: "pasted words" } });
+    await openMenu();
+    await user.click(screen.getByRole("menuitem", { name: "Paste" }));
+
+    // A paragraph on the clipboard is something to put in a file, not a file.
+    const editor = await screen.findByRole("textbox", { name: "New file" });
+    expect((editor as HTMLTextAreaElement).value).toBe("pasted words");
+  });
+
+  it("does not fetch a link, and says so", async () => {
+    const { engine, user } = await open({
+      clipboard: { kind: "url", url: "https://example.com/a.png" },
+    });
+    await openMenu();
+    await user.click(screen.getByRole("menuitem", { name: "Paste" }));
+
+    // Invariant 7 permits one network operation, and it is not one a Ctrl+V may
+    // trigger.
+    expect(await screen.findByText(/never fetches a link/)).toBeDefined();
+    expect(engine.seen.some((request) => request.type === "import:paths")).toBe(false);
+  });
+
+  it("says when the clipboard had nothing on it", async () => {
+    const { user } = await open();
+    await openMenu();
+    await user.click(screen.getByRole("menuitem", { name: "Paste" }));
+    expect(await screen.findByText("Nothing on the clipboard")).toBeDefined();
+  });
+});
+
 describe("the navigation pane, in the window", () => {
   const HOLIDAY = "/home/you/Holiday Photos.roost";
 

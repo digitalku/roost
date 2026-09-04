@@ -55,6 +55,7 @@ export {
 export {
   FULL_HASH_MAX_BYTES,
   type Hashed,
+  hashBytes,
   hashFile,
   PARTIAL_WINDOW_BYTES,
 } from "./hash.js";

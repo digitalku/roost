@@ -150,6 +150,9 @@ export class IndexSink implements ReplaySink {
       case "favorite_set":
         repo.applyFavoriteSet(record.hash, record.favorite);
         return;
+      case "supersede":
+        repo.applySupersede(record.hash, record.to);
+        return;
       case "smart_folder_create":
         repo.applySmartFolderCreate(record.id, record.parent, record.name, record.query);
         return;

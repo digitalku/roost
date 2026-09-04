@@ -337,3 +337,106 @@
 .preview-player:fullscreen .transport {
   padding: var(--space-3) var(--space-4);
 }
+
+/* A text asset, read (UI_SPEC.md §7). The body scrolls and the note under it
+   does not, which is why this is a column rather than one scrolling block: the
+   encoding is a fact about what is on screen and has to stay on screen. */
+
+.preview-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* The stage centres what it holds; text is the one thing that wants all of
+     it, in both directions. */
+  flex: 1;
+  align-self: stretch;
+  min-height: 0;
+}
+
+.preview-text-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-4);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+/* `pre-wrap`, not `pre`. A subtitle line and a log line are both long, and a
+   horizontal scrollbar under a wall of text means reading it twice. */
+.preview-text-pre {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+
+.preview-text-body:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.preview-text-note {
+  display: flex;
+  flex: none;
+  gap: var(--space-3);
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+}
+
+/* Editing (ADR-0026). The textarea takes the reader's box exactly, so the
+   picture does not move when the Edit button is pressed — the only thing that
+   changes is that the words became typeable. */
+.preview-text-editor {
+  display: block;
+  width: 100%;
+  color: inherit;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  font-family: var(--font-mono);
+  resize: none;
+  tab-size: 4;
+}
+
+.preview-text-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.preview-text-refusal {
+  color: var(--text-muted);
+}
+
+.preview-text-problem {
+  color: var(--danger-4);
+}
+
+/* A file that does not exist yet (ADR-0026 §4). The name sits above the text
+   because it is part of what is being made — an extension typed after the
+   bytes, not asked for before them. */
+.preview-draft-name {
+  display: flex;
+  flex: none;
+  gap: var(--space-3);
+  align-items: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.preview-draft-name input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: inherit;
+  font-size: var(--text-base);
+  font-family: var(--font-mono);
+}

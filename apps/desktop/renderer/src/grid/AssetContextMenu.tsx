@@ -31,6 +31,16 @@ import { type ConfirmRequest, useTrashActions } from "./trash-actions.js";
  * what the rating and tag items are still waiting for.
  */
 
+/**
+ * What a new draft is called before anybody renames it.
+ *
+ * **New text file** carries an extension and **New file…** does not, which is
+ * the whole difference between the two items: one is the common case and the
+ * other is the one where the extension is the point.
+ */
+export const DEFAULT_TEXT_NAME = "untitled.txt";
+export const DEFAULT_NAME = "untitled";
+
 export interface AssetContextMenuProps {
   /** The selection. Empty means there is no menu to open. */
   readonly hashes: readonly string[];
@@ -50,6 +60,19 @@ export interface AssetContextMenuProps {
    * Absent over the grid, where there is no player and so nothing to pin.
    */
   readonly onPosterPinned?: (hash: string, posterMs: number | null) => void;
+  /**
+   * Right-clicked on the grid's empty space (ADR-0026 §5, §4).
+   *
+   * Both or neither: with them the menu over nothing offers Paste and the two
+   * ways to make a file, and without them there is no menu there at all —
+   * which is what the preview wants, where every right-click is over the asset
+   * on screen. **An empty selection *is* the empty space**: right-clicking a
+   * cell selects it first, so a menu with nothing to act on can only have been
+   * opened over the background.
+   */
+  readonly onPaste?: () => void;
+  /** Opens an unsaved draft under this name. Nothing is written yet. */
+  readonly onNewFile?: (name: string) => void;
   readonly children: React.ReactNode;
 }
 
@@ -61,10 +84,13 @@ export function AssetContextMenu({
   onConfirm,
   onGone,
   onPosterPinned,
+  onPaste,
+  onNewFile,
   children,
 }: AssetContextMenuProps): React.JSX.Element {
   const count = hashes.length;
   const only = count === 1 ? hashes[0] : undefined;
+  const background = count === 0 && onPaste !== undefined && onNewFile !== undefined;
   const restoreTo = useRef<HTMLElement | null>(null);
   // Subscribed rather than read once: the menu is mounted around the content
   // region, and what is in that region changes under it.
@@ -131,7 +157,7 @@ export function AssetContextMenu({
         }
       }}
     >
-      <ContextMenu.Trigger className="menu-area" disabled={count === 0}>
+      <ContextMenu.Trigger className="menu-area" disabled={count === 0 && !background}>
         {children}
       </ContextMenu.Trigger>
 
@@ -149,93 +175,133 @@ export function AssetContextMenu({
             restoreTo.current?.focus();
           }}
         >
-          <ContextMenu.Item
-            className="menu-item"
-            disabled={only === undefined}
-            onSelect={() => {
-              if (only !== undefined) void invoke({ type: "asset:openExternally", hash: only });
-            }}
-          >
-            <span className="menu-mark" />
-            <span className="menu-label">Open</span>
-          </ContextMenu.Item>
-
-          <ContextMenu.Item
-            className="menu-item"
-            disabled={only === undefined}
-            onSelect={() => {
-              if (only !== undefined) void invoke({ type: "asset:reveal", hash: only });
-            }}
-          >
-            <span className="menu-mark" />
-            <span className="menu-label">Show in file manager</span>
-          </ContextMenu.Item>
-
-          {frames && (
+          {background ? (
+            /* The menu over nothing (ADR-0026). Three items and no separator:
+               all three make an asset, and the only difference between them is
+               where the bytes come from. */
             <>
-              <ContextMenu.Separator className="menu-separator" />
-
-              <ContextMenu.Item className="menu-item" onSelect={() => pinPoster(playhead.now())}>
+              <ContextMenu.Item className="menu-item" onSelect={() => onPaste?.()}>
                 <span className="menu-mark" />
-                <span className="menu-label">Set this frame as the thumbnail</span>
+                <span className="menu-label">Paste</span>
               </ContextMenu.Item>
 
-              {/* Always beside it rather than only when a moment is set: the
+              <ContextMenu.Separator className="menu-separator" />
+
+              <ContextMenu.Item
+                className="menu-item"
+                onSelect={() => onNewFile?.(DEFAULT_TEXT_NAME)}
+              >
+                <span className="menu-mark" />
+                <span className="menu-label">New text file</span>
+              </ContextMenu.Item>
+
+              {/* No extension, so the draft's name field is where one is typed:
+                  a file with no bytes has no address and no identity, so the
+                  extension only starts meaning something at the first save
+                  (ADR-0026 §4). */}
+              <ContextMenu.Item className="menu-item" onSelect={() => onNewFile?.(DEFAULT_NAME)}>
+                <span className="menu-mark" />
+                <span className="menu-label">New file…</span>
+              </ContextMenu.Item>
+            </>
+          ) : null}
+
+          {background ? null : (
+            <>
+              <ContextMenu.Item
+                className="menu-item"
+                disabled={only === undefined}
+                onSelect={() => {
+                  if (only !== undefined) void invoke({ type: "asset:openExternally", hash: only });
+                }}
+              >
+                <span className="menu-mark" />
+                <span className="menu-label">Open</span>
+              </ContextMenu.Item>
+
+              <ContextMenu.Item
+                className="menu-item"
+                disabled={only === undefined}
+                onSelect={() => {
+                  if (only !== undefined) void invoke({ type: "asset:reveal", hash: only });
+                }}
+              >
+                <span className="menu-mark" />
+                <span className="menu-label">Show in file manager</span>
+              </ContextMenu.Item>
+
+              {frames && (
+                <>
+                  <ContextMenu.Separator className="menu-separator" />
+
+                  <ContextMenu.Item
+                    className="menu-item"
+                    onSelect={() => pinPoster(playhead.now())}
+                  >
+                    <span className="menu-mark" />
+                    <span className="menu-label">Set this frame as the thumbnail</span>
+                  </ContextMenu.Item>
+
+                  {/* Always beside it rather than only when a moment is set: the
                   engine writes nothing when the thumbnail is already on the
                   default frame, and a menu whose items appear and disappear
                   with state nothing on screen shows is a menu people misread. */}
-              <ContextMenu.Item className="menu-item" onSelect={() => pinPoster(null)}>
-                <span className="menu-mark" />
-                <span className="menu-label">Use the default frame</span>
-              </ContextMenu.Item>
-            </>
-          )}
+                  <ContextMenu.Item className="menu-item" onSelect={() => pinPoster(null)}>
+                    <span className="menu-mark" />
+                    <span className="menu-label">Use the default frame</span>
+                  </ContextMenu.Item>
+                </>
+              )}
 
-          <ContextMenu.Separator className="menu-separator" />
+              <ContextMenu.Separator className="menu-separator" />
 
-          <ContextMenu.Item className="menu-item" onSelect={copyPaths}>
-            <span className="menu-mark" />
-            <span className="menu-label">{count === 1 ? "Copy path" : `Copy ${count} paths`}</span>
-          </ContextMenu.Item>
-
-          <ContextMenu.Item className="menu-item" onSelect={() => void exportTo()}>
-            <span className="menu-mark" />
-            <span className="menu-label">
-              {count === 1 ? "Export…" : `Export ${count} assets…`}
-            </span>
-          </ContextMenu.Item>
-
-          <ContextMenu.Separator className="menu-separator" />
-
-          {inTrash ? (
-            <>
-              <ContextMenu.Item className="menu-item" onSelect={restore}>
+              <ContextMenu.Item className="menu-item" onSelect={copyPaths}>
                 <span className="menu-mark" />
                 <span className="menu-label">
-                  {count === 1 ? "Restore" : `Restore ${count} assets`}
+                  {count === 1 ? "Copy path" : `Copy ${count} paths`}
                 </span>
               </ContextMenu.Item>
 
-              <ContextMenu.Item className="menu-item" onSelect={deletePermanently}>
+              <ContextMenu.Item className="menu-item" onSelect={() => void exportTo()}>
                 <span className="menu-mark" />
-                <span className="menu-label">Delete permanently</span>
+                <span className="menu-label">
+                  {count === 1 ? "Export…" : `Export ${count} assets…`}
+                </span>
               </ContextMenu.Item>
 
               <ContextMenu.Separator className="menu-separator" />
 
-              <ContextMenu.Item className="menu-item" onSelect={emptyTrash}>
-                <span className="menu-mark" />
-                <span className="menu-label">Empty trash</span>
-              </ContextMenu.Item>
+              {inTrash ? (
+                <>
+                  <ContextMenu.Item className="menu-item" onSelect={restore}>
+                    <span className="menu-mark" />
+                    <span className="menu-label">
+                      {count === 1 ? "Restore" : `Restore ${count} assets`}
+                    </span>
+                  </ContextMenu.Item>
+
+                  <ContextMenu.Item className="menu-item" onSelect={deletePermanently}>
+                    <span className="menu-mark" />
+                    <span className="menu-label">Delete permanently</span>
+                  </ContextMenu.Item>
+
+                  <ContextMenu.Separator className="menu-separator" />
+
+                  <ContextMenu.Item className="menu-item" onSelect={emptyTrash}>
+                    <span className="menu-mark" />
+                    <span className="menu-label">Empty trash</span>
+                  </ContextMenu.Item>
+                </>
+              ) : (
+                <ContextMenu.Item className="menu-item" onSelect={trash}>
+                  <span className="menu-mark" />
+                  <span className="menu-label">
+                    {count === 1 ? "Move to trash" : `Move ${count} assets to trash`}
+                  </span>
+                  <span className="menu-accelerator">Del</span>
+                </ContextMenu.Item>
+              )}
             </>
-          ) : (
-            <ContextMenu.Item className="menu-item" onSelect={trash}>
-              <span className="menu-mark" />
-              <span className="menu-label">
-                {count === 1 ? "Move to trash" : `Move ${count} assets to trash`}
-              </span>
-              <span className="menu-accelerator">Del</span>
-            </ContextMenu.Item>
           )}
         </ContextMenu.Content>
       </ContextMenu.Portal>

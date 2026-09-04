@@ -287,6 +287,28 @@ or not a moment is set — the engine writes nothing when the thumbnail is alrea
 frame, and a menu whose rows appear and vanish with state nothing on screen shows is a menu people
 misread.
 
+**Over the grid's empty space the menu is a different menu** (ADR-0026 §4, §5). Nothing is
+selected, so nothing can be acted on — and the three things that make sense there are the three
+ways to bring an asset into being:
+
+| Item | Behaviour |
+| --- | --- |
+| **Paste** | Four gestures wearing one name. Files from a file manager are imported; image bytes are imported under a synthesised name (`Pasted 2026-09-04 14.22.08.png`), because `orig_name` cannot be null and there is no name to be had; text opens a draft; **a link does nothing at all** |
+| **New text file** | A draft called `untitled.txt` |
+| **New file…** | A draft called `untitled`, with no extension, because typing one is the point of this row |
+
+**An empty selection *is* the empty space.** Right-clicking a cell selects it first, so a menu with
+nothing to act on can only have been opened over the background — no second detection, and no way
+for the two to disagree.
+
+**Pasting never fetches a link.** Invariant 7 permits exactly one network operation, an explicit
+user-initiated import from a URL, and a fetch triggered by `Ctrl+V` is what that rule exists to
+forbid. The status bar says so rather than the menu silently doing nothing.
+
+**The clipboard is read in main.** The renderer has no ambient authority (invariant 11), and the
+engine has no shell; what comes back over the contract is what was found and what was done about
+it.
+
 **Inside the Trash the last row is replaced, not extended.** `Move to trash` is gone there and
 `Restore`, `Delete permanently`, and `Empty trash` take its place, so "delete" never means two
 things in one menu. Which one applies is decided by comparing the query on screen against the one
@@ -602,6 +624,7 @@ list, and **stepping changes the selection**, so the inspector follows what is o
 | Video / audio | `<video>` / `<audio>` over `roost://original/`, which answers range requests, under a transport of ours — `controls` is off |
 | PDF | Page-through: `PageUp` / `PageDown` and two buttons, each page an `<img>` over `roost://page/<hash>/<n>@1024`. Arrow keys keep stepping between assets, so a document does not trap the keyboard |
 | Font | The specimen sheet the derive pass drew, with the family and style under it |
+| Text | The file itself, monospace, wrapped, with the encoding named under it — `.txt`, `.md`, `.srt`, a log. **Edit** makes it a textarea in the same box |
 | Anything else | The thumbnail, the metadata, and **Open externally** |
 
 **The transport is ours** (ADR-0024). The browser's control bar is a closed widget — nothing can be
@@ -645,6 +668,49 @@ and on the element's own events when it is still.
 
 The transport is drawn whether or not anything is on the timeline, so writing the first comment
 does not move the picture it is about.
+
+**Text is shown, not handed away** (ADR-0026 stage 1). A text asset is read over
+`roost://original/<hash>` like every other original, as a **range** rather than in full — a library
+holds anything, and a hundred-megabyte log decoded into one string on the thread drawing the window
+is a frozen window. Past that window the pane says it is showing the first part of a longer file
+rather than pretending the file ends there.
+
+**The encoding is named, because it was inferred.** Roost never rewrites the bytes it was given
+(invariant 6), so what a text file is encoded in is a property of the file rather than a promise
+the library made — and most subtitles in the wild are Windows-1252 rather than UTF-8. A
+byte-order mark is believed; anything else is decided from the bytes and labelled *detected*, so a
+line that looks wrong can be read as an encoding question rather than as a corrupt file.
+
+**Scrolling is the page keys, not the arrows.** Arrow keys step between assets everywhere in the
+preview, so the text body takes `PageUp`, `PageDown`, `Home` and `End` once it has focus — the same
+split that keeps a document from trapping the keyboard.
+
+**A file that does not exist yet is a draft** (ADR-0026 §4). **New file** cannot make a row,
+because in a content-addressed store a file with no bytes has no identity: every empty file has one
+hash, so an empty `notes.txt` and an empty `notes.md` cannot both exist. A draft is what carries a
+name until there are bytes — a name field, a textarea, `Ctrl+S` to save and `Escape` to abandon —
+and **Save stays disabled while it is empty**, with a line saying why rather than a button that
+fails when pressed. The name is edited here rather than asked for in a dialog: the extension is
+part of the name, and asking for one before there is anything to put in the file asks in the wrong
+order.
+
+Saving a draft whose bytes are already in the library answers with the asset that has them —
+identical bytes are one asset — and the status bar says so instead of pretending a second file was
+made.
+
+**Editing an existing text asset produces a new asset** (ADR-0026). **Edit** turns the reader into a textarea in the
+same box, so nothing moves but the words becoming typeable; `Escape` abandons the edit before it
+closes the preview, and `Ctrl+S` saves. What a save writes is a *new* asset carrying everything
+authored on the old one, and the old one is marked superseded — so the preview follows the new
+hash rather than going on showing the version it just replaced.
+
+**Where it cannot be edited, the pane says why rather than hiding the button.** Four rules, none
+of them a preference: a file **too long** to show in full cannot be saved from a partial read,
+which is the one way this could destroy bytes instead of replacing them; a **referenced** file is
+in the user's own folder, where invariant 6 forbids writing; a **trashed** asset would come back
+live, making editing a way of undeleting; and an **older version** would be superseded by the save,
+branching a chain meant to be a line. A control that is simply absent teaches nobody what the rule
+was.
 
 **Open externally** hands the file to the desktop's own handler. A Roost library is not only a
 media collection, and a format Roost cannot draw should not be a dead end.
@@ -725,6 +791,14 @@ In the preview, with a video or an audio file open (ADR-0024):
 | `,` / `.` | Step one frame back · on |
 | `<` / `>` | Step ten frames. Reachable with a pointer by pressing the button ten times; the key is the accelerator, not the only way |
 | `I` / `O` | Set the loop's start · end. The button beside the timeline does both, and clears |
+
+In the preview, with a text asset being edited (ADR-0026):
+
+| Key | Action |
+| --- | --- |
+| `Ctrl+S` | Save, which writes a **new** asset and supersedes the one on screen |
+| `Escape` | Abandon the edit. It does not close the preview until there is no edit to abandon |
+| `PageUp` / `PageDown` / `Home` / `End` | Scroll the text, once the body has focus. Arrows still step between assets |
 
 **Fullscreen has a button and no key.** `F` is the favourite, and a key that means one thing beside
 a video and another beside a picture is worse than a button. The media keys are read only while

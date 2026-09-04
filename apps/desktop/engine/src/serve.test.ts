@@ -425,6 +425,7 @@ describe("the engine's message loop", () => {
         "refPath",
         "size",
         "storageMode",
+        "supersededBy",
         "tags",
         "trashedAt",
         "width",

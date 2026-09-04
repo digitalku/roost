@@ -229,6 +229,46 @@ describe("the organize commands", () => {
     expect(await ok("poster", clip)).toEqual([expect.stringContaining("default frame")]);
   });
 
+  it("saves a file's bytes as an asset's new version", async () => {
+    // ADR-0005 again: the window can save an edit, so this can too — and the
+    // rebuild test needs a way to author a `supersede` without a window.
+    const replacement = join(dir, "replacement.png");
+    await writeFile(replacement, "roost test payload edited");
+    const first = hashes[0] as string;
+
+    const saved = await ok("save", first, replacement);
+    expect(saved[0]).toContain("superseded by");
+    expect(saved[0]).toContain("roost thumb");
+
+    // Out of every view but its own, which is what supersession means.
+    expect(await ok("query", "", "--hashes")).toHaveLength(3);
+    expect(await ok("query", "is:superseded", "--hashes")).toEqual([first]);
+
+    // The same bytes again write nothing, and say so rather than nothing.
+    const unchanged = join(dir, "unchanged.txt");
+    await writeFile(unchanged, "roost test payload, unchanged");
+    await ok("import", unchanged);
+    const other = (await ok("query", "ext:txt", "--hashes"))[0] as string;
+    expect((await ok("save", other, unchanged))[0]).toContain("already holds those bytes");
+
+    expect((await ok("save", first, "--clear"))[0]).toContain("current again");
+    expect(await ok("query", "", "--hashes")).toHaveLength(5);
+  });
+
+  it("refuses to save over an asset whose bytes are the user's own", async () => {
+    const kept = join(dir, "kept");
+    await mkdir(kept, { recursive: true });
+    await writeFile(join(kept, "notes.txt"), "not ours");
+    await ok("import", kept, "--mode", "referenced");
+    const referenced = (await ok("query", "is:referenced", "--hashes"))[0] as string;
+
+    const { streams, warn } = capture();
+    const replacement = join(dir, "ours.txt");
+    await writeFile(replacement, "ours now");
+    expect(await run(["save", referenced, replacement, "-L", root], streams)).toBe(EXIT.failed);
+    expect(warn.join("\n")).toContain("[not_editable]");
+  });
+
   it("refuses a thumbnail moment on something with no frames", async () => {
     const { streams, warn } = capture();
     expect(await run(["poster", hashes[0] as string, "--at", "1:00", "-L", root], streams)).toBe(

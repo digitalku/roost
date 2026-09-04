@@ -36,6 +36,7 @@ export const OP_NAMES = [
   "smart_folder_create",
   "smart_folder_delete",
   "smart_folder_update",
+  "supersede",
   "tag_add",
   "tag_group_create",
   "tag_group_delete",
@@ -170,6 +171,23 @@ export type Op =
    */
   | { readonly op: "poster_set"; readonly hash: ContentHash; readonly at: number | null }
   | { readonly op: "favorite_set"; readonly hash: ContentHash; readonly favorite: boolean }
+  /**
+   * Which asset replaced which (ADR-0026).
+   *
+   * Identity is the content hash, so an edit cannot be a write: the new bytes
+   * arrive as their own `add`, and this line is what says the old asset is no
+   * longer the current one. `to` is the replacement, and `null` clears the
+   * mark — "this is current again" and "that one replaced it" are the same
+   * decision with the value absent, exactly as `poster_set` treats `at`.
+   *
+   * **The chain is history and nothing prunes it.** Removing an old version is
+   * `remove` on that hash, a second and deliberate gesture. Everything
+   * user-authored travels to the replacement through the op that owns it —
+   * `tag_add`, `folder_add`, `rate`, and the rest — so a rebuild reconstructs
+   * the carry-over from the journal rather than from a rule in the code that
+   * replayed it.
+   */
+  | { readonly op: "supersede"; readonly hash: ContentHash; readonly to: ContentHash | null }
   | {
       readonly op: "smart_folder_create";
       readonly id: number;
@@ -377,6 +395,16 @@ export function toRecord(source: Raw): JournalRecord {
       return { ts, op, hash: hash(source, "hash"), at: moment(source) };
     case "favorite_set":
       return { ts, op, hash: hash(source, "hash"), favorite: bool(source, "favorite") };
+    case "supersede":
+      return {
+        ts,
+        op,
+        hash: hash(source, "hash"),
+        // Present and either a hash or explicitly `null`. An absent `to` is
+        // malformed rather than a clear: the two spellings would otherwise be
+        // the same line, and one of them is a bug in whatever wrote it.
+        to: req(source, "to") === null ? null : hash(source, "to"),
+      };
     case "smart_folder_create":
       return {
         ts,

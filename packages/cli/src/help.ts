@@ -24,6 +24,7 @@ export const COMMANDS = [
   "note",
   "comment",
   "poster",
+  "save",
   "favorite",
   "rename",
   "trash",
@@ -64,6 +65,7 @@ Commands:
   note      Set or clear an asset's note
   comment   Comment on an asset, or on a moment in one
   poster    Choose which frame a video's thumbnail comes from
+  save      Replace an asset's contents with a file's, as a new version
   favorite  Mark assets as favourites
   rename    Change an asset's display name. The file on disk is untouched
   trash     Move assets to the trash, restore them, or empty it
@@ -309,6 +311,30 @@ ${LIBRARY_FLAG}
       --list             List an asset's comments, with their ids
       --edit <ID>        Replace a comment's text, and its moment with --at
       --remove <ID>      Remove a comment
+${GLOBAL}`,
+
+  save: `Replace an asset's contents with a file's, as a new version.
+
+Usage: roost save <ASSET> <FILE>
+       roost save <ASSET> --clear
+
+Identity here is the content hash, so a save is not a write: the new bytes
+become a **new asset** and the old one is marked superseded, which takes it out
+of every view but \`is:superseded\`. Everything you authored travels with it —
+tags, folders, rating, note, favourite, the pinned frame, and the comments.
+
+Nothing is destroyed and nothing expires. An old version is still a row, and
+removing one is \`roost remove\` on it: a second, deliberate gesture.
+
+With --clear the asset stops being superseded and is current again.
+
+Refused for an asset whose bytes are your own — a referenced original lives in
+your directory, and Roost never writes there — and for one in the trash, since
+superseding it would produce a live replacement.
+
+Options:
+${LIBRARY_FLAG}
+      --clear            Make this asset current again
 ${GLOBAL}`,
 
   poster: `Choose which frame a video's thumbnail comes from.

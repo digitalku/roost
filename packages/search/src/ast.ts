@@ -29,6 +29,15 @@ export const FLAGS = [
    * `compile.ts`, which is where that happens.
    */
   "trashed",
+  /**
+   * Replaced by a newer version (ADR-0026).
+   *
+   * The second flag that changes a query's *scope* rather than narrowing it,
+   * and it is independent of the first: `is:trashed` opts out of the trash
+   * half and not of this one, because a superseded row in the trash is still a
+   * version rather than something somebody deleted.
+   */
+  "superseded",
 ] as const;
 
 export type Flag = (typeof FLAGS)[number];

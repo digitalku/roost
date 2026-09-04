@@ -1,4 +1,4 @@
-import { type Filter, MATCH_LIVE, type Param } from "@roost/core";
+import type { Filter, Param } from "@roost/core";
 import type { Compare, Expr, Flag, Term } from "./ast.js";
 
 /**
@@ -32,10 +32,14 @@ export const NO_FOLDERS: Folders = { subtree: () => [] };
 /**
  * Compiles an expression into a filter.
  *
- * **A query is scoped to live assets unless it mentions `is:trashed`.** Trash
- * is a state rather than a place (ADR-0022), so a trashed asset is still a row
- * that `tag:wip` would otherwise match — and an application where deleting
- * something leaves it in every search is one where deleting does not work.
+ * **A query is scoped by default, and each scope rule is opted out of by naming
+ * its flag.** Two rules as of ADR-0026, listed in {@link SCOPE}: not in the
+ * trash, and not replaced by a newer version. Trash is a state rather than a
+ * place (ADR-0022), so a trashed asset is still a row that `tag:wip` would
+ * otherwise match — and an application where deleting something leaves it in
+ * every search is one where deleting does not work. A superseded asset is the
+ * same argument about editing: every intermediate save would otherwise be in
+ * every result.
  *
  * Scoping here rather than in each caller is what makes the Trash place an
  * ordinary sidebar row: it carries `is:trashed` the way Favorites carries
@@ -44,32 +48,55 @@ export const NO_FOLDERS: Folders = { subtree: () => [] };
  * put the same rule in the engine, the CLI, and the renderer, and one of the
  * three would eventually forget it.
  *
- * Mentioning the flag in any polarity opts out, including under a `NOT`:
- * `-is:trashed` then compiles to the same predicate the default would have
- * added, so opting out cannot accidentally widen anything.
+ * Mentioning a flag in any polarity opts out of *that* rule and no other,
+ * including under a `NOT`: `-is:trashed` then compiles to the same predicate
+ * the default would have added, so opting out cannot accidentally widen
+ * anything.
  */
 export function compileQuery(expr: Expr, folders: Folders = NO_FOLDERS): Filter {
   const params: Param[] = [];
   const sql = write(expr, folders, params);
-  if (mentionsTrash(expr)) return { sql, params };
+  const scope = SCOPE.filter((rule) => !mentions(expr, rule.flag)).map((rule) => rule.sql);
+  if (scope.length === 0) return { sql, params };
   // `AND` at the top level, never nested inside the user's expression: SQLite
   // flattens a conjunction in the WHERE clause into separate terms, and it is
-  // that flattening which lets migration 0007's partial indexes apply.
-  return { sql: `(${sql}) AND ${MATCH_LIVE.sql}`, params };
+  // that flattening which lets migrations 0007 and 0010's partial indexes
+  // apply.
+  return { sql: `(${sql}) AND ${scope.join(" AND ")}`, params };
 }
 
-/** Whether `is:trashed` appears anywhere in a query, at any depth. */
-function mentionsTrash(expr: Expr): boolean {
+/**
+ * The flags that scope a query rather than narrowing it, and what each one
+ * adds when it is *not* mentioned.
+ *
+ * Two of them as of ADR-0026, and they are independent: `is:trashed` opts out
+ * of the trash rule and leaves the superseded one in force, because a
+ * superseded row in the trash is still a version rather than something somebody
+ * deleted. One table rather than a special case each — the third such rule is
+ * where a pattern becomes a design, and the fourth is where it becomes a bug.
+ *
+ * **The order is load-bearing.** Joined in this order the result is spelled
+ * exactly as `MATCH_LIVE` and as the partial indexes both migrations create,
+ * and SQLite uses a partial index only when the query's WHERE contains a term
+ * implying the index's. `query.test.ts` holds the two spellings together.
+ */
+const SCOPE: readonly { readonly flag: Flag; readonly sql: string }[] = [
+  { flag: "trashed", sql: "a.trashed_at IS NULL" },
+  { flag: "superseded", sql: "a.superseded_by IS NULL" },
+];
+
+/** Whether a flag appears anywhere in a query, at any depth and in any polarity. */
+function mentions(expr: Expr, flag: Flag): boolean {
   switch (expr.kind) {
     case "all":
       return false;
     case "term":
-      return expr.term.field === "flag" && expr.term.flag === "trashed";
+      return expr.term.field === "flag" && expr.term.flag === flag;
     case "not":
-      return mentionsTrash(expr.expr);
+      return mentions(expr.expr, flag);
     case "and":
     case "or":
-      return expr.branches.some(mentionsTrash);
+      return expr.branches.some((branch) => mentions(branch, flag));
   }
 }
 
@@ -186,6 +213,8 @@ function flagSql(flag: Flag, params: Param[]): string {
       return "a.is_partial_hash = 1";
     case "trashed":
       return "a.trashed_at IS NOT NULL";
+    case "superseded":
+      return "a.superseded_by IS NOT NULL";
     case "managed":
     case "referenced":
       params.push(flag);

@@ -4,7 +4,7 @@ Everything known to be outstanding, in priority order. `ROADMAP.md` holds the mi
 this file holds the working list, including the small things that surface during implementation
 and would otherwise be forgotten.
 
-Last reviewed: 2026-09-02. M5 and M6 are deferred at the user's request — feature work first,
+Last reviewed: 2026-09-03. M5 and M6 are deferred at the user's request — feature work first,
 and those two milestones get planned once the feature set has settled.
 
 Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 whenever
@@ -23,9 +23,35 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   Electron application, so its playback is Chromium's, with `controls` off and a transport drawn
   over it. The work is in §3 below.
 
-**Nothing blocking.** The five questions the language change forced were settled on 2026-08-24,
-before any code was written against them — ADR-0006 through ADR-0012, all Accepted. What they
-decided is in `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
+- ☑ ~~**ADR-0025 — subtitles.**~~ **Accepted 2026-09-03**, the day it was proposed, from the user asking how Roost should do what
+  Eagle does with an `.srt` dropped beside a video. Eagle's answer is a folder per asset, which
+  this layout does not have, so the proposal keeps the convention only as an import-time heuristic
+  and makes the attachment a journal line: the `.srt` is an ordinary content-addressed asset, a
+  `subtitle_attach` op names what it captions, migration 0010 holds the pair, and
+  `roost://subtitle/<hash>` serves WebVTT because `<track>` accepts nothing else. Three stages,
+  the third of which (cues in the index, `said:"…"`) is the part Eagle has no answer for. **The
+  one question that needed the user is already answered** — 2026-09-03, an attached track stays a
+  row in `assets`, leaves the grid, and comes back with `is:subtitle`. Nothing is built yet;
+  waiting on Accepted.
+
+- ☑ ~~**ADR-0026 — an edit is a new asset.**~~ **Accepted 2026-09-03**, the day it was proposed,
+  and **stage 1 was built the same day**. It governs
+  the whole of "making files in the library, and editing text" (§3) and nothing else. Its answer to
+  all three questions is one fact — the bytes *are* the identity, so a save cannot be a write.
+  A save imports the new bytes and journals `supersede { from, to }`, carrying tags, folders,
+  rating, comments, poster and any subtitle attachment across; `superseded_by` is a column
+  (migration 0011, schema v11) and a third hidden-by-default rule in the grid, which is where
+  those rules earn one predicate builder instead of three special cases. A referenced asset opens
+  **read-only** with *Duplicate into library to edit*, because invariant 6 does not bend. New File
+  is a draft in the window until it has bytes. Paste is four gestures and **never fetches a URL** —
+  invariant 7's one exception gets its own menu item that says so. **One part of the request cannot
+  be served and the ADR says so rather than narrowing it quietly**: an empty file exists once per
+  library, and no schema change worth making buys the second.
+
+**Nothing blocking.** ADR-0025 and ADR-0026 were both accepted on the day they were proposed. The
+five questions the language change forced were settled on 2026-08-24, before any code was
+written against them — ADR-0006 through ADR-0012, all Accepted. What they decided is in
+`ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
 
 Electron version policy was settled the same day: **track the stable line**, exact pin,
 deliberate bumps, never outside the supported three majors (ADR-0011). M0 pins whatever is
@@ -272,11 +298,29 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   an inline script would work in `pnpm dev` and fail in the packaged app — React emits none, so
   it is theoretical, but "works in dev" is the shape of bug this project keeps finding, so the
   packaged build has to be run before anything ships.
-- 🟡 **Nothing in CI launches a window yet.** `scripts/check-sandbox.mjs` and
-  `scripts/bench-window.mjs` both drive a real window and both are run by hand. They are not in
-  `pnpm verify` because they need Electron's binary and a session that composites — which is
-  also what `ELECTRON_SKIP_BINARY_DOWNLOAD` in CI is waiting for. The scripts exist; the job
-  does not.
+- 🟡 **Nothing in CI launches a window yet.** Five scripts now drive a real window —
+  `check-sandbox`, `check-trash`, `check-transport`, `check-grid`, and `bench-window` — and all
+  five are run by hand. They are not in `pnpm verify` because they need Electron's binary and a
+  session that composites, which is also what `ELECTRON_SKIP_BINARY_DOWNLOAD` in CI is waiting
+  for. Four of the five now **build their own fixture**, so the job needs nothing but a machine
+  that draws a window. The scripts exist; the job does not.
+  - **They all share `scripts/lib/`** since 2026-09-03: `window.mjs` (spawn, attach, evaluate,
+    settle, real pointer and key input, a screenshot, a frame-rate probe), `checks.mjs` (the
+    ledger), and `fixtures.mjs` (a scratch library, real images, a playable clip). Adding a sixth
+    check is now a page expression and a claim rather than a fifth copy of the plumbing.
+- 🟡 **`check-grid.mjs` has not yet completed a run in a composited window.** Written and driven
+  on 2026-09-03: fifteen of its claims were seen to pass, and then the session's compositor
+  stopped drawing new windows, at which point the script correctly refused rather than reporting
+  the layout and the marquee as broken (§4 lesson 18). The two defects the first run found were in
+  the script, not in the grid — a card read while `Ctrl+A` was still in force, and cells taken in
+  DOM order rather than visual order — and both are fixed. **It needs one clean run on a desktop
+  session with the window visible** before it can be called a guard.
+- 🟢 **The grid's first layout is measured before the inspector has claimed its width**, and only
+  a `ResizeObserver` delivery corrects it. Seen while writing the check above: at mount the
+  scroller is the full width of the frame, so `measure()` records a container about 240px too
+  wide, and the columns are laid out against it until the panel appears and the observer fires.
+  It is right within a frame in any window that is being drawn, so it is a fragility rather than a
+  bug — but it is the reason an uncomposited window shows cells running off the right edge.
 - 🟢 **Log files are never pruned.** One file per UTC day under `logDir()`, written
   synchronously, growing forever. A retention rule belongs with M6's packaging, not before it.
 - ☑ ~~The frontend test harness goes in **before** the components, not after.~~ In place with
@@ -312,8 +356,8 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
     changed. It takes what it touches, adds under `Ctrl`, scrolls from the edge, and clears on
     release rather than on press (`UI_SPEC.md` §6). Driven in a real window the same day: twelve
     checks over CDP, including the autoscroll, the marquee's computed paint, and a press on the
-    scrollbar strip — none of which happy-dom can see. That script is not landed yet; it belongs
-    in the `check-grid.mjs` below, on the shared harness.
+    scrollbar strip — none of which happy-dom can see. **Landed 2026-09-03** in
+    `scripts/check-grid.mjs`, on the shared harness.
   - **Hover in the store.** Hover is CSS-only, which is right until something outside the cell
     has to know what is under the pointer — the inspector's preview-on-hover is the first thing
     that will.
@@ -378,28 +422,30 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   real clip played and seeked twice from the comment strip, over `roost://original`, in a window.
   The unit tests had both directions of the range parser; what they could not have is a decoder
   asking for the middle of a file and getting it.
-- 🟡 **How the grid paints selection has no automated guard.** Fixed on 2026-09-01 after two
-  reports, one per shape. Icons drew a ring on the picture and a fill on the caption, with the
-  4px seam between them showing page background — two marks with a gap; the cell carries both
-  now, so a selected icon is one card. And Compact and Details drew the Icons treatment — a filled pill on the label, a ring on a
-  40px thumbnail, and an outline around the whole row — where a filled row was wanted. Reading
-  the CSS to fix it turned up a second defect nothing could have caught: `.grid[data-view]
-  .cell:hover` outranks `.cell[data-view][data-selected]`, so **hovering a selected row erased
-  its fill**. Both were verified by measuring computed styles and sampling pixels out of a real
-  screenshot, and neither is reachable from a component test — happy-dom loads no stylesheet, so
-  the cascade is not there to get wrong. A `check-grid.mjs` beside `check-trash.mjs` is the
-  shape of the guard; what it needs first is the CDP plumbing lifted out of the three scripts
-  that now each carry a copy, which is the point at which a fourth copy stops being acceptable.
-  **The marquee is the fifth thing waiting on it** (2026-09-01), and the transport the sixth
-  (2026-09-02) — the last of which had to build a library with a real video in it, which is one
-  more thing the harness would own. `scripts/check-transport.mjs` is now the fourth copy of the
-  plumbing, and it carries the ffmpeg fixture too: the marquee's autoscroll, its paint, and its refusal to start on the scrollbar are
-  all invisible to a DOM that lays nothing out. A
-  twelve-check version of exactly that script was written and passed three times against a real
-  window — and then not landed, because landing it is the fourth copy of the CDP plumbing. What
-  it found is the argument for landing the harness: **`setPointerCapture` throws for any pointer
-  the browser does not consider active**, so a sweep begun from a dispatched event died on its
-  first frame. Capture is best-effort now.
+- ☑ ~~**How the grid paints selection has no automated guard.**~~ It has one from 2026-09-03:
+  `scripts/check-grid.mjs`, on the shared harness the six findings below were all waiting for.
+  Fixed on 2026-09-01 after two reports, one per shape. Icons drew a ring on the picture and a
+  fill on the caption, with the 4px seam between them showing page background — two marks with a
+  gap; the cell carries both now, so a selected icon is one card. And Compact and Details drew
+  the Icons treatment — a filled pill on the label, a ring on a 40px thumbnail, and an outline
+  around the whole row — where a filled row was wanted. Reading the CSS to fix it turned up a
+  second defect nothing could have caught: `.grid[data-view] .cell:hover` outranks
+  `.cell[data-view][data-selected]`, so **hovering a selected row erased its fill**. Neither is
+  reachable from a component test — happy-dom loads no stylesheet, so the cascade is not there to
+  get wrong.
+  - **The hover half needed a real pointer, not a real window.** `:hover` never matches for a
+    dispatched `PointerEvent` — the browser does not consider a synthetic pointer a pointer — so
+    the claim could not be made from a page expression at all, however real the window was around
+    it. The harness dispatches through CDP `Input`, which is also what makes `setPointerCapture`
+    stop throwing: the same cause behind the sweep that died on its first frame, recorded below.
+  - **The marquee was the fifth thing waiting on it** (2026-09-01) and the transport the sixth
+    (2026-09-02) — the last of which had to build a library with a real video in it, which is one
+    more thing the harness now owns. A twelve-check version of the marquee script was written and
+    passed three times against a real window in September, then not landed, because landing it
+    was the fourth copy of the CDP plumbing. What it found is the argument the harness was built
+    on: **`setPointerCapture` throws for any pointer the browser does not consider active**, so a
+    sweep begun from a dispatched event died on its first frame. Capture is best-effort in
+    `Grid.tsx` either way, and the check no longer needs it to be.
   - **A third defect was in the tokens, not the rules.** `--select-border` and `--border-focus`
     resolved to the same colour in *both* themes, so "the focused one is brighter" was a claim
     nothing could see — a selected card and a selected-and-focused card differed by one pixel of
@@ -521,11 +567,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - ☑ ~~Re-importing a trashed file restores it.~~ It journals a `restore`, never a second `add`:
   re-adding would rewrite `imported_at` and move the asset to the top of a grid it has been in
   for months.
-- ☑ ~~**Nothing in the repository drives a window.**~~ Half-closed: `check-trash.mjs` joins
-  `check-sandbox.mjs` and `bench-window.mjs`. All three are still run by hand and none is in
-  `pnpm verify`, for the reason §M3 gives — they need Electron's binary and a session that
-  composites. What is new is that the trash one **builds its own fixture**, so it is the first of
-  the three that could be a CI step without a library to point it at.
+- ☑ ~~**Nothing in the repository drives a window.**~~ Closed 2026-09-03. Five scripts drive one,
+  and they share one harness rather than five copies of it (§M3 above). All five are still run by
+  hand and none is in `pnpm verify`, for the reason §M3 gives — they need Electron's binary and a
+  session that composites — but four of them **build their own fixture**, so the missing piece is
+  a machine, not a library to point them at.
 - 🟡 **The grid re-pages on a trash rather than dropping the row.** `readStats` now compares the
   trashed count as well as the asset count, so trashing does invalidate the pages — but it
   invalidates *all* of them and the scroll position goes with them. That is the same targeted-update
@@ -633,6 +679,129 @@ Four stages. **Stages 1, 2 and 4 are done**; stage 3 is a decision of its own.
   `thumbs` is keyed `(hash, size)` and a sprite is not a size, so it needs a table or a
   vocabulary — `DATA_MODEL.md` §2 governs it, and it wants its own ADR.
 
+### Making files in the library, and editing text (asked for 2026-09-03)
+
+Four things asked for together: a context menu on the grid's **empty space**, carrying **Paste**
+(which imports what the clipboard holds) and **New File** — an empty file whose extension the user
+types, and a text file — plus text assets that Roost displays and **edits itself**, `.srt` included
+(ADR-0025).
+
+**All of it meets the same wall, and the wall is invariant 1.** Identity is the content hash, so
+"edit this file" cannot mean here what it means in a file manager. Changed bytes are a *different
+asset*: a different hash, a different path in `originals/`, a different row. **ADR-0026 decides
+what an edit is** — accepted 2026-09-03 — and its stage 1 is built: a `text` kind and a read-only
+viewer, which needed no schema at all.
+
+- ☑ ~~**Two empty files are the same asset, and `empty.txt` and `empty.md` cannot both exist.**~~
+  **Decided** by ADR-0026 §4 and **built 2026-09-04**: **(a)** below, a draft in the window, with
+  Save disabled while it is empty and a line saying why rather than a button that fails when
+  pressed. Kept in full because it is the
+  one part of the request that could not be served as asked, and the reasoning should not have to
+  be reconstructed. Not a bug to be fixed — it is what `assets.hash` being the PRIMARY KEY means, with `ext` an
+  ordinary column beside it. Every empty file has one BLAKE3 hash, so "New File" twice yields one
+  row, and the second extension has nowhere to live. Three ways out, and only one of them is
+  cheap: **(a)** a new file is a *draft in the window*, not a row — it becomes an asset on its
+  first save, when it has bytes that make it itself, which is also what makes the extension
+  meaningful; **(b)** create it anyway and let dedupe answer, which means the UI has to say "you
+  already have this file" about a file the user just asked for, twice; **(c)** make identity
+  `(hash, ext)`, which is an edit to a binding spec, breaks a library moving between
+  implementations, and is not worth an empty file. **(a) is what ADR-0026 took**, because it
+  decides the same question editing does.
+- ☑ ~~**Paste is four gestures wearing one name** (ADR-0026 §5).~~ **Stage 3, done 2026-09-04**,
+  with **New text file** and **New file…** beside it in the menu over the grid's empty space.
+  The clipboard is read in main and parsed by `apps/desktop/main/src/clipboard.ts` — pure
+  functions with their own tests, which is what let two real defects be found before anybody hit
+  them: GNOME's `x-special/gnome-copied-files` puts `copy` on the first line, and a bare `file://`
+  resolves to `/`, which would have made a paste walk the whole filesystem. A **draft** is a name
+  and a buffer with no row behind it until the first save (`asset:create`, `createAsset`), and
+  saving an empty one is refused. **No new CLI verb**: pasting is `roost import` under another
+  name and a named draft is `roost import` plus `roost rename`, so ADR-0005 is satisfied by verbs
+  that already exist. **Original note, kept for the reasoning:** The clipboard is read in **main**, not
+  the renderer — the renderer has no ambient authority (invariant 11) — and what comes back is one
+  of: file URIs from a file manager (`text/uri-list`, and GNOME's `x-special/gnome-copied-files`),
+  which is an ordinary import of those paths in the library's default mode; raw image bytes from a
+  screenshot tool, which is an import with **no filename**, and `orig_name` is `NOT NULL`, so the
+  name is invented and the invention needs to be written down rather than chosen in a hurry; or
+  text, which is the same path as New Text File. A **URL** is the fourth, and it is the one
+  exception invariant 7 grants — *explicitly user-initiated* import from a URL. Pasting a link is
+  arguably that and arguably not, so Paste must not silently fetch: the menu item says what it
+  will do, or it does nothing and a separate **Import from URL…** does.
+- ☑ ~~**`text` has to join `KINDS`.**~~ Done 2026-09-03 — **ADR-0026 stage 1**, which needed no
+  schema change and is what makes a subtitle readable at all. `text` is in `KINDS` and in
+  `ASSET_KINDS`, sniffed as a **negative test** (no NUL, no stray C0 control, no DEL) placed after
+  every signature including SVG's, with an extension allowlist for the serving path. The preview
+  reads the bytes over `roost://original/<hash>` as a **2 MB range** — a library holds anything,
+  and a hundred-megabyte log decoded into one string on the thread drawing the window is a frozen
+  window — decodes them itself, names the encoding, and says when it is showing only the start.
+  Read-only, because a save is stage 2. `UI_SPEC.md` §7 carries it.
+  - **The truncated window changed the decoder's shape**, and a test found it rather than a
+    reviewer. `TextDecoder`'s `stream: true` holds back a character cut in half at the end of a
+    range — necessary, or a range read would send a good UTF-8 file down the legacy path on
+    nothing but where the read stopped. On a *complete* file that same tolerance is wrong: a
+    trailing byte that opens a sequence and never closes it is exactly how Windows-1252 announces
+    itself, and holding it back reads `Café` as `Caf` and calls it UTF-8. The caller says which it
+    has.
+  - **Two tests were changed rather than made to pass.** `sniff("abc")` was `unknown` and is now
+    `text`; a three-byte file that is printable *is* text. The case they were really guarding —
+    a short file with no signature — is now spelled with a NUL in it, which is what makes it
+    binary.
+  - **It can be fooled, and cheaply.** A headerless binary whose first bytes happen to be printable
+    previews as text rather than offering **Open externally**. Every binary format Roost knows is
+    claimed by a signature before the negative test is reached, so the exposure is formats nothing
+    here recognises — and the cost is a preview, not a wrong thumbnail or a wrong media type.
+- 🟢 **A text asset has no thumbnail**, so it fails its derive job with `unsupported:text` exactly
+  as a `.zip` does. Unchanged behaviour — it was `unsupported:unknown` before — but now that text
+  is a kind, rendering the first lines into a thumbnail is a thing that could be done, and the
+  grid would stop showing a wall of identical extension badges. Not scheduled; written down so it
+  is a choice rather than an oversight.
+
+- ☑ ~~**Encoding is not a detail, and getting it wrong corrupts on save.**~~ Detected and named as
+  of stage 1: a byte-order mark is believed, valid UTF-8 is read as UTF-8, and anything else is
+  Windows-1252 and labelled *detected*. **The writing half is stage 2's and this is still the line
+  that governs it** — reading a CP1252 subtitle as UTF-8 gives mojibake, and *writing it back* as
+  UTF-8 makes the mojibake permanent in a new asset. Convert deliberately, never silently.
+- ☑ ~~**The editor is a `<textarea>` first.**~~ **Stage 2, done 2026-09-03.** Migration 0010, the
+  `supersede` op, `saveEdit` with its carry-over, `is:superseded`, `roost save`, the
+  `asset:save` request, and the editor itself — a textarea in the reader's own box, so pressing
+  **Edit** moves nothing but the words becoming typeable. `Escape` abandons the edit before it
+  closes the preview; `Ctrl+S` saves. **No dependency**: a code editor component is a large
+  package for a feature whose first two users are a `.txt` note and a subtitle file, and if
+  syntax highlighting is ever wanted that is a measured decision with a bundle number attached,
+  the way ADR-0024 §*How stage 1 was built* did it.
+  - **The migration took 0010, not 0011.** ADR-0025 had named 0010 for subtitles, but the number
+    goes to whatever is built: the runner applies only versions higher than the library's, so a
+    reserved gap is a migration that can never run. Subtitles take 0011.
+  - **Half the scope loses the partial indexes**, and `repo.test.ts` now says so out loud. The
+    five grid indexes are partial on `trashed_at IS NULL AND superseded_by IS NULL`; a query
+    carrying only the first term scans. That is why the predicate is written in exactly one
+    place — a table in `@roost/search`'s compiler, mirrored by `MATCH_LIVE` — and why the test
+    asserts the failure rather than only the success.
+  - **A comment is copied to the new version, not moved.** The old version is still a row somebody
+    can open and keeps its own, so the copies are new rows whose `created_at` is the save. Said
+    here because it is a cost, not an oversight.
+- ☑ ~~**A referenced asset cannot be edited in place.**~~ Read-only as of stage 2, with the reason
+  on screen rather than a missing button — along with three more refusals that are each a rule and
+  not a preference: a **truncated** read (saving a partial view over a whole file is the one way
+  this could destroy bytes), a **trashed** asset (superseding it would make editing a way of
+  undeleting), and an **older version** (a save would branch a chain meant to be a line).
+
+- 🔴 **"Duplicate into library to edit" cannot mean *duplicate*, and ADR-0026 §3 was wrong about
+  it.** Found while building stage 2: identical bytes are one asset by invariant 1, so importing a
+  referenced original in managed mode deduplicates into the row that already exists and changes
+  nothing at all. The gesture can honestly mean one of two other things, and **neither is
+  decided**: *adopt* — copy the bytes into `originals/` and change the asset's storage mode, which
+  needs a journal op of its own and is the first operation that would change an existing row's
+  `storage_mode`; or *save this edit as a managed version anyway*, which is the refusal lifted by
+  an explicit gesture rather than removed. Stage 2 ships the refusal and no second button, which
+  is the half the ADR got right. **This wants a decision before anything is built.**
+- 🟡 **Editing a `.srt` will have to move its attachment**, and ADR-0025 already has the pair that
+  does it:
+  `subtitle_detach` the old hash, `subtitle_attach` the new one, in the same journal batch. Worth
+  noting because it is the first evidence that "an edit is a new asset plus a fix-up of what
+  pointed at the old one" is a rule the rest of the schema can follow — tags, folders, rating,
+  comments and poster **now do travel that way**, in `carryOver`, and a subtitle attachment is the
+  one thing that will have to join them when ADR-0025 lands.
+
 ### The view menu (ADR-0018, decided 2026-08-30)
 
 Accepted on 2026-08-30, and the work splits in three. Only the first is one sitting.
@@ -737,9 +906,10 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
     Fifteen checks: tick placement along a real timeline, the centring, the paint, the strip
     matching the picture's width, both fitting the pane, two seeks of a real decoder, and a
     comment written in the panel appearing on the strip beside it.
-  - 🟡 **That script is not landed either**, for the reason the marquee's was not: it is the
-    fourth copy of the CDP plumbing. It is the strongest argument yet for the shared harness —
-    the only check ever written here that plays a video.
+  - ☑ ~~**That script is not landed either.**~~ It landed the next day as
+    `scripts/check-transport.mjs`, and on 2026-09-03 it moved onto the shared harness with the
+    other four. What it asserted about the comment strip is now asserted about the marks on the
+    timeline, which is where they went.
 - 🟢 **The grid shows no sign that an asset carries comments.** ADR-0023 left it undecided. It
   would be a badge on the cell and one more column in the page query, which is the part that needs
   measuring rather than deciding.
@@ -836,3 +1006,15 @@ repository's session log, because a lesson nobody rereads is a lesson nobody has
     weakened: a new frame is a new address. It is also the only thing that makes an `<img>` already
     holding the old picture ask for a new one; no header does that. Read the caching claims before
     changing what is behind an address.
+
+18. **A window that says it is visible is not necessarily one anything is drawing.**
+    `document.visibilityState` reads `"visible"` for an Electron window the compositor has stopped
+    drawing — occluded, on an idle output, or on a session that has locked — and in that state
+    Chromium delivers no `requestAnimationFrame`, no `ResizeObserver`, no
+    `requestVideoFrameCallback` and no `setTimeout` at anything like its stated delay. The grid
+    then keeps the width it measured at mount, because its reflow is a `ResizeObserver`, and the
+    marquee is never drawn, because it is scheduled on an animation frame. Both read as defects
+    and neither is one. Any check that reads a layout or a gesture has to **measure the frame rate
+    and refuse**, the way `bench-window.mjs` already did — and it must count frames through a
+    global it polls from outside, never a promise the page resolves on a timer, because in that
+    state the timer is throttled too and the check simply hangs.

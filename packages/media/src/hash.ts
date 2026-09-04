@@ -109,3 +109,33 @@ export async function hashFile(path: string): Promise<Hashed> {
     await handle.close();
   }
 }
+
+/**
+ * Hashes bytes already in memory, by the same rules as {@link hashFile}.
+ *
+ * For content the application produced rather than read — an edited text asset
+ * on its way to becoming a new version (ADR-0026). The two must agree: the same
+ * content hashed either way is one asset, and a divergence would put it at two
+ * addresses with nothing to notice.
+ *
+ * The partial branch is here for that agreement and not because anything is
+ * expected to reach it: what this path carries is text a person typed, and the
+ * caller caps that far below the limit.
+ */
+export function hashBytes(bytes: Uint8Array): Hashed {
+  const size = bytes.length;
+  const hasher = new Blake3Hasher();
+  const isPartial = size > FULL_HASH_MAX_BYTES;
+
+  if (isPartial) {
+    const prefix = Buffer.allocUnsafe(8);
+    prefix.writeBigUInt64LE(BigInt(size));
+    hasher.update(prefix);
+    hasher.update(bytes.subarray(0, PARTIAL_WINDOW_BYTES));
+    hasher.update(bytes.subarray(size - PARTIAL_WINDOW_BYTES));
+  } else {
+    hasher.update(bytes);
+  }
+
+  return { hash: parseContentHash(hasher.digest("hex")), size, isPartial };
+}

@@ -6,7 +6,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AddRecord } from "../journal/index.js";
 import { JOB_PRIORITY, parseContentHash } from "../model/index.js";
 import { Db } from "./database.js";
-import { type Cursor, type Filter, MATCH_ALL, type Page, type SearchHit } from "./query.js";
+import {
+  type Cursor,
+  type Filter,
+  MATCH_ALL,
+  MATCH_LIVE,
+  type Page,
+  type SearchHit,
+} from "./query.js";
 import { lastCursor, searchSql } from "./repo.js";
 
 /** A hash that is distinct per `n` and still 64 lowercase hex characters. */
@@ -330,25 +337,30 @@ describe("the plan a grid query actually gets", () => {
     //
     // The filter is spelled as `@roost/search` compiles it, trailing scope and
     // all, because that is the only shape this statement is ever given.
-    const detail = planFor("(a.ext = ?) AND a.trashed_at IS NULL", "png");
+    const detail = planFor(`(a.ext = ?) AND ${MATCH_LIVE.sql}`, "png");
 
     expect(detail).toContain("idx_assets_ext");
     expect(detail).not.toContain("TEMP B-TREE");
   });
 
   it("uses the partial indexes only when the query says it is looking at live assets", () => {
-    // Migration 0007 made the four grid indexes partial, and SQLite will use a
-    // partial index only when the query's WHERE contains a term implying the
-    // index's. That makes the exact spelling of the scope predicate part of the
-    // schema rather than a detail of the compiler — so it is asserted, and the
-    // unscoped version is asserted to lose the index rather than silently
-    // falling back to a scan nobody measured.
+    // Migration 0007 made the four grid indexes partial and 0010 added the
+    // second term to them, and SQLite will use a partial index only when the
+    // query's WHERE contains a term implying the index's. That makes the exact
+    // spelling of the scope predicate part of the schema rather than a detail
+    // of the compiler — so it is asserted, and the unscoped version is asserted
+    // to lose the index rather than silently falling back to a scan nobody
+    // measured.
     expect(planFor("a.ext = ?", "png")).not.toContain("idx_assets_ext");
-    expect(planFor("(1) AND a.trashed_at IS NULL")).toContain("idx_assets_imported");
+    expect(planFor(`(1) AND ${MATCH_LIVE.sql}`)).toContain("idx_assets_imported");
+    // Half the scope is not the scope. Migration 0010 added the second term to
+    // every partial index, so a query carrying only the first one loses them —
+    // which is the failure this test exists to make loud rather than slow.
+    expect(planFor("(1) AND a.trashed_at IS NULL")).not.toContain("idx_assets_imported");
   });
 
   it("gives the Trash place its own index, in the same order as every other view", () => {
-    const detail = planFor("a.trashed_at IS NOT NULL");
+    const detail = planFor("a.trashed_at IS NOT NULL AND a.superseded_by IS NULL");
     expect(detail).toContain("idx_assets_trashed");
     expect(detail).not.toContain("TEMP B-TREE");
   });

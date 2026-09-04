@@ -42,8 +42,9 @@ describe("against a journal written by the Rust implementation", () => {
 
     // The fixture holds the 22 operations that existed when both builds were
     // writing journals. The rest are this repository's own — `trash` and
-    // `restore` from ADR-0022, the three comment ops from ADR-0023, and
-    // `poster_set` from ADR-0024 — and the Rust build cannot write them, so
+    // `restore` from ADR-0022, the three comment ops from ADR-0023,
+    // `poster_set` from ADR-0024, and `supersede` from ADR-0026 — and the Rust
+    // build cannot write them, so
     // they are subtracted by name rather than by loosening the comparison: the
     // point of this test is that the *shared* vocabulary cannot shrink
     // unnoticed.
@@ -54,6 +55,7 @@ describe("against a journal written by the Rust implementation", () => {
       "comment_set",
       "comment_remove",
       "poster_set",
+      "supersede",
     ]);
     expect([...new Set(sink.records.map((r) => r.op))].sort()).toEqual(
       OP_NAMES.filter((name) => !ours.has(name)),

@@ -11,7 +11,7 @@ import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
-import { AssetContextMenu } from "./grid/AssetContextMenu.js";
+import { AssetContextMenu, DEFAULT_TEXT_NAME } from "./grid/AssetContextMenu.js";
 import { Grid } from "./grid/Grid.js";
 import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, zoomBy } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
@@ -22,6 +22,7 @@ import { DropZone } from "./import/DropZone.js";
 import { type Importing, useImport } from "./import/useImport.js";
 import { Inspector } from "./inspector/Inspector.js";
 import { RecentList } from "./library/RecentList.js";
+import { DraftEditor } from "./preview/DraftEditor.js";
 import { PreviewPane } from "./preview/PreviewPane.js";
 import { SearchField } from "./search/SearchField.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
@@ -681,6 +682,49 @@ function LibraryView({
    * the selection** (`UI_SPEC.md` §7): in `roost-old` it did not, and a note
    * could be written onto the wrong asset while the preview showed another.
    */
+  /**
+   * A file that does not exist yet (ADR-0026 §4).
+   *
+   * Held here rather than in the grid, because it takes the content region the
+   * way the preview does: a draft is what the window is showing, not something
+   * floating over what it was showing before.
+   */
+  const [draft, setDraft] = useState<
+    { readonly name: string; readonly text: string } | undefined
+  >();
+
+  /**
+   * Paste (ADR-0026 §5), which is four gestures wearing one name.
+   *
+   * Main reads the clipboard — the renderer has no ambient authority
+   * (invariant 11) — and answers with what it found. Only two of the four
+   * import: text opens a draft instead, because a paragraph on the clipboard is
+   * something to put in a file rather than a file, and **a link does nothing at
+   * all**, because invariant 7 permits one network operation and it is not one
+   * a `Ctrl+V` may trigger.
+   */
+  const paste = useCallback(() => {
+    void (async () => {
+      const outcome = await invoke({ type: "clipboard:paste", mode: "managed" });
+      if (!outcome.ok) return setActed(outcome.problem);
+
+      const pasted = outcome.value;
+      if (pasted.kind === "imported") {
+        onImported();
+        return noteResult(
+          pasted.report.imported === 0
+            ? "Nothing new — those files are already in the library"
+            : `Pasted ${pasted.report.imported} of ${pasted.report.scanned} files`,
+        );
+      }
+      if (pasted.kind === "text") return setDraft({ name: DEFAULT_TEXT_NAME, text: pasted.text });
+      if (pasted.kind === "url") {
+        return noteResult("Pasting never fetches a link — import it deliberately instead");
+      }
+      return noteResult("Nothing on the clipboard");
+    })();
+  }, [noteResult, onImported]);
+
   const step = useCallback(
     (delta: -1 | 1) => {
       const order = paging.assets.map((asset) => asset.hash);
@@ -730,7 +774,23 @@ function LibraryView({
             field shows what it was replaced with — one source of truth for what
             is on screen, and it is a string the user can read and edit. */}
         {sidebar !== undefined && <Sidebar sidebar={sidebar} query={query} onPick={applyQuery} />}
-        {previewing && focused !== undefined ? (
+        {draft !== undefined ? (
+          <DraftEditor
+            initialName={draft.name}
+            initialText={draft.text}
+            onCancel={() => setDraft(undefined)}
+            onProblem={setActed}
+            onSaved={(hash, created, name) => {
+              setDraft(undefined);
+              onImported();
+              // Selected rather than merely made: the file a person just wrote
+              // is what they are looking at, and the inspector is where they
+              // would tag it.
+              selection.click(hash);
+              noteResult(created ? `Saved ${name}` : `${name} holds bytes the library already had`);
+            }}
+          />
+        ) : previewing && focused !== undefined ? (
           /* Over the asset on screen, not over the selection: "export…" while
              looking at one picture cannot sensibly mean the other eleven. */
           <AssetContextMenu
@@ -747,12 +807,30 @@ function LibraryView({
               generation={revision}
               onClose={() => setPreviewing(false)}
               onStep={step}
+              // Saving an edit makes a new asset (ADR-0026), so the selection
+              // follows it: the pane shows what is selected, and leaving the
+              // selection on the version that was just replaced would put an
+              // old one back on screen the moment anything re-read.
+              onReplaced={(hash) => selection.click(hash)}
             />
           </AssetContextMenu>
         ) : paging.assets.length === 0 && paging.done ? (
-          <p className="grid-empty">
-            {query === "" ? EMPTY_LIBRARY : inTrash ? EMPTY_TRASH : NOTHING_MATCHED}
-          </p>
+          /* The menu over nothing belongs here most of all: an empty library is
+             exactly where somebody wants to paste or make a file. */
+          <AssetContextMenu
+            hashes={[]}
+            inTrash={inTrash}
+            onNote={noteResult}
+            onProblem={setActed}
+            onConfirm={setConfirming}
+            onGone={clearSelection}
+            onPaste={paste}
+            onNewFile={(name) => setDraft({ name, text: "" })}
+          >
+            <p className="grid-empty">
+              {query === "" ? EMPTY_LIBRARY : inTrash ? EMPTY_TRASH : NOTHING_MATCHED}
+            </p>
+          </AssetContextMenu>
         ) : (
           <AssetContextMenu
             hashes={selected}
@@ -761,6 +839,8 @@ function LibraryView({
             onProblem={setActed}
             onConfirm={setConfirming}
             onGone={clearSelection}
+            onPaste={paste}
+            onNewFile={(name) => setDraft({ name, text: "" })}
           >
             <Grid
               assets={paging.assets}

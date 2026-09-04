@@ -60,10 +60,34 @@ describe("sniffing a header", () => {
     expect(formatFromExtension("jpg")).toBe("jpeg");
   });
 
-  it("reads a short file as unknown rather than failing", () => {
+  it("reads a short file without failing, and decides it by what it is not", () => {
     // A three-byte file is a perfectly valid asset that matches no signature.
-    expect(sniff(bytes("abc"))).toBe("unknown");
+    // Printable, so it is text; the same length with a NUL in it is not.
+    expect(sniff(bytes("abc"))).toBe("text");
+    expect(sniff(bytes("a", 0x00, "c"))).toBe("unknown");
+    // An empty file is not text. It is nothing, and an editor over no bytes is
+    // a worse answer than "open externally".
     expect(sniff(new Uint8Array(0))).toBe("unknown");
+  });
+
+  it("lets a legacy single-byte encoding through, because most subtitles are one", () => {
+    // "Café" in Windows-1252: 0xe9 is not valid UTF-8, and rejecting it would
+    // reject exactly the files the text kind exists to show (ADR-0026).
+    expect(sniff(bytes("Caf", 0xe9, "\n"))).toBe("text");
+  });
+
+  it("does not let text claim a format that has a reader of its own", () => {
+    // SVG is text underneath, and it is an image here.
+    expect(sniff(bytes('<?xml version="1.0"?><svg xmlns="http://www.w3.org/'))).toBe("svg");
+  });
+
+  it("maps the text extensions it knows, and only those", () => {
+    for (const ext of ["txt", "md", "srt", "vtt", "json", "csv", "log"]) {
+      expect(formatFromExtension(ext)).toBe("text");
+    }
+    // Not on the allowlist: it is text underneath and has its own reader.
+    expect(formatFromExtension("svg")).toBe("svg");
+    expect(formatFromExtension("bin")).toBe("unknown");
   });
 
   it("does not mistake a RIFF container for the wrong kind of RIFF", () => {

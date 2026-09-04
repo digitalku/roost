@@ -36,6 +36,7 @@ const MIGRATIONS: readonly Migration[] = [
   { version: 7, name: "trash", file: "0007_trash.sql" },
   { version: 8, name: "comments", file: "0008_comments.sql" },
   { version: 9, name: "poster", file: "0009_poster.sql" },
+  { version: 10, name: "supersede", file: "0010_supersede.sql" },
 ];
 
 /** The schema version this build understands. */

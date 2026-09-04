@@ -14,6 +14,7 @@ import type {
   WireDeriveStatus,
   WireExportReport,
   WireImportReport,
+  WirePasted,
   WireProblem,
   WireRecentLibrary,
   WireSelectionSummary,
@@ -41,6 +42,14 @@ export interface FakeLibrary {
 }
 
 export interface FakeEngineOptions {
+  /**
+   * What `clipboard:paste` finds. Defaults to an empty clipboard.
+   *
+   * Modelled as an answer rather than as a clipboard, because the shape is
+   * decided in main (ADR-0026 §5) and the renderer's whole job is what it does
+   * with each of the four.
+   */
+  readonly clipboard?: WirePasted;
   /** What `dialog:openLibrary` answers with. `null` is a cancelled dialog. */
   readonly openLibraryDialog?: string | null;
   /** What `dialog:chooseLocation` answers with. */
@@ -129,6 +138,7 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     createdAt: null,
     importedAt: card.importedAt,
     trashedAt: null,
+    supersededBy: null,
     rating: null,
     note: null,
     durationMs: null,
@@ -201,6 +211,13 @@ export class FakeEngine {
    * while editing the wrong comment.
    */
   #nextCommentId = 1;
+  /**
+   * Distinguishes the hashes a save mints, so two edits of one asset are two
+   * assets. Modelled because a save *moves* what the pane is looking at: a fake
+   * that answered with the hash it was given would let the pane pass while
+   * still showing the version it just replaced.
+   */
+  #saves = 0;
   #open: LibrarySummary | undefined;
   #recent: readonly WireRecentLibrary[];
   #listeners = new Set<(event: unknown) => void>();
@@ -464,6 +481,51 @@ export class FakeEngine {
           ...detail,
           note: trimmed === "" ? null : trimmed,
         }));
+      }
+
+      case "clipboard:paste":
+        return ok(this.#options.clipboard ?? { kind: "empty" });
+
+      case "asset:create": {
+        const text = request.text;
+        if (text === "") {
+          return problem("empty_file", `${request.name} has nothing in it`, {});
+        }
+        const held = [...this.details.values()].find(
+          (detail) => detail.name === request.name && detail.size === text.length,
+        );
+        if (held !== undefined) return ok({ hash: held.hash, created: false });
+
+        this.#saves += 1;
+        const hash = `${(this.#saves + 0xa0).toString(16)}${fakeDetail(1).hash.slice(2)}`;
+        this.details.set(hash, {
+          ...fakeDetail(1),
+          hash,
+          name: request.name,
+          ext: request.name.split(".").pop() ?? "",
+          kind: "text",
+          size: text.length,
+        });
+        this.emit({ type: "library:changed" });
+        return ok({ hash, created: true });
+      }
+
+      case "asset:save": {
+        const before = this.details.get(request.hash);
+        if (before === undefined) return ok("");
+        this.#saves += 1;
+        // A hash the fake can mint deterministically and that is still 64 hex
+        // characters, because the renderer builds `roost://` URLs from it.
+        const after = `${this.#saves.toString(16).padStart(2, "0")}${request.hash.slice(2)}`;
+        this.details.set(after, {
+          ...before,
+          hash: after,
+          size: new TextEncoder().encode(request.text).length,
+          supersededBy: null,
+        });
+        this.details.set(request.hash, { ...before, supersededBy: after });
+        this.emit({ type: "library:changed" });
+        return ok(after);
       }
 
       case "asset:rename":

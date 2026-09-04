@@ -37,7 +37,15 @@ export type StorageMode = (typeof STORAGE_MODES)[number];
  * `other` is not a failure. A format Roost cannot draw still imports, still
  * carries tags, and opens in the application that owns it.
  */
-export const ASSET_KINDS = ["image", "video", "audio", "document", "font", "other"] as const;
+export const ASSET_KINDS = [
+  "image",
+  "video",
+  "audio",
+  "document",
+  "font",
+  "text",
+  "other",
+] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
 /** What the window shows about the library it has open. */
@@ -272,6 +280,16 @@ export interface WireAssetDetail {
   readonly durationMs: number | null;
   /** The moment this video's thumbnail is pinned to (ADR-0024 stage 4). */
   readonly posterMs: number | null;
+  /**
+   * The asset that replaced this one, or `null` if this is the current version
+   * (ADR-0026).
+   *
+   * The window needs it for two things: to say *you are looking at an old
+   * version* about something reached through `is:superseded`, and to refuse to
+   * edit one — a save made from an old version would supersede the version that
+   * already superseded it.
+   */
+  readonly supersededBy: string | null;
   /** Documents only. */
   readonly pageCount: number | null;
   /**
@@ -395,6 +413,39 @@ export interface WireImportReport {
   readonly thumbnails: number;
   readonly elapsedMs: number;
   readonly failed: readonly WireImportFailure[];
+}
+
+/**
+ * What pasting found on the clipboard, and what was done about it (ADR-0026 §5).
+ *
+ * Paste is four gestures wearing one name, and only two of them import. The
+ * clipboard is read in **main**, because the renderer has no ambient authority
+ * (invariant 11) and a sandboxed page cannot be trusted with the desktop's
+ * clipboard even if it could reach it.
+ *
+ * `text` hands the words back for a draft rather than importing them: a
+ * paragraph on the clipboard is something to put in a file, not a file.
+ *
+ * `url` does **nothing**. Invariant 7 permits exactly one network operation —
+ * an explicit, user-initiated import from a URL — and a fetch triggered by
+ * `Ctrl+V` is precisely what that rule exists to forbid.
+ */
+export type WirePasted =
+  | { readonly kind: "imported"; readonly report: WireImportReport }
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "url"; readonly url: string }
+  | { readonly kind: "empty" };
+
+/**
+ * A file the window made, and whether it is new (ADR-0026 §4).
+ *
+ * `created` is `false` when the bytes were already in the library: identical
+ * bytes are one asset by invariant 1, so writing a file that already exists
+ * answers with the one that is there rather than adding a second row.
+ */
+export interface WireCreated {
+  readonly hash: string;
+  readonly created: boolean;
 }
 
 /**

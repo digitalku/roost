@@ -355,3 +355,86 @@ describe("choosing which frame a video's thumbnail comes from", () => {
     expect(screen.queryByRole("menuitem", { name: "Set this frame as the thumbnail" })).toBeNull();
   });
 });
+
+describe("the menu over the grid's empty space", () => {
+  let pasted: number;
+  let drafts: string[];
+
+  const show = (hashes: readonly string[]) => {
+    install(new FakeEngine({}));
+    pasted = 0;
+    drafts = [];
+    render(
+      <AssetContextMenu
+        hashes={hashes}
+        inTrash={false}
+        onNote={() => {}}
+        onProblem={() => {}}
+        onConfirm={() => {}}
+        onGone={() => {}}
+        onPaste={() => {
+          pasted += 1;
+        }}
+        onNewFile={(name) => drafts.push(name)}
+      >
+        <div data-testid="surface" tabIndex={-1}>
+          the grid
+        </div>
+      </AssetContextMenu>,
+    );
+    return userEvent.setup();
+  };
+
+  const open = async (): Promise<void> => {
+    screen
+      .getByText("the grid")
+      .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await screen.findByRole("menu");
+  };
+
+  it("offers the three ways to make an asset, and none of the ways to act on one", async () => {
+    // An empty selection *is* the empty space: right-clicking a cell selects it
+    // first, so a menu with nothing to act on can only have been opened over
+    // the background.
+    show([]);
+    await open();
+
+    expect(screen.getByRole("menuitem", { name: "Paste" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "New text file" })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: "New file…" })).toBeDefined();
+    // Nothing that acts on a selection, because there is none to act on.
+    expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Copy/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /trash/ })).toBeNull();
+  });
+
+  it("names the draft, and the two items differ only by an extension", async () => {
+    const user = show([]);
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "New text file" }));
+    expect(drafts).toEqual(["untitled.txt"]);
+
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "New file…" }));
+    // No extension: the draft's name field is where one is typed, because a
+    // file with no bytes has no identity for an extension to belong to.
+    expect(drafts).toEqual(["untitled.txt", "untitled"]);
+  });
+
+  it("asks for a paste rather than reading the clipboard itself", async () => {
+    // The renderer has no ambient authority (invariant 11): the clipboard is
+    // read in main, and this is a request for that to happen.
+    const user = show([]);
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "Paste" }));
+    expect(pasted).toBe(1);
+  });
+
+  it("stays out of the way where there is an asset under the pointer", async () => {
+    const user = show(HASHES);
+    await open();
+    expect(screen.queryByRole("menuitem", { name: "Paste" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: /Copy 3 paths/ })).toBeDefined();
+    void user;
+  });
+});

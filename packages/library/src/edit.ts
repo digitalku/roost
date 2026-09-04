@@ -1,4 +1,6 @@
+import { extname } from "node:path";
 import {
+  type AssetDetail,
   type CommentRow,
   type ContentHash,
   IndexSink,
@@ -7,17 +9,21 @@ import {
   logger,
   type Op,
 } from "@roost/core";
+import { hashBytes } from "@roost/media";
 import { formatFromExtension, kindOf, PREVIEW_SIZE } from "@roost/media/serving";
 import { parse } from "@roost/search";
 import {
   AmbiguousFolderNameError,
   AmbiguousHashError,
+  EditTooLargeError,
   EmptyCommentError,
+  EmptyFileError,
   EmptyNameError,
   FolderCycleError,
   InvalidMomentError,
   InvalidRatingError,
   NotAVideoError,
+  NotEditableError,
   UnknownAssetError,
   UnknownCommentError,
   UnknownFolderError,
@@ -632,4 +638,202 @@ export function resolveSmartFolder(library: Library, name: string): number {
   const found = library.db.repo.findSmartFolderByName(name.trim());
   if (found === undefined) throw new UnknownSmartFolderError(name);
   return found.id;
+}
+
+/**
+ * The most an edit may carry, and the window a text asset is read through.
+ *
+ * **One number on purpose** (`error.ts`, {@link EditTooLargeError}): saving
+ * what was only partly read would discard everything past the window, which is
+ * the one way editing could destroy a file rather than replace it. The renderer
+ * reads the same constant over the contract so the two cannot drift.
+ */
+export const MAX_EDIT_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Saves edited bytes as a **new asset**, and marks the old one superseded
+ * (ADR-0026).
+ *
+ * A save cannot be a write here: identity is the content hash, so changed bytes
+ * are a different asset at a different address. What travels is everything a
+ * person authored — tags, folders, rating, note, favourite, the pinned poster
+ * moment, and the comments — each through the operation that owns it, so a
+ * rebuild reconstructs the carry-over from the journal rather than from this
+ * function.
+ *
+ * Answers the new hash, which is the old one when the bytes did not change.
+ *
+ * Three things it refuses, each for a reason that is not a policy choice:
+ * a **referenced** asset, because its bytes are in a user directory and
+ * invariant 6 forbids writing there; a **trashed** asset, because superseding
+ * it would produce a live replacement and make editing a way of undeleting; and
+ * anything over {@link MAX_EDIT_BYTES}, because a partial read must never be
+ * saved over a whole file.
+ */
+export async function saveEdit(
+  library: Library,
+  hash: ContentHash,
+  bytes: Uint8Array,
+): Promise<ContentHash> {
+  const before = library.db.repo.assetDetail(hash);
+  if (before === undefined) throw new UnknownAssetError(hash);
+  if (before.storageMode === "referenced") {
+    throw new NotEditableError(hash, "it lives in your own directory and Roost never writes there");
+  }
+  if (before.trashedAt !== null) {
+    throw new NotEditableError(hash, "it is in the trash — restore it first");
+  }
+  if (bytes.length > MAX_EDIT_BYTES) {
+    throw new EditTooLargeError(bytes.length, MAX_EDIT_BYTES);
+  }
+
+  const hashed = hashBytes(bytes);
+  // Saving without changing anything writes nothing. An append-only journal is
+  // read by people, and `supersede` pointing an asset at itself is both a lie
+  // and a cycle.
+  if (hashed.hash === hash) return hash;
+
+  const placed = await library.storageFor("managed").putBytes(bytes, hashed.hash, before.ext);
+  const ops: Op[] = [];
+
+  // The replacement may already exist — editing a file into exactly the
+  // contents of another one is dedupe, not a collision, and the `add` would be
+  // a second line for a row that is already there.
+  if (library.db.repo.findAsset(hashed.hash) === undefined) {
+    const add: Record<string, unknown> = {
+      op: "add",
+      hash: hashed.hash,
+      ext: before.ext,
+      size: hashed.size,
+      name: before.origName,
+      mode: "managed",
+    };
+    if (placed.linkMethod !== null) add["link"] = placed.linkMethod;
+    if (hashed.isPartial) add["partial"] = true;
+    ops.push(add as unknown as Op);
+  }
+
+  ops.push(...carryOver(library, before, hashed.hash));
+  ops.push({ op: "supersede", hash, to: hashed.hash });
+
+  await apply(library, ops);
+  enqueueDerives(library, [hashed.hash], JOB_PRIORITY.interactive);
+
+  log.info("asset superseded by an edit", { from: hash, to: hashed.hash, ops: ops.length });
+  return hashed.hash;
+}
+
+/**
+ * Everything user-authored on `before`, spelled as operations against `to`.
+ *
+ * Each goes through the op that owns it rather than through a copy in SQL,
+ * because the journal is the record and the index is derived from it: a
+ * carry-over the journal does not describe would vanish on the next rebuild
+ * (invariant 1).
+ *
+ * **A comment is copied, not moved.** The old version keeps its own — it is
+ * still a row somebody can open — so the copies are new rows with new ids, and
+ * their `created_at` is the time of the save rather than of the original
+ * remark. That is the cost of a comment being about *an asset* rather than
+ * about a lineage, and it is cheaper than the alternative, which is a comment
+ * that belongs to two assets and can be edited from either.
+ */
+function carryOver(library: Library, before: AssetDetail, to: ContentHash): Op[] {
+  const repo = library.db.repo;
+  const ops: Op[] = [];
+
+  if (before.tags.length > 0) ops.push({ op: "tag_add", hash: to, tags: before.tags });
+  for (const folder of repo.folderIdsFor(before.hash)) {
+    ops.push({ op: "folder_add", hash: to, folder });
+  }
+  if (before.rating !== null) ops.push({ op: "rate", hash: to, rating: before.rating });
+  if (before.note !== null) ops.push({ op: "note_set", hash: to, note: before.note });
+  if (before.isFavorite) ops.push({ op: "favorite_set", hash: to, favorite: true });
+  if (before.posterMs !== null) ops.push({ op: "poster_set", hash: to, at: before.posterMs });
+
+  let id = repo.nextCommentId();
+  for (const comment of repo.commentsFor(before.hash)) {
+    ops.push({ op: "comment_add", id, hash: to, at: comment.atMs, body: comment.body });
+    id += 1;
+  }
+
+  return ops;
+}
+
+/**
+ * Points one asset at the version that replaced it, or clears the mark.
+ *
+ * The operation behind {@link saveEdit}, exposed on its own so the CLI can
+ * record a supersession the window would have made — and so undoing one is the
+ * same op with `to` absent, rather than a second operation meaning the reverse.
+ */
+export async function supersedeAsset(
+  library: Library,
+  hash: ContentHash,
+  to: ContentHash | null,
+): Promise<void> {
+  requireAsset(library, hash);
+  if (to !== null) {
+    requireAsset(library, to);
+    if (to === hash) throw new NotEditableError(hash, "an asset cannot supersede itself");
+  }
+  return apply(library, [{ op: "supersede", hash, to }]);
+}
+
+/**
+ * Creates an asset from bytes the application produced, under a name the user
+ * chose (ADR-0026 §4).
+ *
+ * The window's **New File**: a draft is a name and a buffer until it is saved,
+ * and this is the save. It is not an import — there is no source file, and the
+ * name is not a filename anything found on disk — but the record it writes is
+ * the ordinary `add`, so nothing downstream has to know where the bytes came
+ * from.
+ *
+ * Answers the hash and whether it is new. **Empty is refused**: every empty file
+ * has one BLAKE3 hash and `assets.hash` is the primary key, so an empty
+ * `notes.txt` and an empty `notes.md` cannot both exist — the draft is what
+ * carries a name until there are bytes to identify.
+ *
+ * Identical bytes are one asset by invariant 1, so writing a file that already
+ * exists answers with it and `created: false` rather than a second row. The
+ * name of the one already there wins, because it is the one somebody has been
+ * using.
+ */
+export async function createAsset(
+  library: Library,
+  name: string,
+  bytes: Uint8Array,
+): Promise<{ readonly hash: ContentHash; readonly created: boolean }> {
+  const clean = cleanName(name, "file");
+  if (bytes.length === 0) throw new EmptyFileError(clean);
+  if (bytes.length > MAX_EDIT_BYTES) throw new EditTooLargeError(bytes.length, MAX_EDIT_BYTES);
+
+  // The importer's rule, spelled the same way: the **last** extension
+  // component, lowercased, without the dot, so `notes.tar.gz` is `<hash>.gz`
+  // and a name with no extension is a bare hash with no trailing dot. One
+  // asset must not reach two addresses depending on which door it came in by.
+  const ext = extname(clean).replace(/^\./, "").toLowerCase();
+  const hashed = hashBytes(bytes);
+
+  const existing = library.db.repo.findAsset(hashed.hash);
+  if (existing !== undefined) return { hash: hashed.hash, created: false };
+
+  const placed = await library.storageFor("managed").putBytes(bytes, hashed.hash, ext);
+  const add: Record<string, unknown> = {
+    op: "add",
+    hash: hashed.hash,
+    ext,
+    size: hashed.size,
+    name: clean,
+    mode: "managed",
+  };
+  if (placed.linkMethod !== null) add["link"] = placed.linkMethod;
+  if (hashed.isPartial) add["partial"] = true;
+
+  await apply(library, [add as unknown as Op]);
+  enqueueDerives(library, [hashed.hash], JOB_PRIORITY.interactive);
+
+  log.info("asset created from bytes", { hash: hashed.hash, size: hashed.size });
+  return { hash: hashed.hash, created: true };
 }

@@ -168,6 +168,13 @@ export interface AssetDetail {
   readonly trashedAt: number | null;
   /** The moment a video's thumbnail is pinned to (ADR-0024 stage 4). */
   readonly posterMs: number | null;
+  /**
+   * The asset that replaced this one, or `null` if this is the current version
+   * (ADR-0026).
+   *
+   * One step forward, so following it walks the chain to the newest.
+   */
+  readonly supersededBy: ContentHash | null;
   readonly rating: number | null;
   readonly note: string | null;
   readonly isFavorite: boolean;
@@ -511,6 +518,32 @@ export class Repo {
   }
 
   /**
+   * Marks one asset as replaced by another, or `null` to make it current again
+   * (ADR-0026).
+   *
+   * Nothing here copies anything: the tags, folders, rating and the rest travel
+   * to the replacement through their own operations, so a rebuild reconstructs
+   * the carry-over from the journal rather than from a rule living in code.
+   */
+  applySupersede(hash: ContentHash, to: ContentHash | null): void {
+    this.#s("UPDATE assets SET superseded_by = ? WHERE hash = ?").run(to, hash);
+  }
+
+  /**
+   * The folder ids one asset belongs to.
+   *
+   * Ids rather than names, because this answers "put the replacement in the
+   * same folders" and `folder_add` names an id. {@link assetDetail} resolves
+   * names instead, for a person to read.
+   */
+  folderIdsFor(hash: ContentHash): number[] {
+    const rows = this.#s(
+      "SELECT folder_id AS id FROM asset_folders WHERE hash = ? ORDER BY folder_id",
+    ).all(hash) as { id: number }[];
+    return rows.map((row) => row.id);
+  }
+
+  /**
    * Forgets one derived picture, so the next derive makes it rather than
    * finding it already there.
    *
@@ -717,7 +750,8 @@ export class Repo {
               storage_mode AS storageMode, ref_path AS refPath,
               is_partial_hash AS isPartialHash, created_at AS createdAt,
               imported_at AS importedAt, trashed_at AS trashedAt,
-              rating, note, is_favorite AS isFavorite, poster_ms AS posterMs
+              rating, note, is_favorite AS isFavorite, poster_ms AS posterMs,
+              superseded_by AS supersededBy
          FROM assets WHERE hash = ?`,
     ).get(hash) as
       | (Omit<AssetDetail, "isPartialHash" | "isFavorite" | "tags" | "folders" | "props"> & {

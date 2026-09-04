@@ -1,4 +1,14 @@
-import type { Event, Request, RequestType } from "@roost/contract";
+import { rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type {
+  Event,
+  Request,
+  RequestType,
+  StorageMode,
+  WireImportReport,
+  WirePasted,
+} from "@roost/contract";
 import { checkRequest } from "@roost/contract";
 import {
   type ClosableSink,
@@ -15,6 +25,7 @@ import {
 } from "@roost/core";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from "electron";
 import { AssetServer } from "./assets.js";
+import { isHttpUrl, pastedName, pathsFromUriList } from "./clipboard.js";
 import { Engine, EngineGoneError, EngineProblem } from "./engine.js";
 import { ROOST_SCHEME, ROOST_SCHEME_PRIVILEGES } from "./security.js";
 import { createWindow } from "./window.js";
@@ -131,7 +142,7 @@ async function route(engine: Engine, payload: unknown): Promise<unknown> {
   log.debug("request", { type: request.type });
   try {
     if (ANSWERED_HERE.has(request.type)) {
-      return { ok: true, value: await answerHere(request) };
+      return { ok: true, value: await answerHere(engine, request) };
     }
     const value = await engine.request(request);
     followLibrary(request, value);
@@ -194,12 +205,17 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "asset:openExternally",
   "asset:reveal",
   "asset:copyPath",
+  "clipboard:paste",
 ]);
 
-async function answerHere(request: Request): Promise<string | boolean | readonly string[] | null> {
+async function answerHere(
+  engine: Engine,
+  request: Request,
+): Promise<string | boolean | readonly string[] | WirePasted | null> {
   if (request.type === "asset:openExternally") return openExternally(request.hash);
   if (request.type === "asset:reveal") return reveal(request.hash);
   if (request.type === "asset:copyPath") return copyPaths(request.hashes);
+  if (request.type === "clipboard:paste") return paste(engine, request.mode);
   if (request.type === "dialog:chooseImport") return chooseImport();
 
   const forOpening = request.type === "dialog:openLibrary";
@@ -311,6 +327,59 @@ async function copyPaths(hashList: readonly string[]): Promise<boolean> {
   if (paths.length === 0) return false;
   clipboard.writeText(paths.join("\n"));
   return true;
+}
+
+/**
+ * What the clipboard holds, and what that deserves (ADR-0026 §5).
+ *
+ * Four shapes wearing one name, and main is where they are told apart: the
+ * clipboard is the desktop's, the renderer has no ambient authority
+ * (invariant 11), and the engine has no shell.
+ *
+ * **A link is not fetched.** Invariant 7 permits exactly one network
+ * operation — an explicit, user-initiated import from a URL — and a fetch
+ * triggered by `Ctrl+V` is what that rule exists to forbid. It comes back as a
+ * URL and the window says so.
+ *
+ * An image is written to a temp file and imported from there, because an
+ * import takes a path and because bytes do not travel to the engine either
+ * (invariant 12). The temp file is ours and is removed once the import has read
+ * it — originals are never moved or deleted, and this was never one.
+ */
+async function paste(engine: Engine, mode: StorageMode): Promise<WirePasted> {
+  const paths = pathsFromUriList(
+    clipboard.read("text/uri-list") || clipboard.read("x-special/gnome-copied-files"),
+  );
+  if (paths.length > 0) return importVia(engine, paths, mode);
+
+  const image = clipboard.readImage();
+  if (!image.isEmpty()) {
+    // PNG, because it is lossless and because the clipboard's own bitmap has no
+    // format to preserve. The name is invented — `orig_name` is NOT NULL and
+    // there is no name to be had — and it sorts, which a random one would not.
+    const temp = join(tmpdir(), pastedName(new Date(), "png"));
+    await writeFile(temp, image.toPNG());
+    try {
+      return await importVia(engine, [temp], "managed");
+    } finally {
+      await rm(temp, { force: true });
+    }
+  }
+
+  const text = clipboard.readText().trim();
+  if (text === "") return { kind: "empty" };
+  return isHttpUrl(text)
+    ? { kind: "url", url: text }
+    : { kind: "text", text: clipboard.readText() };
+}
+
+async function importVia(
+  engine: Engine,
+  paths: readonly string[],
+  mode: StorageMode,
+): Promise<WirePasted> {
+  const report = await engine.request({ type: "import:paths", paths, mode, tags: [] });
+  return { kind: "imported", report: report as WireImportReport };
 }
 
 /** Re-emits an engine event to every open window. */

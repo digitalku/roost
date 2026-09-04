@@ -59,6 +59,7 @@ violates invariant 6.
 | M5 | `asset_stacks(stack_id, hash, position, is_cover)` | yes — user-authored grouping |
 | M5 | `watched_roots(path, recursive, enabled, last_scan)` | yes — configuration |
 | — | `asset_comments(id, hash, at_ms, body, created_at, updated_at)` | yes — `comment_add`, `comment_set`, `comment_remove` |
+| — | `assets.superseded_by` | yes — `supersede` |
 
 Rule of thumb, and the cleanest test for whether an op is required: **if a user typed it or
 clicked it, it goes in the journal. If a machine derived it from bytes, it does not.**
@@ -412,6 +413,66 @@ changed address (ADR-0008, amended).
 nearest decodable frame. Acceptable, and said out loud rather than discovered in a conformance
 test: the instruction is the durable thing and the thumbnail is a cache.
 
+### 2.9 Migration 0010 — an edit is a new asset (schema v10)
+
+Decided and built 2026-09-03 as ADR-0026 stage 2, from the user asking for text to be editable
+inside Roost. Identity is the content hash, so a save cannot be a write: the new bytes are a
+different asset, and this column says which one replaced which.
+
+```sql
+ALTER TABLE assets ADD COLUMN superseded_by TEXT REFERENCES assets(hash);
+
+DROP INDEX idx_assets_imported;
+DROP INDEX idx_assets_ext;
+DROP INDEX idx_assets_rating;
+DROP INDEX idx_assets_favorite;
+DROP INDEX idx_assets_trashed;
+
+CREATE INDEX idx_assets_imported ON assets(imported_at DESC, hash)
+                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_ext      ON assets(ext, imported_at DESC, hash)
+                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_rating   ON assets(rating, imported_at DESC, hash)
+                                 WHERE rating IS NOT NULL AND trashed_at IS NULL
+                                   AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_favorite ON assets(is_favorite, imported_at DESC, hash)
+                                 WHERE is_favorite = 1 AND trashed_at IS NULL
+                                   AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_trashed  ON assets(imported_at DESC, hash)
+                                 WHERE trashed_at IS NOT NULL AND superseded_by IS NULL;
+```
+
+**It took 0010 although §2.5's table and ADR-0025 both name that number for subtitles.** The
+number goes to whatever is built, because a reserved gap is a migration that can never run: the
+runner records version numbers and applies only what is higher than the library's, so a 0010
+arriving after a library had reached 11 would be skipped in silence. **Subtitles take 0011.**
+
+**One step forward, and the chain is history.** Following `superseded_by` gives every version
+oldest to newest. Nothing prunes it and nothing expires: removing an old version is `remove` on
+that hash, a second and deliberate gesture, exactly as ADR-0022 decided for the trash.
+
+**Not the trash, and not `asset_stacks`.** The user did not delete the old version — a Trash place
+filling with intermediate saves is one nobody opens — and a stack (M5) is a *user-made* grouping of
+assets that are different things, where a version chain is automatic and directional.
+
+**The carry-over is journalled, never copied in SQL.** Tags, folders, rating, note, favourite, the
+pinned poster moment and the comments travel to the replacement through the ops that own them —
+`tag_add`, `folder_add`, `rate`, `note_set`, `favorite_set`, `poster_set`, `comment_add` — so a
+rebuild reconstructs it from the journal rather than from a rule that happened to be in the code
+which replayed it (invariant 1). A comment is **copied**: the old version keeps its own, so the
+copies are new rows whose `created_at` is the save rather than the original remark.
+
+**The five grid indexes gained the second half of the default scope.** Migration 0007 made them
+partial on `trashed_at IS NULL`; they now carry `AND superseded_by IS NULL`, and `MATCH_LIVE` plus
+`@roost/search`'s scope table spell the predicate in exactly that order. SQLite uses a partial
+index only when the query's WHERE contains a term implying the index's, so the spelling is part of
+the schema — `repo.test.ts` asserts that half the scope loses the index, which is the failure that
+would otherwise be silent and slow.
+
 ## 3. Roost Query Language (RQL)
 
 The search bar and smart folders share one grammar. It compiles to SQL with **bound
@@ -444,6 +505,7 @@ rating:>=4                    1 to 5; anything else is a parse error, not an emp
 is:favorite is:untagged is:tagged is:rated is:unrated
 is:managed is:referenced is:partial-hash
 is:trashed                    in the trash; also `is:trash`
+is:superseded                 replaced by a newer version; also `is:old`
 "free text"                   FTS5 over orig_name and tags
 ```
 
@@ -463,8 +525,12 @@ Four behaviours are worth stating because they are decisions, not accidents:
   search. Quoting the whole input is what a person typing into a search box means.
 - **Negation is total.** `-tag:wip` is `NOT (…)` over the whole library, so it includes
   assets with no tags at all.
-- **Every query is scoped to live assets unless it mentions `is:trashed`.** Trash is a state,
-  not a place (ADR-0022), so a trashed asset is still a row `tag:wip` would otherwise match —
+- **Every query is scoped by two rules, and naming a flag opts out of that rule only.** Not in
+  the trash (ADR-0022) and not superseded (ADR-0026). `is:trashed` therefore still excludes old
+  versions, because a superseded row in the trash is a version rather than something somebody
+  deleted. The rules live in one table in `@roost/search`'s compiler; the third such rule is where
+  a pattern becomes a design and the fourth is where it becomes a bug. Trash is a state,
+  not a place, so a trashed asset is still a row `tag:wip` would otherwise match —
   and an application where deleting something leaves it in every search is one where deleting
   does not work. The compiler appends `a.trashed_at IS NULL` to anything that does not name the
   flag, in any polarity and at any depth. The consequence worth knowing: `is:favorite OR

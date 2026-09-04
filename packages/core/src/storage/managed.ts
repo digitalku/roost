@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { copyFile, link, mkdir, opendir, rename, rm, stat } from "node:fs/promises";
+import { copyFile, link, mkdir, opendir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pid } from "node:process";
 import {
@@ -160,6 +160,47 @@ export class ManagedStorage implements Storage {
     }
 
     return { path: dest, linkMethod, alreadyPresent: false };
+  }
+
+  async putBytes(bytes: Uint8Array, hash: ContentHash, ext: string): Promise<Placed> {
+    const dest = this.locate(hash, ext);
+
+    if (
+      await stat(dest).then(
+        () => true,
+        () => false,
+      )
+    ) {
+      return { path: dest, linkMethod: null, alreadyPresent: true };
+    }
+
+    const shard = dirname(dest);
+    try {
+      await mkdir(shard, { recursive: true });
+    } catch (cause) {
+      throw new IoError("mkdir", shard, cause);
+    }
+
+    // Written to a temp name in the destination's own directory and renamed, as
+    // `put` does and for the same reason: the rename is atomic within one
+    // filesystem, so nothing ever observes a half-written file at a real
+    // content address.
+    const temp = tempPathFor(dest);
+    try {
+      await writeFile(temp, bytes);
+    } catch (cause) {
+      await rm(temp, { force: true });
+      throw new IoError("write", temp, cause);
+    }
+
+    try {
+      await rename(temp, dest);
+    } catch (cause) {
+      await rm(temp, { force: true });
+      throw new IoError("rename", dest, cause);
+    }
+
+    return { path: dest, linkMethod: "copy", alreadyPresent: false };
   }
 
   /** Removing something that is not there is success, not an error. */
