@@ -358,12 +358,12 @@ describe("choosing which frame a video's thumbnail comes from", () => {
 
 describe("the menu over the grid's empty space", () => {
   let pasted: number;
-  let drafts: string[];
+  let asked: number;
 
   const show = (hashes: readonly string[]) => {
     install(new FakeEngine({}));
     pasted = 0;
-    drafts = [];
+    asked = 0;
     render(
       <AssetContextMenu
         hashes={hashes}
@@ -375,7 +375,9 @@ describe("the menu over the grid's empty space", () => {
         onPaste={() => {
           pasted += 1;
         }}
-        onNewFile={(name) => drafts.push(name)}
+        onNewFile={() => {
+          asked += 1;
+        }}
       >
         <div data-testid="surface" tabIndex={-1}>
           the grid
@@ -392,7 +394,7 @@ describe("the menu over the grid's empty space", () => {
     await screen.findByRole("menu");
   };
 
-  it("offers the three ways to make an asset, and none of the ways to act on one", async () => {
+  it("offers the two ways to make an asset, and none of the ways to act on one", async () => {
     // An empty selection *is* the empty space: right-clicking a cell selects it
     // first, so a menu with nothing to act on can only have been opened over
     // the background.
@@ -400,7 +402,6 @@ describe("the menu over the grid's empty space", () => {
     await open();
 
     expect(screen.getByRole("menuitem", { name: "Paste" })).toBeDefined();
-    expect(screen.getByRole("menuitem", { name: "New text file" })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: "New file…" })).toBeDefined();
     // Nothing that acts on a selection, because there is none to act on.
     expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
@@ -408,17 +409,13 @@ describe("the menu over the grid's empty space", () => {
     expect(screen.queryByRole("menuitem", { name: /trash/ })).toBeNull();
   });
 
-  it("names the draft, and the two items differ only by an extension", async () => {
+  it("asks for the file rather than naming one itself", async () => {
+    // A file called `untitled` is a file somebody has to rename, so the menu
+    // opens a dialog that asks for the name instead of inventing one.
     const user = show([]);
     await open();
-    await user.click(screen.getByRole("menuitem", { name: "New text file" }));
-    expect(drafts).toEqual(["untitled.txt"]);
-
-    await open();
     await user.click(screen.getByRole("menuitem", { name: "New file…" }));
-    // No extension: the draft's name field is where one is typed, because a
-    // file with no bytes has no identity for an extension to belong to.
-    expect(drafts).toEqual(["untitled.txt", "untitled"]);
+    expect(asked).toBe(1);
   });
 
   it("asks for a paste rather than reading the clipboard itself", async () => {

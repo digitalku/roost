@@ -608,6 +608,41 @@ button:disabled {
   justify-content: flex-end;
 }
 
+/* Wider where there is something to type into rather than something to read
+   (`UI_SPEC.md` §3.4). A confirmation is a sentence; this is a form. */
+.dialog-wide {
+  width: min(36rem, calc(100vw - var(--space-8)));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.field > span {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.field input,
+.field textarea {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: inherit;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  font-family: var(--font-mono);
+}
+
+.field-text {
+  min-height: 9rem;
+  resize: vertical;
+  tab-size: 4;
+}
+
 /* Destructive only (`UI_SPEC.md` §2): the danger ramp is not a way to draw
    attention, it is what an action that cannot be undone looks like. */
 .button-danger {

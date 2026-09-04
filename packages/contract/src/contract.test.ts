@@ -93,7 +93,6 @@ describe("validating a request", () => {
       "asset:poster",
       "asset:create",
       "clipboard:paste",
-      "asset:save",
       "asset:rename",
       "asset:tagAdd",
       "asset:tagRemove",

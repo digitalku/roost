@@ -714,7 +714,10 @@ viewer, which needed no schema at all.
   them: GNOME's `x-special/gnome-copied-files` puts `copy` on the first line, and a bare `file://`
   resolves to `/`, which would have made a paste walk the whole filesystem. A **draft** is a name
   and a buffer with no row behind it until the first save (`asset:create`, `createAsset`), and
-  saving an empty one is refused. **No new CLI verb**: pasting is `roost import` under another
+  saving an empty one is refused. **New file became a dialog on 2026-09-04**: the name is typed
+  rather than defaulted to `untitled`, and it asks for the contents too, because without an editor
+  nothing else can give the file bytes — and an external editor cannot fill an empty one in
+  afterwards, since originals are immutable and addressed by their content. **No new CLI verb**: pasting is `roost import` under another
   name and a named draft is `roost import` plus `roost rename`, so ADR-0005 is satisfied by verbs
   that already exist. **Original note, kept for the reasoning:** The clipboard is read in **main**, not
   the renderer — the renderer has no ambient authority (invariant 11) — and what comes back is one
@@ -726,7 +729,14 @@ viewer, which needed no schema at all.
   exception invariant 7 grants — *explicitly user-initiated* import from a URL. Pasting a link is
   arguably that and arguably not, so Paste must not silently fetch: the menu item says what it
   will do, or it does nothing and a separate **Import from URL…** does.
-- ☑ ~~**`text` has to join `KINDS`.**~~ Done 2026-09-03 — **ADR-0026 stage 1**, which needed no
+- ☑ ~~**`text` joins `KINDS`, and the preview reads a text asset.**~~ **Built 2026-09-03 and
+  withdrawn 2026-09-04**, at the user's word after using it: an external editor is enough, and
+  showing a text file in the pane means owning an editor to go with it. There is no `text` kind,
+  no viewer, no editor, and no `asset:save` request. `roost save` keeps the capability in the CLI.
+  **The sniffing work is gone with it**, and the two notes below are kept because they are the
+  reasons it was shaped that way and would be the reasons again if it ever came back.
+
+  *Original entry:* Done 2026-09-03 — **ADR-0026 stage 1**, which needed no
   schema change and is what makes a subtitle readable at all. `text` is in `KINDS` and in
   `ASSET_KINDS`, sniffed as a **negative test** (no NUL, no stray C0 control, no DEL) placed after
   every signature including SVG's, with an extension allowlist for the serving path. The preview
@@ -760,7 +770,10 @@ viewer, which needed no schema at all.
   Windows-1252 and labelled *detected*. **The writing half is stage 2's and this is still the line
   that governs it** — reading a CP1252 subtitle as UTF-8 gives mojibake, and *writing it back* as
   UTF-8 makes the mojibake permanent in a new asset. Convert deliberately, never silently.
-- ☑ ~~**The editor is a `<textarea>` first.**~~ **Stage 2, done 2026-09-03.** Migration 0010, the
+- ☑ ~~**The editor is a `<textarea>` first.**~~ **Stage 2, done 2026-09-03; the editor withdrawn
+  2026-09-04.** Everything below the window stands — migration 0010, the `supersede` op,
+  `saveEdit`, `is:superseded`, `roost save` — and the migration could not have been withdrawn
+  anyway: a library at schema v10 refuses a build that knows only v9. *Original entry:* Migration 0010, the
   `supersede` op, `saveEdit` with its carry-over, `is:superseded`, `roost save`, the
   `asset:save` request, and the editor itself — a textarea in the reader's own box, so pressing
   **Edit** moves nothing but the words becoming typeable. `Escape` abandons the edit before it

@@ -503,29 +503,11 @@ export class FakeEngine {
           hash,
           name: request.name,
           ext: request.name.split(".").pop() ?? "",
-          kind: "text",
+          kind: "other",
           size: text.length,
         });
         this.emit({ type: "library:changed" });
         return ok({ hash, created: true });
-      }
-
-      case "asset:save": {
-        const before = this.details.get(request.hash);
-        if (before === undefined) return ok("");
-        this.#saves += 1;
-        // A hash the fake can mint deterministically and that is still 64 hex
-        // characters, because the renderer builds `roost://` URLs from it.
-        const after = `${this.#saves.toString(16).padStart(2, "0")}${request.hash.slice(2)}`;
-        this.details.set(after, {
-          ...before,
-          hash: after,
-          size: new TextEncoder().encode(request.text).length,
-          supersededBy: null,
-        });
-        this.details.set(request.hash, { ...before, supersededBy: after });
-        this.emit({ type: "library:changed" });
-        return ok(after);
       }
 
       case "asset:rename":

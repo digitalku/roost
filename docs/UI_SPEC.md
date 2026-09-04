@@ -294,8 +294,7 @@ ways to bring an asset into being:
 | Item | Behaviour |
 | --- | --- |
 | **Paste** | Four gestures wearing one name. Files from a file manager are imported; image bytes are imported under a synthesised name (`Pasted 2026-09-04 14.22.08.png`), because `orig_name` cannot be null and there is no name to be had; text opens a draft; **a link does nothing at all** |
-| **New text file** | A draft called `untitled.txt` |
-| **New file…** | A draft called `untitled`, with no extension, because typing one is the point of this row |
+| **New file…** | Opens a dialog that asks for the name and the contents (§3.4) |
 
 **An empty selection *is* the empty space.** Right-clicking a cell selects it first, so a menu with
 nothing to act on can only have been opened over the background — no second detection, and no way
@@ -362,6 +361,21 @@ button, no dismissal by clicking outside it, and focus starting on **Cancel**. T
 prevented is a stray click or a stray `Enter`, and a dialog either of those can confirm is
 decoration. The confirming button says the verb — `Delete`, `Empty trash` — never `OK`, and it is
 the only place the `--danger-` ramp is used (§2).
+
+**A dialog that asks a question is not an alert dialog.** **New file…** (ADR-0026 §4) opens an
+ordinary `Dialog`: it can be dismissed by clicking away and it starts with focus in the first
+field, because there is nothing dangerous to guard against — the danger is losing what was typed,
+and that is the user's own to weigh.
+
+It asks two things, and both are needed:
+
+| Field | Why it cannot be skipped |
+| --- | --- |
+| **Name** | Typed, never defaulted. A file called `untitled` is a file somebody has to rename, and the extension is part of the name |
+| **Contents** | A file with no bytes has no identity here: every empty file has one hash, so an empty `notes.txt` and an empty `notes.md` cannot both exist. Nor could an external editor fill one in afterwards — originals are immutable and addressed by their content, so editing outside writes bytes belonging to a *different* asset |
+
+**Create stays disabled** until both are answered, rather than failing when pressed. Pasted words
+arrive as the contents, and still want a name.
 
 ### 3.5 Comments, and the moment one points at
 
@@ -669,48 +683,16 @@ and on the element's own events when it is still.
 The transport is drawn whether or not anything is on the timeline, so writing the first comment
 does not move the picture it is about.
 
-**Text is shown, not handed away** (ADR-0026 stage 1). A text asset is read over
-`roost://original/<hash>` like every other original, as a **range** rather than in full — a library
-holds anything, and a hundred-megabyte log decoded into one string on the thread drawing the window
-is a frozen window. Past that window the pane says it is showing the first part of a longer file
-rather than pretending the file ends there.
+**Text is handed to the application that owns it.** A viewer and an editor were built on
+2026-09-03 and withdrawn on 2026-09-04, at the user's word: an external editor is enough, and
+showing a text file in the pane means owning an editor to go with it — the encoding, the page
+keys, four refusals, and a save that produces a new asset. So a `.txt` and a `.srt` reach the same
+place every format Roost cannot draw does.
 
-**The encoding is named, because it was inferred.** Roost never rewrites the bytes it was given
-(invariant 6), so what a text file is encoded in is a property of the file rather than a promise
-the library made — and most subtitles in the wild are Windows-1252 rather than UTF-8. A
-byte-order mark is believed; anything else is decided from the bytes and labelled *detected*, so a
-line that looks wrong can be read as an encoding question rather than as a corrupt file.
-
-**Scrolling is the page keys, not the arrows.** Arrow keys step between assets everywhere in the
-preview, so the text body takes `PageUp`, `PageDown`, `Home` and `End` once it has focus — the same
-split that keeps a document from trapping the keyboard.
-
-**A file that does not exist yet is a draft** (ADR-0026 §4). **New file** cannot make a row,
-because in a content-addressed store a file with no bytes has no identity: every empty file has one
-hash, so an empty `notes.txt` and an empty `notes.md` cannot both exist. A draft is what carries a
-name until there are bytes — a name field, a textarea, `Ctrl+S` to save and `Escape` to abandon —
-and **Save stays disabled while it is empty**, with a line saying why rather than a button that
-fails when pressed. The name is edited here rather than asked for in a dialog: the extension is
-part of the name, and asking for one before there is anything to put in the file asks in the wrong
-order.
-
-Saving a draft whose bytes are already in the library answers with the asset that has them —
-identical bytes are one asset — and the status bar says so instead of pretending a second file was
-made.
-
-**Editing an existing text asset produces a new asset** (ADR-0026). **Edit** turns the reader into a textarea in the
-same box, so nothing moves but the words becoming typeable; `Escape` abandons the edit before it
-closes the preview, and `Ctrl+S` saves. What a save writes is a *new* asset carrying everything
-authored on the old one, and the old one is marked superseded — so the preview follows the new
-hash rather than going on showing the version it just replaced.
-
-**Where it cannot be edited, the pane says why rather than hiding the button.** Four rules, none
-of them a preference: a file **too long** to show in full cannot be saved from a partial read,
-which is the one way this could destroy bytes instead of replacing them; a **referenced** file is
-in the user's own folder, where invariant 6 forbids writing; a **trashed** asset would come back
-live, making editing a way of undeleting; and an **older version** would be superseded by the save,
-branching a chain meant to be a line. A control that is simply absent teaches nobody what the rule
-was.
+**What that costs is worth saying**, because it is why the decision could have gone either way:
+nothing in the window can change an asset's contents, and a subtitle cannot be read without
+leaving Roost. `roost save` keeps the capability in the CLI, where it is a deliberate command
+rather than a pane that has to be defended.
 
 **Open externally** hands the file to the desktop's own handler. A Roost library is not only a
 media collection, and a format Roost cannot draw should not be a dead end.
@@ -791,14 +773,6 @@ In the preview, with a video or an audio file open (ADR-0024):
 | `,` / `.` | Step one frame back · on |
 | `<` / `>` | Step ten frames. Reachable with a pointer by pressing the button ten times; the key is the accelerator, not the only way |
 | `I` / `O` | Set the loop's start · end. The button beside the timeline does both, and clears |
-
-In the preview, with a text asset being edited (ADR-0026):
-
-| Key | Action |
-| --- | --- |
-| `Ctrl+S` | Save, which writes a **new** asset and supersedes the one on screen |
-| `Escape` | Abandon the edit. It does not close the preview until there is no edit to abandon |
-| `PageUp` / `PageDown` / `Home` / `End` | Scroll the text, once the body has focus. Arrows still step between assets |
 
 **Fullscreen has a button and no key.** `F` is the favourite, and a key that means one thing beside
 a video and another beside a picture is worse than a button. The media keys are read only while

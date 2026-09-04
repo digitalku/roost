@@ -11,7 +11,6 @@ describe("the preview pane", () => {
   let engine: FakeEngine;
   let closed: number;
   let steps: number[];
-  let replaced: string[];
 
   const show = (kind: AssetKind, ext = "png", over: Partial<WireAssetDetail> = {}) => {
     engine = new FakeEngine({
@@ -26,7 +25,6 @@ describe("the preview pane", () => {
           closed += 1;
         }}
         onStep={(delta) => steps.push(delta)}
-        onReplaced={(hash) => replaced.push(hash)}
       />,
     );
     return userEvent.setup();
@@ -35,7 +33,6 @@ describe("the preview pane", () => {
   beforeEach(() => {
     closed = 0;
     steps = [];
-    replaced = [];
   });
 
   it("renders an image over roost://original, which is the whole file", async () => {
@@ -55,68 +52,14 @@ describe("the preview pane", () => {
     expect(document.querySelector("iframe, object, embed")).toBeNull();
   });
 
-  it("shows a text asset itself, read-only, and names the encoding", async () => {
-    // Windows-1252, which is what a subtitle off the internet usually is.
-    const bytes = new Uint8Array([0x43, 0x61, 0x66, 0xe9, 0x0a]);
-    const asked: (string | undefined)[] = [];
-    vi.stubGlobal("fetch", (input: string, init?: RequestInit) => {
-      asked.push(new Headers(init?.headers).get("Range") ?? undefined);
-      expect(input).toBe(`roost://original/${HASH}`);
-      return Promise.resolve(new Response(bytes, { status: 206 }));
-    });
-
-    show("text", "srt");
-    const body = await screen.findByRole("region", { name: "one.srt" });
-    await waitFor(() => expect(body.textContent).toBe("Café\n"));
-
-    // A window, not the whole file: a library holds anything, and a hundred-
-    // megabyte log would otherwise be decoded on the thread drawing the window.
-    expect(asked[0]).toMatch(/^bytes=0-\d+$/);
-    // The encoding was decided from the bytes, so the pane says so rather than
-    // presenting a guess as a fact.
-    expect(screen.getByText(/windows-1252/)).toBeTruthy();
-    // Read-only: a save is a new asset, not a write (ADR-0026), and stage 1
-    // does not pretend otherwise.
-    expect(document.querySelector("textarea, [contenteditable]")).toBeNull();
-    vi.unstubAllGlobals();
-  });
-
-  it("saves an edit as a new asset and follows it", async () => {
-    const bytes = new TextEncoder().encode("first draft\n");
-    vi.stubGlobal("fetch", () => Promise.resolve(new Response(bytes, { status: 206 })));
-
-    const user = show("text", "txt");
-    const body = await screen.findByRole("region", { name: "one.txt" });
-    await waitFor(() => expect(body.textContent).toBe("first draft\n"));
-
-    await user.click(screen.getByRole("button", { name: "Edit" }));
-    const editor = screen.getByRole("textbox", { name: "one.txt, editing" });
-    await user.clear(editor);
-    await user.type(editor, "second draft");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    // The bytes are the identity, so the save produced a *different* asset and
-    // the selection has to follow it (ADR-0026) — a pane left on the old hash
-    // would show the version it just replaced.
-    await waitFor(() => expect(replaced).toHaveLength(1));
-    expect(replaced[0]).not.toBe(HASH);
-    expect(engine.details.get(HASH)?.supersededBy).toBe(replaced[0]);
-    expect(engine.seen.at(-1)).toMatchObject({ type: "asset:save", text: "second draft" });
-    vi.unstubAllGlobals();
-  });
-
-  it("says why a text asset cannot be edited instead of hiding the button", async () => {
-    const bytes = new TextEncoder().encode("not ours\n");
-    vi.stubGlobal("fetch", () => Promise.resolve(new Response(bytes, { status: 206 })));
-
-    show("text", "txt", { storageMode: "referenced", refPath: "/home/someone/notes.txt" });
-    await screen.findByRole("region", { name: "one.txt" });
-
-    // Invariant 6 does not bend, and a control that is simply absent teaches
-    // nobody what the rule was.
-    await waitFor(() => expect(screen.getByText(/Roost never writes there/)).toBeTruthy());
-    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
-    vi.unstubAllGlobals();
+  it("hands a text file to the application that owns it", async () => {
+    // A viewer and an editor were built on 2026-09-03 and withdrawn on
+    // 2026-09-04: showing a text file means owning an editor to go with it, and
+    // an external editor is enough. So a `.txt` reaches the same place every
+    // format Roost cannot draw does.
+    show("other", "txt");
+    expect(await screen.findByRole("button", { name: "Open externally" })).toBeDefined();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
   it("renders a video under a transport of ours, not the browser's bar", async () => {
@@ -193,27 +136,13 @@ describe("the preview pane", () => {
     });
     install(engine);
     const { rerender } = render(
-      <PreviewPane
-        hash={HASH}
-        generation={0}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-        onReplaced={vi.fn()}
-      />,
+      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
     );
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
     const first = document.querySelector("video");
 
     const second = fakeDetail(2).hash;
-    rerender(
-      <PreviewPane
-        hash={second}
-        generation={0}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-        onReplaced={vi.fn()}
-      />,
-    );
+    rerender(<PreviewPane hash={second} generation={0} onClose={vi.fn()} onStep={vi.fn()} />);
     await waitFor(() =>
       expect(document.querySelector("video")?.getAttribute("src")).toBe(
         `roost://original/${second}`,
@@ -235,15 +164,7 @@ describe("the transport", () => {
       details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs, comments, props })],
     });
     install(engine);
-    render(
-      <PreviewPane
-        hash={HASH}
-        generation={0}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-        onReplaced={vi.fn()}
-      />,
-    );
+    render(<PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />);
     return { engine, user: userEvent.setup() };
   };
 
@@ -339,13 +260,7 @@ describe("the transport", () => {
     });
     install(engine);
     const view = render(
-      <PreviewPane
-        hash={HASH}
-        generation={0}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-        onReplaced={vi.fn()}
-      />,
+      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
     );
     await player();
     expect(document.querySelectorAll(".transport-mark")).toHaveLength(0);
@@ -353,15 +268,7 @@ describe("the transport", () => {
     const held = engine.details.get(HASH);
     if (held === undefined) throw new Error("the fake lost the asset");
     engine.details.set(HASH, { ...held, durationMs: HOUR });
-    view.rerender(
-      <PreviewPane
-        hash={HASH}
-        generation={1}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-        onReplaced={vi.fn()}
-      />,
-    );
+    view.rerender(<PreviewPane hash={HASH} generation={1} onClose={vi.fn()} onStep={vi.fn()} />);
 
     await screen.findByRole("button", { name: "Play from 30:00.0: halfway" });
   });
@@ -375,13 +282,7 @@ describe("the transport", () => {
     });
     install(engine);
     const view = render(
-      <PreviewPane
-        hash={HASH}
-        generation={0}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-        onReplaced={vi.fn()}
-      />,
+      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
     );
     await player();
     expect(document.querySelectorAll(".transport-mark")).toHaveLength(0);
@@ -389,15 +290,7 @@ describe("the transport", () => {
     await engine
       .bridge()
       .invoke({ type: "comment:add", hash: HASH, atMs: HOUR / 2, body: "halfway" });
-    view.rerender(
-      <PreviewPane
-        hash={HASH}
-        generation={1}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-        onReplaced={vi.fn()}
-      />,
-    );
+    view.rerender(<PreviewPane hash={HASH} generation={1} onClose={vi.fn()} onStep={vi.fn()} />);
 
     await screen.findByRole("button", { name: "Play from 30:00.0: halfway" });
   });
@@ -410,25 +303,11 @@ describe("the transport", () => {
     });
     install(engine);
     const view = render(
-      <PreviewPane
-        hash={HASH}
-        generation={0}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-        onReplaced={vi.fn()}
-      />,
+      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
     );
     const playing = await player();
 
-    view.rerender(
-      <PreviewPane
-        hash={HASH}
-        generation={1}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-        onReplaced={vi.fn()}
-      />,
-    );
+    view.rerender(<PreviewPane hash={HASH} generation={1} onClose={vi.fn()} onStep={vi.fn()} />);
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail")).toHaveLength(2),
     );
@@ -463,7 +342,6 @@ describe("the transport", () => {
         generation={0}
         onClose={vi.fn()}
         onStep={(delta) => steps.push(delta)}
-        onReplaced={vi.fn()}
       />,
     );
     const user = userEvent.setup();
@@ -513,7 +391,6 @@ describe("the transport", () => {
         generation={0}
         onClose={vi.fn()}
         onStep={(delta) => steps.push(delta)}
-        onReplaced={vi.fn()}
       />,
     );
     const user = userEvent.setup();
@@ -607,15 +484,7 @@ describe("what the native bar withholds", () => {
       details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs: HOUR, props })],
     });
     install(engine);
-    render(
-      <PreviewPane
-        hash={HASH}
-        generation={0}
-        onClose={vi.fn()}
-        onStep={vi.fn()}
-        onReplaced={vi.fn()}
-      />,
-    );
+    render(<PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />);
     return { engine, user: userEvent.setup() };
   };
 
@@ -794,13 +663,7 @@ describe("a document with pages to turn", () => {
     });
     install(engine);
     render(
-      <PreviewPane
-        hash={HASH}
-        generation={0}
-        onClose={() => undefined}
-        onStep={() => undefined}
-        onReplaced={() => undefined}
-      />,
+      <PreviewPane hash={HASH} generation={0} onClose={() => undefined} onStep={() => undefined} />,
     );
     return userEvent.setup();
   };
@@ -852,13 +715,7 @@ describe("a font", () => {
     });
     install(engine);
     render(
-      <PreviewPane
-        hash={HASH}
-        generation={0}
-        onClose={() => undefined}
-        onStep={() => undefined}
-        onReplaced={() => undefined}
-      />,
+      <PreviewPane hash={HASH} generation={0} onClose={() => undefined} onStep={() => undefined} />,
     );
 
     const specimen = (await screen.findByRole("img", {

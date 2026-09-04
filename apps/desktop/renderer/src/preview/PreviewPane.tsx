@@ -4,7 +4,6 @@ import { invoke } from "../bridge.js";
 import { fallbackToGrid, previewSrc } from "../thumbnail.js";
 import { playhead } from "./playhead.js";
 import { Transport } from "./Transport.js";
-import { type DecodedText, decodeText } from "./text.js";
 
 /**
  * One asset, filling the content region (`UI_SPEC.md` §7).
@@ -36,15 +35,6 @@ export interface PreviewPaneProps {
   readonly onClose: () => void;
   /** Moves to the previous or next loaded asset, changing the selection. */
   readonly onStep: (delta: -1 | 1) => void;
-  /**
-   * The asset became a different one, and the selection has to follow.
-   *
-   * Saving an edit is the only thing that does this: the bytes are the
-   * identity, so a save produces a new asset and supersedes this one
-   * (ADR-0026). Without it the pane would go on showing a version that has just
-   * been replaced, and the next edit would branch off it.
-   */
-  readonly onReplaced: (hash: string) => void;
 }
 
 /**
@@ -85,7 +75,6 @@ export function PreviewPane({
   generation,
   onClose,
   onStep,
-  onReplaced,
 }: PreviewPaneProps): React.JSX.Element {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [page, setPage] = useState(0);
@@ -180,9 +169,7 @@ export function PreviewPane({
         </button>
       </header>
       <div className="preview-stage">
-        {detail === undefined ? null : (
-          <Stage detail={detail} page={page} onTurn={turn} onReplaced={onReplaced} />
-        )}
+        {detail === undefined ? null : <Stage detail={detail} page={page} onTurn={turn} />}
       </div>
     </div>
   );
@@ -200,12 +187,10 @@ function Stage({
   detail,
   page,
   onTurn,
-  onReplaced,
 }: {
   readonly detail: WireAssetDetail;
   readonly page: number;
   readonly onTurn: (delta: number) => void;
-  readonly onReplaced: (hash: string) => void;
 }): React.JSX.Element {
   const src = `roost://original/${detail.hash}`;
 
@@ -236,10 +221,6 @@ function Stage({
 
   if (detail.kind === "font") {
     return <Specimen key={detail.hash} detail={detail} />;
-  }
-
-  if (detail.kind === "text") {
-    return <TextView key={detail.hash} detail={detail} src={src} onReplaced={onReplaced} />;
   }
 
   return <Fallback detail={detail} />;
@@ -397,198 +378,6 @@ function Specimen({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
  * explicit that this is not a failure state — it is what a library that holds
  * anything looks like.
  */
-/**
- * How much of a text asset is read for the preview.
- *
- * A range request rather than the whole file, because a library holds anything
- * (`CONCEPT.md` §5) and a hundred-megabyte log would otherwise be decoded into
- * one string on the thread drawing the window. Two megabytes is far past any
- * subtitle and past every text file a person reads in a preview pane.
- */
-const TEXT_WINDOW = 2 * 1024 * 1024;
-
-type TextState =
-  | { readonly status: "loading" }
-  | { readonly status: "failed" }
-  | { readonly status: "read"; readonly decoded: DecodedText; readonly truncated: boolean };
-
-/**
- * A text asset, read and — where it may be — edited (`UI_SPEC.md` §7).
- *
- * The bytes arrive over `roost://original/<hash>` like every other original —
- * they do not travel through IPC (invariant 12) — and are decoded here rather
- * than by `Response.text()`, because the encoding is a property of the file and
- * not something the library promised (`text.ts`).
- *
- * **Saving is not writing.** The bytes are the identity, so a save produces a
- * *new asset* and marks this one superseded (ADR-0026). That is why the pane
- * has to be told where the asset went: what is on screen afterwards is a
- * different thing, at a different address.
- */
-function TextView({
-  detail,
-  src,
-  onReplaced,
-}: {
-  readonly detail: WireAssetDetail;
-  readonly src: string;
-  readonly onReplaced: (hash: string) => void;
-}): React.JSX.Element {
-  const [state, setState] = useState<TextState>({ status: "loading" });
-  const [draft, setDraft] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-
-  useEffect(() => {
-    let current = true;
-    setState({ status: "loading" });
-    setDraft(null);
-    setProblem(null);
-    void (async () => {
-      try {
-        const response = await fetch(src, { headers: { Range: `bytes=0-${TEXT_WINDOW - 1}` } });
-        if (!response.ok) throw new Error(`roost:// answered ${response.status}`);
-        const bytes = new Uint8Array(await response.arrayBuffer());
-        if (!current) return;
-        const truncated = bytes.length >= TEXT_WINDOW;
-        setState({ status: "read", decoded: decodeText(bytes, truncated), truncated });
-      } catch {
-        // Nothing to log to: the renderer has no logger and no console
-        // (`CLAUDE.md` §6). A file that will not read falls back to the same
-        // place every unreadable asset does.
-        if (current) setState({ status: "failed" });
-      }
-    })();
-    return () => {
-      current = false;
-    };
-  }, [src]);
-
-  if (state.status === "failed") return <Fallback detail={detail} />;
-
-  const refusal = state.status === "read" ? whyNotEditable(detail, state.truncated) : "";
-
-  const save = async (text: string): Promise<void> => {
-    setSaving(true);
-    setProblem(null);
-    const outcome = await invoke({ type: "asset:save", hash: detail.hash, text });
-    setSaving(false);
-    if (!outcome.ok) {
-      setProblem(outcome.problem.message);
-      return;
-    }
-    setDraft(null);
-    onReplaced(outcome.value);
-  };
-
-  return (
-    <div className="preview-text">
-      {draft === null ? (
-        /* Focusable so the page keys reach it: arrow keys step between assets
-           (`UI_SPEC.md` §7), so scrolling a long file is `PageUp`, `PageDown`,
-           `Home` and `End` on the body itself. The scroller is the section
-           rather than the `<pre>`, so the region a screen reader is given and
-           the box the keys move are one thing. A scroller that cannot take
-           focus cannot be scrolled from the keyboard at all, which is what the
-           lint rule's default would cost here. */
-        <section
-          className="preview-text-body"
-          // biome-ignore lint/a11y/noNoninteractiveTabindex: see above
-          tabIndex={0}
-          aria-label={detail.name}
-          aria-busy={state.status === "loading"}
-        >
-          <pre className="preview-text-pre">
-            {state.status === "read" ? state.decoded.text : ""}
-          </pre>
-        </section>
-      ) : (
-        <textarea
-          className="preview-text-body preview-text-editor"
-          aria-label={`${detail.name}, editing`}
-          value={draft}
-          spellCheck={false}
-          // biome-ignore lint/a11y/noAutofocus: the button that opened it is gone
-          autoFocus
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            // Kept off the pane's own map: `Escape` closes the preview
-            // everywhere else, and here it has an edit to abandon first.
-            if (event.key === "Escape") {
-              event.preventDefault();
-              setDraft(null);
-              setProblem(null);
-            }
-            if (event.key === "s" && (event.ctrlKey || event.metaKey)) {
-              event.preventDefault();
-              void save(draft);
-            }
-          }}
-        />
-      )}
-      <footer className="preview-text-note">
-        {state.status === "read" ? (
-          <span>
-            {state.decoded.encoding}
-            {state.decoded.guessed ? ", detected" : ", declared"}
-            {state.truncated ? " · showing the first 2 MB of a longer file" : ""}
-          </span>
-        ) : (
-          <span />
-        )}
-        {problem === null ? null : <span className="preview-text-problem">{problem}</span>}
-        {state.status !== "read" ? null : draft === null ? (
-          refusal === "" ? (
-            <button type="button" onClick={() => setDraft(state.decoded.text)}>
-              Edit
-            </button>
-          ) : (
-            /* Said out loud rather than shown as a missing button. Every one of
-               these is a rule with a reason, and a control that is simply
-               absent teaches nobody what the reason was. */
-            <span className="preview-text-refusal">{refusal}</span>
-          )
-        ) : (
-          <span className="preview-text-actions">
-            <button type="button" onClick={() => setDraft(null)} disabled={saving}>
-              Cancel
-            </button>
-            <button
-              type="button"
-              data-variant="primary"
-              onClick={() => void save(draft)}
-              disabled={saving}
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </span>
-        )}
-      </footer>
-    </div>
-  );
-}
-
-/**
- * Why this text asset cannot be edited, or `""` when it can.
- *
- * Four rules, and none of them is a preference. A **truncated** read must never
- * be saved over a whole file — that is the one way this feature could destroy
- * bytes rather than replace them. A **referenced** asset lives in the user's
- * own directory, where invariant 6 forbids writing. A **trashed** one would
- * come back live, which would make editing a way of undeleting. An **old
- * version** would be superseded by a save, producing a second branch off a
- * chain that is meant to be a line.
- */
-function whyNotEditable(detail: WireAssetDetail, truncated: boolean): string {
-  if (truncated) return "Too long to edit here — only the first 2 MB is shown";
-  if (detail.storageMode === "referenced") {
-    return "This file is in your own folder, and Roost never writes there";
-  }
-  if (detail.trashedAt !== null) return "In the trash — restore it to edit it";
-  if (detail.supersededBy !== null) return "An older version — open the current one to edit";
-  return "";
-}
-
 function Fallback({ detail }: { readonly detail: WireAssetDetail }): React.JSX.Element {
   return (
     <div className="preview-fallback">

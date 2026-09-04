@@ -526,38 +526,24 @@ describe("making files in the window (ADR-0026 §4, §5)", () => {
     await screen.findByRole("menu");
   };
 
-  it("makes a file from a draft, and refuses one with nothing in it", async () => {
-    const { engine, user } = await open();
-    await openMenu();
-    await user.click(screen.getByRole("menuitem", { name: "New text file" }));
-
-    const editor = await screen.findByRole("textbox", { name: "New file" });
-    // Nothing is written yet: a draft is a name and a buffer with no row behind
-    // them, and an empty file has no identity to be saved under.
-    expect(engine.seen.some((request) => request.type === "asset:create")).toBe(false);
-    expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
-
-    await user.type(editor, "- write it down");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    await waitFor(() =>
-      expect(engine.seen.filter((request) => request.type === "asset:create")).toEqual([
-        { type: "asset:create", name: "untitled.txt", text: "- write it down" },
-      ]),
-    );
-  });
-
-  it("lets the extension be typed, because that is what New file… is for", async () => {
+  it("asks for the name, and refuses a file with nothing in it", async () => {
     const { engine, user } = await open();
     await openMenu();
     await user.click(screen.getByRole("menuitem", { name: "New file…" }));
 
+    // No `untitled`: a file called that is a file somebody has to rename, so
+    // the dialog asks the question instead of inventing an answer.
     const name = await screen.findByLabelText("Name");
-    expect((name as HTMLInputElement).value).toBe("untitled");
-    await user.clear(name);
+    expect((name as HTMLInputElement).value).toBe("");
+
+    // Nothing is written until it is answered, and an empty file has nothing to
+    // identify it — every empty file has one hash (ADR-0026 §4).
     await user.type(name, "notes.md");
-    await user.type(screen.getByRole("textbox", { name: "New file" }), "# notes");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("button", { name: "Create" }).hasAttribute("disabled")).toBe(true);
+    expect(engine.seen.some((request) => request.type === "asset:create")).toBe(false);
+
+    await user.type(screen.getByLabelText("Contents"), "# notes");
+    await user.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:create")).toEqual([
@@ -566,14 +552,15 @@ describe("making files in the window (ADR-0026 §4, §5)", () => {
     );
   });
 
-  it("opens a draft when the clipboard holds words", async () => {
+  it("puts pasted words in the new file, and still asks for a name", async () => {
     const { user } = await open({ clipboard: { kind: "text", text: "pasted words" } });
     await openMenu();
     await user.click(screen.getByRole("menuitem", { name: "Paste" }));
 
     // A paragraph on the clipboard is something to put in a file, not a file.
-    const editor = await screen.findByRole("textbox", { name: "New file" });
-    expect((editor as HTMLTextAreaElement).value).toBe("pasted words");
+    const contents = await screen.findByLabelText("Contents");
+    expect((contents as HTMLTextAreaElement).value).toBe("pasted words");
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("");
   });
 
   it("does not fetch a link, and says so", async () => {

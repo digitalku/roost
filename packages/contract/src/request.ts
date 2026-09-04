@@ -177,22 +177,6 @@ export type Request =
    * back for a draft, and a URL is left alone — pasting never fetches.
    */
   | { readonly type: "clipboard:paste"; readonly mode: StorageMode }
-  /**
-   * Saves edited text as a **new asset**, superseding this one (ADR-0026).
-   *
-   * The text travels as a string, which is not the thing invariant 12 forbids:
-   * that rule is about *serving stored bytes* to the renderer, which happens
-   * over `roost://` and never as a `Buffer` in a message. This is the other
-   * direction and the other kind of thing — input a person typed, in the same
-   * class as a note or a comment body, which already cross here as strings.
-   *
-   * Answers the hash of the new version, because the pane must follow the asset
-   * it is now looking at rather than stay on the one that was replaced.
-   *
-   * The engine refuses a referenced asset, a trashed one, and anything over
-   * `MAX_EDIT_BYTES`.
-   */
-  | { readonly type: "asset:save"; readonly hash: string; readonly text: string }
   /** Renames what the library shows. Nothing under `originals/` is touched. */
   | { readonly type: "asset:rename"; readonly hash: string; readonly name: string }
   | {
@@ -388,8 +372,6 @@ export interface Responses {
   "asset:note": null;
   "asset:poster": null;
   "asset:rename": null;
-  /** The hash of the new version an edit created (ADR-0026). */
-  "asset:save": string;
   "asset:create": WireCreated;
   "clipboard:paste": WirePasted;
   "asset:tagAdd": null;
@@ -554,16 +536,6 @@ export const REQUEST_VALIDATORS: {
   "clipboard:paste": (source) => {
     const mode = readOneOf(source, "mode", STORAGE_MODES);
     return mode.ok ? ok({ type: "clipboard:paste", mode: mode.value }) : mode;
-  },
-
-  "asset:save": (source) => {
-    const hash = readHash(source, "hash");
-    if (!hash.ok) return hash;
-    // `readString`, not `readNonEmpty`: emptying a file is an edit somebody may
-    // mean, and it is the *new file* with no bytes that ADR-0026 §4 refuses.
-    const text = readString(source, "text");
-    if (!text.ok) return text;
-    return ok({ type: "asset:save", hash: hash.value, text: text.value });
   },
 
   "asset:rename": (source) => {

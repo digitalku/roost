@@ -11,7 +11,7 @@ import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
-import { AssetContextMenu, DEFAULT_TEXT_NAME } from "./grid/AssetContextMenu.js";
+import { AssetContextMenu } from "./grid/AssetContextMenu.js";
 import { Grid } from "./grid/Grid.js";
 import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, zoomBy } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
@@ -22,7 +22,7 @@ import { DropZone } from "./import/DropZone.js";
 import { type Importing, useImport } from "./import/useImport.js";
 import { Inspector } from "./inspector/Inspector.js";
 import { RecentList } from "./library/RecentList.js";
-import { DraftEditor } from "./preview/DraftEditor.js";
+import { NewFileDialog } from "./NewFileDialog.js";
 import { PreviewPane } from "./preview/PreviewPane.js";
 import { SearchField } from "./search/SearchField.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
@@ -683,15 +683,13 @@ function LibraryView({
    * could be written onto the wrong asset while the preview showed another.
    */
   /**
-   * A file that does not exist yet (ADR-0026 §4).
+   * The New file dialog, and what it opens with (ADR-0026 §4).
    *
-   * Held here rather than in the grid, because it takes the content region the
-   * way the preview does: a draft is what the window is showing, not something
-   * floating over what it was showing before.
+   * A dialog rather than a pane: naming the file is the question, and a form
+   * that asks it is a smaller thing than an editor — which the window
+   * deliberately does not have, because an external one is enough.
    */
-  const [draft, setDraft] = useState<
-    { readonly name: string; readonly text: string } | undefined
-  >();
+  const [newFile, setNewFile] = useState<{ readonly text: string } | undefined>();
 
   /**
    * Paste (ADR-0026 §5), which is four gestures wearing one name.
@@ -717,7 +715,9 @@ function LibraryView({
             : `Pasted ${pasted.report.imported} of ${pasted.report.scanned} files`,
         );
       }
-      if (pasted.kind === "text") return setDraft({ name: DEFAULT_TEXT_NAME, text: pasted.text });
+      // Words on the clipboard are something to put in a file rather than a
+      // file, so they arrive as the new file's contents and still want a name.
+      if (pasted.kind === "text") return setNewFile({ text: pasted.text });
       if (pasted.kind === "url") {
         return noteResult("Pasting never fetches a link — import it deliberately instead");
       }
@@ -774,23 +774,7 @@ function LibraryView({
             field shows what it was replaced with — one source of truth for what
             is on screen, and it is a string the user can read and edit. */}
         {sidebar !== undefined && <Sidebar sidebar={sidebar} query={query} onPick={applyQuery} />}
-        {draft !== undefined ? (
-          <DraftEditor
-            initialName={draft.name}
-            initialText={draft.text}
-            onCancel={() => setDraft(undefined)}
-            onProblem={setActed}
-            onSaved={(hash, created, name) => {
-              setDraft(undefined);
-              onImported();
-              // Selected rather than merely made: the file a person just wrote
-              // is what they are looking at, and the inspector is where they
-              // would tag it.
-              selection.click(hash);
-              noteResult(created ? `Saved ${name}` : `${name} holds bytes the library already had`);
-            }}
-          />
-        ) : previewing && focused !== undefined ? (
+        {previewing && focused !== undefined ? (
           /* Over the asset on screen, not over the selection: "export…" while
              looking at one picture cannot sensibly mean the other eleven. */
           <AssetContextMenu
@@ -807,11 +791,6 @@ function LibraryView({
               generation={revision}
               onClose={() => setPreviewing(false)}
               onStep={step}
-              // Saving an edit makes a new asset (ADR-0026), so the selection
-              // follows it: the pane shows what is selected, and leaving the
-              // selection on the version that was just replaced would put an
-              // old one back on screen the moment anything re-read.
-              onReplaced={(hash) => selection.click(hash)}
             />
           </AssetContextMenu>
         ) : paging.assets.length === 0 && paging.done ? (
@@ -825,7 +804,7 @@ function LibraryView({
             onConfirm={setConfirming}
             onGone={clearSelection}
             onPaste={paste}
-            onNewFile={(name) => setDraft({ name, text: "" })}
+            onNewFile={() => setNewFile({ text: "" })}
           >
             <p className="grid-empty">
               {query === "" ? EMPTY_LIBRARY : inTrash ? EMPTY_TRASH : NOTHING_MATCHED}
@@ -840,7 +819,7 @@ function LibraryView({
             onConfirm={setConfirming}
             onGone={clearSelection}
             onPaste={paste}
-            onNewFile={(name) => setDraft({ name, text: "" })}
+            onNewFile={() => setNewFile({ text: "" })}
           >
             <Grid
               assets={paging.assets}
@@ -855,6 +834,25 @@ function LibraryView({
         )}
         <Inspector hashes={selected} generation={revision} />
       </div>
+
+      {/* Mounted only while it is open, so the contents a paste handed it are
+          the state it starts with rather than something to synchronise. */}
+      {newFile !== undefined && (
+        <NewFileDialog
+          initialText={newFile.text}
+          onClose={() => setNewFile(undefined)}
+          onProblem={setActed}
+          onCreated={(hash, created, name) => {
+            setNewFile(undefined);
+            onImported();
+            // Selected rather than merely made: the file a person just made is
+            // what they are looking at, and the inspector is where they would
+            // tag it.
+            selection.click(hash);
+            noteResult(created ? `Made ${name}` : `${name} holds bytes the library already had`);
+          }}
+        />
+      )}
 
       <DropZone onDrop={importing.start} />
 

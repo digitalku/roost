@@ -6,12 +6,12 @@
  * `other` is not a failure. A format Roost cannot draw still imports, still
  * carries tags, and still opens in the application that owns it.
  *
- * `text` is the one kind with no signature to sniff for — it is decided by what
- * the bytes are *not* (ADR-0026 §Stages). It exists because Roost shows a text
- * file itself rather than handing it to another application, which is also what
- * a subtitle needs (ADR-0025).
+ * **There is deliberately no `text`.** One was added on 2026-09-03 and withdrawn
+ * on 2026-09-04: showing a text file in the pane means owning an editor to go
+ * with it, and the user's answer was that an external editor is enough. A `.txt`
+ * is `other`, and `other` opens in the application that owns it.
  */
-export const KINDS = ["image", "video", "audio", "document", "font", "text", "other"] as const;
+export const KINDS = ["image", "video", "audio", "document", "font", "other"] as const;
 
 export type Kind = (typeof KINDS)[number];
 

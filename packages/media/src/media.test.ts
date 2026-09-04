@@ -53,12 +53,6 @@ describe("probing a real file", () => {
     const path = await write("tiny.bin", Buffer.from([0x00, 0x01]));
     expect(await probe(path)).toEqual({ format: "unknown", kind: "other" });
   });
-
-  it("reads a subtitle as text, which is what makes it showable", async () => {
-    const srt = "1\n00:00:01,000 --> 00:00:02,000\nHello.\n";
-    const path = await write("clip.srt", Buffer.from(srt, "utf8"));
-    expect(await probe(path)).toEqual({ format: "text", kind: "text" });
-  });
 });
 
 describe("generating thumbnails", () => {

@@ -37,15 +37,7 @@ export type StorageMode = (typeof STORAGE_MODES)[number];
  * `other` is not a failure. A format Roost cannot draw still imports, still
  * carries tags, and opens in the application that owns it.
  */
-export const ASSET_KINDS = [
-  "image",
-  "video",
-  "audio",
-  "document",
-  "font",
-  "text",
-  "other",
-] as const;
+export const ASSET_KINDS = ["image", "video", "audio", "document", "font", "other"] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
 /** What the window shows about the library it has open. */

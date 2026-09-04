@@ -58,7 +58,6 @@ import {
   retryBlocked,
   retryFailed,
   runDerives,
-  saveEdit,
   setComment,
   setFavorite,
   setNote,
@@ -180,22 +179,6 @@ export class EngineHost {
           // which is the same path a rebuild takes. Nothing to work when the
           // moment was already the one asked for.
           if (pinned) void this.#runDerives();
-        });
-
-      case "asset:save":
-        // Answers the new hash rather than `null`, because a save moves the
-        // asset the window is looking at (ADR-0026): the bytes are the
-        // identity, so the pane has a different thing on screen afterwards.
-        return this.#editReporting(async () => {
-          const saved = await saveEdit(
-            this.#require(),
-            parseContentHash(request.hash),
-            new TextEncoder().encode(request.text),
-          );
-          // A new asset has no thumbnail until something draws one, and the
-          // queue is the same path a rebuild takes.
-          if (saved !== request.hash) void this.#runDerives();
-          return saved as string;
         });
 
       case "asset:create":

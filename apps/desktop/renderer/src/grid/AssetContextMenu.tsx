@@ -31,16 +31,6 @@ import { type ConfirmRequest, useTrashActions } from "./trash-actions.js";
  * what the rating and tag items are still waiting for.
  */
 
-/**
- * What a new draft is called before anybody renames it.
- *
- * **New text file** carries an extension and **New file…** does not, which is
- * the whole difference between the two items: one is the common case and the
- * other is the one where the extension is the point.
- */
-export const DEFAULT_TEXT_NAME = "untitled.txt";
-export const DEFAULT_NAME = "untitled";
-
 export interface AssetContextMenuProps {
   /** The selection. Empty means there is no menu to open. */
   readonly hashes: readonly string[];
@@ -71,8 +61,8 @@ export interface AssetContextMenuProps {
    * opened over the background.
    */
   readonly onPaste?: () => void;
-  /** Opens an unsaved draft under this name. Nothing is written yet. */
-  readonly onNewFile?: (name: string) => void;
+  /** Opens the New file dialog. Nothing is written until it is answered. */
+  readonly onNewFile?: () => void;
   readonly children: React.ReactNode;
 }
 
@@ -187,19 +177,10 @@ export function AssetContextMenu({
 
               <ContextMenu.Separator className="menu-separator" />
 
-              <ContextMenu.Item
-                className="menu-item"
-                onSelect={() => onNewFile?.(DEFAULT_TEXT_NAME)}
-              >
-                <span className="menu-mark" />
-                <span className="menu-label">New text file</span>
-              </ContextMenu.Item>
-
-              {/* No extension, so the draft's name field is where one is typed:
-                  a file with no bytes has no address and no identity, so the
-                  extension only starts meaning something at the first save
-                  (ADR-0026 §4). */}
-              <ContextMenu.Item className="menu-item" onSelect={() => onNewFile?.(DEFAULT_NAME)}>
+              {/* One item, and it asks for the name: a file called `untitled`
+                  is a file somebody has to rename, and the extension is part of
+                  the name rather than a choice made before it. */}
+              <ContextMenu.Item className="menu-item" onSelect={() => onNewFile?.()}>
                 <span className="menu-mark" />
                 <span className="menu-label">New file…</span>
               </ContextMenu.Item>

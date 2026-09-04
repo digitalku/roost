@@ -266,8 +266,11 @@ is listed here, so the order stays visible instead of becoming folklore.
   0010, the `supersede` op, `saveEdit` with everything user-authored carried across as journal
   lines, `is:superseded` as the second scope rule, `roost save`, and the editor — with four
   refusals said out loud rather than shown as a missing button. Stage 3, **done 2026-09-04**: the menu over the grid's empty space — Paste
-  (four gestures, and a link is never fetched), New text file, and New file… — with the clipboard
-  parsed in main and a draft that is a name and a buffer until its first save. **Stage 4 is not
+  (four gestures, and a link is never fetched) and New file…, which opens a dialog asking for the
+  name and the contents, with the clipboard parsed in main. **Stage 1 and stage 2's editor were
+  withdrawn the same day** at the user's word — an external editor is enough — so there is no
+  `text` kind, no viewer and no editor; `roost save` keeps replacing an asset's contents from the
+  CLI. **Stage 4 is not
   started**: *Import from URL…*, invariant 7's one exception written out explicitly. One question
   opened on the way and blocks nothing yet: *Duplicate into library to edit* cannot mean
   duplicate, because identical bytes are one asset (`TODO.md` §3)
