@@ -267,7 +267,7 @@ is listed here, so the order stays visible instead of becoming folklore.
   lines, `is:superseded` as the second scope rule, `roost save`, and the editor — with four
   refusals said out loud rather than shown as a missing button. Stage 3, **done 2026-09-04**: the menu over the grid's empty space — Paste
   (four gestures, and a link is never fetched) and New file…, which opens a dialog asking for the
-  name and the contents, with the clipboard parsed in main. **Stage 1 and stage 2's editor were
+  name and nothing else, with the clipboard parsed in main. **Stage 1 and stage 2's editor were
   withdrawn the same day** at the user's word — an external editor is enough — so there is no
   `text` kind, no viewer and no editor; `roost save` keeps replacing an asset's contents from the
   CLI. **Stage 4 is not

@@ -281,6 +281,7 @@ describe("the engine's message loop", () => {
       "height",
       "importedAt",
       "isFavorite",
+      "kind",
       "name",
       "posterMs",
       "rating",

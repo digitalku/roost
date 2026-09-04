@@ -268,7 +268,7 @@ the grid's roving ring and the preview's stepping both dead until something is c
 
 | Item | Over one | Over several |
 | --- | --- | --- |
-| **Open** | hands the file to the desktop's own handler | disabled — three files is three applications opening |
+| **Open externally** | hands the file to the desktop's own handler | disabled — three files is three applications opening |
 | **Show in file manager** | reveals it, selected | disabled, same reason |
 | **Copy path** | one path | `Copy N paths`, one per line |
 | **Export…** | a directory chooser, then a copy out | `Export N assets…` |
@@ -294,7 +294,7 @@ ways to bring an asset into being:
 | Item | Behaviour |
 | --- | --- |
 | **Paste** | Four gestures wearing one name. Files from a file manager are imported; image bytes are imported under a synthesised name (`Pasted 2026-09-04 14.22.08.png`), because `orig_name` cannot be null and there is no name to be had; text opens a draft; **a link does nothing at all** |
-| **New file…** | Opens a dialog that asks for the name and the contents (§3.4) |
+| **New file…** | Opens a dialog that asks for the name (§3.4) |
 
 **An empty selection *is* the empty space.** Right-clicking a cell selects it first, so a menu with
 nothing to act on can only have been opened over the background — no second detection, and no way
@@ -367,15 +367,20 @@ ordinary `Dialog`: it can be dismissed by clicking away and it starts with focus
 field, because there is nothing dangerous to guard against — the danger is losing what was typed,
 and that is the user's own to weigh.
 
-It asks two things, and both are needed:
+**It asks one thing: the name.** Typed, never defaulted — a file called `untitled` is a file
+somebody has to rename — and the extension is part of it. `Enter` is the button, and **Create**
+stays disabled until there is a name.
 
-| Field | Why it cannot be skipped |
-| --- | --- |
-| **Name** | Typed, never defaulted. A file called `untitled` is a file somebody has to rename, and the extension is part of the name |
-| **Contents** | A file with no bytes has no identity here: every empty file has one hash, so an empty `notes.txt` and an empty `notes.md` cannot both exist. Nor could an external editor fill one in afterwards — originals are immutable and addressed by their content, so editing outside writes bytes belonging to a *different* asset |
+**The library holds one empty file however many are made**, and that is reported rather than
+prevented: every empty file has the same hash, and `assets.hash` is the primary key, so the second
+answers with the first under the first one's name. The status bar says so. An external editor
+cannot fill one in afterwards either — originals are immutable and addressed by their content, so
+editing outside writes bytes belonging to a *different* asset. Asking for contents as well was
+tried on 2026-09-04 and withdrawn the next day: the dialog asks the question it does not know the
+answer to, and no more.
 
-**Create stays disabled** until both are answered, rather than failing when pressed. Pasted words
-arrive as the contents, and still want a name.
+Words from the clipboard become the contents without a field, because pasting has already said
+what they are; the dialog says how many characters it is about to keep.
 
 ### 3.5 Comments, and the moment one points at
 
@@ -627,7 +632,13 @@ window was not being composited. `roost-old` measured no dropped frames at readi
 
 ## 7. Preview
 
-Opens on `Enter` or double-click, into the content region. Arrow keys step through the loaded
+Opens on `Enter` or double-click, into the content region — **unless Roost cannot draw the file**,
+in which case the same gesture hands it straight to the application that owns it. A pane whose only
+offer is "Open externally" is a pane in the way of what the gesture meant. The kind travels on the
+grid's card so the decision costs no round trip, and `other` is the test: everything Roost has a
+backend for still opens here, even while its thumbnail is still being derived.
+
+Arrow keys step through the loaded
 list, and **stepping changes the selection**, so the inspector follows what is on screen — in
 `roost-old` it did not, and a note could be written onto the wrong asset.
 

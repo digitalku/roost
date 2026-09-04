@@ -129,7 +129,7 @@ describe("the asset context menu", () => {
     // applications opening, which nobody meant by "open".
     show();
     await open();
-    expect(disabled("Open")).toBe(true);
+    expect(disabled("Open externally")).toBe(true);
     expect(disabled("Show in file manager")).toBe(true);
     expect(disabled("Copy 3 paths")).toBe(false);
   });
@@ -404,7 +404,7 @@ describe("the menu over the grid's empty space", () => {
     expect(screen.getByRole("menuitem", { name: "Paste" })).toBeDefined();
     expect(screen.getByRole("menuitem", { name: "New file…" })).toBeDefined();
     // Nothing that acts on a selection, because there is none to act on.
-    expect(screen.queryByRole("menuitem", { name: "Open" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Open externally" })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /Copy/ })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /trash/ })).toBeNull();
   });

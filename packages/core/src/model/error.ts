@@ -10,7 +10,6 @@ export const ERROR_CODES = [
   "ambiguous_hash",
   "edit_too_large",
   "empty_comment",
-  "empty_file",
   "empty_name",
   "folder_cycle",
   "invalid_content_hash",

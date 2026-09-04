@@ -152,6 +152,15 @@ export interface AssetCard {
   readonly hash: string;
   readonly name: string;
   readonly ext: string;
+  /**
+   * What the asset broadly is, so the grid knows whether opening it means the
+   * preview or the desktop.
+   *
+   * Here rather than fetched on a double-click: a file Roost cannot draw goes
+   * straight to the application that owns it (`UI_SPEC.md` §6), and a round
+   * trip to find that out would put a blank pane on screen first.
+   */
+  readonly kind: AssetKind;
   readonly size: number;
   readonly width: number | null;
   readonly height: number | null;

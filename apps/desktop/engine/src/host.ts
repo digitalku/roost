@@ -569,6 +569,7 @@ function cardOf(hit: SearchHit): AssetPage["assets"][number] {
     hash: hit.hash,
     name: hit.origName,
     ext: hit.ext,
+    kind: kindOf(formatFromExtension(hit.ext)) satisfies AssetKind,
     size: hit.size,
     // Part of the thumbnail's address rather than something a cell draws: see
     // `AssetCard` in the contract.

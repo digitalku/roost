@@ -8,7 +8,6 @@ import {
   createAsset,
   createFolder,
   EditTooLargeError,
-  EmptyFileError,
   importInto,
   Library,
   MAX_EDIT_BYTES,
@@ -185,12 +184,20 @@ describe("saving an edit", () => {
     );
   });
 
-  it("refuses an empty file, which has nothing to identify it", async () => {
-    // Every empty file has one BLAKE3 hash and `assets.hash` is the primary
-    // key, so an empty `notes.txt` and an empty `notes.md` cannot both exist.
-    // A draft is what carries a name until there are bytes (ADR-0026 §4).
-    await expect(createAsset(library, "empty.txt", new Uint8Array(0))).rejects.toBeInstanceOf(
-      EmptyFileError,
+  it("holds one empty file however many are made", async () => {
+    // Every empty file has the same BLAKE3 hash and `assets.hash` is the
+    // primary key, so the second answers with the first — under the first
+    // one's name, because that is the one somebody has been using. Refusing
+    // instead was tried on 2026-09-03 and withdrawn on 2026-09-05.
+    const first = await createAsset(library, "empty.txt", new Uint8Array(0));
+    expect(first.created).toBe(true);
+
+    const second = await createAsset(library, "another.md", new Uint8Array(0));
+    expect(second).toEqual({ hash: first.hash, created: false });
+    expect(library.db.repo.assetDetail(first.hash)?.origName).toBe("empty.txt");
+    // And it is a real asset: bytes on disk, at the address its hash names.
+    expect(await readFile(library.storageFor("managed").locate(first.hash, "txt"), "utf8")).toBe(
+      "",
     );
   });
 

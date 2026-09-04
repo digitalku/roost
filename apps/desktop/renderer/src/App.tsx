@@ -725,6 +725,26 @@ function LibraryView({
     })();
   }, [noteResult, onImported]);
 
+  /**
+   * Opening an asset — from `Enter`, or from a double-click.
+   *
+   * **A file Roost cannot draw goes straight to the application that owns it**
+   * (`UI_SPEC.md` §6). Opening a preview that can only offer "Open externally"
+   * is a pane in the way of the thing the gesture meant, and the kind travels
+   * on the card so the decision costs no round trip.
+   */
+  const openAsset = useCallback(
+    (hash: string) => {
+      const card = paging.assets.find((asset) => asset.hash === hash);
+      if (card?.kind === "other") {
+        void invoke({ type: "asset:openExternally", hash });
+        return;
+      }
+      setPreviewing(true);
+    },
+    [paging.assets],
+  );
+
   const step = useCallback(
     (delta: -1 | 1) => {
       const order = paging.assets.map((asset) => asset.hash);
@@ -828,7 +848,7 @@ function LibraryView({
               target={zoom}
               selection={selection}
               onMore={paging.more}
-              onOpen={() => setPreviewing(true)}
+              onOpen={openAsset}
             />
           </AssetContextMenu>
         )}
@@ -849,7 +869,13 @@ function LibraryView({
             // what they are looking at, and the inspector is where they would
             // tag it.
             selection.click(hash);
-            noteResult(created ? `Made ${name}` : `${name} holds bytes the library already had`);
+            noteResult(
+              created
+                ? `Made ${name}`
+                : newFile.text === ""
+                  ? "Roost already holds an empty file — every empty file is the same one here"
+                  : `${name} holds bytes the library already had`,
+            );
           }}
         />
       )}

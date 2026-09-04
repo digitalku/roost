@@ -526,7 +526,7 @@ describe("making files in the window (ADR-0026 §4, §5)", () => {
     await screen.findByRole("menu");
   };
 
-  it("asks for the name, and refuses a file with nothing in it", async () => {
+  it("asks for a name and nothing else", async () => {
     const { engine, user } = await open();
     await openMenu();
     await user.click(screen.getByRole("menuitem", { name: "New file…" }));
@@ -535,32 +535,37 @@ describe("making files in the window (ADR-0026 §4, §5)", () => {
     // the dialog asks the question instead of inventing an answer.
     const name = await screen.findByLabelText("Name");
     expect((name as HTMLInputElement).value).toBe("");
-
-    // Nothing is written until it is answered, and an empty file has nothing to
-    // identify it — every empty file has one hash (ADR-0026 §4).
-    await user.type(name, "notes.md");
+    // One field. Asking for contents as well was tried on 2026-09-04 and
+    // withdrawn the next day.
+    expect(screen.queryByLabelText("Contents")).toBeNull();
     expect(screen.getByRole("button", { name: "Create" }).hasAttribute("disabled")).toBe(true);
-    expect(engine.seen.some((request) => request.type === "asset:create")).toBe(false);
 
-    await user.type(screen.getByLabelText("Contents"), "# notes");
+    await user.type(name, "notes.md");
     await user.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:create")).toEqual([
-        { type: "asset:create", name: "notes.md", text: "# notes" },
+        { type: "asset:create", name: "notes.md", text: "" },
       ]),
     );
   });
 
-  it("puts pasted words in the new file, and still asks for a name", async () => {
-    const { user } = await open({ clipboard: { kind: "text", text: "pasted words" } });
+  it("keeps pasted words as the new file's contents, without a field for them", async () => {
+    const { engine, user } = await open({ clipboard: { kind: "text", text: "pasted words" } });
     await openMenu();
     await user.click(screen.getByRole("menuitem", { name: "Paste" }));
 
-    // A paragraph on the clipboard is something to put in a file, not a file.
-    const contents = await screen.findByLabelText("Contents");
-    expect((contents as HTMLTextAreaElement).value).toBe("pasted words");
-    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("");
+    // Pasting has already said what the words are, so the dialog only asks the
+    // question it does not know the answer to.
+    expect(await screen.findByText(/12 characters you pasted/)).toBeDefined();
+    await user.type(screen.getByLabelText("Name"), "notes.txt");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:create")).toEqual([
+        { type: "asset:create", name: "notes.txt", text: "pasted words" },
+      ]),
+    );
   });
 
   it("does not fetch a link, and says so", async () => {
@@ -766,6 +771,34 @@ describe("the preview, in the window", () => {
     const { user } = await open();
     await user.dblClick(screen.getAllByRole("option")[1] as HTMLElement);
     expect(await screen.findByRole("dialog")).toBeDefined();
+  });
+
+  it("hands a file it cannot draw straight to the desktop", async () => {
+    // `UI_SPEC.md` §6. A preview that can only offer "Open externally" is a
+    // pane in the way of what the gesture meant, so the kind travels on the
+    // card and the double-click skips it.
+    const assets = [fakeAsset(0, { kind: "other", name: "notes.txt", ext: "txt" })];
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 1 },
+      assets,
+      details: [fakeDetail(0, { kind: "other", name: "notes.txt", ext: "txt" })],
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(1));
+
+    await user.dblClick(screen.getAllByRole("option")[0] as HTMLElement);
+
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:openExternally")).toEqual([
+        { type: "asset:openExternally", hash: assets[0]?.hash },
+      ]),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("changes the selection as it steps, so the inspector follows", async () => {

@@ -165,6 +165,7 @@ export function fakeAsset(index: number, over: Partial<AssetCard> = {}): AssetCa
     hash: index.toString(16).padStart(64, "0"),
     name: `asset-${index}.png`,
     ext: "png",
+    kind: "image",
     posterMs: null,
     size: 1024 + index,
     width: 800,

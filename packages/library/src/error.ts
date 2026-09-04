@@ -135,23 +135,6 @@ export class NotEditableError extends RoostError {
 }
 
 /**
- * A new file with nothing in it (ADR-0026 §4).
- *
- * Every empty file has one BLAKE3 hash and `assets.hash` is the primary key, so
- * an empty `notes.txt` and an empty `notes.md` cannot both exist and "New File"
- * twice would yield one row. A new file is therefore a draft in the window
- * until it has bytes that make it itself — which is also the first moment its
- * extension means anything.
- */
-export class EmptyFileError extends RoostError {
-  readonly code = "empty_file";
-
-  constructor(name: string) {
-    super(`${name} has nothing in it — an empty file has nothing to identify it`, { name });
-  }
-}
-
-/**
  * More bytes than an edit is allowed to carry.
  *
  * The window a text asset is *read* through and the ceiling on what a save may

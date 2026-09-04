@@ -197,7 +197,7 @@ export function AssetContextMenu({
                 }}
               >
                 <span className="menu-mark" />
-                <span className="menu-label">Open</span>
+                <span className="menu-label">Open externally</span>
               </ContextMenu.Item>
 
               <ContextMenu.Item

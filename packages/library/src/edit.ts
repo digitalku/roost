@@ -17,7 +17,6 @@ import {
   AmbiguousHashError,
   EditTooLargeError,
   EmptyCommentError,
-  EmptyFileError,
   EmptyNameError,
   FolderCycleError,
   InvalidMomentError,
@@ -790,10 +789,14 @@ export async function supersedeAsset(
  * the ordinary `add`, so nothing downstream has to know where the bytes came
  * from.
  *
- * Answers the hash and whether it is new. **Empty is refused**: every empty file
- * has one BLAKE3 hash and `assets.hash` is the primary key, so an empty
- * `notes.txt` and an empty `notes.md` cannot both exist — the draft is what
- * carries a name until there are bytes to identify.
+ * Answers the hash and whether it is new.
+ *
+ * **An empty file is allowed, and there can only ever be one.** Every empty
+ * file has the same BLAKE3 hash and `assets.hash` is the primary key, so the
+ * second one made answers with the first — under the first one's name, because
+ * that is the one somebody has been using. Refusing instead was tried on
+ * 2026-09-03 and withdrawn on 2026-09-05: the caller asks for a file with a
+ * name, and it is the caller's business what it holds.
  *
  * Identical bytes are one asset by invariant 1, so writing a file that already
  * exists answers with it and `created: false` rather than a second row. The
@@ -806,7 +809,6 @@ export async function createAsset(
   bytes: Uint8Array,
 ): Promise<{ readonly hash: ContentHash; readonly created: boolean }> {
   const clean = cleanName(name, "file");
-  if (bytes.length === 0) throw new EmptyFileError(clean);
   if (bytes.length > MAX_EDIT_BYTES) throw new EditTooLargeError(bytes.length, MAX_EDIT_BYTES);
 
   // The importer's rule, spelled the same way: the **last** extension

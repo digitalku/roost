@@ -10,13 +10,18 @@ import { invoke } from "./bridge.js";
  * somebody has to rename, and this dialog is already asking a question — so it
  * asks the one that matters first.
  *
- * **It asks for contents as well, because it has to.** A file with no bytes has
- * no identity here: every empty file has one BLAKE3 hash and `assets.hash` is
- * the primary key, so an empty `notes.txt` and an empty `notes.md` cannot both
- * exist and a second empty file would be the same asset as the first. Nor could
- * an external editor fill one in afterwards: originals are immutable and
- * addressed by their content, so editing outside would write bytes that belong
- * to a *different* asset and leave this one empty for ever.
+ * **It asks for nothing else.** The user's decision on 2026-09-05, after using
+ * the version that also asked for contents: a name and a button. What that
+ * costs is real and is said where it happens rather than guarded against here —
+ * an empty file has one BLAKE3 hash and `assets.hash` is the primary key, so
+ * the library holds **one** empty file however many are made, and the second
+ * answers with the first. Nor can an external editor fill one in afterwards:
+ * originals are immutable and addressed by their content, so editing outside
+ * writes bytes that belong to a *different* asset.
+ *
+ * Words from the clipboard arrive as `initialText` and become the contents
+ * without a field, because pasting has already said what they are (ADR-0026
+ * §5).
  *
  * A `Dialog` rather than an `AlertDialog`: this is a question with an answer to
  * type, not a confirmation, so it may be dismissed by clicking away and it
@@ -41,12 +46,11 @@ export function NewFileDialog({
   readonly onProblem: (problem: WireProblem) => void;
 }): React.JSX.Element {
   const [name, setName] = useState("");
-  const [text, setText] = useState(initialText);
   const [saving, setSaving] = useState(false);
 
   const create = async (): Promise<void> => {
     setSaving(true);
-    const outcome = await invoke({ type: "asset:create", name, text });
+    const outcome = await invoke({ type: "asset:create", name, text: initialText });
     setSaving(false);
     if (!outcome.ok) return onProblem(outcome.problem);
     onCreated(outcome.value.hash, outcome.value.created, name);
@@ -64,8 +68,9 @@ export function NewFileDialog({
         <Dialog.Content className="dialog dialog-wide">
           <Dialog.Title className="dialog-title">New file</Dialog.Title>
           <Dialog.Description className="dialog-body">
-            The name carries the extension, and the file needs something in it — an empty file has
-            nothing to identify it.
+            {initialText === ""
+              ? "The name carries the extension."
+              : `The name carries the extension. It will hold the ${initialText.length} characters you pasted.`}
           </Dialog.Description>
 
           <label className="field" htmlFor="new-file-name">
@@ -78,25 +83,13 @@ export function NewFileDialog({
               spellCheck={false}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
-                // Enter moves on rather than submitting: the file still has no
-                // contents at this point, and a submit that cannot succeed is
-                // a key that does nothing.
-                if (event.key === "Enter") {
+                // The only field, so Enter is the button: a form with one
+                // answer should not need the pointer to submit it.
+                if (event.key === "Enter" && name.trim() !== "" && !saving) {
                   event.preventDefault();
-                  document.getElementById("new-file-text")?.focus();
+                  void create();
                 }
               }}
-            />
-          </label>
-
-          <label className="field" htmlFor="new-file-text">
-            <span>Contents</span>
-            <textarea
-              id="new-file-text"
-              className="field-text"
-              value={text}
-              spellCheck={false}
-              onChange={(event) => setText(event.target.value)}
             />
           </label>
 
@@ -107,7 +100,7 @@ export function NewFileDialog({
             <button
               type="button"
               data-variant="primary"
-              disabled={saving || name.trim() === "" || text === ""}
+              disabled={saving || name.trim() === ""}
               onClick={() => void create()}
             >
               {saving ? "Creating…" : "Create"}

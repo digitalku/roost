@@ -158,11 +158,10 @@ export type Request =
    * Creates an asset from text the window holds, under a name the user chose
    * (ADR-0026 §4).
    *
-   * **New File** is a draft until this: a name and a buffer with no row behind
-   * them. Empty is refused, because every empty file has one hash and
-   * `assets.hash` is the primary key — an empty `notes.txt` and an empty
-   * `notes.md` cannot both exist, so a file becomes an asset at the moment it
-   * has bytes that make it itself.
+   * `text` may be empty, and usually is: **New file** asks for a name and
+   * nothing else. The cost is real and is reported rather than prevented —
+   * every empty file has one hash and `assets.hash` is the primary key, so the
+   * library holds one empty file however many are made.
    *
    * Answers the hash and whether it is new; identical bytes are one asset, so a
    * file that already exists comes back with `created: false`.
@@ -525,9 +524,8 @@ export const REQUEST_VALIDATORS: {
   "asset:create": (source) => {
     const name = readNonEmpty(source, "name");
     if (!name.ok) return name;
-    // `readString`: an empty draft is refused by the engine with a sentence
-    // about *why*, which is better than a validator saying "expected a
-    // non-empty string" about a file somebody meant to make.
+    // `readString`, not `readNonEmpty`: an empty file is the ordinary case
+    // here, since the dialog asks for a name and nothing else.
     const text = readString(source, "text");
     if (!text.ok) return text;
     return ok({ type: "asset:create", name: name.value, text: text.value });

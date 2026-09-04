@@ -714,10 +714,12 @@ viewer, which needed no schema at all.
   them: GNOME's `x-special/gnome-copied-files` puts `copy` on the first line, and a bare `file://`
   resolves to `/`, which would have made a paste walk the whole filesystem. A **draft** is a name
   and a buffer with no row behind it until the first save (`asset:create`, `createAsset`), and
-  saving an empty one is refused. **New file became a dialog on 2026-09-04**: the name is typed
-  rather than defaulted to `untitled`, and it asks for the contents too, because without an editor
-  nothing else can give the file bytes — and an external editor cannot fill an empty one in
-  afterwards, since originals are immutable and addressed by their content. **No new CLI verb**: pasting is `roost import` under another
+  saving an empty one is refused. **New file became a dialog on 2026-09-04 and lost its contents
+  field on 2026-09-05**: it asks for the name and nothing else. An empty file is created, and the
+  cost is reported rather than prevented — the library holds **one** empty file however many are
+  made, because every empty file has the same hash, and an external editor cannot fill one in
+  afterwards either, since originals are immutable and addressed by their content. **No new CLI
+  verb**: pasting is `roost import` under another
   name and a named draft is `roost import` plus `roost rename`, so ADR-0005 is satisfied by verbs
   that already exist. **Original note, kept for the reasoning:** The clipboard is read in **main**, not
   the renderer — the renderer has no ambient authority (invariant 11) — and what comes back is one

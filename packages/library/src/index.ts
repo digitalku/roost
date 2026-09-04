@@ -71,7 +71,6 @@ export {
   AmbiguousHashError,
   EditTooLargeError,
   EmptyCommentError,
-  EmptyFileError,
   EmptyNameError,
   FolderCycleError,
   InvalidLibraryNameError,
