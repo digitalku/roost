@@ -15,50 +15,19 @@
  * so it can never trash anything of yours. Exits non-zero on the first failure,
  * so it can be a CI step on a machine that composites a window.
  */
-import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { importInto, Library } from "@roost/library";
-import { gradient } from "@roost/media";
-
-const PORT = 9500 + (process.pid % 100);
-const electron = createRequire(import.meta.url)("electron");
-if (typeof electron !== "string") {
-  console.error("electron is not installed (ELECTRON_SKIP_BINARY_DOWNLOAD?)");
-  process.exit(2);
-}
+import { ledger } from "./lib/checks.mjs";
+import { imageLibrary, scratch } from "./lib/fixtures.mjs";
+import { launch } from "./lib/window.mjs";
 
 /** How many assets the fixture holds. Enough to page, few enough to be instant. */
 const ASSETS = 12;
 
-const scratch = await mkdtemp(join(tmpdir(), "roost-check-trash-"));
-const root = join(scratch, "Check.roost");
-await build(root, scratch);
-
-const child = spawn(
-  electron,
-  [
-    "apps/desktop/main/dist/main.js",
-    `--remote-debugging-port=${PORT}`,
-    "--ozone-platform-hint=auto",
-  ],
-  { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ROOST_LIBRARY: root } },
-);
-let noise = "";
-child.stderr.on("data", (chunk) => {
-  noise += chunk;
-});
-
-const failures = [];
-let passed = 0;
-function check(name, pass, saw) {
-  console.log(`${pass ? "  ok  " : "  FAIL"}  ${name}${saw === undefined ? "" : `   ${saw}`}`);
-  if (pass) passed += 1;
-  else failures.push(name);
-}
+const { dir, dispose } = await scratch("check-trash");
+const root = await imageLibrary(dir, { count: ASSETS });
+const window = await launch({ library: root });
+const { cdp } = window;
+const { check, section, report } = ledger();
 
 const placesExpression = `
   (() => {
@@ -102,24 +71,24 @@ const dialogExpression = `
     };
   })()`;
 
-/**
- * A click on the first cell, as pointer events rather than as `.click()`.
- *
- * The grid selects on `pointerdown`, so a bare click would leave the selection
- * empty and every assertion after it would be about nothing.
- */
-const clickFirstCell = `
-  (() => {
-    const cell = document.querySelector(".cell");
-    cell.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
-    cell.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
-    cell.click();
-  })()`;
+/** A real click on the first cell, which also puts the keyboard focus in the grid. */
+async function clickFirstCell() {
+  const cell = await cdp.box(".cell");
+  await cdp.mouse.click(cell.x, cell.y);
+  await cdp.settle(
+    "document.querySelectorAll('.cell[aria-selected=\"true\"]').length",
+    (n) => n > 0,
+  );
+}
 
-const openMenu = `
-  document.querySelector(".cell").dispatchEvent(
-    new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }),
-  )`;
+async function openMenu() {
+  const cell = await cdp.box(".cell");
+  await cdp.mouse.click(cell.x, cell.y, { button: "right" });
+  return cdp.settle(
+    "[...document.querySelectorAll('[role=menuitem]')].map((i) => i.textContent)",
+    (list) => Array.isArray(list) && list.length > 0,
+  );
+}
 
 const clickPlace = (name) => `
   (() => {
@@ -130,18 +99,10 @@ const clickPlace = (name) => `
   })()`;
 
 try {
-  const cdp = await connect(PORT, () => noise);
-  await cdp.evaluate(
-    `window.roost.invoke({ type: "library:open", path: ${JSON.stringify(root)} })`,
-  );
-  await cdp.evaluate("location.reload()").catch(() => {});
-  await settle(cdp, "window.roostBench?.firstPaintAt ?? null", (v) => typeof v === "number");
-
-  console.log("The Trash place");
+  section("The Trash place");
   // `firstPaintAt` fires when the *grid* has rows, which is a different request
   // from the sidebar's — reading once here is a race, and it lost one.
-  const places = await settle(
-    cdp,
+  const places = await cdp.settle(
     placesExpression,
     (rows) => Array.isArray(rows) && rows.length > 0,
   );
@@ -155,25 +116,20 @@ try {
     `count=${places.find((p) => p.name === "Trash")?.count}`,
   );
 
-  console.log("\nDelete, over the grid");
+  section("Delete, over the grid");
   // The asset itself, not a count of rendered cells: the grid is virtualised,
   // so how many cells exist depends on how many fit, and "one fewer" stopped
   // being true the moment the inspector started holding its width.
   const doomed = await cdp.evaluate("document.querySelector('.cell')?.dataset.hash ?? null");
-  await cdp.evaluate(clickFirstCell);
-  await settle(
-    cdp,
-    "document.querySelectorAll('.cell[aria-selected=\"true\"]').length",
-    (n) => n === 1,
-  );
+  await clickFirstCell();
   // The layout while something is selected, so the check after the delete has
   // something to compare against.
   const selectedLayout = await cdp.evaluate(statusExpression);
-  await cdp.evaluate(
-    'document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }))',
-  );
-  await settle(
-    cdp,
+  // A real key press rather than a dispatched event: where the focus went after
+  // the click is part of the claim, and a synthetic event on `document.body`
+  // would pass whether the grid holds it or not.
+  await cdp.keyboard.press("Delete");
+  await cdp.settle(
     `[...document.querySelectorAll(".cell")].some((c) => c.dataset.hash === ${JSON.stringify(doomed)})`,
     (present) => present === false,
   );
@@ -221,22 +177,17 @@ try {
     `total=${JSON.stringify(status.total)}`,
   );
 
-  console.log("\nInside the Trash");
+  section("Inside the Trash");
   await cdp.evaluate(clickPlace("Trash"));
-  await settle(cdp, "document.querySelectorAll('.cell').length", (n) => n === 1);
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === 1);
   check("it shows what was trashed", true, "cells=1");
   check(
     "the search field shows the query that got there",
     (await cdp.evaluate("document.querySelector('.search-input')?.value ?? null")) === "is:trashed",
   );
 
-  await cdp.evaluate(clickFirstCell);
-  await cdp.evaluate(openMenu);
-  const items = await settle(
-    cdp,
-    "[...document.querySelectorAll('[role=menuitem]')].map((i) => i.textContent)",
-    (list) => Array.isArray(list) && list.length > 0,
-  );
+  await clickFirstCell();
+  const items = await openMenu();
   check(
     "Restore is offered",
     items.some((i) => i?.startsWith("Restore")),
@@ -246,11 +197,11 @@ try {
   // Never both spellings at once, or "delete" means two things in one menu.
   check("Move to trash is not", !items.some((i) => i?.includes("Move to trash")));
 
-  console.log("\nThe confirmation");
+  section("The confirmation");
   await cdp.evaluate(
     '[...document.querySelectorAll("[role=menuitem]")].find((i) => i.textContent === "Delete permanently")?.click()',
   );
-  const dialog = await settle(cdp, dialogExpression, (d) => d !== null);
+  const dialog = await cdp.settle(dialogExpression, (d) => d !== null);
   check("it appears", dialog !== null, `title=${JSON.stringify(dialog.title)}`);
   // The claim happy-dom could not make: a real browser decides where focus
   // lands, and an alert dialog focused on its destructive button is one stray
@@ -263,132 +214,41 @@ try {
   check("the scrim is painted", dialog.overlay !== "rgba(0, 0, 0, 0)", dialog.overlay);
   check("the panel is painted", dialog.background !== "rgba(0, 0, 0, 0)", dialog.background);
 
-  await cdp.evaluate(
-    'document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))',
-  );
+  await cdp.keyboard.press("Escape");
   await sleep(400);
   check(
     "Escape cancels without deleting anything",
-    (await trashedCount(cdp)) === 1,
-    `trashed=${await trashedCount(cdp)}`,
+    (await trashedCount()) === 1,
+    `trashed=${await trashedCount()}`,
   );
 
-  console.log("\nRestore");
-  await cdp.evaluate(clickFirstCell);
-  await cdp.evaluate(openMenu);
-  await settle(cdp, "[...document.querySelectorAll('[role=menuitem]')].length", (n) => n > 0);
+  section("Restore");
+  await clickFirstCell();
+  await openMenu();
   await cdp.evaluate(
     '[...document.querySelectorAll("[role=menuitem]")].find((i) => i.textContent?.startsWith("Restore"))?.click()',
   );
-  await settle(cdp, "document.querySelectorAll('.cell').length", (n) => n === 0);
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === 0);
   check("the asset leaves the Trash view", true, "cells=0");
-  check("and is live again", (await trashedCount(cdp)) === 0);
+  check("and is live again", (await trashedCount()) === 0);
   check(
     "an empty trash says so, rather than reporting a failed search",
     (await cdp.evaluate("document.querySelector('.grid-empty')?.textContent ?? null")) ===
       "The trash is empty.",
   );
 
-  console.log("");
-  if (failures.length > 0) {
-    console.log(`${failures.length} of ${failures.length + passed} checks failed`);
-    process.exitCode = 1;
-  } else {
-    console.log(`all ${passed} checks passed`);
-  }
+  report();
 } catch (error) {
   console.error(error);
-  console.error(noise.slice(-4000));
+  console.error(window.noise().slice(-4000));
   process.exitCode = 2;
 } finally {
-  child.kill("SIGTERM");
-  await sleep(300);
-  child.kill("SIGKILL");
-  await rm(scratch, { recursive: true, force: true });
+  await window.close();
+  await dispose();
 }
 
-/** A throwaway library with a handful of real images in it. */
-async function build(path, dir) {
-  const source = join(dir, "pictures");
-  await mkdir(source, { recursive: true });
-  for (let index = 0; index < ASSETS; index += 1) {
-    await writeFile(join(source, `shot-${index}.png`), await gradient(64, 64, index + 1, "png"));
-  }
-  const library = await Library.create(path, "Check");
-  try {
-    await importInto(library, [source]);
-  } finally {
-    await library.close();
-  }
-}
-
-function trashedCount(cdp) {
+function trashedCount() {
   return cdp.evaluate(
     'window.roost.invoke({ type: "assets:count", query: "is:trashed" }).then((o) => o.value)',
   );
-}
-
-/** Polls an expression until it satisfies `ok`, so nothing here races a render. */
-async function settle(cdp, expression, ok) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const value = await cdp.evaluate(expression).catch(() => undefined);
-    if (ok(value)) return value;
-    await sleep(100);
-  }
-  throw new Error(`never settled: ${expression.trim().slice(0, 120)}`);
-}
-
-async function connect(port, log) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    try {
-      const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-      const page = targets.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
-      if (page !== undefined) return await session(page.webSocketDebuggerUrl);
-    } catch {
-      // The port is not listening yet, which is ordinary for the first second.
-    }
-    await sleep(250);
-  }
-  throw new Error(`no page target after 20s\n${log()}`);
-}
-
-async function session(url) {
-  const socket = new WebSocket(url);
-  await new Promise((resolve, reject) => {
-    socket.onopen = resolve;
-    socket.onerror = reject;
-  });
-
-  let id = 0;
-  const pending = new Map();
-  socket.onmessage = (message) => {
-    const reply = JSON.parse(message.data);
-    const waiting = pending.get(reply.id);
-    if (waiting === undefined) return;
-    pending.delete(reply.id);
-    if (reply.error) waiting.reject(new Error(JSON.stringify(reply.error)));
-    else waiting.resolve(reply.result);
-  };
-
-  const send = (method, params) =>
-    new Promise((resolve, reject) => {
-      id += 1;
-      pending.set(id, { resolve, reject });
-      socket.send(JSON.stringify({ id, method, params }));
-    });
-
-  await send("Runtime.enable");
-  return {
-    async evaluate(expression) {
-      const result = await send("Runtime.evaluate", {
-        expression,
-        awaitPromise: true,
-        returnByValue: true,
-      });
-      if (result.exceptionDetails !== undefined) {
-        throw new Error(JSON.stringify(result.exceptionDetails).slice(0, 600));
-      }
-      return result.result.value;
-    },
-  };
 }

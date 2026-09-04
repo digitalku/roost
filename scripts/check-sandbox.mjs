@@ -13,30 +13,23 @@
  * Exits non-zero on the first failure, so it can be a CI step. It needs
  * Electron's binary, which `ELECTRON_SKIP_BINARY_DOWNLOAD` suppresses.
  */
-import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
+import { ledger } from "./lib/checks.mjs";
+import { launch } from "./lib/window.mjs";
 
-const PORT = 9500 + (process.pid % 100);
-const electron = createRequire(import.meta.url)("electron");
-if (typeof electron !== "string") {
-  console.error("electron is not installed (ELECTRON_SKIP_BINARY_DOWNLOAD?)");
-  process.exit(2);
-}
+// No library: the subject is the window itself, and the picker is as good a
+// document to serve a policy with as a grid is.
+const window = await launch({ open: false });
+const { cdp } = window;
+const { check, section, report } = ledger();
 
-const child = spawn(
-  electron,
-  [
-    "apps/desktop/main/dist/main.js",
-    `--remote-debugging-port=${PORT}`,
-    "--ozone-platform-hint=auto",
-  ],
-  { stdio: ["ignore", "pipe", "pipe"] },
-);
-let noise = "";
-child.stderr.on("data", (chunk) => {
-  noise += chunk;
-});
+/**
+ * Each check is a page expression returning `{ ok, saw }`.
+ *
+ * Written as expressions rather than as a helper injected into the page,
+ * because a helper would itself be an inline script and the policy under test
+ * is the one that decides whether inline scripts run.
+ */
 
 /**
  * Each check is a page expression returning `{ ok, saw }`.
@@ -184,127 +177,65 @@ function violation(directive, attempt) {
   }))()`;
 }
 
-let failures = 0;
-try {
-  const cdp = await connect(PORT);
+/**
+ * The `Content-Security-Policy` on the document's own response.
+ *
+ * Read off the network event rather than out of our source, which is the whole
+ * point: a header a session dropped, or one another handler overwrote, is
+ * invisible to a test of the function that computes it.
+ */
+async function documentPolicy() {
+  const arrived = cdp.once(
+    "Network.responseReceived",
+    (params) => params.type === "Document",
+    8000,
+  );
+  await cdp.evaluate("location.reload()").catch(() => {});
+  const event = await arrived;
+  if (event === undefined) return undefined;
+  const headers = event.response.headers ?? {};
+  const name = Object.keys(headers).find((key) => key.toLowerCase() === "content-security-policy");
+  return name === undefined ? undefined : headers[name];
+}
 
-  console.log("The policy Electron served with the document\n");
-  const policy = await cdp.documentPolicy();
+try {
+  section("The policy Electron served with the document");
+  const policy = await documentPolicy();
   if (policy === undefined) {
-    failures += 1;
-    console.log("  FAIL  no Content-Security-Policy header on the document at all");
+    check("a Content-Security-Policy header on the document at all", false);
   } else {
-    for (const check of HEADER_CHECKS) {
-      const ok =
-        check.present !== undefined
-          ? policy.includes(check.present)
-          : !policy.includes(check.absent);
-      if (!ok) failures += 1;
-      console.log(`  ${ok ? "ok  " : "FAIL"}  ${check.name}`);
+    for (const header of HEADER_CHECKS) {
+      check(
+        header.name,
+        header.present !== undefined
+          ? policy.includes(header.present)
+          : !policy.includes(header.absent),
+      );
     }
   }
 
-  console.log("\nSandbox, as the window actually behaves\n");
+  section("Sandbox, as the window actually behaves");
+  // The reload above is still settling; a page expression evaluated into a
+  // document being replaced throws, and that reads as a sandbox failure.
+  await cdp.settle("document.readyState", (state) => state === "complete");
+  await sleep(200);
 
-  for (const check of CHECKS) {
+  for (const claim of CHECKS) {
     let result;
     try {
-      result = await cdp.evaluate(check.expression);
+      result = await cdp.evaluate(claim.expression);
     } catch (error) {
       result = { ok: false, saw: String(error).slice(0, 80) };
     }
-    if (result?.ok !== true) failures += 1;
-    console.log(`  ${result?.ok === true ? "ok  " : "FAIL"}  ${check.name} — ${result?.saw}`);
-    if (result?.ok !== true) console.log(`        expected: ${check.why}`);
+    check(claim.name, result?.ok === true, result?.saw);
+    if (result?.ok !== true) console.log(`        expected: ${claim.why}`);
   }
 
-  console.log("");
-  const total = CHECKS.length + HEADER_CHECKS.length;
-  console.log(failures === 0 ? "All clear." : `${failures} of ${total} failed.`);
-  process.exitCode = failures === 0 ? 0 : 1;
+  report();
+} catch (error) {
+  console.error(error);
+  console.error(window.noise().slice(-4000));
+  process.exitCode = 2;
 } finally {
-  child.kill("SIGTERM");
-  await sleep(300);
-  child.kill("SIGKILL");
-}
-
-async function connect(port) {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
-    try {
-      const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-      const page = targets.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
-      if (page !== undefined) return await session(page.webSocketDebuggerUrl);
-    } catch {
-      // Not listening yet.
-    }
-    await sleep(250);
-  }
-  throw new Error(`no page target after 15s\n${noise}`);
-}
-
-async function session(url) {
-  const socket = new WebSocket(url);
-  await new Promise((resolve, reject) => {
-    socket.onopen = resolve;
-    socket.onerror = reject;
-  });
-
-  let id = 0;
-  const pending = new Map();
-  socket.onmessage = (message) => {
-    const reply = JSON.parse(message.data);
-    const waiting = pending.get(reply.id);
-    if (waiting === undefined) return;
-    pending.delete(reply.id);
-    if (reply.error) waiting.reject(new Error(JSON.stringify(reply.error)));
-    else waiting.resolve(reply.result);
-  };
-
-  const send = (method, params) =>
-    new Promise((resolve, reject) => {
-      id += 1;
-      pending.set(id, { resolve, reject });
-      socket.send(JSON.stringify({ id, method, params }));
-    });
-
-  await send("Runtime.enable");
-  await send("Network.enable");
-
-  return {
-    /**
-     * The `Content-Security-Policy` on the document's own response.
-     *
-     * Read off the network event rather than out of our source, which is the
-     * whole point: a header a session dropped, or one another handler
-     * overwrote, is invisible to a test of the function that computes it.
-     */
-    async documentPolicy() {
-      const arrived = new Promise((resolve) => {
-        socket.addEventListener("message", (message) => {
-          const event = JSON.parse(message.data);
-          if (event.method !== "Network.responseReceived") return;
-          if (event.params.type !== "Document") return;
-          const headers = event.params.response.headers ?? {};
-          const name = Object.keys(headers).find(
-            (key) => key.toLowerCase() === "content-security-policy",
-          );
-          resolve(name === undefined ? undefined : headers[name]);
-        });
-      });
-      await this.evaluate("location.reload()").catch(() => {});
-      return Promise.race([arrived, sleep(8000).then(() => undefined)]);
-    },
-
-    async evaluate(expression) {
-      const result = await send("Runtime.evaluate", {
-        expression,
-        awaitPromise: true,
-        returnByValue: true,
-      });
-      if (result.exceptionDetails !== undefined) {
-        throw new Error(JSON.stringify(result.exceptionDetails.exception?.description ?? ""));
-      }
-      return result.result.value;
-    },
-  };
+  await window.close();
 }

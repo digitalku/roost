@@ -13,43 +13,17 @@
  *
  *     node scripts/check-transport.mjs
  */
-import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
-import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { addComment, generateMissing, importInto, Library, pageOf } from "@roost/library";
+import { ledger } from "./lib/checks.mjs";
+import { scratch, videoClip } from "./lib/fixtures.mjs";
+import { launch } from "./lib/window.mjs";
 
-const PORT = 9600 + (process.pid % 100);
-const electron = createRequire(import.meta.url)("electron");
-
-const scratch = await mkdtemp(join(tmpdir(), "roost-check-transport-"));
-const root = join(scratch, "Check.roost");
-const short = join(scratch, "short.mp4");
-const clip = join(scratch, "clip.mp4");
-
-for (const [file, duration] of [
-  [short, 5],
-  [clip, 20],
-]) {
-  await run("ffmpeg", [
-    "-v",
-    "error",
-    "-f",
-    "lavfi",
-    "-i",
-    `testsrc=size=320x240:rate=10:duration=${duration}`,
-    // Not the default encoder for `.mp4` here, which is MPEG-4 Part 2 —
-    // Chromium refuses it with error 4, and it reads exactly like a broken
-    // protocol handler. This build has no libx264 either.
-    "-c:v",
-    "libopenh264",
-    "-pix_fmt",
-    "yuv420p",
-    file,
-  ]);
-}
+const { dir, dispose } = await scratch("check-transport");
+const root = join(dir, "Check.roost");
+const short = await videoClip(join(dir, "short.mp4"), { seconds: 5 });
+const clip = await videoClip(join(dir, "clip.mp4"), { seconds: 20 });
 
 const library = await Library.create(root, "Check");
 try {
@@ -70,27 +44,9 @@ try {
   await library.close();
 }
 
-const child = spawn(
-  electron,
-  [
-    "apps/desktop/main/dist/main.js",
-    `--remote-debugging-port=${PORT}`,
-    "--ozone-platform-hint=auto",
-  ],
-  { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ROOST_LIBRARY: root } },
-);
-let noise = "";
-child.stderr.on("data", (chunk) => {
-  noise += chunk;
-});
-
-const failures = [];
-let passed = 0;
-function check(name, pass, saw) {
-  console.log(`${pass ? "  ok  " : "  FAIL"}  ${name}${saw === undefined ? "" : `   ${saw}`}`);
-  if (pass) passed += 1;
-  else failures.push(name);
-}
+const window = await launch({ library: root });
+const { cdp } = window;
+const { check, section, report } = ledger();
 
 const transportExpression = `
   (() => {
@@ -163,15 +119,8 @@ const key = (selector, name) => `
     new KeyboardEvent("keydown", { key: ${JSON.stringify(name)}, bubbles: true }),
   )`;
 
-let cdp;
 try {
-  cdp = await connect(PORT, () => noise);
-  await cdp.evaluate(
-    `window.roost.invoke({ type: "library:open", path: ${JSON.stringify(root)} })`,
-  );
-  await cdp.evaluate("location.reload()").catch(() => {});
-  await settle(cdp, "window.roostBench?.firstPaintAt ?? null", (v) => typeof v === "number");
-  await settle(cdp, "document.querySelectorAll('.cell').length", (n) => n === 2);
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === 2);
 
   await cdp.evaluate(`
     (() => {
@@ -181,13 +130,12 @@ try {
       cell.click();
     })()`);
   await cdp.evaluate(key(".grid", "Enter"));
-  const drawn = await settle(
-    cdp,
+  const drawn = await cdp.settle(
     transportExpression,
     (t) => t !== null && t.marks.length === 2 && Number.isFinite(t.duration),
   );
 
-  console.log("What is drawn");
+  section("What is drawn");
   check("the browser's own control bar is gone", drawn.controls === false);
   check(
     "the timeline is exactly as wide as the picture it belongs to",
@@ -238,7 +186,7 @@ try {
     JSON.stringify(drawn.time),
   );
 
-  console.log("\nWhat a screen reader is told (UI_SPEC.md §10)");
+  section("What a screen reader is told (UI_SPEC.md §10)");
   check("the timeline is a slider", drawn.role === "slider", JSON.stringify(drawn.role));
   check(
     "it announces a timecode rather than a count of milliseconds",
@@ -262,10 +210,9 @@ try {
     drawn.controlNames.map((c) => c.label).join(", "),
   );
 
-  console.log("\nWhat it does to a real decoder");
+  section("What it does to a real decoder");
   await cdp.evaluate('document.querySelectorAll(".transport-mark")[1].click()');
-  const sought = await settle(
-    cdp,
+  const sought = await cdp.settle(
     'document.querySelector("video").currentTime',
     (t) => Math.abs(t - 15) < 0.5,
   );
@@ -274,7 +221,7 @@ try {
   // Autoplay means the first press is the pause, which is the half of the pair
   // that proves the button is drawn from the element rather than from a guess.
   await press("Pause");
-  const held = await settle(cdp, transportExpression, (t) => t !== null && t.paused === true);
+  const held = await cdp.settle(transportExpression, (t) => t !== null && t.paused === true);
   check(
     "the button stops it, and renames itself from the element's own event",
     held.controlNames.some((c) => c.label === "Play"),
@@ -282,15 +229,14 @@ try {
   );
 
   await press("Play");
-  const playing = await settle(cdp, transportExpression, (t) => t !== null && t.paused === false);
+  const playing = await cdp.settle(transportExpression, (t) => t !== null && t.paused === false);
   check(
     "and starts it again",
     playing.controlNames.some((c) => c.label === "Pause"),
     playing.controlNames.map((c) => c.label).join(", "),
   );
 
-  const moved = await settle(
-    cdp,
+  const moved = await cdp.settle(
     'document.querySelector(".transport-played").getBoundingClientRect().width',
     (width) => width > 0,
   );
@@ -300,19 +246,18 @@ try {
   );
   check("what has arrived is drawn behind it", bufferedNow > 0, `${bufferedNow}px`);
 
-  console.log("\nThe keyboard");
+  section("The keyboard");
   await cdp.evaluate(key(".preview", " "));
-  const paused = await settle(cdp, 'document.querySelector("video").paused', (p) => p === true);
+  const paused = await cdp.settle('document.querySelector("video").paused', (p) => p === true);
   check("Space pauses from the pane", paused === true);
 
   await cdp.evaluate('document.querySelector("video").currentTime = 2');
-  await settle(cdp, transportExpression, (t) => t !== null && Math.abs(t.valueNow - 2000) < 200);
+  await cdp.settle(transportExpression, (t) => t !== null && Math.abs(t.valueNow - 2000) < 200);
   await cdp.evaluate(key(".preview", "l"));
   // Settled on the *timeline*, not on the element: J and L move the playhead
   // from outside this component, and a transport that only follows the seeks it
   // made itself would sit at the old moment until something else redrew it.
-  const nudged = await settle(
-    cdp,
+  const nudged = await cdp.settle(
     transportExpression,
     (t) => t !== null && Math.abs(t.valueNow - 12_000) < 200,
   );
@@ -323,7 +268,7 @@ try {
   );
 
   await cdp.evaluate(key(".preview", "m"));
-  const mutedNow = await settle(cdp, transportExpression, (t) => t !== null && t.muted === true);
+  const mutedNow = await cdp.settle(transportExpression, (t) => t !== null && t.muted === true);
   check(
     "M mutes, and the button redraws from the element's own event",
     mutedNow.controlNames.some((c) => c.label === "Unmute"),
@@ -333,11 +278,10 @@ try {
   // Held still first: a moving playhead makes "it moved by a step" unreadable,
   // and the claim here is about which control took the key rather than about
   // where the film is.
-  const before = await settle(cdp, transportExpression, (t) => t !== null && t.paused === true);
+  const before = await cdp.settle(transportExpression, (t) => t !== null && t.paused === true);
   await cdp.evaluate('document.querySelector(".transport-thumb").focus()');
   await cdp.evaluate(key(".transport-thumb", "ArrowRight"));
-  const stepped = await settle(
-    cdp,
+  const stepped = await cdp.settle(
     transportExpression,
     (t) => t !== null && t.valueNow === before.valueNow + 100,
   );
@@ -352,18 +296,17 @@ try {
     JSON.stringify(stepped.name),
   );
 
-  console.log("\nWhat the native bar withholds (stage 2)");
+  section("What the native bar withholds (stage 2)");
   // testsrc at 10fps: a frame is a round tenth of a second, and the probe is
   // where that number comes from.
   const settleAt = (ms) =>
-    settle(cdp, transportExpression, (t) => t !== null && Math.abs(t.valueNow - ms) < 60);
+    cdp.settle(transportExpression, (t) => t !== null && Math.abs(t.valueNow - ms) < 60);
   await cdp.evaluate('document.querySelector("video").pause()');
   await cdp.evaluate('document.querySelector("video").currentTime = 5');
   await settleAt(5000);
 
   await press("Next frame");
-  const oneOn = await settle(
-    cdp,
+  const oneOn = await cdp.settle(
     transportExpression,
     (t) => t !== null && Math.abs(t.currentTime - 5.1) < 0.02,
   );
@@ -374,16 +317,14 @@ try {
   );
 
   await cdp.evaluate(key(".preview", ","));
-  const back = await settle(
-    cdp,
+  const back = await cdp.settle(
     transportExpression,
     (t) => t !== null && Math.abs(t.currentTime - 5) < 0.02,
   );
   check("and the comma key steps one back", true, `t=${back.currentTime.toFixed(3)}`);
 
   await cdp.evaluate(key(".preview", ">"));
-  const ten = await settle(
-    cdp,
+  const ten = await cdp.settle(
     transportExpression,
     (t) => t !== null && Math.abs(t.currentTime - 6) < 0.02,
   );
@@ -410,7 +351,7 @@ try {
       }, 3000);
     })`);
   if (presented) {
-    const counted = await settle(cdp, transportExpression, (t) => t !== null && t.frame === "f60");
+    const counted = await cdp.settle(transportExpression, (t) => t !== null && t.frame === "f60");
     check(
       "the frame counter reads the frame that was presented",
       counted.frame === "f60",
@@ -428,13 +369,13 @@ try {
       trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
       trigger.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
     })()`);
-  await settle(cdp, '[...document.querySelectorAll("[role=menuitemradio]")].length', (n) => n > 0);
+  await cdp.settle('[...document.querySelectorAll("[role=menuitemradio]")].length', (n) => n > 0);
   await cdp.evaluate(
     `[...document.querySelectorAll("[role=menuitemradio]")]
       .find((item) => item.textContent.includes("2×"))
       .click()`,
   );
-  const faster = await settle(cdp, transportExpression, (t) => t !== null && t.rate === "2×");
+  const faster = await cdp.settle(transportExpression, (t) => t !== null && t.rate === "2×");
   check(
     "the speed menu sets the rate on the element",
     (await cdp.evaluate('document.querySelector("video").playbackRate')) === 2,
@@ -448,8 +389,7 @@ try {
   await cdp.evaluate('document.querySelector("video").currentTime = 6');
   await settleAt(6000);
   await cdp.evaluate(key(".preview", "o"));
-  const looped = await settle(
-    cdp,
+  const looped = await cdp.settle(
     transportExpression,
     (t) => t !== null && t.loop !== null && t.loop.width !== "2px",
   );
@@ -463,23 +403,21 @@ try {
   // Past the end of the loop from outside it: the sampler catches it, which is
   // what makes the loop land within a frame rather than within `timeupdate`.
   await cdp.evaluate('document.querySelector("video").currentTime = 7');
-  const rewound = await settle(
-    cdp,
+  const rewound = await cdp.settle(
     'document.querySelector("video").currentTime',
     (t) => Math.abs(t - 5) < 0.2,
   );
   check("and it takes the playhead back to the start", true, `t=${rewound}`);
 
-  console.log("\nThe panel beside it");
+  section("The panel beside it");
   await cdp.evaluate('[...document.querySelectorAll("button.comment-at")][0].click()');
-  const fromList = await settle(
-    cdp,
+  const fromList = await cdp.settle(
     'document.querySelector("video").currentTime',
     (t) => Math.abs(t - 5) < 0.5,
   );
   check("a comment in the inspector still seeks the player", true, `t=${fromList}`);
 
-  console.log("\nSetting this frame as the thumbnail (stage 4)");
+  section("Setting this frame as the thumbnail (stage 4)");
   const cellExpression = `
     (() => {
       const cell = document.querySelector(".cell .cell-image");
@@ -496,8 +434,7 @@ try {
     document.querySelector(".menu-area").dispatchEvent(
       new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
     )`);
-  const items = await settle(
-    cdp,
+  const items = await cdp.settle(
     '[...document.querySelectorAll("[role=menuitem]")].map((item) => item.textContent)',
     (found) => Array.isArray(found) && found.length > 0,
   );
@@ -514,8 +451,7 @@ try {
 
   // Back to the grid, which is where the thumbnail is drawn.
   await cdp.evaluate(key(".preview", "Escape"));
-  const cell = await settle(
-    cdp,
+  const cell = await cdp.settle(
     cellExpression,
     (found) => found !== null && found.src.includes("?at="),
   );
@@ -545,95 +481,12 @@ try {
     `${painted}px`,
   );
 
-  console.log("");
-  if (failures.length > 0) {
-    console.log(`${failures.length} of ${failures.length + passed} checks failed`);
-    process.exitCode = 1;
-  } else {
-    console.log(`all ${passed} checks passed`);
-  }
+  report();
 } catch (error) {
   console.error(error);
-  console.error(noise.slice(-4000));
+  console.error(window.noise().slice(-4000));
   process.exitCode = 2;
 } finally {
-  child.kill("SIGTERM");
-  await sleep(300);
-  child.kill("SIGKILL");
-  await rm(scratch, { recursive: true, force: true });
-}
-
-function run(command, args) {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
-    let error = "";
-    proc.stderr.on("data", (chunk) => {
-      error += chunk;
-    });
-    proc.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(error))));
-  });
-}
-
-async function settle(cdp, expression, ok) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const value = await cdp.evaluate(expression).catch(() => undefined);
-    if (ok(value)) return value;
-    await sleep(100);
-  }
-  throw new Error(`never settled: ${expression.trim().slice(0, 160)}`);
-}
-
-async function connect(port, log) {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    try {
-      const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-      const page = targets.find((target) => target.type === "page" && target.webSocketDebuggerUrl);
-      if (page !== undefined) return await session(page.webSocketDebuggerUrl);
-    } catch {
-      // The port is not listening yet, which is ordinary for the first second.
-    }
-    await sleep(250);
-  }
-  throw new Error(`no page target after 20s\n${log()}`);
-}
-
-async function session(url) {
-  const socket = new WebSocket(url);
-  await new Promise((resolve, reject) => {
-    socket.onopen = resolve;
-    socket.onerror = reject;
-  });
-
-  let id = 0;
-  const pending = new Map();
-  socket.onmessage = (message) => {
-    const reply = JSON.parse(message.data);
-    const waiting = pending.get(reply.id);
-    if (waiting === undefined) return;
-    pending.delete(reply.id);
-    if (reply.error) waiting.reject(new Error(JSON.stringify(reply.error)));
-    else waiting.resolve(reply.result);
-  };
-
-  const send = (method, params) =>
-    new Promise((resolve, reject) => {
-      id += 1;
-      pending.set(id, { resolve, reject });
-      socket.send(JSON.stringify({ id, method, params }));
-    });
-
-  await send("Runtime.enable");
-  return {
-    async evaluate(expression) {
-      const result = await send("Runtime.evaluate", {
-        expression,
-        awaitPromise: true,
-        returnByValue: true,
-      });
-      if (result.exceptionDetails !== undefined) {
-        throw new Error(JSON.stringify(result.exceptionDetails).slice(0, 600));
-      }
-      return result.result.value;
-    },
-  };
+  await window.close();
+  await dispose();
 }
