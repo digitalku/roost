@@ -176,6 +176,26 @@ export type Request =
    * back for a draft, and a URL is left alone — pasting never fetches.
    */
   | { readonly type: "clipboard:paste"; readonly mode: StorageMode }
+  /**
+   * Imports files and attaches them to this asset as caption tracks
+   * (ADR-0025).
+   *
+   * One request rather than an import followed by an attach: apart, the two
+   * have a state between them — a track imported and not attached is a stray
+   * text asset in the grid — and the renderer would have to learn the hash of
+   * something it only handed over a path to.
+   *
+   * Always imported **managed**, whatever the default mode is: the whole point
+   * of a track being an asset is that it survives its source.
+   *
+   * Answers how many were attached. Files that are not subtitles are ignored
+   * rather than refused, because the chooser can return a folder's worth.
+   */
+  | {
+      readonly type: "asset:addSubtitle";
+      readonly hash: string;
+      readonly paths: readonly string[];
+    }
   /** Renames what the library shows. Nothing under `originals/` is touched. */
   | { readonly type: "asset:rename"; readonly hash: string; readonly name: string }
   | {
@@ -372,6 +392,8 @@ export interface Responses {
   "asset:poster": null;
   "asset:rename": null;
   "asset:create": WireCreated;
+  /** How many caption tracks were attached (ADR-0025). */
+  "asset:addSubtitle": number;
   "clipboard:paste": WirePasted;
   "asset:tagAdd": null;
   "asset:tagRemove": null;
@@ -534,6 +556,18 @@ export const REQUEST_VALIDATORS: {
   "clipboard:paste": (source) => {
     const mode = readOneOf(source, "mode", STORAGE_MODES);
     return mode.ok ? ok({ type: "clipboard:paste", mode: mode.value }) : mode;
+  },
+
+  "asset:addSubtitle": (source) => {
+    const hash = readHash(source, "hash");
+    if (!hash.ok) return hash;
+    const paths = readStringArray(source, "paths");
+    if (!paths.ok) return paths;
+    if (paths.value.length === 0) return bad("paths: expected at least one");
+    if (paths.value.some((path) => path.trim() === "")) {
+      return bad("paths: expected non-empty strings");
+    }
+    return ok({ type: "asset:addSubtitle", hash: hash.value, paths: paths.value });
   },
 
   "asset:rename": (source) => {

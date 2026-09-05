@@ -31,6 +31,7 @@ import {
 } from "@roost/core";
 import {
   addComment,
+  addSubtitles,
   compileFor,
   createAsset,
   type DeriveReport,
@@ -199,6 +200,14 @@ export class EngineHost {
           if (made.created) void this.#runDerives();
           return made;
         });
+
+      case "asset:addSubtitle":
+        // Answers a count rather than `null`, because "nothing was attached"
+        // and "three were" are different outcomes of the same gesture and the
+        // status bar says which.
+        return this.#editReporting(() =>
+          addSubtitles(this.#require(), parseContentHash(request.hash), request.paths),
+        );
 
       case "asset:rename":
         return this.#edit(() =>

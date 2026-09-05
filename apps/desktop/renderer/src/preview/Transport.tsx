@@ -62,10 +62,19 @@ export interface TransportProps {
    * (ADR-0025).
    *
    * Only the ones that can be served — the pane filters — so an entry here is
-   * always a `<track>` that exists. Empty means no CC button at all: a control
-   * that can only say "off" is a control in the way.
+   * always a `<track>` that exists.
    */
   readonly subtitles: readonly WireSubtitle[];
+  /**
+   * Adds one, by choosing a file (`UI_SPEC.md` §7).
+   *
+   * The menu is drawn even with nothing attached, because this row is what
+   * makes it worth opening then — the moment somebody notices there are no
+   * subtitles is the moment they want to add one. Absent for audio-only or
+   * wherever adding is not offered, and then a menu with nothing in it is not
+   * drawn at all.
+   */
+  readonly onAddSubtitle?: () => void;
 }
 
 /** What the element says about itself, in the terms this component draws. */
@@ -122,6 +131,7 @@ export function Transport({
   probedMs,
   fps,
   subtitles,
+  onAddSubtitle,
 }: TransportProps): React.JSX.Element {
   const [status, setStatus] = useState<Status>(IDLE);
   const [positionMs, setPositionMs] = useState(0);
@@ -502,7 +512,7 @@ export function Transport({
           <Icon of="loop" />
         </button>
 
-        {subtitles.length > 0 && (
+        {(subtitles.length > 0 || onAddSubtitle !== undefined) && (
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
               <button
@@ -541,6 +551,15 @@ export function Transport({
                     </DropdownMenu.RadioItem>
                   ))}
                 </DropdownMenu.RadioGroup>
+                {onAddSubtitle !== undefined && (
+                  <>
+                    {subtitles.length > 0 && <DropdownMenu.Separator className="menu-separator" />}
+                    <DropdownMenu.Item className="menu-item" onSelect={onAddSubtitle}>
+                      <span className="menu-mark" />
+                      <span className="menu-label">Add subtitle…</span>
+                    </DropdownMenu.Item>
+                  </>
+                )}
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>

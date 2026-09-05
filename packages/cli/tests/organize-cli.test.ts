@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EXIT, run } from "@roost/cli";
+import { parseContentHash } from "@roost/core";
+import { addSubtitles, Library, subtitles } from "@roost/library";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 /** Collects what a command would have printed, so no subprocess is needed. */
@@ -297,6 +299,32 @@ describe("the organize commands", () => {
     expect(listed[0]).toContain("[id]");
     // The language came from the filename's suffix, not from a guess.
     expect(await ok("query", "is:subtitle", "--hashes")).toHaveLength(1);
+  });
+
+  it("imports and attaches in one step, which is what the CC menu sends", async () => {
+    // Apart, an import and an attach leave a state between them: a track
+    // imported and attached to nothing (ADR-0025).
+    const media = join(dir, "one-step");
+    await mkdir(media, { recursive: true });
+    await writeFile(join(media, "movie.mp4"), "not really a film");
+    await ok("import", join(media, "movie.mp4"));
+    const film = (await ok("query", "ext:mp4", "--hashes"))[0] as string;
+
+    const loose = join(dir, "elsewhere.id.srt");
+    await writeFile(loose, "1\n00:00:01,000 --> 00:00:02,000\nHalo.\n");
+
+    const library = await Library.open(root, { exclusive: true });
+    try {
+      const attached = await addSubtitles(library, parseContentHash(film), [loose]);
+      expect(attached).toBe(1);
+      // Imported managed whatever the default is: a track referenced from a
+      // downloads folder disappears when that folder is tidied.
+      const [track] = subtitles(library, parseContentHash(film));
+      expect(track?.lang).toBe("id");
+      expect(library.db.repo.assetDetail(track?.trackHash as never)?.storageMode).toBe("managed");
+    } finally {
+      await library.close();
+    }
   });
 
   it("refuses to save over an asset whose bytes are the user's own", async () => {

@@ -322,6 +322,26 @@ function Player({
    */
   const tracks = detail.subtitles.filter((track) => track.servable);
 
+  /**
+   * **Add subtitle…**, from the CC menu (ADR-0025).
+   *
+   * The chooser is main's — the renderer has no filesystem — and what comes
+   * back are paths, which the engine imports and attaches in **one** request:
+   * apart, the two leave a state between them where a track is imported and
+   * attached to nothing.
+   *
+   * Nothing is re-read here. The engine announces the change, the window bumps
+   * its generation, and the pane re-reads exactly as it does after every other
+   * edit.
+   */
+  const addSubtitle = (): void => {
+    void (async () => {
+      const chosen = await invoke({ type: "dialog:chooseImport" });
+      if (!chosen.ok || chosen.value === null || chosen.value.length === 0) return;
+      await invoke({ type: "asset:addSubtitle", hash: detail.hash, paths: chosen.value });
+    })();
+  };
+
   return (
     <div className="preview-player" data-kind={detail.kind} ref={stage}>
       {detail.kind === "audio" ? (
@@ -348,6 +368,7 @@ function Player({
         probedMs={detail.durationMs}
         fps={frameRate(detail.props["video.fps"])}
         subtitles={tracks}
+        onAddSubtitle={addSubtitle}
       />
     </div>
   );

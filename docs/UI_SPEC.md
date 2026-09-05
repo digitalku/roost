@@ -691,7 +691,7 @@ did.
 | Fullscreen | On the **player's box**, not on the video: sending the video alone takes the controls off the screen with it |
 | Picture-in-picture | Video only. Audio has no picture |
 | **Comment marks** | One per **timed** comment, at its moment. Click to seek, hover for the text, and each names its moment and its words to a screen reader |
-| **Subtitles** | A `CC` menu listing the tracks attached to this asset, and **Off** first. Drawn only where something is attached — a control that can only say "off" is a control in the way |
+| **Subtitles** | A `CC` menu listing the tracks attached to this asset, **Off** first, and **Add subtitle…** last. Drawn for every video, because the moment somebody notices there are none is the moment they want to add one |
 | Frame stepping | One frame a press, ten from the keyboard. Only where the probe recorded a frame rate: a step is arithmetic on it, and a missing one has to mean no stepping rather than a step of `Infinity`. Stepping pauses first — a step while playing is not a step |
 | Playback rate | 0.25× to 8×, in a menu that shows the current one as text. The extremes play **silently**: the platform stops stretching sound outside roughly 0.5×–4×, and the menu says so rather than letting it read as a fault |
 | A-B loop | One button and three states — set the start, set the end, clear — plus `I` and `O`. The region is drawn along the track, and a start with no end is a mark rather than a band, because the loop is not running yet |
@@ -734,6 +734,12 @@ the library; `roost://subtitle/<hash>` converts it on the way out, because `<tra
 and nothing else and the format people have is SubRip. **Nothing turns itself on**: no track is
 `default`, and the menu starts at Off — a subtitle that appears unasked is the thing people go
 looking for the button to turn off.
+
+**Add subtitle…** opens the file chooser and hands the paths to **one** request that imports and
+attaches them together. Apart, the two leave a state between them — a track imported and attached
+to nothing, sitting in the grid as a stray text file — and the window would have to learn the hash
+of something it only handed over a path to. The import is always `managed`, whatever the default
+mode is: the whole point of a track being an asset is that it survives its source.
 
 A track that needs an external tool — ASS, or a stream inside the container — is **not** hung on
 the element, because a `<track>` pointed at a URL that cannot answer is an empty track with no

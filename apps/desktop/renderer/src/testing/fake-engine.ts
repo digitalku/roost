@@ -494,6 +494,26 @@ export class FakeEngine {
       case "clipboard:paste":
         return ok(this.#options.clipboard ?? { kind: "empty" });
 
+      case "asset:addSubtitle": {
+        const detail = this.details.get(request.hash);
+        if (detail === undefined) return ok(0);
+        this.details.set(request.hash, {
+          ...detail,
+          subtitles: [
+            ...detail.subtitles,
+            ...request.paths.map((path, index) => ({
+              hash: `${(index + 0xc0).toString(16)}${"0".repeat(62)}`,
+              lang: null,
+              label: null,
+              name: path.split("/").pop() ?? path,
+              servable: true,
+            })),
+          ],
+        });
+        this.emit({ type: "library:changed" });
+        return ok(request.paths.length);
+      }
+
       case "asset:create": {
         const text = request.text;
         if (text === "") {

@@ -3,6 +3,7 @@ import { basename, dirname, extname, join } from "node:path";
 import { type ContentHash, logger } from "@roost/core";
 import { hashFile } from "@roost/media";
 import { attachSubtitle } from "./edit.js";
+import { importInto } from "./import.js";
 import type { Library } from "./library.js";
 
 /**
@@ -101,6 +102,52 @@ export async function attachSiblings(
       });
       break;
     }
+  }
+
+  return attached;
+}
+
+/**
+ * Imports files and attaches them as caption tracks, in one step (ADR-0025).
+ *
+ * What **Add subtitle…** sends. One operation rather than an import followed by
+ * an attach, because the two apart have a state between them: a track imported
+ * and not attached is a stray text asset in the grid, and the caller would have
+ * to learn the hash of something it only handed over a path to.
+ *
+ * **Always `managed`**, whatever the library's default import mode is. The
+ * whole of §1 is that a track survives its source; one merely referenced from a
+ * downloads folder disappears the moment that folder is tidied.
+ *
+ * The language is guessed from the filename by the same rule import uses —
+ * `holiday.id.srt` says Indonesian — because two rules would eventually
+ * disagree about the same file.
+ *
+ * Answers how many were attached. A file already in the library attaches
+ * anyway: identical bytes are one asset, and saying the same sentence twice is
+ * one sentence.
+ */
+export async function addSubtitles(
+  library: Library,
+  hash: ContentHash,
+  paths: readonly string[],
+): Promise<number> {
+  const wanted = paths.filter((path) => isSubtitlePath(path));
+  if (wanted.length === 0) return 0;
+
+  await importInto(library, wanted, { mode: "managed" });
+
+  let attached = 0;
+  for (const path of wanted) {
+    // Hashed rather than reported back by the import: the pipeline answers with
+    // counts, not with a row per file, and hashing what was just read costs
+    // almost nothing (`attachSiblings` above says more).
+    const hashed = await hashFile(path).catch(() => undefined);
+    if (hashed === undefined) continue;
+
+    const lang = languageFrom(path);
+    await attachSubtitle(library, hash, hashed.hash, lang === undefined ? {} : { lang });
+    attached += 1;
   }
 
   return attached;

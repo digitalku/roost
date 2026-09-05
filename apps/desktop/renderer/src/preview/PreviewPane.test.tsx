@@ -12,9 +12,15 @@ describe("the preview pane", () => {
   let closed: number;
   let steps: number[];
 
-  const show = (kind: AssetKind, ext = "png", over: Partial<WireAssetDetail> = {}) => {
+  const show = (
+    kind: AssetKind,
+    ext = "png",
+    over: Partial<WireAssetDetail> = {},
+    options: ConstructorParameters<typeof FakeEngine>[0] = {},
+  ) => {
     engine = new FakeEngine({
       details: [fakeDetail(1, { kind, ext, name: `one.${ext}`, ...over })],
+      ...options,
     });
     install(engine);
     render(
@@ -84,11 +90,29 @@ describe("the preview pane", () => {
     expect(await screen.findByRole("button", { name: "Subtitles" })).toBeDefined();
   });
 
-  it("offers no CC button where nothing is attached", async () => {
-    // A control that can only say "off" is a control in the way.
-    show("video", "mp4", { durationMs: 60_000 });
+  it("offers to add one even where nothing is attached", async () => {
+    // The moment somebody notices there are no subtitles is the moment they
+    // want to add one, so the menu is worth opening then (ADR-0025).
+    const user = show(
+      "video",
+      "mp4",
+      { durationMs: 60_000 },
+      {
+        importDialog: ["/home/you/holiday.srt"],
+      },
+    );
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
-    expect(screen.queryByRole("button", { name: "Subtitles" })).toBeNull();
+
+    await user.click(await screen.findByRole("button", { name: "Subtitles" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Add subtitle…" }));
+
+    // The chooser is main's, and what comes back is imported and attached in
+    // one request: apart, the two leave a track attached to nothing.
+    await waitFor(() =>
+      expect(engine.seen.map((request) => request.type)).toContain("asset:addSubtitle"),
+    );
+    const sent = engine.seen.find((request) => request.type === "asset:addSubtitle");
+    expect(sent).toMatchObject({ hash: HASH, paths: ["/home/you/holiday.srt"] });
   });
 
   it("renders a video under a transport of ours, not the browser's bar", async () => {
