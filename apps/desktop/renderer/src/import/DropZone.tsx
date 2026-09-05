@@ -14,9 +14,19 @@ import { pathForFile } from "../bridge.js";
 
 export interface DropZoneProps {
   readonly onDrop: (paths: readonly string[]) => void;
+  /**
+   * A video or audio preview is open, so a dropped subtitle will attach to it
+   * (ADR-0025) and everything else will import.
+   *
+   * The overlay says both, because it cannot say one: Chromium reports no
+   * filename while a drag is in flight, so what a drop holds is not known until
+   * it lands. What *is* known is what is on screen, and that is what the
+   * sentence describes.
+   */
+  readonly captioning?: boolean;
 }
 
-export function DropZone({ onDrop }: DropZoneProps): React.JSX.Element | null {
+export function DropZone({ onDrop, captioning }: DropZoneProps): React.JSX.Element | null {
   const [depth, setDepth] = useState(0);
 
   const stop = useCallback((event: DragEvent) => {
@@ -70,7 +80,9 @@ export function DropZone({ onDrop }: DropZoneProps): React.JSX.Element | null {
 
   return (
     <div className="dropzone" aria-hidden="true">
-      <p>Drop to import</p>
+      <p>
+        {captioning === true ? "Drop to import — a subtitle joins this video" : "Drop to import"}
+      </p>
     </div>
   );
 }

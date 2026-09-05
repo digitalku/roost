@@ -57,6 +57,47 @@ describe("importing", () => {
     }
   });
 
+  it("gives a dropped subtitle to the film on screen, and imports the rest", async () => {
+    // ADR-0025. The rule is *what is open*, not where the pointer is: Chromium
+    // reports no filename during a drag, so a target that lit up only over the
+    // video would be an affordance arriving after the decision.
+    const film = fakeAsset(0, { name: "holiday.mp4", ext: "mp4", kind: "video" });
+    const user = await open({
+      assets: [film],
+      details: [fakeDetail(0, { ext: "mp4", kind: "video" })],
+    });
+
+    await user.dblClick(screen.getAllByRole("option")[0] as HTMLElement);
+    await screen.findByRole("dialog");
+
+    // The overlay says what will happen, since it cannot say what is held.
+    fire("dragenter", [droppedFile("/films/holiday.srt")]);
+    expect(await screen.findByText(/a subtitle joins this video/)).toBeDefined();
+
+    fire("drop", [droppedFile("/films/holiday.srt"), droppedFile("/photos/one.png")]);
+
+    await waitFor(() => {
+      const sent = engine.seen.find((request) => request.type === "asset:addSubtitle");
+      expect(sent).toMatchObject({ hash: film.hash });
+    });
+    // The picture was declined by the engine and went where it was always
+    // going: nothing is dropped on the floor.
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "import:paths")).toBe(true),
+    );
+  });
+
+  it("imports a drop when the preview is closed, whatever it holds", async () => {
+    const user = await open({ assets: [fakeAsset(0)] });
+    fire("drop", [droppedFile("/films/holiday.srt")]);
+
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "import:paths")).toBe(true),
+    );
+    expect(engine.seen.some((request) => request.type === "asset:addSubtitle")).toBe(false);
+    expect(user).toBeDefined();
+  });
+
   it("says the window is a drop target only while something is over it", async () => {
     await open();
     expect(screen.queryByText("Drop to import")).toBeNull();

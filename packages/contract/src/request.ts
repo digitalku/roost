@@ -30,6 +30,7 @@ import type {
   WireRecentLibrary,
   WireSelectionSummary,
   WireSidebar,
+  WireSubtitlesAdded,
 } from "./dto.js";
 import { STORAGE_MODES } from "./dto.js";
 
@@ -418,7 +419,7 @@ export interface Responses {
   "asset:rename": null;
   "asset:create": WireCreated;
   /** How many caption tracks were attached (ADR-0025). */
-  "asset:addSubtitle": number;
+  "asset:addSubtitle": WireSubtitlesAdded;
   "asset:subtitleDelete": null;
   "clipboard:paste": WirePasted;
   "asset:tagAdd": null;

@@ -214,6 +214,19 @@ export interface SidebarRow {
 }
 
 /**
+ * What **Add subtitle…** or a drop onto an open video did (ADR-0025).
+ *
+ * `ignored` carries the paths that were not subtitles, so a caller that offered
+ * a whole drop to the video can send the rest to the import it would otherwise
+ * have gone to — without the window needing to know which extensions count as a
+ * subtitle, which is the engine's list and should stay there.
+ */
+export interface WireSubtitlesAdded {
+  readonly attached: number;
+  readonly ignored: readonly string[];
+}
+
+/**
  * One caption track attached to an asset (ADR-0025).
  *
  * The hash is the track's own — it is an ordinary asset — and it is what

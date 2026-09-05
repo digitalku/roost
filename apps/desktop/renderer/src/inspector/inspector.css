@@ -35,13 +35,6 @@
   object-fit: contain;
 }
 
-.inspector-row {
-  display: flex;
-  gap: var(--space-3);
-  align-items: center;
-  justify-content: space-between;
-}
-
 .inspector-name {
   width: 100%;
   height: var(--control-height);
@@ -65,26 +58,19 @@
   gap: var(--space-1);
 }
 
-.rating button,
-.favorite {
+/* An unlit star is the colour it is in the sidebar (UI_SPEC.md §4.1): one state
+   cannot have two brightnesses, or an unrated asset looks unrated in one panel
+   and half-rated in the other. */
+.rating button {
   padding: 0 var(--space-1);
   border: 0;
   background: none;
-  color: var(--text-subtle);
+  color: var(--border);
   font-size: var(--text-lg);
   line-height: 1;
 }
 
-/* An unlit star is the same colour it is in the sidebar (UI_SPEC.md §4.1): one
-   state cannot have two brightnesses, or an unrated asset looks unrated in one
-   panel and half-rated in the other. The heart keeps the subtler colour — it is
-   one control, not a scale, so nothing beside it sets an expectation. */
-.rating button {
-  color: var(--border);
-}
-
-.rating button[data-on],
-.favorite[aria-pressed="true"] {
+.rating button[data-on] {
   color: var(--accent-hover);
 }
 
@@ -177,8 +163,7 @@
 
 /* The selection disagrees. The stars stay empty rather than showing an average
    nobody set, and the word carries the meaning. */
-.rating .mixed,
-.favorite[data-mixed] {
+.rating .mixed {
   color: var(--text-subtle);
 }
 

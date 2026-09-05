@@ -58,6 +58,7 @@ export {
   type WireSelectionSummary,
   type WireSidebar,
   type WireSubtitle,
+  type WireSubtitlesAdded,
 } from "./dto.js";
 export {
   checkEventEnvelope,

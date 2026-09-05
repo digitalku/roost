@@ -415,6 +415,13 @@ function drawable(assets: readonly AssetCard[], hash: string): boolean {
   return card !== undefined && card.kind !== "other";
 }
 
+/** Whether an asset is the kind a caption track can be attached to (ADR-0025). */
+function captionable(assets: readonly AssetCard[], hash: string | undefined): boolean {
+  if (hash === undefined) return false;
+  const card = assets.find((asset) => asset.hash === hash);
+  return card !== undefined && (card.kind === "video" || card.kind === "audio");
+}
+
 const EMPTY_LIBRARY = "Nothing in this library yet.";
 const NOTHING_MATCHED = "Nothing matches this query.";
 // The Trash place is the one query whose empty answer is a *state* rather than
@@ -725,6 +732,43 @@ function LibraryView({
    * all**, because invariant 7 permits one network operation and it is not one
    * a `Ctrl+V` may trigger.
    */
+  /**
+   * A drop, offered to the open video before it is offered to the import.
+   *
+   * **The rule is what is open, not where the pointer is.** A subtitle dropped
+   * while a film is on screen is for that film — the window cannot know what a
+   * drag holds until it lands (Chromium reports no filename during a drag), so
+   * a target that lit up only over the video would be an affordance that
+   * appears after the decision is made. The overlay says what will happen
+   * instead.
+   *
+   * The engine decides what counts as a subtitle and hands back the paths it
+   * declined, which then go to the import they were always going to. Nothing is
+   * dropped on the floor, and the renderer never learns an extension list that
+   * belongs to `@roost/media`.
+   */
+  const dropped = useCallback(
+    (paths: readonly string[]) => {
+      const film = previewing ? focused : undefined;
+      if (!captionable(paging.assets, film) || film === undefined) {
+        importing.start(paths);
+        return;
+      }
+
+      void (async () => {
+        const outcome = await invoke({ type: "asset:addSubtitle", hash: film, paths });
+        if (!outcome.ok) return setActed(outcome.problem);
+
+        const { attached, ignored } = outcome.value;
+        if (attached > 0) {
+          noteResult(attached === 1 ? "Subtitle attached" : `${attached} subtitles attached`);
+        }
+        if (ignored.length > 0) importing.start(ignored);
+      })();
+    },
+    [previewing, focused, paging.assets, importing, noteResult],
+  );
+
   const paste = useCallback(() => {
     void (async () => {
       const outcome = await invoke({ type: "clipboard:paste", mode: "managed" });
@@ -929,7 +973,7 @@ function LibraryView({
         />
       )}
 
-      <DropZone onDrop={importing.start} />
+      <DropZone onDrop={dropped} captioning={previewing && captionable(paging.assets, focused)} />
 
       <footer className="status">
         {/* One text node, so what the status bar says is one readable string

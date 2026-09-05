@@ -166,7 +166,12 @@ export {
   type SmartFolderEntry,
   type TagEntry,
 } from "./sidebar.js";
-export { addSubtitles, isSubtitlePath, languageFrom } from "./subtitles.js";
+export {
+  addSubtitles,
+  isSubtitlePath,
+  languageFrom,
+  type SubtitlesAdded,
+} from "./subtitles.js";
 export {
   ensurePreview,
   generateMissing,

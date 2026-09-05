@@ -73,6 +73,11 @@ everything makes the panels look like drawers under a chrome that owns them; the
 the arrangement Eagle uses is the one that says so. The status bar does still span the window,
 because what it says — the library's counts, the running jobs — is about all three.
 
+**A drop while a film is open is offered to the film first** (ADR-0025): subtitle files attach to
+it as caption tracks and everything else imports. The overlay says so, because it cannot say what
+the drag holds — Chromium reports no filename until the drop lands, so the sentence describes what
+is on screen rather than what is in the hand.
+
 **The preview is a pane, not a lightbox.** It replaces the content region, leaving the sidebar
 and inspector in place and usable — a note can be written while looking at the thing it is
 about. The grid stays mounted underneath rather than unmounted and rebuilt, so closing the

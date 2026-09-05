@@ -318,8 +318,15 @@ describe("the organize commands", () => {
 
     const library = await Library.open(root, { exclusive: true });
     try {
-      const attached = await addSubtitles(library, parseContentHash(film), [loose]);
-      expect(attached).toBe(1);
+      const added = await addSubtitles(library, parseContentHash(film), [
+        loose,
+        join(dir, "a.png"),
+      ]);
+      expect(added.attached).toBe(1);
+      // What it declined comes back rather than disappearing: a drop onto an
+      // open video is offered here first, and the rest has to reach the import
+      // it was always going to (ADR-0025).
+      expect(added.ignored).toEqual([join(dir, "a.png")]);
       // Imported managed whatever the default is: a track referenced from a
       // downloads folder disappears when that folder is tidied.
       const [track] = subtitles(library, parseContentHash(film));

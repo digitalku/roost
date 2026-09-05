@@ -488,13 +488,19 @@ export class FakeEngine {
         return ok(this.#options.clipboard ?? { kind: "empty" });
 
       case "asset:addSubtitle": {
+        // The engine's list of what counts as a subtitle, as much of it as a
+        // fake needs: the window never learns one, so a test that dropped a
+        // mixed handful has to see the split happen somewhere.
+        const tracks = request.paths.filter((path) => /\.(srt|vtt|ass|ssa|sub)$/i.test(path));
+        const ignored = request.paths.filter((path) => !tracks.includes(path));
+
         const detail = this.details.get(request.hash);
-        if (detail === undefined) return ok(0);
+        if (detail === undefined || tracks.length === 0) return ok({ attached: 0, ignored });
         this.details.set(request.hash, {
           ...detail,
           subtitles: [
             ...detail.subtitles,
-            ...request.paths.map((path, index) => ({
+            ...tracks.map((path, index) => ({
               hash: `${(index + 0xc0).toString(16)}${"0".repeat(62)}`,
               lang: null,
               label: null,
@@ -504,7 +510,7 @@ export class FakeEngine {
           ],
         });
         this.emit({ type: "library:changed" });
-        return ok(request.paths.length);
+        return ok({ attached: tracks.length, ignored });
       }
 
       case "asset:subtitleDelete": {

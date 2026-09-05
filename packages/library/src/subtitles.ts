@@ -53,6 +53,13 @@ function stemOf(path: string): string {
   return languageFrom(path) === undefined ? stem : basename(stem, extname(stem));
 }
 
+/** What `addSubtitles` attached, and what it declined to. */
+export interface SubtitlesAdded {
+  readonly attached: number;
+  /** The paths that are not subtitles, in the order they were given. */
+  readonly ignored: readonly string[];
+}
+
 /** What sibling detection did, for the import report to say out loud. */
 export interface SiblingReport {
   /** Tracks attached to the file they were found beside. */
@@ -171,17 +178,23 @@ export async function attachSiblings(
  * `holiday.id.srt` says Indonesian — because two rules would eventually
  * disagree about the same file.
  *
- * Answers how many were attached. A file already in the library attaches
- * anyway: identical bytes are one asset, and saying the same sentence twice is
- * one sentence.
+ * Answers how many were attached **and which paths were not subtitles**. The
+ * second half is for the window: a drop onto an open video is offered here
+ * first, and whatever this declines has to go somewhere — an import, usually.
+ * Answering with the paths rather than a count is what lets the caller do that
+ * without knowing which extensions this function believes in.
+ *
+ * A file already in the library attaches anyway: identical bytes are one asset,
+ * and saying the same sentence twice is one sentence.
  */
 export async function addSubtitles(
   library: Library,
   hash: ContentHash,
   paths: readonly string[],
-): Promise<number> {
+): Promise<SubtitlesAdded> {
   const wanted = paths.filter((path) => isSubtitlePath(path));
-  if (wanted.length === 0) return 0;
+  const ignored = paths.filter((path) => !isSubtitlePath(path));
+  if (wanted.length === 0) return { attached: 0, ignored };
 
   await importInto(library, wanted, { mode: "managed" });
 
@@ -198,5 +211,5 @@ export async function addSubtitles(
     attached += 1;
   }
 
-  return attached;
+  return { attached, ignored };
 }
