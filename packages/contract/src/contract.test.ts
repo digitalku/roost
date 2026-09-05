@@ -80,6 +80,7 @@ describe("validating a request", () => {
       "recent:forget",
       "recent:pin",
       "library:close",
+      "app:quit",
       "library:stats",
       "library:sidebar",
       "assets:page",

@@ -73,7 +73,17 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   free-text terms and a search box you have to learn is one people stop typing into. Owed:
   a free-text case in `scripts/bench-search.ts`.
 
-**Nothing blocking.** ADR-0025, ADR-0026 and ADR-0027 were all accepted on the day they were proposed. The
+- ☑ ~~**ADR-0028 — the application menu.**~~ **Accepted 2026-09-05** and built the same day, from
+  the user asking whether the menu bar was Electron's. It was: nothing here had ever called
+  `Menu.setApplicationMenu`, so Electron installed File · Edit · View · Window — a Reload that
+  throws away the query and the selection, a devtools toggle for end users, and a Paste meaning
+  something other than Roost's (ADR-0026 §5). It is removed on Linux and Windows; **macOS keeps a
+  menu bar**, because there it belongs to the system and `Cmd+C`/`Cmd+V`/`Cmd+Q` come from its
+  roles. Close library moved off the toolbar into a `☰`, Quit joined it with `Ctrl+Q` bound on the
+  window (a menu item is not an accelerator), and `F11` for fullscreen is the one thing lost that
+  is worth a keyboard-map entry later.
+
+**Nothing blocking.** ADR-0025 through ADR-0028 were all accepted on the day they were proposed. The
 five questions the language change forced were settled on 2026-08-24, before any code was
 written against them — ADR-0006 through ADR-0012, all Accepted. What they decided is in
 `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.

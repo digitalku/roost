@@ -13,6 +13,17 @@ import { FakeEngine, fakeAsset, fakeDetail, install } from "./testing/fake-engin
  * returns, which is where the flow actually lives.
  */
 
+/**
+ * Close library lives in the toolbar's menu now (ADR-0028), so the tests that
+ * used to click a bare button open the menu first. Written once: three tests
+ * close a library, and three copies of two clicks is where one of them ends up
+ * asserting the menu rather than the closing.
+ */
+async function closeLibrary(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(await screen.findByRole("button", { name: "Menu" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Close library" }));
+}
+
 describe("opening a library", () => {
   let engine: FakeEngine;
 
@@ -221,7 +232,7 @@ describe("a library that is already open", () => {
     render(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Open library…" }));
-    await user.click(await screen.findByRole("button", { name: "Close library" }));
+    await closeLibrary(user);
 
     expect(await screen.findByRole("button", { name: "Open library…" })).toBeDefined();
     expect(screen.getByText("No library open")).toBeDefined();
@@ -897,8 +908,8 @@ describe("the recent list on the picker", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: "Open library…" }));
-    await screen.findByRole("button", { name: "Close library" });
-    await user.click(screen.getByRole("button", { name: "Close library" }));
+    await screen.findByRole("button", { name: "Menu" });
+    await closeLibrary(user);
 
     // Back on the picker, with the library it just left at the top — which is
     // the case that matters most, because it is where somebody lands after
@@ -924,7 +935,26 @@ describe("the recent list on the picker", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: "Open Holiday Photos" }));
-    expect(await screen.findByRole("button", { name: "Close library" })).toBeDefined();
+    expect(await screen.findByRole("button", { name: "Menu" })).toBeDefined();
+  });
+
+  it("asks the shell to quit, from the menu that replaced the menu bar", async () => {
+    // The window has no menu bar (ADR-0028), so Quit has to come from
+    // somewhere. It is a typed request like everything else the renderer can
+    // ask for — the reply is never seen, because the process is on its way out.
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await user.click(await screen.findByRole("button", { name: "Menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Quit/ }));
+
+    expect(engine.seen.some((request) => request.type === "app:quit")).toBe(true);
   });
 
   it("takes a row off the list when it is forgotten", async () => {

@@ -61,7 +61,7 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 
 | Region | Width | Collapsible | Notes |
 | --- | --- | --- | --- |
-| Toolbar | full | no | Fixed height. Search is the widest thing in it. |
+| Toolbar | full | no | Fixed height. Search is the widest thing in it. The `☰` at its left is the application menu (ADR-0028). |
 | Sidebar | 220–420px, drag to resize | yes, `F9` | Remembers width and collapsed state per library. |
 | Content | fills | no | Hosts exactly one of: icons, compact, details, preview. |
 | Inspector | 280–480px, drag to resize | yes, `F4` | **Always drawn.** An empty selection gets the empty state from §8, never a shell of disabled controls. Reserves a scrollbar gutter, as the grid does: how tall its content is depends on the asset, so without one the panel's fields shift sideways as the selection moves. |
@@ -73,6 +73,16 @@ about. The grid stays mounted underneath rather than unmounted and rebuilt, so c
 preview returns to the exact row, with its loaded pages and its measurements intact. This is
 carried over as a decision, not rediscovered: `roost-old` shipped it as an overlay first and
 changed it for these reasons.
+
+**There is no menu bar** (ADR-0028). Electron installs one by default — File · Edit · View ·
+Window — and it carried a Reload that throws away the query and the selection, a devtools toggle,
+and a Paste meaning something other than Roost's (§3.3). It is removed on Linux and Windows, and
+the commands that belong to the application live in the toolbar's `☰` instead: **Close library**
+and **Quit**, and nothing that already has a home. Import stays on the bar because it is the
+primary action of an empty library, the view control stays on the bar because it is ADR-0018's,
+and per-asset commands stay in the context menu — a menu that repeats the toolbar teaches people
+to look in two places and to trust neither. macOS keeps a menu bar, because there it belongs to
+the system rather than to the window.
 
 **Window chrome.** The system frame is used in v1 — no client-side decorations. Frameless
 Electron windows are the usual look, and they are also the usual way to break tiling window
@@ -841,6 +851,7 @@ becomes a preference in M6.
 | `F9` / `F4` | Toggle sidebar · inspector |
 | `Ctrl+N` | New window onto the same library (ADR-0020) |
 | `Ctrl+O` | Open library |
+| `Ctrl+Q` | Quit. Bound in the shell rather than by a menu, which the window does not have (ADR-0028) |
 | `Ctrl+I` | Import files… |
 | `Ctrl+Shift+I` | Import folder… |
 | `Arrows` | Move focus in the grid |

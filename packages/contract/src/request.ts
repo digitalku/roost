@@ -70,6 +70,14 @@ export type Request =
   | { readonly type: "recent:pin"; readonly root: string; readonly pinned: boolean }
   /** Release the library, its journal, and its lock. */
   | { readonly type: "library:close" }
+  /**
+   * End the application (ADR-0028).
+   *
+   * Here because the window has no menu bar on Linux or Windows and Quit has to
+   * come from somewhere. It answers `null` and the reply is never seen: the
+   * process is on its way out.
+   */
+  | { readonly type: "app:quit" }
   /** The counts behind the library view. */
   | { readonly type: "library:stats" }
   /** The navigation pane: places, folders, smart folders, tags. */
@@ -393,6 +401,7 @@ export interface Responses {
   "recent:forget": readonly WireRecentLibrary[];
   "recent:pin": readonly WireRecentLibrary[];
   "library:close": null;
+  "app:quit": null;
   "library:stats": LibraryStats;
   "library:sidebar": WireSidebar;
   "assets:page": AssetPage;
@@ -489,6 +498,7 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "recent:pin", root: root.value, pinned: pinned.value });
   },
   "library:close": () => ok({ type: "library:close" }),
+  "app:quit": () => ok({ type: "app:quit" }),
   "library:stats": () => ok({ type: "library:stats" }),
   "library:sidebar": () => ok({ type: "library:sidebar" }),
 

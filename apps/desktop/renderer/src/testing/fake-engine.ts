@@ -452,6 +452,11 @@ export class FakeEngine {
         this.#open = undefined;
         return ok(null);
 
+      // Recorded in `seen` like every other request and otherwise a no-op: a
+      // test asserts that the menu asked to quit, not that a process ended.
+      case "app:quit":
+        return ok(null);
+
       case "library:sidebar":
         if (this.#open === undefined) {
           return problem("remote", "No library is open", {});

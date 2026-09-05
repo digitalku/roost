@@ -8,6 +8,7 @@ import type {
 } from "@roost/contract";
 import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { AppMenu } from "./AppMenu.js";
 import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
@@ -782,6 +783,14 @@ function LibraryView({
   return (
     <div className="app app-library">
       <header className="bar">
+        {/* Leftmost, where `UI_SPEC.md` §1 has drawn a `[☰]` since before there
+            was one to draw. */}
+        <AppMenu
+          onCloseLibrary={onClose}
+          onQuit={() => {
+            void invoke({ type: "app:quit" });
+          }}
+        />
         <h1 className="bar-title">{opened.summary.name}</h1>
         <SearchField query={query} onApply={applyQuery} matches={matches} />
         <div className="bar-actions">
@@ -804,9 +813,6 @@ function LibraryView({
             }}
           >
             Import…
-          </button>
-          <button type="button" onClick={onClose}>
-            Close library
           </button>
         </div>
       </header>

@@ -29,7 +29,7 @@ import { AssetServer } from "./assets.js";
 import { isHttpUrl, pastedName, pathsFromUriList } from "./clipboard.js";
 import { Engine, EngineGoneError, EngineProblem } from "./engine.js";
 import { ROOST_SCHEME, ROOST_SCHEME_PRIVILEGES } from "./security.js";
-import { createWindow } from "./window.js";
+import { createWindow, installApplicationMenu } from "./window.js";
 
 /**
  * Electron main: the window, the route to the engine, and nothing else.
@@ -99,6 +99,9 @@ if (!app.requestSingleInstanceLock()) {
     engine.start();
     protocol.handle(ROOST_SCHEME, (request) => assets.handle(request));
     ipcMain.handle(REQUEST_CHANNEL, (_source, payload: unknown) => route(engine, payload));
+    // Before the first window: Electron installs its default menu when one is
+    // created, and replacing it afterwards would flash the menu it replaces.
+    installApplicationMenu();
     createWindow();
 
     app.on("activate", () => {
@@ -208,6 +211,9 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "asset:reveal",
   "asset:copyPath",
   "clipboard:paste",
+  // The window has no menu bar on Linux or Windows (ADR-0028), so Quit arrives
+  // as a request like everything else the renderer can ask for.
+  "app:quit",
 ]);
 
 async function answerHere(
@@ -218,6 +224,12 @@ async function answerHere(
   if (request.type === "asset:reveal") return reveal(request.hash);
   if (request.type === "asset:copyPath") return copyPaths(request.hashes);
   if (request.type === "clipboard:paste") return paste(engine, request.mode);
+  if (request.type === "app:quit") {
+    // `quit` rather than `exit`: it closes the window, and closing the window is
+    // what stops the engine, flushes the journal, and releases the lock.
+    app.quit();
+    return null;
+  }
   if (request.type === "dialog:chooseImport") return chooseImport();
   if (request.type === "dialog:chooseSubtitle") return chooseSubtitle();
 

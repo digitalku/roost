@@ -460,6 +460,20 @@ button:disabled {
   align-items: center;
 }
 
+.app-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Square, so it reads as an icon rather than as a very short label. */
+  width: var(--row-height);
+  padding: 0;
+}
+
+.app-menu-trigger > svg {
+  width: 16px;
+  height: 16px;
+}
+
 .menu {
   z-index: 10;
   min-width: 15rem;

@@ -295,10 +295,12 @@ export class EngineHost {
       case "asset:copyPath":
       case "dialog:openLibrary":
       case "dialog:chooseLocation":
-        // A dialog belongs to a window and this process has none, and the
-        // clipboard belongs to the desktop. Main answers these before
-        // forwarding; one arriving here is a routing bug, and it fails loudly
-        // rather than returning a plausible null.
+      case "app:quit":
+        // A dialog belongs to a window and this process has none, the clipboard
+        // belongs to the desktop, and quitting is the application's business
+        // rather than the library's. Main answers these before forwarding; one
+        // arriving here is a routing bug, and it fails loudly rather than
+        // returning a plausible null.
         throw new Error(`${request.type} is answered by main, not by the engine`);
     }
   }

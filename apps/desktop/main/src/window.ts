@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { logger } from "@roost/core";
-import { BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, Menu, shell } from "electron";
 import { contentSecurityPolicy, isAllowedNavigation, RENDERER_PRIVILEGES } from "./security.js";
 
 /**
@@ -21,6 +21,24 @@ export function rendererUrl(): string {
   return new URL("../../renderer/dist/index.html", import.meta.url).href;
 }
 
+/**
+ * Removes Electron's default menu bar (ADR-0028).
+ *
+ * Nothing here ever set one, so Electron installed its own: File · Edit · View
+ * · Window, carrying a Reload that throws away the window's state, a devtools
+ * toggle, and a Paste that means something else than Roost's does (ADR-0026
+ * §5). The application's own commands live in a button in the toolbar instead.
+ *
+ * **macOS keeps it**, because there the menu bar belongs to the system rather
+ * than to the window: an application without one is a bug on that platform, and
+ * `Cmd+C`, `Cmd+V` and `Cmd+Q` come from those roles rather than from Chromium.
+ * This condition is the whole of the split.
+ */
+export function installApplicationMenu(): void {
+  if (process.platform === "darwin") return;
+  Menu.setApplicationMenu(null);
+}
+
 export function createWindow(): BrowserWindow {
   const url = rendererUrl();
 
@@ -38,8 +56,32 @@ export function createWindow(): BrowserWindow {
 
   window.once("ready-to-show", () => window.show());
   harden(window, url);
+  quitOn(window);
   void window.loadURL(url);
   return window;
+}
+
+/**
+ * `Ctrl+Q`, which left with the menu that used to carry it (ADR-0028).
+ *
+ * A menu item is not an accelerator: without this, Quit would be a command only
+ * the mouse could reach, on a platform where `Ctrl+Q` is what people press. It
+ * is bound to the window rather than registered with `globalShortcut`, which
+ * would take the combination away from every other application for as long as
+ * Roost is running.
+ *
+ * Not on macOS, where `Cmd+Q` is the system's and comes from the menu bar.
+ */
+function quitOn(window: BrowserWindow): void {
+  if (process.platform === "darwin") return;
+
+  window.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    if (input.key.toLowerCase() !== "q") return;
+    if (!input.control || input.alt || input.meta || input.shift) return;
+    event.preventDefault();
+    app.quit();
+  });
 }
 
 /**
