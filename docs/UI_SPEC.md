@@ -523,6 +523,10 @@ screen", and it is a string the user can read and edit.
 The field takes RQL (`DATA_MODEL.md` §3). It is the primary control in the toolbar and the
 widest.
 
+- **Typing words is a search, and needs no syntax** (ADR-0027). Bare words are free-text terms,
+  and free text reaches everything a person wrote about an asset: its name, its tags, its note,
+  and its comments. The placeholder says so rather than teaching a field prefix — RQL is
+  discovered from the sidebar, which writes `tag:wood` into this field when a tag is clicked.
 - **Validates before it applies.** A half-typed query leaves the grid alone. The parse error
   appears under the field with a caret at the byte offset the parser reported — not a red
   border and not a toast.

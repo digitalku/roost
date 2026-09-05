@@ -175,7 +175,7 @@ ${GLOBAL}`,
 
 Adjacent terms are ANDed; \`OR\` and parentheses are explicit; a leading \`-\` negates.
 Fields: tag, folder, ext, size, w, h, duration, created, imported, rating, is.
-Anything unqualified is full-text over names and tags.
+Anything unqualified is full-text over names, tags, notes, and comments.
 
 Usage: roost query <QUERY>... [OPTIONS]
 

@@ -537,6 +537,7 @@ export class Repo {
   /** `null` clears the note. */
   applyNoteSet(hash: ContentHash, note: string | null): void {
     this.#s("UPDATE assets SET note = ? WHERE hash = ?").run(note, hash);
+    this.#refreshFts(hash);
   }
 
   /**
@@ -660,6 +661,7 @@ export class Repo {
          hash = excluded.hash, at_ms = excluded.at_ms, body = excluded.body,
          created_at = excluded.created_at, updated_at = NULL`,
     ).run(id, hash, atMs, body, createdAt);
+    this.#refreshFts(hash);
   }
 
   /** Edits a comment in place, so it keeps its identity and its place in a list. */
@@ -670,10 +672,14 @@ export class Repo {
       updatedAt,
       id,
     );
+    const owner = this.#commentOwner(id);
+    if (owner !== undefined) this.#refreshFts(owner);
   }
 
   applyCommentRemove(id: number): void {
+    const owner = this.#commentOwner(id);
     this.#s("DELETE FROM asset_comments WHERE id = ?").run(id);
+    if (owner !== undefined) this.#refreshFts(owner);
   }
 
   /**
@@ -785,22 +791,45 @@ export class Repo {
    */
   #refreshFts(hash: ContentHash): void {
     const row = this.#s(
-      `SELECT a.rowid AS rowid, a.orig_name AS origName,
+      `SELECT a.rowid AS rowid, a.orig_name AS origName, a.note AS note,
               (SELECT group_concat(t.name, ' ')
                  FROM asset_tags at JOIN tags t ON t.id = at.tag_id
-                WHERE at.hash = a.hash) AS tags
+                WHERE at.hash = a.hash) AS tags,
+              (SELECT group_concat(c.body, ' ')
+                 FROM asset_comments c
+                WHERE c.hash = a.hash) AS comments
          FROM assets a WHERE a.hash = ?`,
-    ).get(hash) as { rowid: number; origName: string; tags: string | null } | undefined;
+    ).get(hash) as
+      | {
+          rowid: number;
+          origName: string;
+          note: string | null;
+          tags: string | null;
+          comments: string | null;
+        }
+      | undefined;
 
     if (row === undefined) return;
 
     this.#s("DELETE FROM assets_fts WHERE rowid = ?").run(row.rowid);
-    this.#s("INSERT INTO assets_fts (rowid, hash, orig_name, tags) VALUES (?, ?, ?, ?)").run(
-      row.rowid,
-      hash,
-      row.origName,
-      row.tags ?? "",
-    );
+    this.#s(
+      `INSERT INTO assets_fts (rowid, hash, orig_name, tags, note, comments)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(row.rowid, hash, row.origName, row.tags ?? "", row.note ?? "", row.comments ?? "");
+  }
+
+  /**
+   * The asset a comment belongs to, or `undefined` if the comment is gone.
+   *
+   * Comment operations name the comment, not the asset, but the full-text row
+   * is the asset's — so the hash has to be looked up, and for a removal it has
+   * to be looked up **before** the delete, when there is still a row to ask.
+   */
+  #commentOwner(id: number): ContentHash | undefined {
+    const row = this.#s("SELECT hash FROM asset_comments WHERE id = ?").get(id) as
+      | { hash: ContentHash }
+      | undefined;
+    return row?.hash;
   }
 
   // --- Reads ----------------------------------------------------------------

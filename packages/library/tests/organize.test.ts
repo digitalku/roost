@@ -649,6 +649,63 @@ describe("organizing a library", () => {
     // The poster comes back as an instruction, which is the whole of stage 4:
     // the journal said where to look and the derive pass is what looks.
     expect(poster(library, clip)).toBe(91_500);
+    // The prose index is derived like everything else (ADR-0027): a comment
+    // that replayed into `asset_comments` but never reached `assets_fts` would
+    // leave search quietly poorer than the library it describes.
+    expect(count(library, "edited")).toBe(1);
+    expect(count(library, "removed again")).toBe(0);
     expect(library.db.repo.orphanSearchRows()).toBe(0);
+  });
+
+  describe("searching the prose (ADR-0027)", () => {
+    // The two places somebody writes a sentence rather than a label. Before
+    // migration 0012 the index held only the filename and the tags, so what a
+    // person actually wrote was the one thing search could not find.
+
+    it("finds an asset by a word in its note", async () => {
+      await setNote(library, hashes[0] as ContentHash, "needs a reshoot before the deadline");
+
+      expect(count(library, "reshoot")).toBe(1);
+      // Typed, not composed: bare words are already free-text terms, so the
+      // whole feature is reached without syntax (ADR-0027 §2).
+      expect(count(library, "needs a reshoot")).toBe(1);
+    });
+
+    it("finds an asset by a word in a comment, and stops when the comment goes", async () => {
+      const id = await addComment(library, hashes[1] as ContentHash, 4200, "the grade is too warm");
+
+      expect(count(library, "grade")).toBe(1);
+
+      await removeComment(library, id);
+      expect(count(library, "grade")).toBe(0);
+    });
+
+    it("follows an edit rather than keeping what was written first", async () => {
+      await setNote(library, hashes[0] as ContentHash, "provisional");
+      const id = await addComment(library, hashes[0] as ContentHash, null, "ask marketing");
+
+      await setNote(library, hashes[0] as ContentHash, "approved");
+      await setComment(library, id, null, "marketing approved it");
+
+      expect(count(library, "provisional")).toBe(0);
+      expect(count(library, "ask")).toBe(0);
+      expect(count(library, "approved")).toBe(1);
+    });
+
+    it("keeps the name and the tags searchable beside them", async () => {
+      // The table was dropped and rebuilt by the migration, so the two columns
+      // that were already there are worth asserting are still there.
+      await tagAdd(library, [hashes[2] as ContentHash], ["mahogany"]);
+
+      expect(count(library, "gamma")).toBe(1);
+      expect(count(library, "mahogany")).toBe(1);
+    });
+
+    it("clears the note from the index when the note is cleared", async () => {
+      await setNote(library, hashes[0] as ContentHash, "temporary");
+      await setNote(library, hashes[0] as ContentHash, null);
+
+      expect(count(library, "temporary")).toBe(0);
+    });
   });
 });

@@ -62,7 +62,18 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   be served and the ADR says so rather than narrowing it quietly**: an empty file exists once per
   library, and no schema change worth making buys the second.
 
-**Nothing blocking.** ADR-0025 and ADR-0026 were both accepted on the day they were proposed. The
+- ☑ ~~**ADR-0027 — what free text searches.**~~ **Accepted 2026-09-05** and built the same day,
+  from the user asking for a search that finds a title, a note, or a comment. The full-text index
+  had two columns and both were labels — the filename a camera chose, and tags from a small
+  vocabulary — so the two places somebody writes a *sentence* were the one thing search could not
+  reach. Migration 0012 rebuilds `assets_fts` with `note` and `comments` (FTS5 has no `ADD
+  COLUMN`, and dropping a derived index is a recomputation, not a loss), and `#refreshFts` gained
+  the note and comment write paths. **The user's decision on the proposal was to add no syntax**:
+  `name:`, `note:` and `comment:` were designed and dropped, because bare words are already
+  free-text terms and a search box you have to learn is one people stop typing into. Owed:
+  a free-text case in `scripts/bench-search.ts`.
+
+**Nothing blocking.** ADR-0025, ADR-0026 and ADR-0027 were all accepted on the day they were proposed. The
 five questions the language change forced were settled on 2026-08-24, before any code was
 written against them — ADR-0006 through ADR-0012, all Accepted. What they decided is in
 `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.

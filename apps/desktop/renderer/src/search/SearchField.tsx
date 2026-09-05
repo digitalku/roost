@@ -87,7 +87,7 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
         type="search"
         aria-label="Search"
         aria-invalid={problem !== undefined || undefined}
-        placeholder="tag:wood rating:>=4"
+        placeholder="Search names, notes, and comments"
         spellCheck={false}
         autoComplete="off"
         value={text}

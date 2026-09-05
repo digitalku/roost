@@ -516,6 +516,53 @@ pays this per row it returns, against `idx_subtitles_track`. **What it costs is 
 `is:captioned` is the mirror, and the question nobody could ask before: *which of my videos still
 have no subtitles*.
 
+### 2.11 Migration 0012 — free text searches prose (schema v12)
+
+Decided as ADR-0027 on 2026-09-05 and built the same day, from the user asking for a search that
+finds a title, a note, or a comment. The index had two columns and both were labels; the two
+places somebody writes a sentence were not searchable at all.
+
+```sql
+DROP TABLE assets_fts;
+
+CREATE VIRTUAL TABLE assets_fts USING fts5(
+  hash UNINDEXED,
+  orig_name,
+  tags,
+  note,
+  comments,
+  tokenize = 'unicode61'
+);
+
+INSERT INTO assets_fts (rowid, hash, orig_name, tags, note, comments)
+SELECT a.rowid,
+       a.hash,
+       a.orig_name,
+       coalesce((SELECT group_concat(t.name, ' ')
+                   FROM asset_tags at JOIN tags t ON t.id = at.tag_id
+                  WHERE at.hash = a.hash), ''),
+       coalesce(a.note, ''),
+       coalesce((SELECT group_concat(c.body, ' ')
+                   FROM asset_comments c
+                  WHERE c.hash = a.hash), '')
+  FROM assets a;
+```
+
+**Dropping an index would be alarming anywhere else in this schema.** It is free here for the
+reason invariant 1 states: `assets_fts` is derived, holding nothing `assets` and `asset_comments`
+do not, so a migration that rebuilds it recomputes rather than loses. FTS5 has no `ALTER TABLE …
+ADD COLUMN`, so this is the only shape the change has.
+
+**One row per asset, so the comments are concatenated**, exactly as the tags already are. The cost
+is a phrase that can match across the seam between two comments — nobody wrote it, and it matched.
+ADR-0027 §4 weighs that against a second FTS table with a row per comment, its own refresh path,
+and its own rebuild, and takes the seam.
+
+**No new syntax comes with it.** Bare words are already free-text terms in RQL, so the whole
+feature is reached by typing — there is no `note:` or `comment:` field, deliberately (ADR-0027 §2).
+The refresh points grow instead: `applyNoteSet`, `applyCommentAdd`, `applyCommentSet`, and
+`applyCommentRemove`, the last of which reads the comment's hash *before* the delete.
+
 ## 3. Roost Query Language (RQL)
 
 The search bar and smart folders share one grammar. It compiles to SQL with **bound
@@ -551,7 +598,7 @@ is:trashed                    in the trash; also `is:trash`
 is:superseded                 replaced by a newer version; also `is:old`
 is:subtitle                   attached as somebody's caption track; also `is:subtitles`
 is:captioned                  has at least one caption track
-"free text"                   FTS5 over orig_name and tags
+"free text"                   FTS5 over the name, tags, note, and comments
 ```
 
 Implicit `AND` between adjacent terms; `OR` and parentheses are explicit; a leading `-`
