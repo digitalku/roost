@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { Sidebar } from "./Sidebar.js";
 
 function row(over: Partial<SidebarRow> & { name: string; query: string }): SidebarRow {
-  return { id: over.id ?? over.name, count: null, depth: 0, group: null, ...over };
+  return { id: over.id ?? over.name, count: null, depth: 0, group: null, stars: null, ...over };
 }
 
 const SIDEBAR: WireSidebar = {
@@ -14,8 +14,9 @@ const SIDEBAR: WireSidebar = {
     row({ name: "Favorites", query: "is:favorite" }),
   ],
   ratings: [
-    row({ id: "rating-5", name: "5 stars", query: "rating:5", count: 3 }),
-    row({ id: "rating-4", name: "4 stars", query: "rating:4", count: 0 }),
+    row({ id: "rating-5", name: "5 stars", query: "rating:5", count: 3, stars: 5 }),
+    row({ id: "rating-4", name: "4 stars", query: "rating:4", count: 0, stars: 4 }),
+    row({ id: "rating-none", name: "No stars", query: "is:unrated", count: 7, stars: 0 }),
   ],
   folders: [
     row({ id: "folder:1", name: "Design", query: 'folder:"Design"', count: 412, depth: 0 }),
@@ -48,6 +49,32 @@ describe("the navigation pane", () => {
     render(<Sidebar sidebar={SIDEBAR} query="" onPick={() => {}} />);
     expect(screen.getByRole("button", { name: /5 stars/ }).textContent).toContain("3");
     expect(screen.getByRole("button", { name: /4 stars/ }).textContent).toContain("0");
+  });
+
+  it("draws a rating as stars, and keeps its name for the accessible tree", () => {
+    // The eye gets a shape it can compare down a column; a screen reader gets
+    // the sentence the row used to read. Five are always drawn, so the rows
+    // line up as one scale rather than as a staircase.
+    render(<Sidebar sidebar={SIDEBAR} query="" onPick={() => {}} />);
+
+    const lit = (name: RegExp): number =>
+      screen.getByRole("button", { name }).querySelectorAll(".sidebar-stars > [data-on]").length;
+    const drawn = (name: RegExp): number =>
+      screen.getByRole("button", { name }).querySelectorAll(".sidebar-stars > *").length;
+
+    expect(lit(/5 stars/)).toBe(5);
+    expect(lit(/4 stars/)).toBe(4);
+    // Unrated is the same shape with nothing lit — not a rating of zero, which
+    // the schema does not have.
+    expect(lit(/No stars/)).toBe(0);
+    expect(drawn(/No stars/)).toBe(5);
+  });
+
+  it("leaves every other row a name rather than a shape", () => {
+    render(<Sidebar sidebar={SIDEBAR} query="" onPick={() => {}} />);
+    expect(
+      screen.getByRole("button", { name: /All assets/ }).querySelector(".sidebar-stars"),
+    ).toBeNull();
   });
 
   it("puts ungrouped tags last, whatever order they arrived in", () => {

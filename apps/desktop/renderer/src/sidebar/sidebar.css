@@ -94,6 +94,40 @@
   text-overflow: ellipsis;
 }
 
+.sidebar-stars {
+  display: inline-flex;
+  gap: 1px;
+  /* The scale is read as a shape, so the unlit stars have to be visible enough
+     to count and quiet enough not to look lit. */
+  color: var(--border);
+  letter-spacing: 0;
+}
+
+.sidebar-stars > [data-on] {
+  color: var(--accent-hover);
+}
+
+/* Mixed rather than dimmed with `opacity`: opacity on the group would take the
+   lit stars down with it, since a child cannot climb back out of its parent's
+   transparency. */
+.sidebar-row[data-current] .sidebar-stars {
+  color: color-mix(in srgb, var(--select-text) 40%, transparent);
+}
+
+.sidebar-row[data-current] .sidebar-stars > [data-on] {
+  color: var(--select-text);
+}
+
+/* The row's name, kept for the accessible tree and off the screen. */
+.sidebar-stars-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .sidebar-count {
   color: var(--text-subtle);
   font-family: var(--font-mono);

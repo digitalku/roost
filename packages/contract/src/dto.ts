@@ -204,6 +204,14 @@ export interface SidebarRow {
   readonly count: number | null;
   /** How deep in the folder tree, for indentation. Zero everywhere else. */
   readonly depth: number;
+  /**
+   * Filled stars to draw, or `null` for a row that is not a rating.
+   *
+   * A number, not a glyph: the engine says what the row *is* and the window
+   * decides what that looks like. `0` is the unrated row — not a rating of
+   * zero, which the schema does not have.
+   */
+  readonly stars: number | null;
   /** The group a tag belongs to, or `null`. Groups are shown in order. */
   readonly group: string | null;
 }
@@ -235,7 +243,7 @@ export interface WireSubtitle {
 /** The navigation pane, in the order it is drawn. */
 export interface WireSidebar {
   readonly places: readonly SidebarRow[];
-  /** One row per star, always five, drawn under Places (`UI_SPEC.md` §4.1). */
+  /** One row per star, then unrated — six, drawn under Places (`UI_SPEC.md` §4.1). */
   readonly ratings: readonly SidebarRow[];
   readonly folders: readonly SidebarRow[];
   readonly smartFolders: readonly SidebarRow[];

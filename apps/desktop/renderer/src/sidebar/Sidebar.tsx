@@ -70,6 +70,7 @@ function Section({
               query={row.query}
               count={row.count}
               depth={row.depth}
+              stars={row.stars}
               isCurrent={row.query === query}
               onPick={onPick}
             />
@@ -90,6 +91,7 @@ const Row = memo(function Row({
   query,
   count,
   depth,
+  stars,
   isCurrent,
   onPick,
 }: {
@@ -97,6 +99,8 @@ const Row = memo(function Row({
   readonly query: string;
   readonly count: number | null;
   readonly depth: number;
+  /** Filled stars to draw instead of the name, or `null` to draw the name. */
+  readonly stars: number | null;
   readonly isCurrent: boolean;
   readonly onPick: (query: string) => void;
 }): React.JSX.Element {
@@ -109,11 +113,42 @@ const Row = memo(function Row({
       data-depth={depth === 0 ? undefined : Math.min(depth, MAX_INDENT)}
       onClick={() => onPick(query)}
     >
-      <span className="sidebar-label">{name}</span>
+      {stars === null ? (
+        <span className="sidebar-label">{name}</span>
+      ) : (
+        <span className="sidebar-label">
+          <Stars filled={stars} />
+          {/* The name is still the accessible one. A screen reader reads "3
+              stars 0", the same sentence the row used to read, while the eye
+              gets the shape — and the tests keep asking for the row by name. */}
+          <span className="sidebar-stars-name">{name}</span>
+        </span>
+      )}
       {count !== null && <span className="sidebar-count">{count.toLocaleString()}</span>}
     </button>
   );
 });
+
+/**
+ * Five stars, `filled` of them lit.
+ *
+ * Always five, so the rows read as one scale rather than as a staircase, and
+ * the unrated row — zero filled — is the same shape with nothing lit. The
+ * glyph is the one the inspector's rating control already uses, coloured
+ * rather than swapped for a hollow character: two star characters from two
+ * fonts is how a row ends up a pixel taller than the one above it.
+ */
+function Stars({ filled }: { readonly filled: number }): React.JSX.Element {
+  return (
+    <span className="sidebar-stars" aria-hidden="true">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <span key={star} data-on={star <= filled ? "" : undefined}>
+          ★
+        </span>
+      ))}
+    </span>
+  );
+}
 
 /**
  * How deep the indentation goes before it stops.

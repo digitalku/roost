@@ -636,6 +636,7 @@ function sidebarOf(library: Library): WireSidebar {
         count: place.count,
         depth: 0,
         group: null,
+        stars: null,
       }),
     ),
     ratings: sidebar.ratings.map(
@@ -644,11 +645,12 @@ function sidebarOf(library: Library): WireSidebar {
         name: rating.name,
         query: rating.query,
         // Unlike the places, every one of these carries a count: one grouped
-        // statement answers all five, and the number is what makes the row
+        // statement answers all six, and the number is what makes the row
         // worth a click.
         count: rating.count,
         depth: 0,
         group: null,
+        stars: rating.stars,
       }),
     ),
     folders: sidebar.folders.map(
@@ -659,6 +661,7 @@ function sidebarOf(library: Library): WireSidebar {
         count: folder.count,
         depth: depths.get(folder.id) ?? 0,
         group: null,
+        stars: null,
       }),
     ),
     smartFolders: sidebar.smartFolders.map(
@@ -672,6 +675,7 @@ function sidebarOf(library: Library): WireSidebar {
         count: null,
         depth: 0,
         group: null,
+        stars: null,
       }),
     ),
     tags: sidebar.tags.map(
@@ -682,6 +686,7 @@ function sidebarOf(library: Library): WireSidebar {
         count: tag.count,
         depth: 0,
         group: tag.group,
+        stars: null,
       }),
     ),
   };

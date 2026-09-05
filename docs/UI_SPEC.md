@@ -470,12 +470,13 @@ PLACES
                                  makes it worth a row — an empty trash and one holding four
                                  hundred assets look identical without it
 
-RATING                           one row per star, always five
-  5 stars                  12
-  4 stars                   0    drawn even at zero: a row that appears and vanishes with state
-  3 stars                   7    nothing on screen shows is a row people misread
-  2 stars                   0
-  1 star                    1
+RATING                           one row per star, then unrated — six, always
+  ★★★★★                    12    drawn as stars, five of them, `stars` filled
+  ★★★★☆                     0    drawn even at zero: a row that appears and vanishes with state
+  ★★★☆☆                     7    nothing on screen shows is a row people misread
+  ★★☆☆☆                     0
+  ★☆☆☆☆                     1
+  ☆☆☆☆☆                   316    unrated — `is:unrated`, and not a rating of zero
 
 FOLDERS                          user tree, drag to reorder and re-parent
   ▸ Clients
@@ -497,8 +498,21 @@ engine — the renderer never counts anything it did not receive.
 **A rating row matches one rating, not "this many and up".** Five nested rows would have counts
 adding up to more than the library holds, and *how many five-star assets are there* is the question
 a sidebar can answer at a glance; `rating:>=4` is one term in the search field for the other
-question. All five counts come from one grouped statement, so the section costs the read no more
+question. All six counts come from one grouped statement, so the section costs the read no more
 than a single place does.
+
+**The rows are drawn as stars, and the engine sends a number rather than a glyph.** Each row
+carries `stars` — how many of the five to light — because what a row *is* belongs to the engine
+and what it *looks like* belongs to the window; the CLI prints `3 stars` from the same fact. Five
+are always drawn so the rows read as one scale, the unlit ones in the border colour, and the row's
+name stays in the accessible tree so a screen reader still hears "3 stars 7". The glyph is the one
+the inspector's rating control uses, coloured rather than swapped for a hollow character — two
+star characters from two fonts is how a row ends up a pixel taller than the one above it.
+
+**Unrated is the sixth row and it is not a rating of zero.** The schema has no zero: `NULL` is
+unrated (`DATA_MODEL.md`), so the row carries `is:unrated`. It sits last because the five above it
+are a scale and it is not on it — and it answers *what have I not sorted yet*, which is what a
+rating section gets opened for.
 
 **A count beside a query is the count *of* that query.** Folder and tag counts therefore exclude
 trashed assets, exactly as `folder:` and `tag:` do (ADR-0022) — a sidebar saying 3 while the grid

@@ -314,7 +314,9 @@ describe("the engine's message loop", () => {
   it("gives every sidebar row the query that selects it", async () => {
     await libraryOf(1);
     const reply = await ask(1, { type: "library:sidebar" });
-    const value = (reply as { value: Record<string, { query: string; name: string }[]> }).value;
+    const value = (
+      reply as { value: Record<string, { query: string; name: string; stars: number | null }[]> }
+    ).value;
 
     expect(Object.keys(value).sort()).toEqual([
       "folders",
@@ -349,8 +351,14 @@ describe("the engine's message loop", () => {
       "3 stars",
       "2 stars",
       "1 star",
+      "No stars",
     ]);
     expect(ratings[1]?.query).toBe("rating:4");
+    // Unrated is last and is not a rating of zero: the schema has no zero, so
+    // the row carries `is:unrated`. It draws no filled stars, which is what
+    // `stars: 0` means — the count of what to light, not a rating.
+    expect(ratings[5]?.query).toBe("is:unrated");
+    expect(ratings.map((row) => row.stars)).toEqual([5, 4, 3, 2, 1, 0]);
     // "All assets" is the empty string — the engine's word for the whole
     // library — and not a term in the grammar.
     expect(places[0]?.query).toBe("");

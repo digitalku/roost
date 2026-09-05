@@ -33,6 +33,16 @@ export interface PlaceEntry {
    * be told about.
    */
   readonly count: number | null;
+  /**
+   * How many filled stars this row draws, or `null` for a row that is not a
+   * rating.
+   *
+   * A number rather than a rendered label, because a glyph is a decision the
+   * frontend makes: the CLI prints `3 stars`, and drawing three of something is
+   * what a window does with the same fact. `0` is the unrated row, which is not
+   * a rating of zero — the schema has no such value (`DATA_MODEL.md`).
+   */
+  readonly stars: number | null;
 }
 
 export interface FolderEntry {
@@ -65,7 +75,7 @@ export interface SmartFolderEntry {
 
 export interface Sidebar {
   readonly places: PlaceEntry[];
-  /** One row per star, five of them, always (`UI_SPEC.md` §4.1). */
+  /** One row per star, then unrated — six, always (`UI_SPEC.md` §4.1). */
   readonly ratings: PlaceEntry[];
   readonly folders: FolderEntry[];
   readonly tags: TagEntry[];
@@ -132,11 +142,11 @@ const RECENT_DAYS = 7;
 function places(trashed: number): PlaceEntry[] {
   const since = new Date((nowUnix() - RECENT_DAYS * 86_400) * 1000).toISOString().slice(0, 10);
   return [
-    { id: "all", name: "All assets", query: "", count: null },
-    { id: "recent", name: "Recent", query: `imported:>${since}`, count: null },
-    { id: "favorites", name: "Favorites", query: "is:favorite", count: null },
-    { id: "untagged", name: "Untagged", query: "is:untagged", count: null },
-    { id: "trash", name: "Trash", query: "is:trashed", count: trashed },
+    { id: "all", name: "All assets", query: "", count: null, stars: null },
+    { id: "recent", name: "Recent", query: `imported:>${since}`, count: null, stars: null },
+    { id: "favorites", name: "Favorites", query: "is:favorite", count: null, stars: null },
+    { id: "untagged", name: "Untagged", query: "is:untagged", count: null, stars: null },
+    { id: "trash", name: "Trash", query: "is:trashed", count: trashed, stars: null },
   ];
 }
 
@@ -152,15 +162,32 @@ function places(trashed: number): PlaceEntry[] {
  * worth having. A star with none is still drawn — a row that appears and
  * vanishes with state nothing on screen shows is a row people misread — and it
  * says `0`.
+ *
+ * **Unrated is the sixth row, and it is not a rating of zero.** The schema has
+ * no zero (`DATA_MODEL.md`): `NULL` is unrated, which is why the row carries
+ * `is:unrated` rather than `rating:0`. It sits last because the five above it
+ * are a scale and it is not on it — and it is the row that answers *what have I
+ * not sorted yet*, which is the question a rating section is opened for.
  */
-function ratings(counts: readonly { rating: number; count: number }[]): PlaceEntry[] {
+function ratings(counts: readonly { rating: number | null; count: number }[]): PlaceEntry[] {
   const counted = new Map(counts.map((row) => [row.rating, row.count]));
-  return [5, 4, 3, 2, 1].map((rating) => ({
+  const rated = [5, 4, 3, 2, 1].map((rating) => ({
     id: `rating-${rating}`,
     name: rating === 1 ? "1 star" : `${rating} stars`,
     query: `rating:${rating}`,
     count: counted.get(rating) ?? 0,
+    stars: rating,
   }));
+  return [
+    ...rated,
+    {
+      id: "rating-none",
+      name: "No stars",
+      query: "is:unrated",
+      count: counted.get(null) ?? 0,
+      stars: 0,
+    },
+  ];
 }
 
 /** Depth past which a folder path is treated as corrupt rather than deep. */

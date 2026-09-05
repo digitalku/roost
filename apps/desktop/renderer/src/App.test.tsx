@@ -614,7 +614,17 @@ describe("the navigation pane, in the window", () => {
       byQuery: { 'tag:"brand assets"': [fakeAsset(100), fakeAsset(101)] },
       sidebar: {
         ratings: [],
-        places: [{ id: "all", name: "All assets", query: "", count: null, depth: 0, group: null }],
+        places: [
+          {
+            id: "all",
+            name: "All assets",
+            query: "",
+            count: null,
+            depth: 0,
+            group: null,
+            stars: null,
+          },
+        ],
         folders: [],
         smartFolders: [],
         tags: [
@@ -627,6 +637,7 @@ describe("the navigation pane, in the window", () => {
             count: 2,
             depth: 0,
             group: null,
+            stars: null,
           },
         ],
       },
@@ -658,7 +669,15 @@ describe("the navigation pane, in the window", () => {
       sidebar: {
         ratings: [],
         places: [
-          { id: "all", name: "All assets", query: "", count: null, depth: 0, group: null },
+          {
+            id: "all",
+            name: "All assets",
+            query: "",
+            count: null,
+            depth: 0,
+            group: null,
+            stars: null,
+          },
           {
             id: "favorites",
             name: "Favorites",
@@ -666,6 +685,7 @@ describe("the navigation pane, in the window", () => {
             count: null,
             depth: 0,
             group: null,
+            stars: null,
           },
         ],
         folders: [],
@@ -696,7 +716,15 @@ describe("the navigation pane, in the window", () => {
       sidebar: {
         ratings: [],
         places: [
-          { id: "all", name: "All assets", query: "", count: null, depth: 0, group: null },
+          {
+            id: "all",
+            name: "All assets",
+            query: "",
+            count: null,
+            depth: 0,
+            group: null,
+            stars: null,
+          },
           {
             id: "favorites",
             name: "Favorites",
@@ -704,6 +732,7 @@ describe("the navigation pane, in the window", () => {
             count: null,
             depth: 0,
             group: null,
+            stars: null,
           },
         ],
         folders: [],

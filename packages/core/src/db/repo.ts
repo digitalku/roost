@@ -396,13 +396,16 @@ export class Repo {
    * Scoped the way every other view is — no trashed rows, no superseded ones —
    * so the number beside a star is the number of assets that row would show.
    */
-  ratingCounts(): { rating: number; count: number }[] {
+  ratingCounts(): { rating: number | null; count: number }[] {
+    // `NULL` is in the grouping, not excluded from it: unrated is a row in the
+    // sidebar, and one grouped statement answering all six is the reason these
+    // rows carry counts at all.
     return this.#s(
       `SELECT rating, count(*) AS count
          FROM assets
-        WHERE rating IS NOT NULL AND trashed_at IS NULL AND superseded_by IS NULL
+        WHERE trashed_at IS NULL AND superseded_by IS NULL
         GROUP BY rating`,
-    ).all() as { rating: number; count: number }[];
+    ).all() as { rating: number | null; count: number }[];
   }
 
   /**
