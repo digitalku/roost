@@ -14,9 +14,17 @@
   flex: 1;
 }
 
+/*
+ * Taller and larger than a generic control, and deliberately so.
+ *
+ * `--control-height` is the size of a button in a row of buttons; this is the
+ * one control in the window somebody types a sentence into, and it sits in a
+ * 48px bar that had twenty pixels doing nothing. A primary control the size of
+ * its neighbours is a primary control nobody's eye lands on first.
+ */
 .search-input {
   width: 100%;
-  height: var(--control-height);
+  height: var(--space-7);
   padding: 0 var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -25,7 +33,7 @@
   /* Monospace so the caret under a parse error lines up by counting characters
      rather than by measuring pixels. */
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
 }
 
 .search-input::placeholder {
@@ -55,7 +63,7 @@
 .search-error {
   position: absolute;
   z-index: 1;
-  top: calc(var(--control-height) + var(--space-1));
+  top: calc(var(--space-7) + var(--space-1));
   left: 0;
   right: 0;
   padding: var(--space-2);
@@ -65,13 +73,15 @@
   box-shadow: var(--shadow-2);
 }
 
+/* The same size and the same origin as the field, because it lines the caret up
+   by counting characters: one of the two growing alone points at the wrong one. */
 .search-caret {
   margin: 0;
   overflow: hidden;
   color: var(--danger);
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  line-height: var(--leading-sm);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   white-space: pre;
 }
 
