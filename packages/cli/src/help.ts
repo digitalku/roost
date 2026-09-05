@@ -26,7 +26,6 @@ export const COMMANDS = [
   "poster",
   "save",
   "subtitle",
-  "favorite",
   "rename",
   "trash",
   "remove",
@@ -68,7 +67,6 @@ Commands:
   poster    Choose which frame a video's thumbnail comes from
   save      Replace an asset's contents with a file's, as a new version
   subtitle  Attach, list, or detach the caption tracks of a video
-  favorite  Mark assets as favourites
   rename    Change an asset's display name. The file on disk is untouched
   trash     Move assets to the trash, restore them, or empty it
   remove    Remove assets from the library. Originals are not deleted
@@ -381,15 +379,6 @@ Options:
 ${LIBRARY_FLAG}
       --at <TIME>        The moment to take the thumbnail from
       --clear            Go back to the default frame
-${GLOBAL}`,
-
-  favorite: `Mark assets as favourites.
-
-Usage: roost favorite <ASSET>... [OPTIONS]
-
-Options:
-${LIBRARY_FLAG}
-      --off              Unmark instead
 ${GLOBAL}`,
 
   rename: `Change an asset's display name.

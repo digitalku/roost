@@ -18,7 +18,8 @@ export async function stats(root: string, out: (line: string) => void): Promise<
     out(row("folders", counts.folders));
     if (counts.smartFolders > 0) out(row("smart", counts.smartFolders));
     out(row("rated", counts.rated));
-    out(row("favourites", counts.favorites));
+    // Retired, so the line appears only where history left one (ADR-0029).
+    if (counts.favorites > 0) out(row("favourites", counts.favorites));
     out(row("notes", counts.notes));
     out(row("comments", counts.comments));
     // Only when there is one. An empty trash is the normal state and does not

@@ -600,17 +600,6 @@ describe("summarising a selection", () => {
     expect(db.repo.selectionSummary(hashes)).toMatchObject({ rating: null, ratingMixed: true });
   });
 
-  it("says all, none, or mixed about favourites", () => {
-    const hashes = three();
-    expect(db.repo.selectionSummary(hashes).favorite).toBe("none");
-
-    db.repo.applyFavoriteSet(hashes[0] as ReturnType<typeof hashOf>, true);
-    expect(db.repo.selectionSummary(hashes).favorite).toBe("mixed");
-
-    for (const hash of hashes) db.repo.applyFavoriteSet(hash, true);
-    expect(db.repo.selectionSummary(hashes).favorite).toBe("all");
-  });
-
   it("separates a tag they all carry from one only some carry", () => {
     const hashes = three();
     for (const hash of hashes) db.repo.applyTagAdd(hash, ["wood"]);
@@ -634,7 +623,6 @@ describe("summarising a selection", () => {
       totalBytes: 0,
       rating: null,
       ratingMixed: false,
-      favorite: "none",
     });
   });
 });

@@ -148,7 +148,6 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     durationMs: null,
     pageCount: null,
     props: {},
-    isFavorite: false,
     tags: [],
     folders: [],
     comments: [],
@@ -183,7 +182,6 @@ export function fakeAsset(index: number, over: Partial<AssetCard> = {}): AssetCa
     height: 600,
     importedAt: 2_000_000_000 - index,
     rating: null,
-    isFavorite: false,
     ...over,
   };
 }
@@ -199,7 +197,6 @@ const EMPTY_STATS: LibraryStats = {
   folders: 0,
   smartFolders: 0,
   rated: 0,
-  favorites: 0,
   notes: 0,
   trashed: 0,
   thumbnails: 0,
@@ -351,7 +348,6 @@ export class FakeEngine {
       found.length > 0 &&
       rated.length === found.length &&
       rated.every((detail) => detail.rating === rated[0]?.rating);
-    const favourites = found.filter((detail) => detail.isFavorite).length;
 
     const carrying = new Map<string, number>();
     for (const detail of found) {
@@ -366,12 +362,6 @@ export class FakeEngine {
       totalBytes: found.reduce((total, detail) => total + detail.size, 0),
       rating: agreed ? (rated[0]?.rating ?? null) : null,
       ratingMixed: rated.length > 0 && !agreed,
-      favorite:
-        favourites === 0
-          ? "none"
-          : favourites === found.length && found.length > 0
-            ? "all"
-            : "mixed",
       sharedTags: names.filter((name) => carrying.get(name) === found.length),
       partialTags: names.filter((name) => carrying.get(name) !== found.length),
       kinds,
@@ -476,12 +466,6 @@ export class FakeEngine {
 
       case "asset:rate":
         return this.#mutate(request.hashes, (detail) => ({ ...detail, rating: request.rating }));
-
-      case "asset:favorite":
-        return this.#mutate(request.hashes, (detail) => ({
-          ...detail,
-          isFavorite: request.favorite,
-        }));
 
       case "asset:poster":
         // Nothing on the wire detail changes: the moment lives in the library

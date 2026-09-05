@@ -236,9 +236,9 @@ gives: this list is what *finds* a library, so it cannot live inside one.
 and every edit sent it alone, so selecting five assets and adding a tag tagged one — reported
 from real use, and invisible to any test that only asked whether the tag arrived.
 
-One asset and several are the **same components** given different data. `Rating`, the favourite
-button and `TagEditor` all take a list of hashes and never learn how long it is, which is what
-stops the bug returning for one path and not the other.
+One asset and several are the **same components** given different data. `Rating` and `TagEditor`
+both take a list of hashes and never learn how long it is, which is what stops the bug returning
+for one path and not the other.
 
 **What a multi-selection shows**
 
@@ -246,7 +246,6 @@ stops the bug returning for one path and not the other.
 | --- | --- |
 | Heading | `3 assets` in place of the name field |
 | Rating | The rating they share; `mixed` beside empty stars when they disagree. Clicking the shared rating clears it, as for one asset; a mixed selection has nothing to clear, so a click always sets |
-| Favourite | Filled when all are, empty otherwise. Clicking a `none` or `mixed` state favourites everything — the destructive reading needs the explicit `all` state to reach |
 | Tags | Tags **all** of them carry, then tags **some** carry, drawn apart and labelled. Adding applies to everything; removing a partial tag is the same call, since the engine ignores an asset that does not carry it |
 | Metadata | Total size and the commonest kinds. Nothing per-asset |
 
@@ -480,7 +479,6 @@ Library ▾                        library switcher, and where "Open library…"
 PLACES
   All assets                     everything, newest first
   Recent                         imported in the last 7 days
-  Favorites
   Untagged                       the pile that needs work — the reason this is here
   Trash                     3    ADR-0022. The only place with a count, and the count is what
                                  makes it worth a row — an empty trash and one holding four
@@ -866,7 +864,6 @@ becomes a preference in M6.
 | `Ctrl+A` | Select all loaded |
 | `Ctrl+D` | Deselect all |
 | `0`–`5` | Set rating on the selection (`0` clears to unrated) |
-| `F` | Toggle favourite |
 | `T` | Focus the tag editor for the selection |
 | `Delete` | Move the selection to the trash — and, inside the Trash place, delete it permanently after confirming (ADR-0022) |
 | `Ctrl+Delete` | Remove from the current folder only |
@@ -885,8 +882,9 @@ In the preview, with a video or an audio file open (ADR-0024):
 | `<` / `>` | Step ten frames. Reachable with a pointer by pressing the button ten times; the key is the accelerator, not the only way |
 | `I` / `O` | Set the loop's start · end. The button beside the timeline does both, and clears |
 
-**Fullscreen has a button and no key.** `F` is the favourite, and a key that means one thing beside
-a video and another beside a picture is worse than a button. The media keys are read only while
+**Fullscreen has a button and no key.** `F` was the favourite, which is retired (ADR-0029) — but a
+key that means one thing beside a video and another beside a picture is worse than a button, and
+that was always the real reason. The media keys are read only while
 the pane itself has focus, so `Space` on a focused button still presses the button.
 
 ## 10. Accessibility

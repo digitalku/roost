@@ -280,7 +280,6 @@ describe("the engine's message loop", () => {
       "hash",
       "height",
       "importedAt",
-      "isFavorite",
       "kind",
       "name",
       "posterMs",
@@ -335,7 +334,6 @@ describe("the engine's message loop", () => {
     expect(places.map((place) => place.name)).toEqual([
       "All assets",
       "Recent",
-      "Favorites",
       "Untagged",
       "Trash",
     ]);
@@ -362,7 +360,7 @@ describe("the engine's message loop", () => {
     // "All assets" is the empty string — the engine's word for the whole
     // library — and not a term in the grammar.
     expect(places[0]?.query).toBe("");
-    expect(places[2]?.query).toBe("is:favorite");
+    expect(places[2]?.query).toBe("is:untagged");
     // Recent is a real date, because RQL has no relative one and the grammar is
     // frozen by cross-implementation compatibility.
     expect(places[1]?.query).toMatch(/^imported:>\d{4}-\d{2}-\d{2}$/);
@@ -443,7 +441,6 @@ describe("the engine's message loop", () => {
         "hash",
         "height",
         "importedAt",
-        "isFavorite",
         "isPartialHash",
         "name",
         "note",
@@ -462,7 +459,6 @@ describe("the engine's message loop", () => {
       ].sort(),
     );
     expect(value["rating"]).toBeNull();
-    expect(value["isFavorite"]).toBe(false);
     expect(value["tags"]).toEqual([]);
   });
 
@@ -496,9 +492,6 @@ describe("the engine's message loop", () => {
       value: null,
     });
     expect((await detail())["rating"]).toBe(4);
-
-    await ask(3, { type: "asset:favorite", hashes: [hash], favorite: true });
-    expect((await detail())["isFavorite"]).toBe(true);
 
     // The engine drops an all-whitespace note rather than storing one: a note
     // badge that is on forever and says nothing is worse than no badge.
@@ -728,7 +721,6 @@ describe("the engine's message loop", () => {
     expect(Object.keys(value).sort()).toEqual(
       [
         "assets",
-        "favorites",
         "folders",
         "managed",
         "notes",

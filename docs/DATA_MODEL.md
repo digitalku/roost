@@ -592,7 +592,9 @@ created:2024-01-01..2024-12-31
 created:2024-03-01            a bare date is the whole day, not midnight exactly
 imported:>2026-01-01
 rating:>=4                    1 to 5; anything else is a parse error, not an empty result
-is:favorite is:untagged is:tagged is:rated is:unrated
+is:untagged is:tagged is:rated is:unrated
+is:favorite                   retired (ADR-0029) and still in the grammar: nothing sets one
+                              any more, and a smart folder that says it must still parse
 is:managed is:referenced is:partial-hash
 is:trashed                    in the trash; also `is:trash`
 is:superseded                 replaced by a newer version; also `is:old`

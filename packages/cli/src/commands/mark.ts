@@ -4,7 +4,6 @@ import {
   removeAssets,
   renameAsset,
   restoreAssets,
-  setFavorite,
   setNote,
   trashAssets,
 } from "@roost/library";
@@ -62,20 +61,6 @@ export async function note(
     streams.out(
       text === undefined ? `Cleared the note on ${short(hash)}` : `Set the note on ${short(hash)}`,
     );
-    return EXIT.ok;
-  });
-}
-
-export async function favorite(
-  root: string,
-  needles: readonly string[],
-  off: boolean,
-  streams: Streams,
-): Promise<number> {
-  return withLibrary(root, async (library) => {
-    const hashes = resolveAll(library, needles);
-    await setFavorite(library, hashes, !off);
-    streams.out(`${off ? "Unfavourited" : "Favourited"} ${assets(hashes.length)}`);
     return EXIT.ok;
   });
 }

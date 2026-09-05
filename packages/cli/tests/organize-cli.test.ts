@@ -113,21 +113,24 @@ describe("the organize commands", () => {
     expect(await ok("query", "folder:Design", "--count")).toEqual(["0"]);
   });
 
-  it("rates, favourites, notes, renames, and shows the result", async () => {
+  it("rates, notes, renames, and shows the result", async () => {
     const prefix = (hashes[0] as string).slice(0, 10);
     await ok("rate", "4", prefix);
-    await ok("favorite", prefix);
     await ok("note", prefix, "needs", "a", "crop");
     await ok("rename", prefix, "renamed.png");
 
     const shown = (await ok("show", prefix)).join("\n");
     expect(shown).toContain("renamed.png");
     expect(shown).toContain("needs a crop");
-    expect(await ok("query", "rating:4 is:favorite", "--count")).toEqual(["1"]);
+    // A library nothing has favourited says nothing about favourites, because
+    // nothing can favourite any more (ADR-0029).
+    expect(shown).not.toContain("favourite");
+    expect(await ok("query", "rating:4", "--count")).toEqual(["1"]);
 
     await ok("rate", "none", prefix);
-    await ok("favorite", "--off", prefix);
     await ok("note", prefix, "--clear");
+    // Still in the grammar, and still answering: a smart folder that says
+    // `is:favorite` must keep parsing (`DATA_MODEL.md` §3).
     expect(await ok("query", "is:unrated -is:favorite", "--count")).toEqual(["3"]);
   });
 

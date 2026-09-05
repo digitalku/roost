@@ -145,10 +145,7 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
 
       <Name detail={detail} onSaved={read} />
 
-      <div className="inspector-row">
-        <Rating value={detail.rating} mixed={false} hashes={hashes} onSaved={read} />
-        <Favorite state={detail.isFavorite ? "all" : "none"} hashes={hashes} onSaved={read} />
-      </div>
+      <Rating value={detail.rating} mixed={false} hashes={hashes} onSaved={read} />
 
       <TagEditor hashes={hashes} shared={detail.tags} partial={[]} onSaved={read} />
       <NoteField detail={detail} onSaved={read} />
@@ -346,38 +343,6 @@ function Rating({
 }
 
 /**
- * The favourite toggle, over one asset or many.
- *
- * A mixed selection favourites everything rather than clearing: the gesture
- * people expect from a half-filled control is "make them all this", and the
- * destructive reading is the one that needs an explicit state to reach.
- */
-function Favorite({
-  state,
-  hashes,
-  onSaved,
-}: {
-  readonly state: "all" | "none" | "mixed";
-  readonly hashes: readonly string[];
-  readonly onSaved: () => Promise<void>;
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      className="favorite"
-      aria-pressed={state === "all"}
-      aria-label="Favorite"
-      data-mixed={state === "mixed" || undefined}
-      onClick={() => {
-        void invoke({ type: "asset:favorite", hashes, favorite: state !== "all" }).then(onSaved);
-      }}
-    >
-      {state === "all" ? "★" : "☆"}
-    </button>
-  );
-}
-
-/**
  * Tags, added on Enter and removed by their own button.
  *
  * **Shared and partial tags are drawn apart** (`UI_SPEC.md` §3.2). A tag two of
@@ -469,15 +434,12 @@ function Selection({
     <aside className="inspector" aria-label="Inspector">
       <h2 className="inspector-count">{summary.count.toLocaleString()} assets</h2>
 
-      <div className="inspector-row">
-        <Rating
-          value={summary.rating}
-          mixed={summary.ratingMixed}
-          hashes={hashes}
-          onSaved={onSaved}
-        />
-        <Favorite state={summary.favorite} hashes={hashes} onSaved={onSaved} />
-      </div>
+      <Rating
+        value={summary.rating}
+        mixed={summary.ratingMixed}
+        hashes={hashes}
+        onSaved={onSaved}
+      />
 
       <TagEditor
         hashes={hashes}

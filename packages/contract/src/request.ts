@@ -142,11 +142,6 @@ export type Request =
       readonly hashes: readonly string[];
       readonly rating: number | null;
     }
-  | {
-      readonly type: "asset:favorite";
-      readonly hashes: readonly string[];
-      readonly favorite: boolean;
-    }
   /** `null` clears the note, and so does an all-whitespace one. */
   | { readonly type: "asset:note"; readonly hash: string; readonly note: string | null }
   /**
@@ -418,7 +413,6 @@ export interface Responses {
    * all-whitespace note, and deduplicates tags.
    */
   "asset:rate": null;
-  "asset:favorite": null;
   "asset:note": null;
   "asset:poster": null;
   "asset:rename": null;
@@ -552,14 +546,6 @@ export const REQUEST_VALIDATORS: {
     // checked here is that it is an integer or an explicit null — the shape,
     // not the rule.
     return ok({ type: "asset:rate", hashes: hashes.value, rating: rating.value });
-  },
-
-  "asset:favorite": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    if (!hashes.ok) return hashes;
-    const favorite = readBoolean(source, "favorite");
-    if (!favorite.ok) return favorite;
-    return ok({ type: "asset:favorite", hashes: hashes.value, favorite: favorite.value });
   },
 
   "asset:note": (source) => {

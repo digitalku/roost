@@ -83,7 +83,16 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   window (a menu item is not an accelerator), and `F11` for fullscreen is the one thing lost that
   is worth a keyboard-map entry later.
 
-**Nothing blocking.** ADR-0025 through ADR-0028 were all accepted on the day they were proposed. The
+- ☑ ~~**ADR-0029 — favourite is retired.**~~ **Accepted 2026-09-05** and built the same day, on
+  the user seeing the two controls side by side: *"sudah ada star, kalau memang disukai tinggal
+  saya bintang 5"*. A favourite is a rating with one value and no scale. Everything that authors
+  one is gone — the inspector control, the Favorites place, `asset:favorite`, `setFavorite`,
+  `roost favorite`, and `F`. **`is_favorite`, `favorite_set` and `is:favorite` stay**: the index is
+  rebuilt from the journal, so a build that did not understand the op could not open a library that
+  has one, and a smart folder saying `is:favorite` must still parse (`DATA_MODEL.md` §3). The CLI
+  still prints the state where it exists, and only there.
+
+**Nothing blocking.** ADR-0025 through ADR-0029 were all accepted on the day they were proposed. The
 five questions the language change forced were settled on 2026-08-24, before any code was
 written against them — ADR-0006 through ADR-0012, all Accepted. What they decided is in
 `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.

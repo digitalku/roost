@@ -140,7 +140,7 @@ baseline, and the cause measured rather than assumed — six times the CPU per f
   stale FTS rows, `--deep` re-hash, `--reclaim` with the safety rule that reclaim refuses when
   the index and the object store disagree. Two checks the Rust build does not have: files in
   `journal/` that replay will skip, and which `sharp` and `libvips` are loaded
-- ☑ CLI: `query`, `smart`, `tag`, `folder`, `rate`, `note`, `favorite`, `rename`, `remove`,
+- ☑ CLI: `query`, `smart`, `tag`, `folder`, `rate`, `note`, `favorite` (retired, ADR-0029), `rename`, `remove`,
   `show`, `doctor`
 - ☑ Search benchmark recorded — `docs/BENCHMARKS.md`, 2026-08-26
 
@@ -177,7 +177,7 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ☑ Sidebar: places, folders with subtree counts, smart folders, grouped tags — each row
   carrying the RQL that selects it. Collapsing, drag-to-reparent, and the library switcher are
   in `TODO.md`
-- ☑ Inspector: preview, metadata, tags, rating, favourite, note, all editable, every edit
+- ☑ Inspector: preview, metadata, tags, rating, favourite (retired, ADR-0029), note, all editable, every edit
   reading the record back rather than trusting what it sent. Proven through the window and then
   through a `roost rebuild`: every edit the GUI made survived deleting the index
 - ☑ Preview pane: image, video, audio, external fallback; arrow keys move selection with it.

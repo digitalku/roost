@@ -144,7 +144,6 @@ function places(trashed: number): PlaceEntry[] {
   return [
     { id: "all", name: "All assets", query: "", count: null, stars: null },
     { id: "recent", name: "Recent", query: `imported:>${since}`, count: null, stars: null },
-    { id: "favorites", name: "Favorites", query: "is:favorite", count: null, stars: null },
     { id: "untagged", name: "Untagged", query: "is:untagged", count: null, stars: null },
     { id: "trash", name: "Trash", query: "is:trashed", count: trashed, stars: null },
   ];

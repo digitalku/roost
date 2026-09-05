@@ -26,7 +26,10 @@ export async function show(
     if (detail.refPath !== null) out(row("references", detail.refPath));
     if (detail.isPartialHash) out(row("hashing", "partial (large file)"));
     out(row("rating", detail.rating === null ? "—" : String(detail.rating)));
-    out(row("favourite", detail.isFavorite ? "yes" : "no"));
+    // Only when there is one. Nothing sets a favourite any more (ADR-0029), so
+    // a "no" on every asset forever is a word about a feature that is gone —
+    // while a library that still holds one is owed the truth.
+    if (detail.isFavorite) out(row("favourite", "yes"));
     if (detail.note !== null) out(row("note", detail.note));
     if (detail.tags.length > 0) out(row("tags", detail.tags.join(", ")));
     if (detail.folders.length > 0) out(row("folders", detail.folders.join(", ")));

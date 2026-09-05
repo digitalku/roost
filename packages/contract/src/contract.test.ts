@@ -89,7 +89,6 @@ describe("validating a request", () => {
       "asset:detail",
       "asset:summary",
       "asset:rate",
-      "asset:favorite",
       "asset:note",
       "asset:poster",
       "asset:create",

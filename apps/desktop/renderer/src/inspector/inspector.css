@@ -75,6 +75,14 @@
   line-height: 1;
 }
 
+/* An unlit star is the same colour it is in the sidebar (UI_SPEC.md §4.1): one
+   state cannot have two brightnesses, or an unrated asset looks unrated in one
+   panel and half-rated in the other. The heart keeps the subtler colour — it is
+   one control, not a scale, so nothing beside it sets an expectation. */
+.rating button {
+  color: var(--border);
+}
+
 .rating button[data-on],
 .favorite[aria-pressed="true"] {
   color: var(--accent-hover);

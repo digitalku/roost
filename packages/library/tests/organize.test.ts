@@ -6,6 +6,7 @@ import {
   AmbiguousFolderNameError,
   addComment,
   addToFolder,
+  apply,
   comments,
   count,
   createFolder,
@@ -38,7 +39,6 @@ import {
   restoreAssets,
   search,
   setComment,
-  setFavorite,
   setNote,
   setPoster,
   setTagGroup,
@@ -197,9 +197,12 @@ describe("organizing a library", () => {
     expect(() => resolveFolder(library, "Temporary")).toThrow(UnknownFolderPathError);
   });
 
-  it("rates, notes, and favourites, and refuses a rating the schema has no room for", async () => {
+  it("rates, notes, and still finds a favourite, and refuses a rating the schema has no room for", async () => {
     await rate(library, [hashes[0] as ContentHash], 4);
-    await setFavorite(library, [hashes[1] as ContentHash], true);
+    // Journalled directly: nothing authors a favourite any more (ADR-0029), but
+    // `is:favorite` stays in the grammar, because a smart folder that says it
+    // must still parse — so what a library already holds is still findable.
+    await apply(library, [{ op: "favorite_set", hash: hashes[1] as ContentHash, favorite: true }]);
     await setNote(library, hashes[2] as ContentHash, "  needs a crop  ");
 
     expect(count(library, "rating:>=4")).toBe(1);
@@ -611,7 +614,7 @@ describe("organizing a library", () => {
     await setTagGroup(library, ["wood"], group);
     await tagRename(library, "wood", "timber");
     await rate(library, [hashes[0] as ContentHash], 5);
-    await setFavorite(library, [hashes[1] as ContentHash], true);
+    await apply(library, [{ op: "favorite_set", hash: hashes[1] as ContentHash, favorite: true }]);
     await setNote(library, hashes[2] as ContentHash, "a note");
     const comment = await addComment(library, hashes[0] as ContentHash, 91_500, "a comment");
     await setComment(library, comment, 91_000, "an edited comment");

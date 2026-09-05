@@ -175,19 +175,6 @@ describe("the inspector", () => {
     expect(rates.map((r) => (r as { rating: number | null }).rating)).toEqual([4, null]);
   });
 
-  it("toggles the favourite", async () => {
-    const { user } = show();
-    const star = await screen.findByRole("button", { name: "Favorite" });
-    expect(star.getAttribute("aria-pressed")).toBe("false");
-
-    await user.click(star);
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Favorite" }).getAttribute("aria-pressed")).toBe(
-        "true",
-      ),
-    );
-  });
-
   it("adds a tag on Enter and shows the tag the engine kept", async () => {
     const { user } = show({ tags: ["wood"] });
     await screen.findByLabelText("Add a tag");
@@ -369,19 +356,6 @@ describe("the inspector over several assets", () => {
     await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:rate")).toBe(true));
     const request = [...engine.seen].reverse().find((r) => r.type === "asset:rate");
     expect((request as { rating: number | null }).rating).toBeNull();
-  });
-
-  it("favourites all of them when only some are favourites", async () => {
-    // The gesture people expect from a half-filled control is "make them all
-    // this". Clearing is the destructive reading and needs the explicit state.
-    const { user } = show([{ isFavorite: true }, {}, {}]);
-    await screen.findByText("3 assets");
-
-    await user.click(screen.getByRole("button", { name: "Favorite" }));
-
-    await waitFor(() => expect(sentTo("asset:favorite")).toEqual(THREE));
-    const request = [...engine.seen].reverse().find((r) => r.type === "asset:favorite");
-    expect((request as { favorite: boolean }).favorite).toBe(true);
   });
 
   it("draws a tag some of them carry apart from one they all carry", async () => {

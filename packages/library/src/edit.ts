@@ -398,20 +398,6 @@ function requireMoment(atMs: number | null): number | null {
   return atMs;
 }
 
-export async function setFavorite(
-  library: Library,
-  assets: readonly ContentHash[],
-  favorite: boolean,
-): Promise<void> {
-  return apply(
-    library,
-    assets.map((hash) => {
-      requireAsset(library, hash);
-      return { op: "favorite_set", hash, favorite } as const;
-    }),
-  );
-}
-
 /**
  * Renames what the library shows. The file on disk keeps its hash filename
  * (invariant 2) — nothing under `originals/` is touched.
@@ -748,6 +734,9 @@ function carryOver(library: Library, before: AssetDetail, to: ContentHash): Op[]
   }
   if (before.rating !== null) ops.push({ op: "rate", hash: to, rating: before.rating });
   if (before.note !== null) ops.push({ op: "note_set", hash: to, note: before.note });
+  // Carried even though nothing can set one any more (ADR-0029): an asset that
+  // *has* a favourite from before it was retired keeps it across an edit, or
+  // `is:favorite` would quietly stop finding a file somebody edited.
   if (before.isFavorite) ops.push({ op: "favorite_set", hash: to, favorite: true });
   if (before.posterMs !== null) ops.push({ op: "poster_set", hash: to, at: before.posterMs });
 

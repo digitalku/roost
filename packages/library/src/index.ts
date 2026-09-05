@@ -57,7 +57,6 @@ export {
   restoreAssets,
   saveEdit,
   setComment,
-  setFavorite,
   setNote,
   setPoster,
   setTagGroup,

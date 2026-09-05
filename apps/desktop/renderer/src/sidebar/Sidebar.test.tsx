@@ -9,10 +9,7 @@ function row(over: Partial<SidebarRow> & { name: string; query: string }): Sideb
 }
 
 const SIDEBAR: WireSidebar = {
-  places: [
-    row({ name: "All assets", query: "" }),
-    row({ name: "Favorites", query: "is:favorite" }),
-  ],
+  places: [row({ name: "All assets", query: "" })],
   ratings: [
     row({ id: "rating-5", name: "5 stars", query: "rating:5", count: 3, stars: 5 }),
     row({ id: "rating-4", name: "4 stars", query: "rating:4", count: 0, stars: 4 }),

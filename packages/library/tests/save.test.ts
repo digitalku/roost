@@ -5,6 +5,7 @@ import type { ContentHash } from "@roost/core";
 import {
   addComment,
   addToFolder,
+  apply,
   createAsset,
   createFolder,
   EditTooLargeError,
@@ -14,7 +15,6 @@ import {
   NotEditableError,
   rate,
   saveEdit,
-  setFavorite,
   setNote,
   supersedeAsset,
   tagAdd,
@@ -72,7 +72,9 @@ describe("saving an edit", () => {
     await addToFolder(library, [note], folder);
     await rate(library, [note], 4);
     await setNote(library, note, "for the talk");
-    await setFavorite(library, [note], true);
+    // Journalled directly: nothing authors a favourite any more (ADR-0029),
+    // and the carry-over exists precisely for the assets that already have one.
+    await apply(library, [{ op: "favorite_set", hash: note, favorite: true }]);
     await addComment(library, note, null, "check the second paragraph");
 
     const after = await saveEdit(library, note, text("second draft\n"));

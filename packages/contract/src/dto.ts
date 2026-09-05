@@ -81,7 +81,6 @@ export interface WireSelectionSummary {
   /** The rating they all carry, or `null` when they disagree or none is rated. */
   readonly rating: number | null;
   readonly ratingMixed: boolean;
-  readonly favorite: "all" | "none" | "mixed";
   /** Tags every selected asset carries. */
   readonly sharedTags: readonly string[];
   /** Tags some of them carry. */
@@ -102,7 +101,6 @@ export interface LibraryStats {
   readonly folders: number;
   readonly smartFolders: number;
   readonly rated: number;
-  readonly favorites: number;
   readonly notes: number;
   readonly trashed: number;
   readonly thumbnails: number;
@@ -166,7 +164,6 @@ export interface AssetCard {
   readonly height: number | null;
   readonly importedAt: number;
   readonly rating: number | null;
-  readonly isFavorite: boolean;
   /**
    * The moment a video's thumbnail is pinned to, or `null` (ADR-0024 stage 4).
    *
@@ -307,7 +304,6 @@ export interface WireAssetDetail {
   readonly trashedAt: number | null;
   readonly rating: number | null;
   readonly note: string | null;
-  readonly isFavorite: boolean;
   readonly tags: readonly string[];
   /** Slash-separated folder paths this asset is in. */
   readonly folders: readonly string[];

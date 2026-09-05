@@ -13,16 +13,7 @@ import { fixture } from "./commands/fixture.js";
 import { folder } from "./commands/folder.js";
 import { runImport } from "./commands/import.js";
 import { init } from "./commands/init.js";
-import {
-  emptyTheTrash,
-  favorite,
-  note,
-  rate,
-  remove,
-  rename,
-  restore,
-  trash,
-} from "./commands/mark.js";
+import { emptyTheTrash, note, rate, remove, rename, restore, trash } from "./commands/mark.js";
 import { poster } from "./commands/poster.js";
 import { query } from "./commands/query.js";
 import { rebuild } from "./commands/rebuild.js";
@@ -94,7 +85,6 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   poster: { at: { type: "string" }, clear: { type: "boolean" } },
   save: { clear: { type: "boolean" } },
   subtitle: { detach: { type: "boolean" }, lang: { type: "string" } },
-  favorite: { off: { type: "boolean" } },
   rename: {},
   trash: { restore: { type: "boolean" }, empty: { type: "boolean" } },
   remove: {},
@@ -361,13 +351,6 @@ async function dispatch(
         { detach: flag(values, "detach"), lang: text(values, "lang") },
         streams,
       );
-    }
-
-    case "favorite": {
-      if (positionals.length === 0) {
-        return usage(streams, command, "favorite needs at least one asset");
-      }
-      return favorite(await library(), positionals, flag(values, "off"), streams);
     }
 
     case "rename": {

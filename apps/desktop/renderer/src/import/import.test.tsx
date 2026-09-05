@@ -218,9 +218,9 @@ describe("what the grid does when an import lands", () => {
 
     const before = engine.seen.filter((r) => r.type === "assets:page").length;
     await user.click(screen.getAllByRole("option")[0] as HTMLElement);
-    await user.click(await screen.findByRole("button", { name: "Favorite" }));
+    await user.click(await screen.findByRole("button", { name: "4 stars" }));
 
-    await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:favorite")).toBe(true));
+    await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:rate")).toBe(true));
     expect(engine.seen.filter((r) => r.type === "assets:page")).toHaveLength(before);
   });
 });

@@ -62,7 +62,6 @@ import {
   retryFailed,
   runDerives,
   setComment,
-  setFavorite,
   setNote,
   setPoster,
   tagAdd,
@@ -163,11 +162,6 @@ export class EngineHost {
 
       case "asset:rate":
         return this.#edit(() => rate(this.#require(), hashes(request.hashes), request.rating));
-
-      case "asset:favorite":
-        return this.#edit(() =>
-          setFavorite(this.#require(), hashes(request.hashes), request.favorite),
-        );
 
       case "asset:note":
         return this.#edit(() =>
@@ -577,7 +571,6 @@ function statsOf(library: Library): LibraryStats {
     folders: counts.folders,
     smartFolders: counts.smartFolders,
     rated: counts.rated,
-    favorites: counts.favorites,
     notes: counts.notes,
     trashed: counts.trashed,
     thumbnails: counts.thumbnails,
@@ -605,7 +598,6 @@ function cardOf(hit: SearchHit): AssetPage["assets"][number] {
     height: hit.height,
     importedAt: hit.importedAt,
     rating: hit.rating,
-    isFavorite: hit.isFavorite,
   };
 }
 
@@ -755,7 +747,6 @@ function detailOf(
     supersededBy: detail.supersededBy,
     rating: detail.rating,
     note: detail.note,
-    isFavorite: detail.isFavorite,
     tags: detail.tags,
     folders: detail.folders,
     durationMs: detail.durationMs,

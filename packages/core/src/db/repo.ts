@@ -141,7 +141,6 @@ export interface SelectionSummary {
   /** The rating they all carry, or `null` when they disagree or none is rated. */
   readonly rating: number | null;
   readonly ratingMixed: boolean;
-  readonly favorite: "all" | "none" | "mixed";
   /** Tags every selected asset carries. Removing one removes it from all. */
   readonly sharedTags: readonly string[];
   /** Tags some of them carry. Shown apart, because "remove" means less here. */
@@ -904,8 +903,7 @@ export class Repo {
 
     const totals = this.#s(
       `SELECT count(*) AS count, coalesce(sum(size), 0) AS totalBytes,
-              count(rating) AS rated, min(rating) AS lowest, max(rating) AS highest,
-              coalesce(sum(is_favorite), 0) AS favorites
+              count(rating) AS rated, min(rating) AS lowest, max(rating) AS highest
          FROM assets WHERE hash IN (SELECT value FROM json_each(?))`,
     ).get(list) as {
       count: number;
@@ -913,7 +911,6 @@ export class Repo {
       rated: number;
       lowest: number | null;
       highest: number | null;
-      favorites: number;
     };
 
     const tagged = this.#s(
@@ -942,8 +939,6 @@ export class Repo {
       // No rating anywhere is agreement, not disagreement: it is what an
       // untouched selection looks like, and the stars should show empty.
       ratingMixed: totals.rated > 0 && !agreed,
-      favorite:
-        totals.favorites === 0 ? "none" : totals.favorites === totals.count ? "all" : "mixed",
       sharedTags: tagged.filter((t) => t.carrying === totals.count).map((t) => t.name),
       partialTags: tagged.filter((t) => t.carrying !== totals.count).map((t) => t.name),
       kinds: kinds.map((k) => k.ext),
