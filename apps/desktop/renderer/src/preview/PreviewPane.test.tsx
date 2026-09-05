@@ -98,7 +98,7 @@ describe("the preview pane", () => {
       "mp4",
       { durationMs: 60_000 },
       {
-        importDialog: ["/home/you/holiday.srt"],
+        subtitleDialog: ["/home/you/holiday.srt"],
       },
     );
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
@@ -106,8 +106,12 @@ describe("the preview pane", () => {
     await user.click(await screen.findByRole("button", { name: "Subtitles" }));
     await user.click(await screen.findByRole("menuitem", { name: "Add subtitle…" }));
 
-    // The chooser is main's, and what comes back is imported and attached in
-    // one request: apart, the two leave a track attached to nothing.
+    // The subtitle chooser, not the import one: that offers folders and says
+    // "Import" on its button, and a folder is not something this can use.
+    expect(engine.seen.map((request) => request.type)).toContain("dialog:chooseSubtitle");
+    expect(engine.seen.some((request) => request.type === "dialog:chooseImport")).toBe(false);
+    // What comes back is imported and attached in one request: apart, the two
+    // leave a track attached to nothing.
     await waitFor(() =>
       expect(engine.seen.map((request) => request.type)).toContain("asset:addSubtitle"),
     );

@@ -348,6 +348,16 @@ export type Request =
   /** Ask the user for files and folders to import. Answered by main. */
   | { readonly type: "dialog:chooseImport" }
   /**
+   * The chooser for **Add subtitle…** (ADR-0025).
+   *
+   * Not `dialog:chooseImport`: that one offers folders as well as files and
+   * says "Import" on its button, because importing a folder is the ordinary
+   * gesture. Attaching a caption track is not — it is one file, filtered to the
+   * extensions a subtitle has, and a chooser that offers a folder for it is
+   * offering something the caller cannot use.
+   */
+  | { readonly type: "dialog:chooseSubtitle" }
+  /**
    * Ask the user for an existing library directory.
    *
    * Answered by **main**, not the engine: a dialog belongs to a window, and the
@@ -427,6 +437,8 @@ export interface Responses {
   "derive:retry": WireDeriveStatus;
   /** `null` when the user cancelled; an empty array is not a thing a dialog returns. */
   "dialog:chooseImport": readonly string[] | null;
+  /** The chosen subtitles, or `null` if the dialog was cancelled. */
+  "dialog:chooseSubtitle": readonly string[] | null;
   /** `null` when the user cancelled, which is an outcome rather than a failure. */
   "dialog:openLibrary": string | null;
   "dialog:chooseLocation": string | null;
@@ -701,6 +713,8 @@ export const REQUEST_VALIDATORS: {
   },
 
   "dialog:chooseImport": () => ok({ type: "dialog:chooseImport" }),
+
+  "dialog:chooseSubtitle": () => ok({ type: "dialog:chooseSubtitle" }),
 
   "dialog:openLibrary": () => ok({ type: "dialog:openLibrary" }),
   "dialog:chooseLocation": () => ok({ type: "dialog:chooseLocation" }),

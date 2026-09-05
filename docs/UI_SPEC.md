@@ -749,8 +749,11 @@ and nothing else and the format people have is SubRip. **Nothing turns itself on
 `default`, and the menu starts at Off — a subtitle that appears unasked is the thing people go
 looking for the button to turn off.
 
-**Add subtitle…** opens the file chooser and hands the paths to **one** request that imports and
-attaches them together. Apart, the two leave a state between them — a track imported and attached
+**Add subtitle…** opens a chooser of its own — **files only**, filtered to the subtitle extensions,
+with **Add** on its button — and hands the paths to **one** request that imports and attaches them
+together. The import chooser is a different dialog and offers folders, because importing a folder
+is the ordinary gesture; attaching a caption track is not, and a chooser that lets somebody pick a
+directory for it is offering something the caller cannot use. Apart, the two leave a state between them — a track imported and attached
 to nothing, sitting in the grid as a stray text file — and the window would have to learn the hash
 of something it only handed over a path to. The import is always `managed`, whatever the default
 mode is: the whole point of a track being an asset is that it survives its source.

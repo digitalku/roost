@@ -8,6 +8,16 @@
  * file that is already text.
  */
 
+/**
+ * Every subtitle extension Roost recognises, convertible or not.
+ *
+ * One list, because three places need it and they must agree: the file chooser
+ * filters on it, the import heuristic decides what to look for a film beside,
+ * and a track that is recognised but not {@link isConvertible} is attached and
+ * waits for the backend that can read it.
+ */
+export const SUBTITLE_EXTENSIONS = ["srt", "vtt", "ass", "ssa"] as const;
+
 /** Extensions this module can turn into WebVTT without help. */
 const CONVERTIBLE = new Set(["srt", "vtt", "webvtt"]);
 

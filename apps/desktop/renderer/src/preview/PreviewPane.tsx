@@ -325,10 +325,11 @@ function Player({
   /**
    * **Add subtitle…**, from the CC menu (ADR-0025).
    *
-   * The chooser is main's — the renderer has no filesystem — and what comes
-   * back are paths, which the engine imports and attaches in **one** request:
-   * apart, the two leave a state between them where a track is imported and
-   * attached to nothing.
+   * The chooser is main's — the renderer has no filesystem — and it is the
+   * subtitle one rather than the import one: files only, filtered, and its
+   * button says "Add". What comes back are paths, which the engine imports and
+   * attaches in **one** request: apart, the two leave a state between them
+   * where a track is imported and attached to nothing.
    *
    * Nothing is re-read here. The engine announces the change, the window bumps
    * its generation, and the pane re-reads exactly as it does after every other
@@ -336,7 +337,7 @@ function Player({
    */
   const addSubtitle = (): void => {
     void (async () => {
-      const chosen = await invoke({ type: "dialog:chooseImport" });
+      const chosen = await invoke({ type: "dialog:chooseSubtitle" });
       if (!chosen.ok || chosen.value === null || chosen.value.length === 0) return;
       await invoke({ type: "asset:addSubtitle", hash: detail.hash, paths: chosen.value });
     })();

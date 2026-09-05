@@ -289,6 +289,7 @@ export class EngineHost {
 
       case "clipboard:paste":
       case "dialog:chooseImport":
+      case "dialog:chooseSubtitle":
       case "asset:openExternally":
       case "asset:reveal":
       case "asset:copyPath":

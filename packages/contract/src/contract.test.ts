@@ -113,6 +113,7 @@ describe("validating a request", () => {
       "derive:status",
       "derive:retry",
       "dialog:chooseImport",
+      "dialog:chooseSubtitle",
       "dialog:openLibrary",
       "dialog:chooseLocation",
     ]);

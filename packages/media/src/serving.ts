@@ -18,7 +18,7 @@ export {
 } from "./format.js";
 // Text in, text out — no decoder, so it belongs on this side of the line
 // (ADR-0025).
-export { isConvertible, toWebVtt } from "./subtitle.js";
+export { isConvertible, SUBTITLE_EXTENSIONS, toWebVtt } from "./subtitle.js";
 
 /**
  * The size the grid renders, generated for every asset up front.

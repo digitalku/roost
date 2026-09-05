@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { type ContentHash, logger } from "@roost/core";
-import { hashFile } from "@roost/media";
+import { hashFile, SUBTITLE_EXTENSIONS } from "@roost/media";
 import { attachSubtitle } from "./edit.js";
 import { importInto } from "./import.js";
 import type { Library } from "./library.js";
@@ -16,7 +16,7 @@ import type { Library } from "./library.js";
  * meaning out of a directory.
  */
 
-const SUBTITLE_EXTENSIONS = new Set(["srt", "vtt", "ass", "ssa"]);
+const KNOWN = new Set<string>(SUBTITLE_EXTENSIONS);
 
 /**
  * Video and audio containers a track is looked for beside.
@@ -31,7 +31,7 @@ const log = logger("subtitles");
 
 /** Whether a path names a subtitle Roost knows how to attach. */
 export function isSubtitlePath(path: string): boolean {
-  return SUBTITLE_EXTENSIONS.has(extname(path).replace(/^\./, "").toLowerCase());
+  return KNOWN.has(extname(path).replace(/^\./, "").toLowerCase());
 }
 
 /**

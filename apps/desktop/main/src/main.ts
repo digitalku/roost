@@ -23,6 +23,7 @@ import {
   stderrSink,
   teeSink,
 } from "@roost/core";
+import { SUBTITLE_EXTENSIONS } from "@roost/media/serving";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from "electron";
 import { AssetServer } from "./assets.js";
 import { isHttpUrl, pastedName, pathsFromUriList } from "./clipboard.js";
@@ -202,6 +203,7 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "dialog:openLibrary",
   "dialog:chooseLocation",
   "dialog:chooseImport",
+  "dialog:chooseSubtitle",
   "asset:openExternally",
   "asset:reveal",
   "asset:copyPath",
@@ -217,6 +219,7 @@ async function answerHere(
   if (request.type === "asset:copyPath") return copyPaths(request.hashes);
   if (request.type === "clipboard:paste") return paste(engine, request.mode);
   if (request.type === "dialog:chooseImport") return chooseImport();
+  if (request.type === "dialog:chooseSubtitle") return chooseSubtitle();
 
   const forOpening = request.type === "dialog:openLibrary";
 
@@ -265,6 +268,43 @@ async function chooseImport(): Promise<readonly string[] | null> {
       : await dialog.showOpenDialog(parent, { ...options, properties: [...options.properties] });
 
   // Cancelling is an outcome, not a failure.
+  return chosen.canceled || chosen.filePaths.length === 0 ? null : chosen.filePaths;
+}
+
+/**
+ * The chooser for **Add subtitle…** (ADR-0025).
+ *
+ * Files only, and filtered. {@link chooseImport} offers folders because
+ * importing a folder is the ordinary gesture; attaching a caption track is not,
+ * and a chooser that lets somebody pick a directory for it is offering
+ * something the caller has no use for.
+ *
+ * The filter is the same list the import heuristic looks for, from
+ * `@roost/media` — two copies would eventually disagree about `.ssa`. "All
+ * files" stays available underneath it, because a filter is a convenience and
+ * refusing a correctly-named file nobody expected would not be.
+ *
+ * Opens in Downloads rather than Pictures: a subtitle almost always arrives
+ * that way, and Pictures is where a library's assets come from.
+ */
+async function chooseSubtitle(): Promise<readonly string[] | null> {
+  const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const options = {
+    title: "Add subtitle",
+    buttonLabel: "Add",
+    properties: ["openFile", "multiSelections"] as const,
+    filters: [
+      { name: "Subtitles", extensions: [...SUBTITLE_EXTENSIONS] },
+      { name: "All files", extensions: ["*"] },
+    ],
+    defaultPath: app.getPath("downloads"),
+  };
+
+  const chosen =
+    parent === undefined
+      ? await dialog.showOpenDialog({ ...options, properties: [...options.properties] })
+      : await dialog.showOpenDialog(parent, { ...options, properties: [...options.properties] });
+
   return chosen.canceled || chosen.filePaths.length === 0 ? null : chosen.filePaths;
 }
 

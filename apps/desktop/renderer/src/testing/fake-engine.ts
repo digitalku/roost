@@ -99,6 +99,8 @@ export interface FakeEngineOptions {
   readonly trashSize?: number;
   /** What `dialog:chooseImport` answers with. `null` is a cancelled dialog. */
   readonly importDialog?: readonly string[] | null;
+  /** What `dialog:chooseSubtitle` answers with. Files only, in the real one. */
+  readonly subtitleDialog?: readonly string[] | null;
   /** What an import reports, and the progress it emits on the way. */
   readonly importReport?: Partial<WireImportReport>;
   /** Rows an import adds to what the empty query answers with. */
@@ -632,6 +634,9 @@ export class FakeEngine {
 
       case "dialog:chooseImport":
         return ok(this.#options.importDialog ?? null);
+
+      case "dialog:chooseSubtitle":
+        return ok(this.#options.subtitleDialog ?? null);
 
       case "import:paths": {
         if (this.#open === undefined) return problem("remote", "No library is open", {});
