@@ -106,6 +106,19 @@ body {
   flex: 1 1 auto;
 }
 
+/*
+ * A gap under the content column's head.
+ *
+ * The grid scrolls, so its own top padding is spent as soon as anything is
+ * scrolled and the first row then runs into the bar's edge. A margin here is
+ * outside the scroll container and therefore always there — and it shows the
+ * page background, which is the grid's own, so it reads as the grid keeping its
+ * distance rather than as a band between two surfaces.
+ */
+.pane-content > .bar {
+  margin-bottom: var(--space-2);
+}
+
 /* The grid takes what is left of its column, under the bar. */
 .pane-content > .grid-frame,
 .pane-content > .menu-area,
