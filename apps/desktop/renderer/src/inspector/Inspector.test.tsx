@@ -1,5 +1,5 @@
 import type { Outcome, RequestOf, RequestType, ResponseOf, WireAssetDetail } from "@roost/contract";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeEngine, fakeDetail, install } from "../testing/fake-engine.js";
@@ -29,6 +29,48 @@ describe("the inspector", () => {
 
   beforeEach(() => {
     vi.useRealTimers();
+  });
+
+  it("lists the caption tracks, and detaching does not delete one", async () => {
+    // Here rather than in the sidebar: a sidebar row is a query, and a query
+    // cannot mean "the tracks of whatever is selected" (ADR-0025).
+    const { user } = show({
+      subtitles: [
+        { hash: "f".repeat(64), lang: "id", label: null, name: "holiday.id.srt", servable: true },
+      ],
+    });
+
+    const block = await screen.findByRole("region", { name: "Subtitles" });
+    expect(block.textContent).toContain("holiday.id.srt");
+    expect(block.textContent).toContain("id");
+
+    // Opening and revealing act on the **track**, not on the asset it captions.
+    await user.click(within(block).getByRole("button", { name: "Open" }));
+    await user.click(within(block).getByRole("button", { name: "Show in file manager" }));
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:openExternally")).toEqual([
+        { type: "asset:openExternally", hash: "f".repeat(64) },
+      ]),
+    );
+    expect(engine.seen.filter((request) => request.type === "asset:reveal")).toEqual([
+      { type: "asset:reveal", hash: "f".repeat(64) },
+    ]);
+
+    // "Detach", never "Remove": the sentence goes and both files stay.
+    await user.click(within(block).getByRole("button", { name: "Detach" }));
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:subtitleDetach")).toEqual([
+        { type: "asset:subtitleDetach", hash: HASH, track: "f".repeat(64) },
+      ]),
+    );
+    expect(engine.seen.some((request) => request.type === "assets:remove")).toBe(false);
+    expect(engine.seen.some((request) => request.type === "assets:trash")).toBe(false);
+  });
+
+  it("draws no subtitle block where nothing is attached", async () => {
+    show();
+    await screen.findByRole("region", { name: "Metadata" }).catch(() => undefined);
+    expect(screen.queryByRole("region", { name: "Subtitles" })).toBeNull();
   });
 
   it("keeps its place when nothing is selected, and says why it is empty", () => {

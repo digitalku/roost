@@ -314,3 +314,47 @@
   font: inherit;
   font-size: var(--text-sm);
 }
+
+/* The caption tracks attached to this asset (ADR-0025, UI_SPEC.md §3). Laid
+   out like a comment: the name takes the room, and the actions sit at the end
+   of the row rather than under it, because there are three of them and a
+   column of buttons reads as a menu. */
+
+.subtitles,
+.subtitle-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.subtitle-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subtitle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: baseline;
+}
+
+.subtitle-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.subtitle-lang {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+}
+
+.subtitle-actions {
+  display: flex;
+  gap: var(--space-1);
+}

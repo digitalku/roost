@@ -35,6 +35,7 @@ import {
   compileFor,
   createAsset,
   type DeriveReport,
+  detachSubtitle,
   emptyTrash,
   enqueueMissing,
   ensurePreview,
@@ -207,6 +208,15 @@ export class EngineHost {
         // status bar says which.
         return this.#editReporting(() =>
           addSubtitles(this.#require(), parseContentHash(request.hash), request.paths),
+        );
+
+      case "asset:subtitleDetach":
+        return this.#edit(() =>
+          detachSubtitle(
+            this.#require(),
+            parseContentHash(request.hash),
+            parseContentHash(request.track),
+          ),
         );
 
       case "asset:rename":

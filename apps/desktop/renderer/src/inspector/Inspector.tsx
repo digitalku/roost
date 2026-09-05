@@ -157,6 +157,7 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
           they were started on, and React would otherwise keep them across a
           change of `detail`. */}
       <Comments key={detail.hash} detail={detail} onSaved={read} />
+      <Subtitles detail={detail} onSaved={read} />
       <Metadata detail={detail} />
 
       <button
@@ -166,6 +167,82 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
         Open externally
       </button>
     </aside>
+  );
+}
+
+/**
+ * The caption tracks attached to this asset (ADR-0025, `UI_SPEC.md` §3).
+ *
+ * Here rather than in the sidebar, which the user considered first: a sidebar
+ * row is a **query**, and a query cannot mean "the tracks of whatever is
+ * selected". This panel is the one place that is already about one asset.
+ *
+ * A track is an ordinary asset, so the three things worth doing to it are the
+ * three a file has anywhere: open it in the editor that owns it, show it where
+ * it lives, and — the one that is about the *sentence* rather than the file —
+ * detach it.
+ *
+ * **Detaching deletes nothing.** Both assets stay and the track becomes an
+ * ordinary text asset again, visible in the grid. Removing the file is
+ * `Delete`, like any other asset, and the label says "Detach" rather than
+ * "Remove" so the two are never confused.
+ */
+function Subtitles({
+  detail,
+  onSaved,
+}: {
+  readonly detail: WireAssetDetail;
+  readonly onSaved: () => void;
+}): React.JSX.Element | null {
+  if (detail.subtitles.length === 0) return null;
+
+  return (
+    <section className="subtitles" aria-label="Subtitles">
+      <ul className="subtitle-list">
+        {detail.subtitles.map((track) => (
+          <li key={track.hash} className="subtitle">
+            <span className="subtitle-name" title={track.name}>
+              {track.label ?? track.name}
+            </span>
+            {track.lang !== null && <span className="subtitle-lang">{track.lang}</span>}
+            <span className="subtitle-actions">
+              <button
+                type="button"
+                title="Open in the application that owns it"
+                onClick={() => void invoke({ type: "asset:openExternally", hash: track.hash })}
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                title="Show the file where it lives"
+                onClick={() => void invoke({ type: "asset:reveal", hash: track.hash })}
+              >
+                Show in file manager
+              </button>
+              {/* Not "Remove": nothing is deleted, and the two must never read
+                  as the same thing. */}
+              <button
+                type="button"
+                title="Stop this file captioning the asset. Nothing is deleted"
+                onClick={() => {
+                  void (async () => {
+                    await invoke({
+                      type: "asset:subtitleDetach",
+                      hash: detail.hash,
+                      track: track.hash,
+                    });
+                    onSaved();
+                  })();
+                }}
+              >
+                Detach
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

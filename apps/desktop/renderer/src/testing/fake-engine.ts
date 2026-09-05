@@ -514,6 +514,12 @@ export class FakeEngine {
         return ok(request.paths.length);
       }
 
+      case "asset:subtitleDetach":
+        return this.#mutate([request.hash], (detail) => ({
+          ...detail,
+          subtitles: detail.subtitles.filter((track) => track.hash !== request.track),
+        }));
+
       case "asset:create": {
         const text = request.text;
         if (text === "") {

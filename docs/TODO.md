@@ -28,7 +28,9 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   over `roost://subtitle/`, the CC menu in the transport, `roost subtitle`, and `is:subtitle` /
   `is:captioned` — and **Add subtitle…** in the transport's CC menu, which imports and attaches in
   one request (2026-09-05, at the user's choosing: of the two doors sketched, the one *inside* the
-  CC menu is where somebody notices they have no subtitles). Stages 2 and 3 — embedded tracks through ffmpeg, and cues in the index so
+  CC menu is where somebody notices they have no subtitles), and the inspector's **Subtitles**
+  block — Open, Show in file manager, Detach — which is how a track is opened for editing at all.
+  Stages 2 and 3 — embedded tracks through ffmpeg, and cues in the index so
   `said:"…"` answers with a moment — are not started. Accepted the day it was proposed, from the user asking how Roost should do what
   Eagle does with an `.srt` dropped beside a video. Eagle's answer is a folder per asset, which
   this layout does not have, so the proposal keeps the convention only as an import-time heuristic

@@ -356,6 +356,20 @@ does after acting on one — so it needs no timer, and nothing vanishes while it
 read. Away from, not merely changes: the rule above clears the selection as part of trashing, and
 a line wiped by any change is a line no destructive action can ever leave behind.
 
+**Caption tracks are listed in the inspector, not in the sidebar.** A sidebar row is a *query*,
+and a query cannot mean "the tracks of whatever is selected" — the inspector is the one surface
+already about one asset. The block is drawn only where something is attached, one row per track
+with its name and language, and three actions:
+
+| Action | What it does |
+| --- | --- |
+| **Open** | Hands the track to the application that owns it — which is how a subtitle is edited, since Roost has no text editor |
+| **Show in file manager** | Reveals the track's own file, selected |
+| **Detach** | Un-says the sentence. **Nothing is deleted**: both assets stay and the track becomes an ordinary text asset again, visible in the grid |
+
+The label is **Detach** and never "Remove", because removing an asset is a different, destructive
+thing that lives on `Delete` — and two words for two meanings is the only way that stays clear.
+
 ### 3.4 Confirming what cannot be undone
 
 One dialog in the window, raised by whatever needs it — the context menu and the `Delete` key

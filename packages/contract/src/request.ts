@@ -196,6 +196,14 @@ export type Request =
       readonly hash: string;
       readonly paths: readonly string[];
     }
+  /**
+   * Un-says which asset captions which (ADR-0025).
+   *
+   * **Deletes nothing.** Both assets stay; only the sentence goes, and the
+   * track becomes an ordinary text asset again, visible in the grid. Removing
+   * the file itself is `assets:trash` or `assets:remove`, like any other asset.
+   */
+  | { readonly type: "asset:subtitleDetach"; readonly hash: string; readonly track: string }
   /** Renames what the library shows. Nothing under `originals/` is touched. */
   | { readonly type: "asset:rename"; readonly hash: string; readonly name: string }
   | {
@@ -394,6 +402,7 @@ export interface Responses {
   "asset:create": WireCreated;
   /** How many caption tracks were attached (ADR-0025). */
   "asset:addSubtitle": number;
+  "asset:subtitleDetach": null;
   "clipboard:paste": WirePasted;
   "asset:tagAdd": null;
   "asset:tagRemove": null;
@@ -568,6 +577,14 @@ export const REQUEST_VALIDATORS: {
       return bad("paths: expected non-empty strings");
     }
     return ok({ type: "asset:addSubtitle", hash: hash.value, paths: paths.value });
+  },
+
+  "asset:subtitleDetach": (source) => {
+    const hash = readHash(source, "hash");
+    if (!hash.ok) return hash;
+    const track = readHash(source, "track");
+    if (!track.ok) return track;
+    return ok({ type: "asset:subtitleDetach", hash: hash.value, track: track.value });
   },
 
   "asset:rename": (source) => {
