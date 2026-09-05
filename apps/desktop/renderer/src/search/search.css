@@ -1,9 +1,17 @@
 /* The RQL field (UI_SPEC.md §5). */
 
+/*
+ * As wide as the column leaves it.
+ *
+ * It was capped at 640px, which is the right width for a paragraph and the
+ * wrong one for a query: RQL runs long — three terms, a quoted folder path, a
+ * date range — and a field that stops in the middle of the bar makes a query
+ * scroll sideways while the space to show it sits empty beside it. The match
+ * count rides the field's own right edge, so it follows.
+ */
 .search {
   position: relative;
   flex: 1;
-  max-width: 640px;
 }
 
 .search-input {

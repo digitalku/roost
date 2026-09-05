@@ -553,8 +553,10 @@ screen", and it is a string the user can read and edit.
 
 ## 5. Search
 
-The field takes RQL (`DATA_MODEL.md` §3). It is the primary control in the toolbar and the
-widest.
+The field takes RQL (`DATA_MODEL.md` §3). It is the primary control in its column's head and takes
+every pixel the view control and Import leave it — a query is not a paragraph, and RQL runs long
+enough (three terms, a quoted folder path, a date range) that a capped field would scroll sideways
+while empty bar sat beside it.
 
 - **Typing words is a search, and needs no syntax** (ADR-0027). Bare words are free-text terms,
   and free text reaches everything a person wrote about an asset: its name, its tags, its note,

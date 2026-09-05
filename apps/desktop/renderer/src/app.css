@@ -306,8 +306,8 @@ button:disabled {
 
 .bar-actions {
   display: flex;
-  /* Pushed to the right edge of its column: the search field stops at 640px,
-     and controls trailing it in the middle of the bar read as part of it. */
+  /* Pinned to the right edge of the column, so the search field takes
+     everything up to them. */
   margin-left: auto;
   gap: var(--space-2);
 }
