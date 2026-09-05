@@ -184,6 +184,21 @@ export interface AssetDetail {
   readonly props: Readonly<Record<string, string>>;
 }
 
+/**
+ * One caption track attached to an asset (ADR-0025).
+ *
+ * Carries the track's own name and extension because a menu names it, and
+ * because the extension is what decides whether serving it needs a conversion
+ * or an external tool.
+ */
+export interface SubtitleRow {
+  readonly trackHash: ContentHash;
+  readonly lang: string | null;
+  readonly label: string | null;
+  readonly name: string;
+  readonly ext: string;
+}
+
 /** One row of the folder tree. */
 export interface FolderRow {
   readonly id: number;
@@ -546,6 +561,48 @@ export class Repo {
    */
   applySupersede(hash: ContentHash, to: ContentHash | null): void {
     this.#s("UPDATE assets SET superseded_by = ? WHERE hash = ?").run(to, hash);
+  }
+
+  /**
+   * Says that one asset captions another (ADR-0025).
+   *
+   * `ordinal` is not passed in: it is the count of what is already attached, so
+   * a menu lists tracks in the order they were attached and a replay produces
+   * the same order it recorded. Re-attaching the same pair updates the language
+   * and label rather than adding a second row — the primary key is the pair,
+   * and saying it twice is one sentence said twice.
+   */
+  applySubtitleAttach(
+    hash: ContentHash,
+    track: ContentHash,
+    lang: string | undefined,
+    label: string | undefined,
+  ): void {
+    this.#s(
+      `INSERT INTO asset_subtitles (hash, track_hash, ordinal, lang, label)
+       VALUES (
+         ?, ?,
+         (SELECT count(*) FROM asset_subtitles WHERE hash = ?),
+         ?, ?
+       )
+       ON CONFLICT (hash, track_hash) DO UPDATE SET lang = excluded.lang, label = excluded.label`,
+    ).run(hash, track, hash, lang ?? null, label ?? null);
+  }
+
+  /** Un-says it. Both assets stay; only the sentence goes. */
+  applySubtitleDetach(hash: ContentHash, track: ContentHash): void {
+    this.#s("DELETE FROM asset_subtitles WHERE hash = ? AND track_hash = ?").run(hash, track);
+  }
+
+  /** The caption tracks attached to one asset, in the order they were attached. */
+  subtitlesFor(hash: ContentHash): SubtitleRow[] {
+    return this.#s(
+      `SELECT s.track_hash AS trackHash, s.lang, s.label, a.orig_name AS name, a.ext
+         FROM asset_subtitles s
+         JOIN assets a ON a.hash = s.track_hash
+        WHERE s.hash = ?
+        ORDER BY s.ordinal`,
+    ).all(hash) as SubtitleRow[];
   }
 
   /**

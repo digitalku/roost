@@ -208,6 +208,30 @@ export interface SidebarRow {
   readonly group: string | null;
 }
 
+/**
+ * One caption track attached to an asset (ADR-0025).
+ *
+ * The hash is the track's own — it is an ordinary asset — and it is what
+ * `roost://subtitle/<hash>` addresses. Bytes do not travel here (invariant 12):
+ * what crosses is the sentence saying this track captions that video.
+ */
+export interface WireSubtitle {
+  readonly hash: string;
+  /** BCP-47 where a filename or a stream declared one, `null` where none did. */
+  readonly lang: string | null;
+  readonly label: string | null;
+  /** The track's own filename, which is what a menu falls back to. */
+  readonly name: string;
+  /**
+   * Whether Roost can serve it without an external tool.
+   *
+   * SubRip and WebVTT convert here; ASS and an embedded stream need ffmpeg,
+   * which is a capability and may be absent. A menu shows the difference rather
+   * than offering a row that produces an empty track.
+   */
+  readonly servable: boolean;
+}
+
 /** The navigation pane, in the order it is drawn. */
 export interface WireSidebar {
   readonly places: readonly SidebarRow[];
@@ -295,6 +319,8 @@ export interface WireAssetDetail {
   readonly supersededBy: string | null;
   /** Documents only. */
   readonly pageCount: number | null;
+  /** Caption tracks attached to this asset, in the order they were attached. */
+  readonly subtitles: readonly WireSubtitle[];
   /**
    * Whatever the format's own backend had to say: a font's family and style, a
    * video's codec, an audio file's sample rate.

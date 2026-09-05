@@ -25,6 +25,7 @@ export const COMMANDS = [
   "comment",
   "poster",
   "save",
+  "subtitle",
   "favorite",
   "rename",
   "trash",
@@ -66,6 +67,7 @@ Commands:
   comment   Comment on an asset, or on a moment in one
   poster    Choose which frame a video's thumbnail comes from
   save      Replace an asset's contents with a file's, as a new version
+  subtitle  Attach, list, or detach the caption tracks of a video
   favorite  Mark assets as favourites
   rename    Change an asset's display name. The file on disk is untouched
   trash     Move assets to the trash, restore them, or empty it
@@ -335,6 +337,30 @@ superseding it would produce a live replacement.
 Options:
 ${LIBRARY_FLAG}
       --clear            Make this asset current again
+${GLOBAL}`,
+
+  subtitle: `Attach, list, or detach the caption tracks of a video.
+
+Usage: roost subtitle <ASSET> <TRACK> [--lang CODE]
+       roost subtitle <ASSET> <TRACK> --detach
+       roost subtitle <ASSET>
+
+Both arguments are assets: the subtitle is an ordinary content-addressed file
+in the library, and this records which video it captions. Importing a folder
+where \`film.srt\` sits beside \`film.mkv\` attaches them on its own — this is for
+the rest.
+
+Without a track it lists what is attached. Detaching un-says the sentence and
+deletes nothing: both files stay, and the track becomes an ordinary text asset
+again, visible in the grid.
+
+An attached track is hidden from every view but \`is:subtitle\`, and
+\`is:captioned\` finds the videos that have one.
+
+Options:
+${LIBRARY_FLAG}
+      --lang <CODE>      BCP-47 language, where the filename did not say
+      --detach           Un-say it
 ${GLOBAL}`,
 
   poster: `Choose which frame a video's thumbnail comes from.

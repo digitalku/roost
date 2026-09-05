@@ -150,6 +150,12 @@ export class IndexSink implements ReplaySink {
       case "favorite_set":
         repo.applyFavoriteSet(record.hash, record.favorite);
         return;
+      case "subtitle_attach":
+        repo.applySubtitleAttach(record.hash, record.track, record.lang, record.label);
+        return;
+      case "subtitle_detach":
+        repo.applySubtitleDetach(record.hash, record.track);
+        return;
       case "supersede":
         repo.applySupersede(record.hash, record.to);
         return;

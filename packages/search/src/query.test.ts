@@ -211,7 +211,7 @@ describe("compiling", () => {
 
   it("answers a folder nobody created with an empty match, not an error", () => {
     const filter = buildQuery("folder:Nowhere");
-    expect(filter.sql).toBe("(0) AND a.trashed_at IS NULL AND a.superseded_by IS NULL");
+    expect(filter.sql).toBe(`(0) AND ${MATCH_LIVE.sql}`);
     expect(filter.params).toEqual([]);
   });
 
@@ -236,7 +236,7 @@ describe("compiling", () => {
 
   it("compiles a flag without binding anything it did not have to", () => {
     expect(compileQuery(parse("is:favorite"), NO_FOLDERS)).toEqual({
-      sql: "(a.is_favorite = 1) AND a.trashed_at IS NULL AND a.superseded_by IS NULL",
+      sql: `(a.is_favorite = 1) AND ${MATCH_LIVE.sql}`,
       params: [],
     });
     // Except the two that name a column value, which stay bound like any other.
@@ -250,9 +250,7 @@ describe("compiling", () => {
     // about editing (ADR-0026): every intermediate save would otherwise be in
     // every result.
     for (const query of ["tag:wip", "is:favorite", "rating:>=4", "beach", "-tag:wip"]) {
-      expect(
-        buildQuery(query).sql.endsWith(" AND a.trashed_at IS NULL AND a.superseded_by IS NULL"),
-      ).toBe(true);
+      expect(buildQuery(query).sql.endsWith(` AND ${MATCH_LIVE.sql}`)).toBe(true);
     }
   });
 
@@ -269,20 +267,27 @@ describe("compiling", () => {
     // `is:trashed` opts out of the trash half. The superseded half stays: a
     // superseded row in the trash is still a version rather than something
     // somebody deleted.
+    const attached = "NOT EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_hash = a.hash)";
     expect(buildQuery("is:trashed").sql).toBe(
-      "(a.trashed_at IS NOT NULL) AND a.superseded_by IS NULL",
+      `(a.trashed_at IS NOT NULL) AND a.superseded_by IS NULL AND ${attached}`,
     );
     expect(buildQuery("is:superseded").sql).toBe(
-      "(a.superseded_by IS NOT NULL) AND a.trashed_at IS NULL",
+      `(a.superseded_by IS NOT NULL) AND a.trashed_at IS NULL AND ${attached}`,
     );
-    // Both named, and the query is scoped by neither.
-    expect(buildQuery("is:trashed AND is:superseded").sql).not.toContain("IS NULL");
+    // A track is found by naming it, and nothing else changes: an attached
+    // subtitle in the trash is still a track (ADR-0025 §4).
+    expect(buildQuery("is:subtitle").sql).toBe(
+      "(EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_hash = a.hash))" +
+        " AND a.trashed_at IS NULL AND a.superseded_by IS NULL",
+    );
+    // All three named, and the query is scoped by none of them.
+    expect(buildQuery("is:trashed AND is:superseded AND is:subtitle").sql).not.toContain("IS NULL");
     // Nested, so that the check is over the whole tree rather than the root.
     expect(buildQuery("is:trashed AND tag:wip").sql).not.toContain("a.trashed_at IS NULL");
     // Negated, where the default scoping would have produced the same predicate
     // anyway — opting out must not be able to widen a query.
     expect(buildQuery("-is:trashed").sql).toBe(
-      "(NOT (a.trashed_at IS NOT NULL)) AND a.superseded_by IS NULL",
+      `(NOT (a.trashed_at IS NOT NULL)) AND a.superseded_by IS NULL AND ${attached}`,
     );
   });
 });

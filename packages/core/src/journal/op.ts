@@ -36,6 +36,8 @@ export const OP_NAMES = [
   "smart_folder_create",
   "smart_folder_delete",
   "smart_folder_update",
+  "subtitle_attach",
+  "subtitle_detach",
   "supersede",
   "tag_add",
   "tag_group_create",
@@ -188,6 +190,31 @@ export type Op =
    * replayed it.
    */
   | { readonly op: "supersede"; readonly hash: ContentHash; readonly to: ContentHash | null }
+  /**
+   * Which asset captions which (ADR-0025).
+   *
+   * `hash` is the video or audio; `track` is the subtitle, an ordinary
+   * content-addressed asset. The attachment is a judgement a person made about
+   * two files — nothing in either file's bytes implies it — so it is
+   * user-authored and invariant 9 applies. A `.srt` found beside a video at
+   * import proposes the line; the line is what makes it true, which is why
+   * moving either file afterwards changes nothing.
+   *
+   * `lang` is BCP-47 where a filename or a stream declared one, and absent
+   * rather than guessed where nothing did. `label` is absent until somebody
+   * types one.
+   *
+   * `subtitle_detach` un-says the sentence and deletes nothing: both assets
+   * stay, and the track becomes an ordinary text file again.
+   */
+  | {
+      readonly op: "subtitle_attach";
+      readonly hash: ContentHash;
+      readonly track: ContentHash;
+      readonly lang?: string;
+      readonly label?: string;
+    }
+  | { readonly op: "subtitle_detach"; readonly hash: ContentHash; readonly track: ContentHash }
   | {
       readonly op: "smart_folder_create";
       readonly id: number;
@@ -395,6 +422,24 @@ export function toRecord(source: Raw): JournalRecord {
       return { ts, op, hash: hash(source, "hash"), at: moment(source) };
     case "favorite_set":
       return { ts, op, hash: hash(source, "hash"), favorite: bool(source, "favorite") };
+    case "subtitle_attach": {
+      // Built field by field, never by spreading: an object carrying
+      // `undefined` serialises differently from one missing the key, and
+      // `JSON.stringify` silently drops the difference (`DATA_MODEL.md` §4).
+      const record: Record<string, unknown> = {
+        ts,
+        op,
+        hash: hash(source, "hash"),
+        track: hash(source, "track"),
+      };
+      const lang = optStr(source, "lang");
+      if (lang !== undefined) record["lang"] = lang;
+      const label = optStr(source, "label");
+      if (label !== undefined) record["label"] = label;
+      return record as unknown as JournalRecord;
+    }
+    case "subtitle_detach":
+      return { ts, op, hash: hash(source, "hash"), track: hash(source, "track") };
     case "supersede":
       return {
         ts,

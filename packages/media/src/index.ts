@@ -68,6 +68,7 @@ export {
   type RawFacts,
   readRaw,
 } from "./raw.js";
+export { isConvertible, toWebVtt } from "./subtitle.js";
 export {
   gradient,
   gradientPixels,

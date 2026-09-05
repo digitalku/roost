@@ -274,9 +274,11 @@ is listed here, so the order stays visible instead of becoming folklore.
   started**: *Import from URL…*, invariant 7's one exception written out explicitly. One question
   opened on the way and blocks nothing yet: *Duplicate into library to edit* cannot mean
   duplicate, because identical bytes are one asset (`TODO.md` §3)
-- ☐ **Subtitles** — ADR-0025, **Accepted** 2026-09-03, from the user asking how Roost should do
-  what Eagle does with an `.srt` dropped beside a video. The `.srt` is an ordinary asset, the
-  attachment is a journal line, and the convention survives only as an import-time heuristic
+- ☐ **Subtitles** — ADR-0025, **Accepted** 2026-09-03, **stage 1 built 2026-09-05**: the `.srt` is
+  an ordinary asset, the attachment is a journal line, Eagle's convention survives only as an
+  import-time heuristic, and a track is served as WebVTT because `<track>` accepts nothing else.
+  Stages 2 and 3 — embedded tracks, and cues in the index — are not started. It came from the user
+  asking how Roost should do what Eagle does with an `.srt` dropped beside a video
 - ☐ **A video transport of our own** — ADR-0024, **Accepted** 2026-09-02, from the user asking why
   Eagle's player feels part of the application and ours does not. Four stages: parity plus the
   comment marks moved onto the timeline, then frame stepping and speed and A-B loop, then

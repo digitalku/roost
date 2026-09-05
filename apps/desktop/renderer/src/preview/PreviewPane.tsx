@@ -1,4 +1,4 @@
-import type { WireAssetDetail } from "@roost/contract";
+import type { WireAssetDetail, WireSubtitle } from "@roost/contract";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { fallbackToGrid, previewSrc } from "../thumbnail.js";
@@ -315,17 +315,31 @@ function Player({
   useEffect(() => (element === null ? undefined : playhead.attach(element)), [element]);
 
   /*
-   * The file is the user's own and there is nowhere a caption track could come
-   * from — M4's metadata pass is where an embedded one would be found.
+   * Only what can be served without an external tool: ASS and an embedded
+   * stream need ffmpeg, and a `<track>` pointed at a URL that answers 415 is an
+   * empty track with no error anywhere (ADR-0025). The CC menu lists the rest
+   * and says why they are missing.
    */
+  const tracks = detail.subtitles.filter((track) => track.servable);
+
   return (
     <div className="preview-player" data-kind={detail.kind} ref={stage}>
       {detail.kind === "audio" ? (
+        // The tracks below are the captions, and there are as many as the asset
+        // has — often none, and never a literal the rule can see.
         // biome-ignore lint/a11y/useMediaCaption: see above
-        <audio ref={setElement} className="preview-audio" src={src} autoPlay />
+        <audio ref={setElement} className="preview-audio" src={src} autoPlay>
+          {tracks.map((track) => (
+            <Caption key={track.hash} track={track} />
+          ))}
+        </audio>
       ) : (
         // biome-ignore lint/a11y/useMediaCaption: see above
-        <video ref={setElement} className="preview-media" src={src} autoPlay />
+        <video ref={setElement} className="preview-media" src={src} autoPlay>
+          {tracks.map((track) => (
+            <Caption key={track.hash} track={track} />
+          ))}
+        </video>
       )}
       <Transport
         media={element}
@@ -333,8 +347,31 @@ function Player({
         comments={detail.comments}
         probedMs={detail.durationMs}
         fps={frameRate(detail.props["video.fps"])}
+        subtitles={tracks}
       />
     </div>
+  );
+}
+
+/**
+ * One caption track, as WebVTT (ADR-0025).
+ *
+ * **Never `default`.** A track marked default shows itself, and a subtitle that
+ * turns itself on is the thing people go looking for the button to turn off.
+ * The transport's CC menu is that button, and it starts at Off.
+ *
+ * The `src` is `roost://subtitle/<hash>` and not `roost://original/`, because
+ * what comes back is a conversion: `<track>` accepts WebVTT and nothing else,
+ * and the format people have is SubRip.
+ */
+function Caption({ track }: { readonly track: WireSubtitle }): React.JSX.Element {
+  return (
+    <track
+      kind="subtitles"
+      src={`roost://subtitle/${track.hash}`}
+      label={track.label ?? track.lang ?? track.name}
+      {...(track.lang === null ? {} : { srcLang: track.lang })}
+    />
   );
 }
 

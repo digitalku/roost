@@ -15,6 +15,15 @@ import { THUMBNAIL_SIZES } from "@roost/media/serving";
 export type Route =
   | { readonly kind: "thumb"; readonly hash: ContentHash; readonly size: ThumbSize }
   | { readonly kind: "original"; readonly hash: ContentHash }
+  /**
+   * A caption track, always answered as WebVTT (ADR-0025).
+   *
+   * A route of its own rather than `original`, because what comes back is a
+   * *conversion*: `<track>` accepts WebVTT and nothing else, and the format
+   * people have is SubRip. Serving the original bytes under a `text/vtt`
+   * content type would be a lie that shows an empty track and no error.
+   */
+  | { readonly kind: "subtitle"; readonly hash: ContentHash }
   | {
       readonly kind: "page";
       readonly hash: ContentHash;
@@ -110,6 +119,11 @@ export function parseRoostUrl(url: string): Checked<Route> {
   if (parsed.host === "original") {
     if (!isContentHash(rest)) return bad("not a content hash");
     return ok({ kind: "original", hash: rest });
+  }
+
+  if (parsed.host === "subtitle") {
+    if (!isContentHash(rest)) return bad("not a content hash");
+    return ok({ kind: "subtitle", hash: rest });
   }
 
   return bad(`no such route: ${parsed.host}`);

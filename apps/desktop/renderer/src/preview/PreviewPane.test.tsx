@@ -62,6 +62,35 @@ describe("the preview pane", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 
+  it("hangs a caption track on the video, and never turns it on by itself", async () => {
+    show("video", "mp4", {
+      durationMs: 60_000,
+      subtitles: [
+        { hash: "f".repeat(64), lang: "id", label: null, name: "film.srt", servable: true },
+        // Needs ffmpeg, so no `<track>` — one pointed at a URL answering 415 is
+        // an empty track with no error anywhere (ADR-0025).
+        { hash: "9".repeat(64), lang: null, label: null, name: "film.ass", servable: false },
+      ],
+    });
+    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
+
+    const tracks = [...document.querySelectorAll("track")];
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0]?.getAttribute("src")).toBe(`roost://subtitle/${"f".repeat(64)}`);
+    expect(tracks[0]?.getAttribute("srclang")).toBe("id");
+    // A subtitle that turns itself on is the thing people go looking for the
+    // button to turn off.
+    expect(tracks[0]?.hasAttribute("default")).toBe(false);
+    expect(await screen.findByRole("button", { name: "Subtitles" })).toBeDefined();
+  });
+
+  it("offers no CC button where nothing is attached", async () => {
+    // A control that can only say "off" is a control in the way.
+    show("video", "mp4", { durationMs: 60_000 });
+    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Subtitles" })).toBeNull();
+  });
+
   it("renders a video under a transport of ours, not the browser's bar", async () => {
     show("video", "mp4");
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());

@@ -27,6 +27,7 @@ import {
   parseContentHash,
   type SearchHit,
   type StorageMode,
+  type SubtitleRow,
 } from "@roost/core";
 import {
   addComment,
@@ -67,7 +68,7 @@ import {
   trashAssets,
 } from "@roost/library";
 import { capabilities } from "@roost/media";
-import { formatFromExtension, kindOf } from "@roost/media/serving";
+import { formatFromExtension, isConvertible, kindOf } from "@roost/media/serving";
 import { QueryError } from "@roost/search";
 
 /**
@@ -148,7 +149,11 @@ export class EngineHost {
         // a million (`serving.ts`). One asset, and only if it already has a
         // grid thumbnail — proof that something here can draw it.
         await ensurePreview(library, request.hash);
-        return detailOf(found, library.db.repo.commentsFor(found.hash));
+        return detailOf(
+          found,
+          library.db.repo.commentsFor(found.hash),
+          library.db.repo.subtitlesFor(found.hash),
+        );
       }
 
       case "asset:summary":
@@ -700,7 +705,11 @@ function hashes(values: readonly string[]): ContentHash[] {
  * and the wire says it is one of two values, so this is where a third one would
  * be caught instead of reaching a renderer that switches on it.
  */
-function detailOf(detail: AssetDetail, comments: readonly CommentRow[]): WireAssetDetail {
+function detailOf(
+  detail: AssetDetail,
+  comments: readonly CommentRow[],
+  tracks: readonly SubtitleRow[],
+): WireAssetDetail {
   return {
     hash: detail.hash,
     name: detail.origName,
@@ -726,6 +735,16 @@ function detailOf(detail: AssetDetail, comments: readonly CommentRow[]): WireAss
     pageCount: detail.pageCount,
     props: detail.props,
     comments: comments.map(commentOf),
+    subtitles: tracks.map((track) => ({
+      hash: track.trackHash,
+      lang: track.lang,
+      label: track.label,
+      name: track.name,
+      // Decided from the extension rather than by reading the file: the menu
+      // draws before anything is fetched, and what cannot be converted here
+      // needs a capability that may be absent (ADR-0017).
+      servable: isConvertible(track.ext),
+    })),
   };
 }
 

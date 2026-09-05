@@ -473,6 +473,49 @@ index only when the query's WHERE contains a term implying the index's, so the s
 the schema — `repo.test.ts` asserts that half the scope loses the index, which is the failure that
 would otherwise be silent and slow.
 
+### 2.10 Migration 0011 — a subtitle is an asset (schema v11)
+
+Decided as ADR-0025 on 2026-09-03 and built on 2026-09-05, from the user asking how Roost should do
+what Eagle does with an `.srt` dropped beside a video. Eagle's answer is a folder per asset, which
+this layout does not have — so adjacency cannot carry the meaning, and **the attachment is a row**.
+
+```sql
+CREATE TABLE asset_subtitles (
+  hash       TEXT    NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
+  track_hash TEXT    NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
+  ordinal    INTEGER NOT NULL,
+  lang       TEXT,
+  label      TEXT,
+  PRIMARY KEY (hash, track_hash)
+) WITHOUT ROWID;
+
+CREATE INDEX idx_subtitles_track ON asset_subtitles(track_hash);
+```
+
+**The `.srt` is an ordinary asset.** Content-addressed like everything else, which buys two things
+the convention it replaces does not have: the subtitle survives its source (delete the file from
+the disk it came from and the track is still here), and one track can caption many videos, stored
+once and attached twice.
+
+**Two journal ops**, because the attachment is a judgement a person made about two files and
+nothing in either file's bytes implies it (invariant 9): `subtitle_attach { hash, track, lang?,
+label? }` and `subtitle_detach { hash, track }`. Detach un-says the sentence and deletes nothing.
+
+**`ordinal` is not carried by the op.** It is the count of what is already attached, computed at
+apply time, so a replay produces the order it recorded without the journal having to state it.
+
+**The third hidden-by-default rule, and the first that cannot be indexed.** An attached track leaves
+the grid — the rule is about *attachment, not format*, so an `.srt` imported on its own is an
+ordinary text asset and appears like one — and `is:subtitle` finds it again. Unlike `trashed_at IS
+NULL` and `superseded_by IS NULL`, `NOT EXISTS (…)` cannot be part of a partial index, because
+SQLite forbids a subquery in an index's WHERE. The grid still seeks on `idx_assets_imported` and
+pays this per row it returns, against `idx_subtitles_track`. **What it costs is owed to
+`scripts/bench-search.ts`**; ADR-0025 §4 names the fallback if it is too much — a column on
+`assets`, maintained beside the join table.
+
+`is:captioned` is the mirror, and the question nobody could ask before: *which of my videos still
+have no subtitles*.
+
 ## 3. Roost Query Language (RQL)
 
 The search bar and smart folders share one grammar. It compiles to SQL with **bound
@@ -506,6 +549,8 @@ is:favorite is:untagged is:tagged is:rated is:unrated
 is:managed is:referenced is:partial-hash
 is:trashed                    in the trash; also `is:trash`
 is:superseded                 replaced by a newer version; also `is:old`
+is:subtitle                   attached as somebody's caption track; also `is:subtitles`
+is:captioned                  has at least one caption track
 "free text"                   FTS5 over orig_name and tags
 ```
 

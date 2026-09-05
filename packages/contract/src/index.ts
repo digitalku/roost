@@ -57,6 +57,7 @@ export {
   type WireRecentLibrary,
   type WireSelectionSummary,
   type WireSidebar,
+  type WireSubtitle,
 } from "./dto.js";
 export {
   checkEventEnvelope,

@@ -16,6 +16,7 @@ import { PartialHashCollisionError } from "./error.js";
 import { enqueueDerives } from "./jobs.js";
 import type { Library } from "./library.js";
 import { nowUnix } from "./library.js";
+import { attachSiblings, isSubtitlePath } from "./subtitles.js";
 
 /**
  * The import pipeline.
@@ -125,6 +126,13 @@ export interface ImportReport {
    */
   partialCollisions: number;
   bytes: number;
+  /**
+   * Subtitles attached to the file they were found beside (ADR-0025 §3).
+   *
+   * Counted rather than implied: attaching is a journal write this run made on
+   * the user's behalf, and a number is how they find out it happened.
+   */
+  subtitles: number;
   readonly failed: ImportFailure[];
 }
 
@@ -146,6 +154,7 @@ function emptyReport(): ImportReport {
     partialDuplicates: 0,
     partialCollisions: 0,
     bytes: 0,
+    subtitles: 0,
     failed: [],
   };
 }
@@ -174,6 +183,15 @@ export async function importInto(
   const storage = library.storageFor(mode);
 
   let batch: JournalRecord[] = [];
+  /**
+   * The subtitles this run brought in, paired with their source paths.
+   *
+   * Only subtitles: the media file beside one is found by hashing it
+   * afterwards rather than by remembering every video the walk passed
+   * (`subtitles.ts`), so this list is as long as the number of `.srt` files and
+   * not as long as the library.
+   */
+  const tracks: { path: string; hash: ContentHash }[] = [];
 
   /**
    * Hashes journalled in the current batch but not yet visible to a reader.
@@ -221,13 +239,19 @@ export async function importInto(
     // Flattened in walk order, not completion order: the journal is an ordered
     // log, and two runs over one directory should produce the same file.
     for (const result of ingested) {
-      if (result !== undefined) batch.push(...result.records);
+      if (result === undefined) continue;
+      batch.push(...result.records);
+      if (isSubtitlePath(result.path)) tracks.push({ path: result.path, hash: result.hash });
     }
 
     await commit(library, batch, report.timings);
     batch = [];
     pending.clear();
   }
+
+  // After every batch is committed, because attaching is itself a journal
+  // write and the asset it points at has to be in the index first (ADR-0025).
+  if (tracks.length > 0) report.subtitles = await attachSiblings(library, tracks);
 
   report.elapsed = performance.now() - started;
   log.info("import complete", {
@@ -272,7 +296,7 @@ async function ingest(
   tags: readonly string[],
   pending: Map<string, string>,
   report: ImportReport,
-): Promise<{ hash: ContentHash; records: JournalRecord[] } | undefined> {
+): Promise<{ hash: ContentHash; path: string; records: JournalRecord[] } | undefined> {
   const hashStarted = performance.now();
   const hashed = await hashFile(path);
   report.timings.hashing += performance.now() - hashStarted;
@@ -302,7 +326,7 @@ async function ingest(
     // a journal line for an asset nothing has added.
     if (typeof library.db.repo.trashedAt(hashed.hash) === "number") {
       const ts = nowUnix();
-      return { hash: hashed.hash, records: [{ ts, op: "restore", hash: hashed.hash }] };
+      return { hash: hashed.hash, path, records: [{ ts, op: "restore", hash: hashed.hash }] };
     }
     return undefined;
   }
@@ -355,7 +379,7 @@ async function ingest(
 
   report.imported += 1;
   report.bytes += hashed.size;
-  return { hash: hashed.hash, records };
+  return { hash: hashed.hash, path, records };
 }
 
 /**

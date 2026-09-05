@@ -255,6 +255,50 @@ describe("the organize commands", () => {
     expect(await ok("query", "", "--hashes")).toHaveLength(5);
   });
 
+  it("says which subtitle captions which video, and un-says it", async () => {
+    // ADR-0005: the attachment is user-authored state, so it must be writable
+    // without a window — and the rebuild test needs a way to author one.
+    const media = join(dir, "films");
+    await mkdir(media, { recursive: true });
+    await writeFile(join(media, "film.mkv"), "not really a film");
+    await writeFile(join(media, "notes.srt"), "1\n00:00:01,000 --> 00:00:02,000\nHello.\n");
+    await ok("import", media);
+
+    const film = (await ok("query", "ext:mkv", "--hashes"))[0] as string;
+    const track = (await ok("query", "ext:srt", "--hashes"))[0] as string;
+    expect(track).toBeDefined();
+
+    expect((await ok("subtitle", film))[0]).toContain("no subtitles");
+
+    expect((await ok("subtitle", film, track, "--lang", "id"))[0]).toContain("captions");
+    expect((await ok("subtitle", film))[0]).toContain("[id]");
+
+    // An attached track leaves every view but its own (ADR-0025 §4).
+    expect(await ok("query", "ext:srt", "--hashes")).toEqual([]);
+    expect(await ok("query", "is:subtitle", "--hashes")).toEqual([track]);
+    expect(await ok("query", "is:captioned", "--hashes")).toEqual([film]);
+
+    // Detaching deletes nothing: the track becomes an ordinary text asset.
+    expect((await ok("subtitle", film, track, "--detach"))[0]).toContain("no longer captions");
+    expect(await ok("query", "ext:srt", "--hashes")).toEqual([track]);
+  });
+
+  it("attaches a subtitle sitting beside its film, without being asked", async () => {
+    // Eagle's convention, kept as a heuristic: adjacency proposes it and the
+    // journal line is what makes it true (ADR-0025 §3).
+    const media = join(dir, "beside");
+    await mkdir(media, { recursive: true });
+    await writeFile(join(media, "holiday.mp4"), "not really a film either");
+    await writeFile(join(media, "holiday.id.srt"), "1\n00:00:01,000 --> 00:00:02,000\nHalo.\n");
+    await ok("import", media);
+
+    const film = (await ok("query", "ext:mp4", "--hashes"))[0] as string;
+    const listed = await ok("subtitle", film);
+    expect(listed[0]).toContain("[id]");
+    // The language came from the filename's suffix, not from a guess.
+    expect(await ok("query", "is:subtitle", "--hashes")).toHaveLength(1);
+  });
+
   it("refuses to save over an asset whose bytes are the user's own", async () => {
     const kept = join(dir, "kept");
     await mkdir(kept, { recursive: true });

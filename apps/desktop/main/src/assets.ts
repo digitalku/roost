@@ -1,12 +1,21 @@
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { type ContentHash, logger, ManagedStorage, ReadOnlyIndex } from "@roost/core";
-import { formatFromExtension, mediaTypeOf } from "@roost/media/serving";
+import { formatFromExtension, isConvertible, mediaTypeOf, toWebVtt } from "@roost/media/serving";
 import { contentRange, parseRange, type Slice } from "./range.js";
 import { parseRoostUrl, type Route } from "./route.js";
 
 const log = logger("assets");
+
+/**
+ * The most a caption track may be, read whole on main's thread.
+ *
+ * Two megabytes is far past any subtitle — a three-hour film is tens of
+ * kilobytes — and a file claiming to be one that holds more is refused rather
+ * than read.
+ */
+const MAX_SUBTITLE_BYTES = 2 * 1024 * 1024;
 
 /**
  * The `roost://` handler: thumbnails out of the index, originals off the disk.
@@ -88,6 +97,7 @@ export class AssetServer {
 
     if (route.value.kind === "thumb") return this.#serveThumb(open, route.value);
     if (route.value.kind === "page") return this.#servePage(open, route.value);
+    if (route.value.kind === "subtitle") return this.#serveSubtitle(open, route.value);
     return this.#serveOriginal(open, route.value, request);
   }
 
@@ -153,6 +163,53 @@ export class AssetServer {
         "cache-control": "public, max-age=31536000, immutable",
       },
     });
+  }
+
+  /**
+   * A caption track, as WebVTT (ADR-0025).
+   *
+   * Read whole and converted rather than streamed: `<track>` has no use for a
+   * range, a subtitle is kilobytes, and the conversion needs the text anyway.
+   * The ceiling is what keeps that honest — a file claiming to be a subtitle
+   * and holding a gigabyte is refused rather than read onto main's thread.
+   *
+   * **No range support and no `accept-ranges`.** Saying a resource is
+   * range-able and then ignoring the header is worse than saying nothing.
+   */
+  async #serveSubtitle(
+    open: OpenLibrary,
+    route: Extract<Route, { kind: "subtitle" }>,
+  ): Promise<Response> {
+    const record = open.index.findOriginal(route.hash);
+    if (record === undefined) return new Response(null, { status: 404 });
+    if (!isConvertible(record.ext)) {
+      // ASS and an embedded stream both need ffmpeg, which is a capability and
+      // may be absent. Until that arrives this is honest about not being able
+      // to answer, rather than serving something a `<track>` cannot read.
+      return new Response(null, { status: 415 });
+    }
+
+    const path =
+      record.storageMode === "referenced"
+        ? record.refPath
+        : open.storage.locate(route.hash, record.ext);
+    if (path === null) return new Response(null, { status: 404 });
+
+    try {
+      const info = await stat(path);
+      if (!info.isFile() || info.size > MAX_SUBTITLE_BYTES) {
+        return new Response(null, { status: info.isFile() ? 413 : 404 });
+      }
+      const text = await readFile(path, "utf8");
+      return new Response(toWebVtt(text), {
+        headers: {
+          "content-type": "text/vtt; charset=utf-8",
+          "cache-control": "public, max-age=31536000, immutable",
+        },
+      });
+    } catch {
+      return new Response(null, { status: 404 });
+    }
   }
 
   async #serveOriginal(

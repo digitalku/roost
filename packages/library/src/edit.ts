@@ -8,6 +8,7 @@ import {
   type JournalRecord,
   logger,
   type Op,
+  type SubtitleRow,
 } from "@roost/core";
 import { hashBytes } from "@roost/media";
 import { formatFromExtension, kindOf, PREVIEW_SIZE } from "@roost/media/serving";
@@ -838,4 +839,51 @@ export async function createAsset(
 
   log.info("asset created from bytes", { hash: hashed.hash, size: hashed.size });
   return { hash: hashed.hash, created: true };
+}
+
+/**
+ * Says that one asset captions another (ADR-0025).
+ *
+ * The attachment is user-authored — nothing in either file's bytes implies it —
+ * so it is a journal line before it is a row (invariant 9). Attaching the same
+ * pair again updates the language and label rather than adding a second row:
+ * the primary key is the pair, and saying it twice is one sentence said twice.
+ *
+ * **The track leaves the grid**, because an attached subtitle is part of a
+ * video rather than a thing to browse. `is:subtitle` finds it again, and
+ * detaching makes it an ordinary text asset once more.
+ */
+export async function attachSubtitle(
+  library: Library,
+  hash: ContentHash,
+  track: ContentHash,
+  options: { readonly lang?: string; readonly label?: string } = {},
+): Promise<void> {
+  requireAsset(library, hash);
+  requireAsset(library, track);
+  if (hash === track) throw new NotEditableError(hash, "an asset cannot caption itself");
+
+  const op: Record<string, unknown> = { op: "subtitle_attach", hash, track };
+  const lang = options.lang?.trim();
+  if (lang !== undefined && lang !== "") op["lang"] = lang;
+  const label = options.label?.trim();
+  if (label !== undefined && label !== "") op["label"] = label;
+
+  return apply(library, [op as unknown as Op]);
+}
+
+/** Un-says it. Both assets stay; only the sentence goes. */
+export async function detachSubtitle(
+  library: Library,
+  hash: ContentHash,
+  track: ContentHash,
+): Promise<void> {
+  requireAsset(library, hash);
+  return apply(library, [{ op: "subtitle_detach", hash, track }]);
+}
+
+/** The caption tracks attached to an asset, in the order they were attached. */
+export function subtitles(library: Library, hash: ContentHash): SubtitleRow[] {
+  requireAsset(library, hash);
+  return library.db.repo.subtitlesFor(hash);
 }

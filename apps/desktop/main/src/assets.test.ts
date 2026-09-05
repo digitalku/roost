@@ -11,10 +11,13 @@ const MANAGED = parseContentHash("a".repeat(64));
 const REFERENCED = parseContentHash("b".repeat(64));
 const NO_THUMB = parseContentHash("c".repeat(64));
 const ABSENT = parseContentHash("d".repeat(64));
+const TRACK = parseContentHash("f".repeat(64));
+const ASS = parseContentHash("9".repeat(64));
 
 /** 1000 bytes whose value at index i is i % 251, so a slice identifies itself. */
 const BYTES = Uint8Array.from({ length: 1000 }, (_, i) => i % 251);
 const WEBP = Buffer.from("pretend-this-is-webp");
+const SRT = "1\r\n00:00:01,000 --> 00:00:02,500\r\nHello, world\r\n";
 
 describe("serving bytes over roost://", () => {
   let root: string;
@@ -35,6 +38,10 @@ describe("serving bytes over roost://", () => {
 
     const referencedPath = join(outside, "held.jpg");
     await writeFile(referencedPath, BYTES.slice(0, 10));
+
+    const trackPath = storage.locate(TRACK, "srt");
+    await mkdir(dirname(trackPath), { recursive: true });
+    await writeFile(trackPath, SRT);
 
     const db = Db.open(join(root, INDEX_FILE));
     db.transaction(() => {
@@ -65,6 +72,24 @@ describe("serving bytes over roost://", () => {
         ext: "mp4",
         size: 4,
         name: "c.mp4",
+        mode: "managed",
+      });
+      sink.apply({
+        ts: 1,
+        op: "add",
+        hash: TRACK,
+        ext: "srt",
+        size: SRT.length,
+        name: "film.srt",
+        mode: "managed",
+      });
+      sink.apply({
+        ts: 1,
+        op: "add",
+        hash: ASS,
+        ext: "ass",
+        size: 4,
+        name: "film.ass",
         mode: "managed",
       });
       db.repo.putThumbnail(MANAGED, 256, 256, 160, WEBP);
@@ -157,6 +182,28 @@ describe("serving bytes over roost://", () => {
     );
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("GET, HEAD");
+  });
+
+  it("serves a subtitle as WebVTT, converted", async () => {
+    // `<track>` accepts WebVTT and nothing else, and the format people have is
+    // SubRip — so this route is a conversion rather than the bytes (ADR-0025).
+    const response = await get(`roost://subtitle/${TRACK}`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/vtt; charset=utf-8");
+
+    const text = await response.text();
+    expect(text.startsWith("WEBVTT")).toBe(true);
+    expect(text).toContain("00:00:01.000 --> 00:00:02.500");
+    // A comma in the words is a comma.
+    expect(text).toContain("Hello, world");
+  });
+
+  it("says it cannot serve a track that needs an external tool", async () => {
+    // ASS needs ffmpeg, which is a capability and may be absent. Answering
+    // with the bytes under a `text/vtt` type would be an empty track and no
+    // error anywhere.
+    expect((await get(`roost://subtitle/${ASS}`)).status).toBe(415);
+    expect((await get(`roost://subtitle/${ABSENT}`)).status).toBe(404);
   });
 
   it("400s a URL that is not a route, and 404s an asset that is not there", async () => {

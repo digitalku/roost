@@ -38,6 +38,17 @@ export const FLAGS = [
    * version rather than something somebody deleted.
    */
   "superseded",
+  /**
+   * Attached as somebody's caption track (ADR-0025).
+   *
+   * The third flag that changes a query's *scope*. The rule is about
+   * **attachment, not format**: an `.srt` imported on its own is an ordinary
+   * text asset and appears like one; it leaves the grid at the moment it
+   * becomes a caption track, and comes back with this.
+   */
+  "subtitle",
+  /** Has at least one caption track — the question nobody can ask today. */
+  "captioned",
 ] as const;
 
 export type Flag = (typeof FLAGS)[number];

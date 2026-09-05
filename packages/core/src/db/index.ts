@@ -28,6 +28,7 @@ export {
   type SelectionSummary,
   type SmartFolderRow,
   type Stats,
+  type SubtitleRow,
   searchSql,
   type TagGroupRow,
   type TagRow,

@@ -30,6 +30,7 @@ import { save } from "./commands/save.js";
 import { show } from "./commands/show.js";
 import { smart } from "./commands/smart.js";
 import { stats } from "./commands/stats.js";
+import { subtitle } from "./commands/subtitle.js";
 import { tag } from "./commands/tag.js";
 import { thumb } from "./commands/thumb.js";
 import { type Command, helpFor, isCommand, VERSION } from "./help.js";
@@ -92,6 +93,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   },
   poster: { at: { type: "string" }, clear: { type: "boolean" } },
   save: { clear: { type: "boolean" } },
+  subtitle: { detach: { type: "boolean" }, lang: { type: "string" } },
   favorite: { off: { type: "boolean" } },
   rename: {},
   trash: { restore: { type: "boolean" }, empty: { type: "boolean" } },
@@ -348,6 +350,17 @@ async function dispatch(
       const [asset, file] = positionals;
       if (asset === undefined) return usage(streams, command, "save needs an asset");
       return save(await library(), asset, file, flag(values, "clear"), streams);
+    }
+
+    case "subtitle": {
+      const [asset, track] = positionals;
+      return subtitle(
+        await library(),
+        asset,
+        track,
+        { detach: flag(values, "detach"), lang: text(values, "lang") },
+        streams,
+      );
     }
 
     case "favorite": {

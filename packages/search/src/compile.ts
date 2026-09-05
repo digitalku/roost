@@ -66,6 +66,24 @@ export function compileQuery(expr: Expr, folders: Folders = NO_FOLDERS): Filter 
 }
 
 /**
+ * Whether this asset is attached as somebody's caption track.
+ *
+ * A correlated `EXISTS` rather than a column, because the attachment is a
+ * relation and denormalising it would be a second place to keep in step. It is
+ * a point lookup into `idx_subtitles_track`, which migration 0011 creates for
+ * exactly this — the primary key cannot serve it, since `track_hash` is its
+ * second column.
+ *
+ * **This one cannot be part of a partial index**, unlike the two scope rules
+ * beside it: SQLite forbids a subquery in an index's WHERE. So the grid still
+ * seeks on `idx_assets_imported` and pays this per row it returns.
+ * `scripts/bench-search.ts` is what says whether that is affordable, and
+ * ADR-0025 §4 names the fallback if it is not — a column on `assets`,
+ * maintained beside the join table.
+ */
+const ATTACHED_AS_TRACK = "EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_hash = a.hash)";
+
+/**
  * The flags that scope a query rather than narrowing it, and what each one
  * adds when it is *not* mentioned.
  *
@@ -83,6 +101,7 @@ export function compileQuery(expr: Expr, folders: Folders = NO_FOLDERS): Filter 
 const SCOPE: readonly { readonly flag: Flag; readonly sql: string }[] = [
   { flag: "trashed", sql: "a.trashed_at IS NULL" },
   { flag: "superseded", sql: "a.superseded_by IS NULL" },
+  { flag: "subtitle", sql: `NOT ${ATTACHED_AS_TRACK}` },
 ];
 
 /** Whether a flag appears anywhere in a query, at any depth and in any polarity. */
@@ -215,6 +234,10 @@ function flagSql(flag: Flag, params: Param[]): string {
       return "a.trashed_at IS NOT NULL";
     case "superseded":
       return "a.superseded_by IS NOT NULL";
+    case "subtitle":
+      return ATTACHED_AS_TRACK;
+    case "captioned":
+      return "EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.hash = a.hash)";
     case "managed":
     case "referenced":
       params.push(flag);

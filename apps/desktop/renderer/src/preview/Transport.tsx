@@ -1,6 +1,6 @@
-import type { WireComment } from "@roost/contract";
+import type { WireComment, WireSubtitle } from "@roost/contract";
 import { DropdownMenu, Slider } from "radix-ui";
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { timecode } from "../timecode.js";
 import { playhead } from "./playhead.js";
 
@@ -57,6 +57,15 @@ export interface TransportProps {
   readonly probedMs: number | null;
   /** Frames per second, from the probe. `null` disables frame stepping. */
   readonly fps: number | null;
+  /**
+   * Caption tracks the element was given, in the order they were attached
+   * (ADR-0025).
+   *
+   * Only the ones that can be served — the pane filters — so an entry here is
+   * always a `<track>` that exists. Empty means no CC button at all: a control
+   * that can only say "off" is a control in the way.
+   */
+  readonly subtitles: readonly WireSubtitle[];
 }
 
 /** What the element says about itself, in the terms this component draws. */
@@ -112,6 +121,7 @@ export function Transport({
   comments,
   probedMs,
   fps,
+  subtitles,
 }: TransportProps): React.JSX.Element {
   const [status, setStatus] = useState<Status>(IDLE);
   const [positionMs, setPositionMs] = useState(0);
@@ -120,6 +130,44 @@ export function Transport({
   const [frame, setFrame] = useState<number | null>(null);
   const [loopA, setLoopA] = useState<number | null>(null);
   const [loopB, setLoopB] = useState<number | null>(null);
+  /**
+   * Which caption track is on, as an index into `subtitles`, or `null` for none.
+   *
+   * Held here **and** written to the element's own `TextTrack.mode`, because
+   * the two are not the same thing: `mode` is what shows the words, and this is
+   * what the menu draws a mark beside. Reading it back out of the element would
+   * mean a render on every `change` event for a value only this menu reads.
+   */
+  const [showing, setShowing] = useState<string | null>(null);
+
+  /**
+   * Turns one track on and every other off.
+   *
+   * A `<track>` is a resource the element owns, so this reaches through
+   * `textTracks` rather than re-rendering the elements: React can add and
+   * remove them, but only the browser can decide which one is displayed.
+   */
+  const showTrack = useCallback(
+    (value: string) => {
+      setShowing(value === "off" ? null : value);
+      if (media === null) return;
+      const wanted = value === "off" ? -1 : Number(value);
+      for (let index = 0; index < media.textTracks.length; index += 1) {
+        const track = media.textTracks[index];
+        if (track !== undefined) track.mode = index === wanted ? "showing" : "disabled";
+      }
+    },
+    [media],
+  );
+
+  /*
+   * A different asset is a different element with different tracks, and a menu
+   * still marking "track 2" would be marking somebody else's. `media` is the
+   * trigger rather than a value this reads, which is why the rule cannot see
+   * why it is here.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  useEffect(() => setShowing(null), [media]);
 
   useEffect(() => {
     if (media === null) return;
@@ -453,6 +501,50 @@ export function Transport({
         >
           <Icon of="loop" />
         </button>
+
+        {subtitles.length > 0 && (
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                type="button"
+                className="transport-button"
+                aria-label="Subtitles"
+                title="Subtitles"
+                data-on={showing !== null ? "" : undefined}
+              >
+                CC
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                className="menu"
+                sideOffset={4}
+                align="end"
+                collisionPadding={8}
+              >
+                <DropdownMenu.RadioGroup value={showing ?? "off"} onValueChange={showTrack}>
+                  {/* Off first, and selected to begin with: a subtitle that
+                      turns itself on is the thing people go looking for the
+                      button to turn off. */}
+                  <DropdownMenu.RadioItem className="menu-item" value="off">
+                    <span className="menu-mark">{showing === null ? "●" : ""}</span>
+                    <span className="menu-label">Off</span>
+                  </DropdownMenu.RadioItem>
+                  {subtitles.map((track, index) => (
+                    <DropdownMenu.RadioItem
+                      key={track.hash}
+                      className="menu-item"
+                      value={String(index)}
+                    >
+                      <span className="menu-mark">{showing === String(index) ? "●" : ""}</span>
+                      <span className="menu-label">{track.label ?? track.lang ?? track.name}</span>
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        )}
 
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>

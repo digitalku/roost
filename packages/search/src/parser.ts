@@ -239,6 +239,11 @@ function toFlag(value: string, at: number): Flag {
     case "superseded":
     case "old":
       return "superseded";
+    case "subtitle":
+    case "subtitles":
+      return "subtitle";
+    case "captioned":
+      return "captioned";
     default:
       throw queryError("unknown-flag", `There is no "is:${value}"`, at, { value });
   }

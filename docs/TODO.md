@@ -23,7 +23,11 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   Electron application, so its playback is Chromium's, with `controls` off and a transport drawn
   over it. The work is in §3 below.
 
-- ☑ ~~**ADR-0025 — subtitles.**~~ **Accepted 2026-09-03**, the day it was proposed, from the user asking how Roost should do what
+- ☑ ~~**ADR-0025 — subtitles.**~~ **Accepted 2026-09-03** and **stage 1 built 2026-09-05**:
+  migration 0011, `subtitle_attach`/`subtitle_detach`, sibling detection at import, SRT→WebVTT
+  over `roost://subtitle/`, the CC menu in the transport, `roost subtitle`, and `is:subtitle` /
+  `is:captioned`. Stages 2 and 3 — embedded tracks through ffmpeg, and cues in the index so
+  `said:"…"` answers with a moment — are not started. Accepted the day it was proposed, from the user asking how Roost should do what
   Eagle does with an `.srt` dropped beside a video. Eagle's answer is a folder per asset, which
   this layout does not have, so the proposal keeps the convention only as an import-time heuristic
   and makes the attachment a journal line: the `.srt` is an ordinary content-addressed asset, a
@@ -800,15 +804,16 @@ viewer, which needed no schema at all.
   this could destroy bytes), a **trashed** asset (superseding it would make editing a way of
   undeleting), and an **older version** (a save would branch a chain meant to be a line).
 
-- 🔴 **"Duplicate into library to edit" cannot mean *duplicate*, and ADR-0026 §3 was wrong about
-  it.** Found while building stage 2: identical bytes are one asset by invariant 1, so importing a
-  referenced original in managed mode deduplicates into the row that already exists and changes
-  nothing at all. The gesture can honestly mean one of two other things, and **neither is
-  decided**: *adopt* — copy the bytes into `originals/` and change the asset's storage mode, which
-  needs a journal op of its own and is the first operation that would change an existing row's
-  `storage_mode`; or *save this edit as a managed version anyway*, which is the refusal lifted by
-  an explicit gesture rather than removed. Stage 2 ships the refusal and no second button, which
-  is the half the ADR got right. **This wants a decision before anything is built.**
+- 🟢 **Adopting a referenced asset has no operation, and now nothing asks for one.** Raised as a
+  🔴 on 2026-09-03 because ADR-0026 §3 offered *Duplicate into library to edit* beside a read-only
+  editor — and that offer could not be honoured: identical bytes are one asset by invariant 1, so
+  importing a referenced original in managed mode deduplicates into the row that already exists
+  and changes nothing. **The editor was withdrawn on 2026-09-04, and the question went with it**:
+  nothing in the window offers the gesture. What remains is smaller and blocks nothing — `roost
+  save` refuses a referenced asset, and the only way to change that honestly is an *adopt*
+  operation that copies the bytes into `originals/` and changes `storage_mode`, which would be the
+  first op to change an existing row's mode and wants its own journal line. Not scheduled; written
+  down so the reasoning is not rediscovered.
 - 🟡 **Editing a `.srt` will have to move its attachment**, and ADR-0025 already has the pair that
   does it:
   `subtitle_detach` the old hash, `subtitle_attach` the new one, in the same journal batch. Worth
@@ -936,6 +941,30 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
   separate decisions and neither is wanted yet (ADR-0023).
 - 🟢 **Journal ops still undefined**, for want of a feature that needs them: stacking, watched
   roots, and the hash upgrade above.
+- 🟢 **A Windows build is a port of two modules, not of the application** — asked about
+  2026-09-05, and written down here so the answer is not re-derived. `ROADMAP.md` M7 keeps
+  Windows unscheduled; nothing below is work for now.
+  - **The build machine is not the obstacle, and the project does not move to one.** A CI job on
+    a Windows runner packages what the Linux checkout builds. Cross-building from Linux under
+    wine is the wrong road for this repository, because of the native modules: `sharp` and
+    `@napi-rs/blake-hash` both resolve to prebuilt N-API binaries and need no rebuild, but
+    `better-sqlite3` is a node-gyp addon bound to Electron's ABI, so it wants either a prebuild
+    that matches the pinned Electron or MSVC on the machine that packages. `scripts/probe-native.ts`
+    is what answers that, and ADR-0013 already expects the CI matrix to be where it is answered.
+  - **Two modules refuse to run there today, deliberately and loudly.** `platform/dirs.ts` is XDG
+    only and raises `UnsupportedPlatformError` rather than guessing a directory; `platform/reveal.ts`
+    is `dbus-send` and `xdg-open` behind a `requireLinux`. Both are the whole of the port — the
+    known-locations branch and the `explorer /select,` equivalent.
+  - **What is already right needs no work.** `COPYFILE_FICLONE_FORCE` answers `ENOTSUP` there and
+    the ladder in `storage/managed.ts` falls to hardlink and then copy, so `link_method` stays
+    truthful (ADR-0012); ffmpeg is absent gracefully (ADR-0017); pdfium and resvg are WebAssembly;
+    and the GLib collision ADR-0013 was written for cannot happen where there is no system GLib,
+    which is why the prebuilt `sharp` is the right one there.
+  - **Two small things would break the install rather than the app.** The unconditional
+    `postinstall` running `scripts/build-sharp.mjs` has to skip a platform that wants the
+    prebuilt, and `--ozone-platform-hint=auto` in the `start` script is a Linux flag.
+  - Packaging targets, signing, and whether ffmpeg is bundled are an ADR of their own when the
+    milestone arrives — the same question M6 answers for Linux, asked again.
 
 ## 4. Lessons carried over — do not re-learn these
 

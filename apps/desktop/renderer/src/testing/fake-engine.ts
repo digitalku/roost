@@ -148,6 +148,7 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     tags: [],
     folders: [],
     comments: [],
+    subtitles: [],
     ...over,
   };
 }

@@ -40,19 +40,24 @@ export interface Filter {
 export const MATCH_ALL: Filter = { sql: "1", params: [] };
 
 /**
- * Matches every asset a view shows by default: not in the trash, and not
- * replaced by a newer version.
+ * Matches every asset a view shows by default: not in the trash, not replaced
+ * by a newer version, and not attached as somebody's caption track.
  *
  * The unfiltered grid, which is a listing rather than a search and so never
  * reaches `@roost/search`'s compiler. Everything that *does* reach it is scoped
- * there instead, in one place (ADR-0022, ADR-0026).
+ * there instead, in one place (ADR-0022, ADR-0025, ADR-0026).
  *
- * The predicate is spelled exactly as the partial indexes in migrations 0007
- * and 0010 are, and in the same order, because SQLite will only use a partial
- * index when the query's WHERE contains a term implying the index's.
+ * The first two terms are spelled exactly as the partial indexes in migrations
+ * 0007 and 0010 are, and in the same order, because SQLite will only use a
+ * partial index when the query's WHERE contains a term implying the index's.
+ * **The third cannot be one of those terms** — SQLite forbids a subquery in an
+ * index's WHERE — so it is checked per row the seek returns, against
+ * `idx_subtitles_track`.
  */
 export const MATCH_LIVE: Filter = {
-  sql: "a.trashed_at IS NULL AND a.superseded_by IS NULL",
+  sql:
+    "a.trashed_at IS NULL AND a.superseded_by IS NULL" +
+    " AND NOT EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_hash = a.hash)",
   params: [],
 };
 
