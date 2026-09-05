@@ -321,6 +321,22 @@
   flex-direction: column;
 }
 
+/*
+ * Icons wants more air under the bar than the other two.
+ *
+ * Details and Compact meet the toolbar with a header row and a line of text,
+ * which is mostly space already; Icons meets it with the hard edge of a cell.
+ * The same gap therefore reads as right in one view and tight in the other, so
+ * the difference is made here rather than by finding a number that is a
+ * compromise in all three.
+ *
+ * On the frame, not inside the scroller: padding inside `.grid` is spent as
+ * soon as anything is scrolled.
+ */
+.grid-frame[data-view="icons"] {
+  padding-top: var(--space-2);
+}
+
 .grid-frame > .grid {
   flex: 1;
   min-height: 0;
