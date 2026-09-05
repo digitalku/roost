@@ -272,6 +272,17 @@ button:disabled {
  */
 .bar {
   display: flex;
+  /*
+   * Never squashed, however tall the column's content is.
+   *
+   * It was a grid row until the three columns arrived, and a grid row does not
+   * shrink. As a flex item it does: flex distributes a column's overflow in
+   * proportion to each item's basis, and the grid's basis is its *content* —
+   * thousands of pixels of masonry — so the bar was giving up two thirds of its
+   * height in Icons and almost none in Details. A toolbar whose height depends
+   * on how many assets are below it.
+   */
+  flex: none;
   gap: var(--space-4);
   align-items: center;
   height: var(--space-9);
