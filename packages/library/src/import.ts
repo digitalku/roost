@@ -133,6 +133,14 @@ export interface ImportReport {
    * the user's behalf, and a number is how they find out it happened.
    */
   subtitles: number;
+  /**
+   * Subtitles that found nothing beside them to attach to.
+   *
+   * The counterpart to `subtitles`, and the more useful of the two: an `.srt`
+   * that attached and one that did not look identical afterwards, and only the
+   * one that did not needs the user to do anything.
+   */
+  subtitlesUnattached: number;
   readonly failed: ImportFailure[];
 }
 
@@ -155,6 +163,7 @@ function emptyReport(): ImportReport {
     partialCollisions: 0,
     bytes: 0,
     subtitles: 0,
+    subtitlesUnattached: 0,
     failed: [],
   };
 }
@@ -251,7 +260,11 @@ export async function importInto(
 
   // After every batch is committed, because attaching is itself a journal
   // write and the asset it points at has to be in the index first (ADR-0025).
-  if (tracks.length > 0) report.subtitles = await attachSiblings(library, tracks);
+  if (tracks.length > 0) {
+    const siblings = await attachSiblings(library, tracks);
+    report.subtitles = siblings.attached;
+    report.subtitlesUnattached = siblings.unattached;
+  }
 
   report.elapsed = performance.now() - started;
   log.info("import complete", {

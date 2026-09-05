@@ -649,6 +649,8 @@ describe("the engine's message loop", () => {
         "partialCollisions",
         "partialDuplicates",
         "scanned",
+        "subtitles",
+        "subtitlesUnattached",
         "thumbnails",
       ].sort(),
     );

@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { type ContentHash, logger } from "@roost/core";
 import { hashFile, SUBTITLE_EXTENSIONS } from "@roost/media";
@@ -53,6 +53,21 @@ function stemOf(path: string): string {
   return languageFrom(path) === undefined ? stem : basename(stem, extname(stem));
 }
 
+/** What sibling detection did, for the import report to say out loud. */
+export interface SiblingReport {
+  /** Tracks attached to the file they were found beside. */
+  readonly attached: number;
+  /**
+   * Tracks that found nothing to attach to — no media file beside them, or one
+   * the library does not hold.
+   *
+   * Counted because the silence is otherwise indistinguishable from success:
+   * an `.srt` that attached and one that did not both end the run as a row in
+   * the grid, and only the one that did not needs the user to do something.
+   */
+  readonly unattached: number;
+}
+
 /**
  * Attaches each imported subtitle to the media file beside it, if there is one
  * and the library holds it.
@@ -66,45 +81,78 @@ function stemOf(path: string): string {
  * It also makes the heuristic work **across runs**. Drop an `.srt` next to a
  * film imported last month, import just the `.srt`, and it attaches — where a
  * within-one-run pairing would have found nothing.
+ *
+ * The name is matched **case-insensitively**: `Holiday.MP4` beside
+ * `holiday.srt` is the same pair to everyone except a case-sensitive
+ * filesystem, and a heuristic that reads a name the way a person does should
+ * not fail on a camera's capitalisation.
  */
 export async function attachSiblings(
   library: Library,
   tracks: readonly { readonly path: string; readonly hash: ContentHash }[],
-): Promise<number> {
+): Promise<SiblingReport> {
   let attached = 0;
+  let unattached = 0;
+
+  // One directory at a time, not a map of every directory walked: tracks arrive
+  // in walk order, so the subtitles of one folder are consecutive and a single
+  // entry hits nearly always — for the memory of one listing rather than of the
+  // whole run.
+  let listed: string | undefined;
+  let names = new Map<string, string>();
 
   for (const track of tracks) {
-    const stem = stemOf(track.path);
+    const stem = stemOf(track.path).toLowerCase();
     const folder = dirname(track.path);
 
-    for (const ext of MEDIA_EXTENSIONS) {
-      const candidate = join(folder, `${stem}.${ext}`);
-      if (
-        !(await stat(candidate).then(
-          () => true,
-          () => false,
-        ))
-      )
-        continue;
+    if (folder !== listed) {
+      const entries = await readdir(folder).catch(() => [] as string[]);
+      names = new Map(entries.map((entry) => [entry.toLowerCase(), entry]));
+      listed = folder;
+    }
 
-      const hashed = await hashFile(candidate).catch(() => undefined);
-      if (hashed === undefined) break;
+    let done = false;
+    for (const ext of MEDIA_EXTENSIONS) {
+      const name = names.get(`${stem}.${ext}`);
+      if (name === undefined) continue;
+
+      const hashed = await hashFile(join(folder, name)).catch(() => undefined);
+      // A directory, or something unreadable, wearing a film's name. Keep
+      // looking: one odd entry should not hide the real film beside it.
+      if (hashed === undefined) continue;
+
       // Only what the library already holds: a film sitting beside a subtitle
       // that nobody imported is not a reason to import the film.
-      if (library.db.repo.findAsset(hashed.hash) === undefined) break;
+      if (library.db.repo.findAsset(hashed.hash) === undefined) {
+        log.info("the film beside this subtitle is not in the library", {
+          film: name,
+          track: track.hash,
+        });
+        done = true;
+        break;
+      }
 
       const lang = languageFrom(track.path);
       await attachSubtitle(library, hashed.hash, track.hash, lang === undefined ? {} : { lang });
       attached += 1;
+      done = true;
       log.debug("subtitle attached to the file beside it", {
         media: hashed.hash,
         track: track.hash,
       });
       break;
     }
+
+    if (!done) {
+      unattached += 1;
+      log.info("subtitle imported with no film beside it", {
+        track: track.hash,
+        name: basename(track.path),
+      });
+    }
   }
 
-  return attached;
+  return { attached, unattached };
 }
 
 /**

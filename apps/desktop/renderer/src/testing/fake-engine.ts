@@ -117,6 +117,8 @@ const EMPTY_REPORT: WireImportReport = {
   partialDuplicates: 0,
   partialCollisions: 0,
   bytes: 0,
+  subtitles: 0,
+  subtitlesUnattached: 0,
   thumbnails: 0,
   elapsedMs: 0,
   failed: [],

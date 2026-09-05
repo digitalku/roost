@@ -827,6 +827,8 @@ function reportOf(report: ImportReport, thumbnails: number): WireImportReport {
     partialDuplicates: report.partialDuplicates,
     partialCollisions: report.partialCollisions,
     bytes: report.bytes,
+    subtitles: report.subtitles,
+    subtitlesUnattached: report.subtitlesUnattached,
     thumbnails,
     elapsedMs: Math.round(report.elapsed),
     failed: report.failed.map((failure) => ({ path: failure.path, reason: failure.reason })),

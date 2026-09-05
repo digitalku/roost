@@ -380,6 +380,14 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
         // re-importing a folder is the ordinary case.
         [`${(report.duplicates + report.partialDuplicates).toLocaleString()} already here`]
       : []),
+    ...(report.subtitles > 0
+      ? // An attachment nobody asked for by name, made from a filename
+        // (ADR-0025 §3) — so the run says it happened.
+        [`${report.subtitles.toLocaleString()} captioned`]
+      : []),
+    ...(report.subtitlesUnattached > 0
+      ? [`${report.subtitlesUnattached.toLocaleString()} subtitles unattached`]
+      : []),
     ...(report.failed.length + report.partialCollisions > 0
       ? [`${(report.failed.length + report.partialCollisions).toLocaleString()} failed`]
       : []),

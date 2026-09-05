@@ -10,6 +10,7 @@ import {
   PartialHashCollisionError,
   queueStatus,
   retryFailed,
+  subtitles,
   tagAdd,
   trashAssets,
 } from "@roost/library";
@@ -508,5 +509,39 @@ describe("the one blind spot in partial hashing", () => {
     const again = await importInto(library, [join(source, "managed.bin")], { mode: "referenced" });
     expect(again.duplicates).toBe(1);
     expect(again.partialDuplicates).toBe(0);
+  });
+  const CUE = "1\n00:00:01,000 --> 00:00:02,000\nHello.\n";
+
+  it("attaches a subtitle to the film beside it whatever the case of its name", async () => {
+    // `Holiday.MP4` and `holiday.srt` are one pair to everybody except a
+    // case-sensitive filesystem, which is the only filesystem this runs on.
+    const folder = join(dir, "films");
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "Holiday.MP4"), Buffer.alloc(2048, 0x21));
+    await writeFile(join(folder, "holiday.srt"), CUE);
+
+    const report = await importInto(library, [folder]);
+
+    expect(report.subtitles).toBe(1);
+    expect(report.subtitlesUnattached).toBe(0);
+
+    const film = library.db.repo
+      .allHashes()
+      .find((hash) => library.db.repo.assetDetail(hash)?.ext === "mp4");
+    expect(film).toBeDefined();
+    expect(subtitles(library, film ?? parseContentHash("0".repeat(64)))).toHaveLength(1);
+  });
+
+  it("counts a subtitle that found no film beside it", async () => {
+    // Otherwise the run is silent about the one outcome that needs the user:
+    // the track imported, attached to nothing, and sitting loose in the grid.
+    const folder = join(dir, "loose");
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "orphan.srt"), CUE);
+
+    const report = await importInto(library, [folder]);
+
+    expect(report.subtitles).toBe(0);
+    expect(report.subtitlesUnattached).toBe(1);
   });
 });

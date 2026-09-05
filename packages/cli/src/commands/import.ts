@@ -64,6 +64,14 @@ function printReport(
       ),
     );
   }
+  if (report.subtitles > 0) {
+    // Said out loud because it is a journal write the run made on the user's
+    // behalf, from a filename rather than from an instruction (ADR-0025 §3).
+    out(row("", `${report.subtitles} attached to the file beside it`, 1, 0));
+  }
+  if (report.subtitlesUnattached > 0) {
+    out(row("", `${report.subtitlesUnattached} subtitle(s) found no film beside them`, 1, 0));
+  }
   out(row("", `${bytes(report.bytes)} added`, 1, 0));
   out(
     row(

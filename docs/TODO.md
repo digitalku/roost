@@ -29,7 +29,13 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   `is:captioned` — and **Add subtitle…** in the transport's CC menu, which imports and attaches in
   one request (2026-09-05, at the user's choosing: of the two doors sketched, the one *inside* the
   CC menu is where somebody notices they have no subtitles), and the inspector's **Subtitles**
-  block — Open, Show in file manager, Detach — which is how a track is opened for editing at all.
+  block — Open, Show in file manager, Delete — which is how a track is opened for editing at all;
+  Delete detaches *and* trashes the track in one journal batch, because a half-done state would
+  leave a trashed-but-attached track that nobody can see and nothing can find (`roost subtitle
+  --detach` keeps the narrower operation for the CLI). Sibling detection was sharpened the same
+  day: the name is matched **case-insensitively** (`Holiday.MP4` beside `holiday.srt`), and the
+  import report counts both what attached and what found no film — the two outcomes are otherwise
+  indistinguishable afterwards, and only one of them needs the user.
   Stages 2 and 3 — embedded tracks through ffmpeg, and cues in the index so
   `said:"…"` answers with a moment — are not started. Accepted the day it was proposed, from the user asking how Roost should do what
   Eagle does with an `.srt` dropped beside a video. Eagle's answer is a folder per asset, which

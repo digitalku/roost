@@ -432,6 +432,15 @@ export interface WireImportReport {
   readonly partialCollisions: number;
   readonly bytes: number;
   /**
+   * Subtitles attached to the file they were found beside (ADR-0025 §3).
+   *
+   * A journal write the run made from a filename rather than from an
+   * instruction, so the window says it happened.
+   */
+  readonly subtitles: number;
+  /** Subtitles that found no film beside them, and are now loose in the grid. */
+  readonly subtitlesUnattached: number;
+  /**
    * Thumbnails generated for what was imported.
    *
    * Part of the same run rather than a separate step, because the grid an
