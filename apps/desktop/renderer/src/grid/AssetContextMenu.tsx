@@ -63,6 +63,21 @@ export interface AssetContextMenuProps {
   readonly onPaste?: () => void;
   /** Opens the New file dialog. Nothing is written until it is answered. */
   readonly onNewFile?: () => void;
+  /**
+   * Opens the asset in Roost's own preview.
+   *
+   * Absent over the preview, where it is already open — and where an item
+   * offering to open it again would be a row that does nothing.
+   */
+  readonly onOpenHere?: (hash: string) => void;
+  /**
+   * Whether Roost can draw the one selected asset.
+   *
+   * Decides which of the two Open rows comes **first**, and it is the same test
+   * a double-click makes (`UI_SPEC.md` §6): the top item is what the gesture
+   * would have done, so the menu never disagrees with the shortcut.
+   */
+  readonly drawable?: boolean;
   readonly children: React.ReactNode;
 }
 
@@ -76,11 +91,16 @@ export function AssetContextMenu({
   onPosterPinned,
   onPaste,
   onNewFile,
+  onOpenHere,
+  drawable,
   children,
 }: AssetContextMenuProps): React.JSX.Element {
   const count = hashes.length;
   const only = count === 1 ? hashes[0] : undefined;
   const background = count === 0 && onPaste !== undefined && onNewFile !== undefined;
+  // Only over one asset: a selection of three has no double-click to agree
+  // with, so the rows keep their natural order.
+  const externalFirst = only !== undefined && drawable === false;
   const restoreTo = useRef<HTMLElement | null>(null);
   // Subscribed rather than read once: the menu is mounted around the content
   // region, and what is in that region changes under it.
@@ -138,6 +158,33 @@ export function AssetContextMenu({
     onGone,
   });
 
+  const openHere =
+    onOpenHere === undefined ? null : (
+      <ContextMenu.Item
+        className="menu-item"
+        disabled={only === undefined || drawable !== true}
+        onSelect={() => {
+          if (only !== undefined) onOpenHere(only);
+        }}
+      >
+        <span className="menu-mark" />
+        <span className="menu-label">Open</span>
+      </ContextMenu.Item>
+    );
+
+  const openExternally = (
+    <ContextMenu.Item
+      className="menu-item"
+      disabled={only === undefined}
+      onSelect={() => {
+        if (only !== undefined) void invoke({ type: "asset:openExternally", hash: only });
+      }}
+    >
+      <span className="menu-mark" />
+      <span className="menu-label">Open externally</span>
+    </ContextMenu.Item>
+  );
+
   return (
     <ContextMenu.Root
       onOpenChange={(open) => {
@@ -189,16 +236,22 @@ export function AssetContextMenu({
 
           {background ? null : (
             <>
-              <ContextMenu.Item
-                className="menu-item"
-                disabled={only === undefined}
-                onSelect={() => {
-                  if (only !== undefined) void invoke({ type: "asset:openExternally", hash: only });
-                }}
-              >
-                <span className="menu-mark" />
-                <span className="menu-label">Open externally</span>
-              </ContextMenu.Item>
+              {/* Two ways to open, ordered so the first is what a double-click
+                  does (`UI_SPEC.md` §3.3). **Open** is disabled for a file
+                  Roost cannot draw: there is nothing to open here, and a row
+                  that opened a pane offering only "Open externally" would be
+                  the long way round to the row beside it. */}
+              {externalFirst ? (
+                <>
+                  {openExternally}
+                  {openHere}
+                </>
+              ) : (
+                <>
+                  {openHere}
+                  {openExternally}
+                </>
+              )}
 
               <ContextMenu.Item
                 className="menu-item"

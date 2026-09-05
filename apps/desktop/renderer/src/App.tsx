@@ -1,4 +1,5 @@
 import type {
+  AssetCard,
   LibraryStats,
   LibrarySummary,
   WireProblem,
@@ -391,6 +392,20 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
   );
 }
 
+/**
+ * Whether Roost can draw this asset itself, or the desktop has to.
+ *
+ * `other` is the whole test (`UI_SPEC.md` §6): everything Roost has a backend
+ * for opens in the window, even while its thumbnail is still being derived.
+ * One function, because the double-click and the context menu must agree — a
+ * menu whose first row is not what the gesture does is a menu that teaches the
+ * wrong thing.
+ */
+function drawable(assets: readonly AssetCard[], hash: string): boolean {
+  const card = assets.find((asset) => asset.hash === hash);
+  return card !== undefined && card.kind !== "other";
+}
+
 const EMPTY_LIBRARY = "Nothing in this library yet.";
 const NOTHING_MATCHED = "Nothing matches this query.";
 // The Trash place is the one query whose empty answer is a *state* rather than
@@ -735,8 +750,7 @@ function LibraryView({
    */
   const openAsset = useCallback(
     (hash: string) => {
-      const card = paging.assets.find((asset) => asset.hash === hash);
-      if (card?.kind === "other") {
+      if (!drawable(paging.assets, hash)) {
         void invoke({ type: "asset:openExternally", hash });
         return;
       }
@@ -840,6 +854,11 @@ function LibraryView({
             onGone={clearSelection}
             onPaste={paste}
             onNewFile={() => setNewFile({ text: "" })}
+            onOpenHere={(hash) => {
+              selection.click(hash);
+              setPreviewing(true);
+            }}
+            drawable={selected.length === 1 && drawable(paging.assets, selected[0] ?? "")}
           >
             <Grid
               assets={paging.assets}

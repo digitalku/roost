@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { playhead } from "../preview/playhead.js";
@@ -23,11 +23,12 @@ describe("the asset context menu", () => {
   let problems: string[];
   let confirmations: ConfirmRequest[];
   let gone: number;
+  let opened: string[];
 
   const show = (
     hashes: readonly string[] = HASHES,
     options = {},
-    { inTrash = false }: { inTrash?: boolean } = {},
+    { inTrash = false, drawable }: { inTrash?: boolean; drawable?: boolean } = {},
   ) => {
     engine = new FakeEngine(options);
     install(engine);
@@ -35,6 +36,7 @@ describe("the asset context menu", () => {
     problems = [];
     confirmations = [];
     gone = 0;
+    opened = [];
     const view = render(
       <AssetContextMenu
         hashes={hashes}
@@ -45,6 +47,8 @@ describe("the asset context menu", () => {
         onGone={() => {
           gone += 1;
         }}
+        onOpenHere={(hash) => opened.push(hash)}
+        {...(drawable === undefined ? {} : { drawable })}
       >
         <div data-testid="surface" tabIndex={-1}>
           the grid
@@ -122,6 +126,37 @@ describe("the asset context menu", () => {
     expect(sentTo("assets:export")).toHaveLength(0);
     expect(notes).toHaveLength(0);
     expect(problems).toHaveLength(0);
+  });
+
+  it("puts what a double-click does at the top, and offers the other way below", async () => {
+    // The menu and the gesture must agree (`UI_SPEC.md` §3.3): a first row that
+    // is not what a double-click does teaches the wrong thing.
+    const labels = (): string[] =>
+      screen
+        .getAllByRole("menuitem")
+        .slice(0, 2)
+        .map((item) => item.textContent ?? "");
+
+    show([HASHES[0] as string], {}, { drawable: true });
+    await open();
+    expect(labels()).toEqual(["Open", "Open externally"]);
+    expect(disabled("Open")).toBe(false);
+
+    cleanup();
+    show([HASHES[0] as string], {}, { drawable: false });
+    await open();
+    expect(labels()).toEqual(["Open externally", "Open"]);
+    // Nothing to open here, so the row says so rather than opening a pane whose
+    // only offer is the row above it.
+    expect(disabled("Open")).toBe(true);
+  });
+
+  it("opens in Roost rather than in the desktop when asked here", async () => {
+    const { user } = show([HASHES[0] as string], {}, { drawable: true });
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "Open" }));
+    expect(opened).toEqual([HASHES[0]]);
+    expect(sentTo("asset:openExternally")).toHaveLength(0);
   });
 
   it("refuses to open three assets at once", async () => {

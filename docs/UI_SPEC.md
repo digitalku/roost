@@ -257,6 +257,15 @@ leaves the selection alone, which is what every file manager does and what makes
 export twelve" one gesture. `Grid` does the selecting, because it is the component that knows
 what is under the pointer; the menu only ever receives a list of hashes.
 
+**The first row is what a double-click does.** Both ways to open are always there, and their order
+says which one the gesture takes: **Open** first for a file Roost can draw, **Open externally**
+first for one it cannot (§6). One function decides both, because a menu whose first row disagrees
+with the shortcut teaches the wrong thing. Over several assets there is no double-click to agree
+with, so the rows keep their natural order and both are disabled.
+
+**In the preview there is no Open row at all** — it is already open, and a row that did nothing
+would be worse than a missing one.
+
 **In the preview the menu is over the asset on screen**, whatever else is selected. There is
 nothing else to point at, and "export…" while looking at one picture cannot sensibly mean the
 other eleven. Selecting three and pressing `Enter` is the case that makes the two rules
@@ -268,6 +277,7 @@ the grid's roving ring and the preview's stepping both dead until something is c
 
 | Item | Over one | Over several |
 | --- | --- | --- |
+| **Open** | opens it here, in the preview. Disabled for a file Roost cannot draw — there is nothing to open | disabled — a preview shows one asset |
 | **Open externally** | hands the file to the desktop's own handler | disabled — three files is three applications opening |
 | **Show in file manager** | reveals it, selected | disabled, same reason |
 | **Copy path** | one path | `Copy N paths`, one per line |
