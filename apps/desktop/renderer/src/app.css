@@ -514,12 +514,39 @@ button:disabled {
   align-items: center;
 }
 
+/* The three labels in one cell: the button is as wide as the longest of them,
+   so choosing a view never resizes the control that chose it. */
+.view-label {
+  display: grid;
+  justify-items: start;
+}
+
+.view-label > * {
+  grid-area: 1 / 1;
+  visibility: hidden;
+}
+
+.view-label > [data-current] {
+  visibility: visible;
+}
+
+/*
+ * The bar's controls are one row and stand at one height.
+ *
+ * `--control-height` is 28px, and the search field is 32 (`search.css` says
+ * why): buttons at the generic height beside it left the row looking like two
+ * rows that failed to line up.
+ */
+.bar button {
+  height: var(--bar-control-height);
+}
+
 .app-menu-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   /* Square, so it reads as an icon rather than as a very short label. */
-  width: var(--row-height);
+  width: var(--bar-control-height);
   padding: 0;
 }
 

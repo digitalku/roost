@@ -51,7 +51,23 @@ export function ViewMenu({
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button type="button" className="view-trigger" aria-label="View">
-          {LABELS[view]}
+          {/*
+            All three labels, stacked, with the two that are not current merely
+            invisible. The button is then the width of the longest of them
+            whichever is showing, so switching the view does not resize the
+            control that switched it — "Icons" is a shorter word than "Details",
+            and a button that shrank when it was used made the whole bar shift.
+
+            A reserved width rather than a `min-width` in pixels, because the
+            number would be wrong at the next font size and nothing would say so.
+          */}
+          <span className="view-label">
+            {GRID_VIEWS.map((candidate) => (
+              <span key={candidate} data-current={candidate === view || undefined}>
+                {LABELS[candidate]}
+              </span>
+            ))}
+          </span>
           <span aria-hidden="true">▾</span>
         </button>
       </DropdownMenu.Trigger>

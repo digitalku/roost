@@ -86,12 +86,21 @@
   /* Density re-declares a handful of tokens, never a conditional class name. */
   --row-height: 28px;
   --control-height: 28px;
+  /*
+   * The toolbar's own height for a control, taller than a generic one.
+   *
+   * The bar holds the search field, which is the one control in the window
+   * somebody types a sentence into, and the buttons standing beside it have to
+   * match it or the row reads as two rows that failed to line up.
+   */
+  --bar-control-height: 32px;
   --gutter: var(--space-3);
 }
 
 :root[data-density="compact"] {
   --row-height: 22px;
   --control-height: 24px;
+  --bar-control-height: 28px;
   --gutter: var(--space-2);
 }
 

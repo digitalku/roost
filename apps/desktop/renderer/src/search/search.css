@@ -24,7 +24,7 @@
  */
 .search-input {
   width: 100%;
-  height: var(--space-7);
+  height: var(--bar-control-height);
   padding: 0 var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -63,7 +63,7 @@
 .search-error {
   position: absolute;
   z-index: 1;
-  top: calc(var(--space-7) + var(--space-1));
+  top: calc(var(--bar-control-height) + var(--space-1));
   left: 0;
   right: 0;
   padding: var(--space-2);
