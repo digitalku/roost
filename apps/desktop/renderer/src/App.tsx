@@ -782,109 +782,125 @@ function LibraryView({
 
   return (
     <div className="app app-library">
-      <header className="bar">
-        {/* Leftmost, where `UI_SPEC.md` §1 has drawn a `[☰]` since before there
-            was one to draw. */}
-        <AppMenu
-          onCloseLibrary={onClose}
-          onQuit={() => {
-            void invoke({ type: "app:quit" });
-          }}
-        />
-        <h1 className="bar-title">{opened.summary.name}</h1>
-        <SearchField query={query} onApply={applyQuery} matches={matches} />
-        <div className="bar-actions">
-          <ViewMenu
-            view={view}
-            proportional={proportional}
-            zoom={zoom}
-            onView={setView}
-            onProportional={setProportional}
-            onZoom={(steps) => setZoom((at) => (steps === 0 ? DEFAULT_ZOOM : zoomBy(at, steps)))}
-          />
-          <button
-            type="button"
-            disabled={importing.running}
-            onClick={() => {
-              void (async () => {
-                const chosen = await invoke({ type: "dialog:chooseImport" });
-                if (chosen.ok && chosen.value !== null) importing.start(chosen.value);
-              })();
-            }}
-          >
-            Import…
-          </button>
-        </div>
-      </header>
-
       <div className="workspace">
-        {/* Clicking a row replaces the query (`UI_SPEC.md` §4.2), and the search
-            field shows what it was replaced with — one source of truth for what
-            is on screen, and it is a string the user can read and edit. */}
-        {sidebar !== undefined && <Sidebar sidebar={sidebar} query={query} onPick={applyQuery} />}
-        {previewing && focused !== undefined ? (
-          /* Over the asset on screen, not over the selection: "export…" while
+        {/*
+          The sidebar runs to the top of the window and carries its own head,
+          rather than starting under a toolbar that spans everything
+          (`UI_SPEC.md` §1). The library's name belongs to the library, which is
+          what this column is; the search field belongs to the grid, which is
+          what the middle column is.
+        */}
+        <div className="pane-sidebar">
+          <header className="bar bar-sidebar">
+            <AppMenu
+              onCloseLibrary={onClose}
+              onQuit={() => {
+                void invoke({ type: "app:quit" });
+              }}
+            />
+            <h1 className="bar-title">{opened.summary.name}</h1>
+          </header>
+          {/* Clicking a row replaces the query (`UI_SPEC.md` §4.2), and the
+              search field shows what it was replaced with — one source of truth
+              for what is on screen, and it is a string the user can read and
+              edit. */}
+          {sidebar !== undefined && <Sidebar sidebar={sidebar} query={query} onPick={applyQuery} />}
+        </div>
+
+        <div className="pane-content">
+          <header className="bar">
+            <SearchField query={query} onApply={applyQuery} matches={matches} />
+            <div className="bar-actions">
+              <ViewMenu
+                view={view}
+                proportional={proportional}
+                zoom={zoom}
+                onView={setView}
+                onProportional={setProportional}
+                onZoom={(steps) =>
+                  setZoom((at) => (steps === 0 ? DEFAULT_ZOOM : zoomBy(at, steps)))
+                }
+              />
+              <button
+                type="button"
+                disabled={importing.running}
+                onClick={() => {
+                  void (async () => {
+                    const chosen = await invoke({ type: "dialog:chooseImport" });
+                    if (chosen.ok && chosen.value !== null) importing.start(chosen.value);
+                  })();
+                }}
+              >
+                Import…
+              </button>
+            </div>
+          </header>
+
+          {previewing && focused !== undefined ? (
+            /* Over the asset on screen, not over the selection: "export…" while
              looking at one picture cannot sensibly mean the other eleven. */
-          <AssetContextMenu
-            hashes={[focused]}
-            inTrash={inTrash}
-            onNote={noteResult}
-            onProblem={setActed}
-            onConfirm={setConfirming}
-            onGone={clearSelection}
-            onPosterPinned={paging.pinPoster}
-          >
-            <PreviewPane
-              hash={focused}
-              generation={revision}
-              onClose={() => setPreviewing(false)}
-              onStep={step}
-            />
-          </AssetContextMenu>
-        ) : paging.assets.length === 0 && paging.done ? (
-          /* The menu over nothing belongs here most of all: an empty library is
+            <AssetContextMenu
+              hashes={[focused]}
+              inTrash={inTrash}
+              onNote={noteResult}
+              onProblem={setActed}
+              onConfirm={setConfirming}
+              onGone={clearSelection}
+              onPosterPinned={paging.pinPoster}
+            >
+              <PreviewPane
+                hash={focused}
+                generation={revision}
+                onClose={() => setPreviewing(false)}
+                onStep={step}
+              />
+            </AssetContextMenu>
+          ) : paging.assets.length === 0 && paging.done ? (
+            /* The menu over nothing belongs here most of all: an empty library is
              exactly where somebody wants to paste or make a file. */
-          <AssetContextMenu
-            hashes={[]}
-            inTrash={inTrash}
-            onNote={noteResult}
-            onProblem={setActed}
-            onConfirm={setConfirming}
-            onGone={clearSelection}
-            onPaste={paste}
-            onNewFile={() => setNewFile({ text: "" })}
-          >
-            <p className="grid-empty">
-              {query === "" ? EMPTY_LIBRARY : inTrash ? EMPTY_TRASH : NOTHING_MATCHED}
-            </p>
-          </AssetContextMenu>
-        ) : (
-          <AssetContextMenu
-            hashes={selected}
-            inTrash={inTrash}
-            onNote={noteResult}
-            onProblem={setActed}
-            onConfirm={setConfirming}
-            onGone={clearSelection}
-            onPaste={paste}
-            onNewFile={() => setNewFile({ text: "" })}
-            onOpenHere={(hash) => {
-              selection.click(hash);
-              setPreviewing(true);
-            }}
-            drawable={selected.length === 1 && drawable(paging.assets, selected[0] ?? "")}
-          >
-            <Grid
-              assets={paging.assets}
-              view={view}
-              proportional={proportional}
-              target={zoom}
-              selection={selection}
-              onMore={paging.more}
-              onOpen={openAsset}
-            />
-          </AssetContextMenu>
-        )}
+            <AssetContextMenu
+              hashes={[]}
+              inTrash={inTrash}
+              onNote={noteResult}
+              onProblem={setActed}
+              onConfirm={setConfirming}
+              onGone={clearSelection}
+              onPaste={paste}
+              onNewFile={() => setNewFile({ text: "" })}
+            >
+              <p className="grid-empty">
+                {query === "" ? EMPTY_LIBRARY : inTrash ? EMPTY_TRASH : NOTHING_MATCHED}
+              </p>
+            </AssetContextMenu>
+          ) : (
+            <AssetContextMenu
+              hashes={selected}
+              inTrash={inTrash}
+              onNote={noteResult}
+              onProblem={setActed}
+              onConfirm={setConfirming}
+              onGone={clearSelection}
+              onPaste={paste}
+              onNewFile={() => setNewFile({ text: "" })}
+              onOpenHere={(hash) => {
+                selection.click(hash);
+                setPreviewing(true);
+              }}
+              drawable={selected.length === 1 && drawable(paging.assets, selected[0] ?? "")}
+            >
+              <Grid
+                assets={paging.assets}
+                view={view}
+                proportional={proportional}
+                target={zoom}
+                selection={selection}
+                onMore={paging.more}
+                onOpen={openAsset}
+              />
+            </AssetContextMenu>
+          )}
+        </div>
+
         <Inspector hashes={selected} generation={revision} />
       </div>
 

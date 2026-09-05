@@ -39,7 +39,13 @@ body {
 }
 
 /*
- * Sidebar, grid, inspector.
+ * Sidebar, grid, inspector — three columns, each from the top of the window
+ * down (UI_SPEC.md §1).
+ *
+ * There is no toolbar spanning the window. The library's name and the menu
+ * belong to the library, so they sit at the head of the sidebar; the search
+ * field and the view control belong to the grid, so they sit at the head of the
+ * middle column; the inspector has no head and simply starts at the top.
  *
  * The columns are declared from what is actually present rather than from a
  * fixed template, because two of the three come and go: the sidebar is absent
@@ -51,8 +57,27 @@ body {
   min-height: 0;
 }
 
-.workspace > .sidebar {
+.pane-sidebar,
+.pane-content {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.pane-sidebar {
   flex: 0 0 240px;
+}
+
+.pane-content {
+  flex: 1 1 auto;
+  /* A flex item's `min-width: auto` would let the grid's content push the
+     panels off screen. */
+  min-width: 0;
+}
+
+.pane-sidebar > .sidebar {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .workspace > .inspector {
@@ -81,21 +106,21 @@ body {
   flex: 1 1 auto;
 }
 
-/* The grid takes what is left. `min-width: 0` because a flex item's default
-   `min-width: auto` would let its content push the panels off screen. */
-.workspace > .grid-frame,
-.workspace > .menu-area,
-.workspace > .grid-empty,
-.workspace > .preview {
+/* The grid takes what is left of its column, under the bar. */
+.pane-content > .grid-frame,
+.pane-content > .menu-area,
+.pane-content > .grid-empty,
+.pane-content > .preview {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
 }
 
-/* Bar, grid, status. The grid is the only row that may grow. */
+/* Columns, then status. The columns are the only row that may grow. */
 .app-library {
-  /* `minmax(0, …)` on the middle row: without it the grid's content sets the
-     row height and the scroll container never scrolls, it just gets taller. */
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* `minmax(0, …)`: without it the grid's content sets the row height and the
+     scroll container never scrolls, it just gets taller. */
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
 .panel {
@@ -242,6 +267,19 @@ button:disabled {
   background: var(--surface);
 }
 
+/*
+ * The sidebar's head: the menu and the library's name, on the sidebar's own
+ * surface. No bottom border — the column is one surface from the top down, and
+ * a line under the name would cut the library off from its own places. The
+ * right border continues the sidebar's, so the seam between the columns is one
+ * unbroken line.
+ */
+.bar-sidebar {
+  padding: 0 var(--space-2);
+  border-right: 1px solid var(--border);
+  border-bottom: 0;
+}
+
 .bar-title {
   flex: 0 1 auto;
   max-width: 240px;
@@ -255,6 +293,9 @@ button:disabled {
 
 .bar-actions {
   display: flex;
+  /* Pushed to the right edge of its column: the search field stops at 640px,
+     and controls trailing it in the middle of the bar read as part of it. */
+  margin-left: auto;
   gap: var(--space-2);
 }
 

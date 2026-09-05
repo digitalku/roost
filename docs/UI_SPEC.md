@@ -38,17 +38,14 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 ## 1. Layout
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
-│  Toolbar   [☰] [ search — RQL ................ ]        [view ▾]     [+]    │
-├──────────────┬──────────────────────────────────────────┬──────────────────┤
-│              │                                          │                  │
+┌──────────────┬──────────────────────────────────────────┬──────────────────┐
+│ [☰] library  │ [ search — RQL ......... ]  [view ▾] [+] │                  │
+│              ├──────────────────────────────────────────┤                  │
 │   Sidebar    │              Content                     │    Inspector     │
 │              │   icons · compact · details · preview    │                  │
-│  ┌────────┐  │                                          │   selection      │
-│  │library │  │                                          │   details and    │
-│  └────────┘  │                                          │   edits          │
-│  Places      │                                          │                  │
-│  Folders     │                                          │                  │
+│  Places      │                                          │   selection      │
+│  Rating      │                                          │   details and    │
+│  Folders     │                                          │   edits          │
 │  Smart       │                                          │                  │
 │  Tags        │                                          │                  │
 │              │                                          │                  │
@@ -61,11 +58,20 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 
 | Region | Width | Collapsible | Notes |
 | --- | --- | --- | --- |
-| Toolbar | full | no | Fixed height. Search is the widest thing in it. The `☰` at its left is the application menu (ADR-0028). |
+| Sidebar head | with the sidebar | with it | Fixed height. The `☰` (ADR-0028) and the library's name. |
+| Content head | with the content | no | Fixed height. Search is the widest thing in it, then the view control and Import. |
 | Sidebar | 220–420px, drag to resize | yes, `F9` | Remembers width and collapsed state per library. |
 | Content | fills | no | Hosts exactly one of: icons, compact, details, preview. |
 | Inspector | 280–480px, drag to resize | yes, `F4` | **Always drawn.** An empty selection gets the empty state from §8, never a shell of disabled controls. Reserves a scrollbar gutter, as the grid does: how tall its content is depends on the asset, so without one the panel's fields shift sideways as the selection moves. |
 | Status bar | full | no | Counts on the left, background jobs on the right. |
+
+**There is no toolbar across the window: the three columns run from the top down.** The head of
+each column belongs to that column — the menu and the library's name sit above the sidebar because
+they are the library's, the search field and the view control sit above the content because they
+are the grid's, and the inspector has no head at all and starts at the top. A bar spanning
+everything makes the panels look like drawers under a chrome that owns them; they are not, and
+the arrangement Eagle uses is the one that says so. The status bar does still span the window,
+because what it says — the library's counts, the running jobs — is about all three.
 
 **The preview is a pane, not a lightbox.** It replaces the content region, leaving the sidebar
 and inspector in place and usable — a note can be written while looking at the thing it is
