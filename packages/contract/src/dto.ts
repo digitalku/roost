@@ -211,6 +211,8 @@ export interface SidebarRow {
 /** The navigation pane, in the order it is drawn. */
 export interface WireSidebar {
   readonly places: readonly SidebarRow[];
+  /** One row per star, always five, drawn under Places (`UI_SPEC.md` §4.1). */
+  readonly ratings: readonly SidebarRow[];
   readonly folders: readonly SidebarRow[];
   readonly smartFolders: readonly SidebarRow[];
   readonly tags: readonly SidebarRow[];

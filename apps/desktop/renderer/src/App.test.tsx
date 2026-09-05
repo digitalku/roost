@@ -613,6 +613,7 @@ describe("the navigation pane, in the window", () => {
       assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
       byQuery: { 'tag:"brand assets"': [fakeAsset(100), fakeAsset(101)] },
       sidebar: {
+        ratings: [],
         places: [{ id: "all", name: "All assets", query: "", count: null, depth: 0, group: null }],
         folders: [],
         smartFolders: [],
@@ -655,6 +656,7 @@ describe("the navigation pane, in the window", () => {
       assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
       byQuery: { "is:favorite": [] },
       sidebar: {
+        ratings: [],
         places: [
           { id: "all", name: "All assets", query: "", count: null, depth: 0, group: null },
           {
@@ -692,6 +694,7 @@ describe("the navigation pane, in the window", () => {
       assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
       byQuery: { "is:favorite": [fakeAsset(50)] },
       sidebar: {
+        ratings: [],
         places: [
           { id: "all", name: "All assets", query: "", count: null, depth: 0, group: null },
           {

@@ -316,7 +316,13 @@ describe("the engine's message loop", () => {
     const reply = await ask(1, { type: "library:sidebar" });
     const value = (reply as { value: Record<string, { query: string; name: string }[]> }).value;
 
-    expect(Object.keys(value).sort()).toEqual(["folders", "places", "smartFolders", "tags"]);
+    expect(Object.keys(value).sort()).toEqual([
+      "folders",
+      "places",
+      "ratings",
+      "smartFolders",
+      "tags",
+    ]);
     // `UI_SPEC.md` §4.1: the renderer never assembles RQL, so a row without a
     // query is a row it cannot act on.
     for (const rows of Object.values(value)) {
@@ -331,6 +337,20 @@ describe("the engine's message loop", () => {
       "Untagged",
       "Trash",
     ]);
+
+    // A section of its own, under Places, with one row per star — and each
+    // matches *that* rating rather than "this many and up": five nested rows
+    // would have counts adding up to more than the library holds, and
+    // `rating:>=4` is one term in the search field for the other question.
+    const ratings = value["ratings"] ?? [];
+    expect(ratings.map((row) => row.name)).toEqual([
+      "5 stars",
+      "4 stars",
+      "3 stars",
+      "2 stars",
+      "1 star",
+    ]);
+    expect(ratings[1]?.query).toBe("rating:4");
     // "All assets" is the empty string — the engine's word for the whole
     // library — and not a term in the grammar.
     expect(places[0]?.query).toBe("");

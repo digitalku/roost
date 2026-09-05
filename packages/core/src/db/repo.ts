@@ -372,6 +372,25 @@ export class Repo {
   }
 
   /**
+   * How many live assets carry each rating, one row per rating in use.
+   *
+   * One grouped statement rather than five counts: the sidebar draws all of
+   * them together, and a query per star would be five statements for a pane
+   * that is re-read whenever anything changes.
+   *
+   * Scoped the way every other view is — no trashed rows, no superseded ones —
+   * so the number beside a star is the number of assets that row would show.
+   */
+  ratingCounts(): { rating: number; count: number }[] {
+    return this.#s(
+      `SELECT rating, count(*) AS count
+         FROM assets
+        WHERE rating IS NOT NULL AND trashed_at IS NULL AND superseded_by IS NULL
+        GROUP BY rating`,
+    ).all() as { rating: number; count: number }[];
+  }
+
+  /**
    * Every trashed asset.
    *
    * For "Empty trash", which turns each one into a `remove`. Ordered by hash

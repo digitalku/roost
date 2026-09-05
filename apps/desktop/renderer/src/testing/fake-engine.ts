@@ -152,7 +152,13 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
   };
 }
 
-const EMPTY_SIDEBAR: WireSidebar = { places: [], folders: [], smartFolders: [], tags: [] };
+const EMPTY_SIDEBAR: WireSidebar = {
+  places: [],
+  ratings: [],
+  folders: [],
+  smartFolders: [],
+  tags: [],
+};
 
 /**
  * An asset with everything a cell needs and nothing a test has to spell out.

@@ -28,6 +28,7 @@ export function Sidebar({ sidebar, query, onPick }: SidebarProps): React.JSX.Ele
   return (
     <nav className="sidebar" aria-label="Library">
       <Section title="Places" rows={sidebar.places} query={query} onPick={onPick} />
+      <Section title="Rating" rows={sidebar.ratings} query={query} onPick={onPick} />
       <Section title="Folders" rows={sidebar.folders} query={query} onPick={onPick} />
       <Section title="Smart folders" rows={sidebar.smartFolders} query={query} onPick={onPick} />
       {tagGroups.map(([group, rows]) => (

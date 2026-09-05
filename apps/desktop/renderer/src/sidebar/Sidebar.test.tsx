@@ -13,6 +13,10 @@ const SIDEBAR: WireSidebar = {
     row({ name: "All assets", query: "" }),
     row({ name: "Favorites", query: "is:favorite" }),
   ],
+  ratings: [
+    row({ id: "rating-5", name: "5 stars", query: "rating:5", count: 3 }),
+    row({ id: "rating-4", name: "4 stars", query: "rating:4", count: 0 }),
+  ],
   folders: [
     row({ id: "folder:1", name: "Design", query: 'folder:"Design"', count: 412, depth: 0 }),
     row({ id: "folder:2", name: "Icons", query: 'folder:"Design/Icons"', count: 40, depth: 1 }),
@@ -30,11 +34,20 @@ describe("the navigation pane", () => {
     render(<Sidebar sidebar={SIDEBAR} query="" onPick={() => {}} />);
     expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual([
       "Places",
+      "Rating",
       "Folders",
       "Smart folders",
       "Tags · Materials",
       "Tags",
     ]);
+  });
+
+  it("counts a rating with none, rather than hiding the row", () => {
+    // A row that appears and vanishes with state nothing on screen shows is a
+    // row people misread, so every star is drawn and an empty one says `0`.
+    render(<Sidebar sidebar={SIDEBAR} query="" onPick={() => {}} />);
+    expect(screen.getByRole("button", { name: /5 stars/ }).textContent).toContain("3");
+    expect(screen.getByRole("button", { name: /4 stars/ }).textContent).toContain("0");
   });
 
   it("puts ungrouped tags last, whatever order they arrived in", () => {
@@ -94,7 +107,7 @@ describe("the navigation pane", () => {
     // explaining that.
     render(
       <Sidebar
-        sidebar={{ places: SIDEBAR.places, folders: [], smartFolders: [], tags: [] }}
+        sidebar={{ places: SIDEBAR.places, ratings: [], folders: [], smartFolders: [], tags: [] }}
         query=""
         onPick={() => {}}
       />,

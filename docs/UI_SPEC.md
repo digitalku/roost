@@ -448,6 +448,13 @@ PLACES
                                  makes it worth a row — an empty trash and one holding four
                                  hundred assets look identical without it
 
+RATING                           one row per star, always five
+  5 stars                  12
+  4 stars                   0    drawn even at zero: a row that appears and vanishes with state
+  3 stars                   7    nothing on screen shows is a row people misread
+  2 stars                   0
+  1 star                    1
+
 FOLDERS                          user tree, drag to reorder and re-parent
   ▸ Clients
     ▾ Acme
@@ -464,6 +471,12 @@ TAGS                             grouped, groups collapsible
 
 Counts are subtree counts for folders and match counts for smart folders, computed by the
 engine — the renderer never counts anything it did not receive.
+
+**A rating row matches one rating, not "this many and up".** Five nested rows would have counts
+adding up to more than the library holds, and *how many five-star assets are there* is the question
+a sidebar can answer at a glance; `rating:>=4` is one term in the search field for the other
+question. All five counts come from one grouped statement, so the section costs the read no more
+than a single place does.
 
 **A count beside a query is the count *of* that query.** Folder and tag counts therefore exclude
 trashed assets, exactly as `folder:` and `tag:` do (ADR-0022) — a sidebar saying 3 while the grid

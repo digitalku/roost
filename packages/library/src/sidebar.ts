@@ -65,6 +65,8 @@ export interface SmartFolderEntry {
 
 export interface Sidebar {
   readonly places: PlaceEntry[];
+  /** One row per star, five of them, always (`UI_SPEC.md` §4.1). */
+  readonly ratings: PlaceEntry[];
   readonly folders: FolderEntry[];
   readonly tags: TagEntry[];
   readonly smartFolders: SmartFolderEntry[];
@@ -97,7 +99,13 @@ export function readSidebar(library: Library): Sidebar {
     count: tag.count,
   }));
 
-  return { places: places(repo.trashedCount()), folders, tags, smartFolders: repo.smartFolders() };
+  return {
+    places: places(repo.trashedCount()),
+    ratings: ratings(repo.ratingCounts()),
+    folders,
+    tags,
+    smartFolders: repo.smartFolders(),
+  };
 }
 
 /** How far back "Recent" reaches, in days (`UI_SPEC.md` §4.1). */
@@ -119,6 +127,7 @@ const RECENT_DAYS = 7;
  * naming the flag is what opts this one out (ADR-0022). It is a place rather
  * than a mode, so nothing in the grid, the toolbar, or the renderer has to
  * learn that Trash exists.
+ *
  */
 function places(trashed: number): PlaceEntry[] {
   const since = new Date((nowUnix() - RECENT_DAYS * 86_400) * 1000).toISOString().slice(0, 10);
@@ -129,6 +138,29 @@ function places(trashed: number): PlaceEntry[] {
     { id: "untagged", name: "Untagged", query: "is:untagged", count: null },
     { id: "trash", name: "Trash", query: "is:trashed", count: trashed },
   ];
+}
+
+/**
+ * A section of its own, under Places (`UI_SPEC.md` §4.1).
+ *
+ * **Each row matches one rating, not "this many and up".** Five nested rows
+ * would have counts adding up to more than the library holds, and *how many
+ * five-star assets are there* is the question a sidebar can answer at a glance.
+ * `rating:>=4` is one term in the search field for the other question.
+ *
+ * They carry counts for the reason Trash does: the number is what makes the row
+ * worth having. A star with none is still drawn — a row that appears and
+ * vanishes with state nothing on screen shows is a row people misread — and it
+ * says `0`.
+ */
+function ratings(counts: readonly { rating: number; count: number }[]): PlaceEntry[] {
+  const counted = new Map(counts.map((row) => [row.rating, row.count]));
+  return [5, 4, 3, 2, 1].map((rating) => ({
+    id: `rating-${rating}`,
+    name: rating === 1 ? "1 star" : `${rating} stars`,
+    query: `rating:${rating}`,
+    count: counted.get(rating) ?? 0,
+  }));
 }
 
 /** Depth past which a folder path is treated as corrupt rather than deep. */

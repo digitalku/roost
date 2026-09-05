@@ -613,6 +613,19 @@ function sidebarOf(library: Library): WireSidebar {
         group: null,
       }),
     ),
+    ratings: sidebar.ratings.map(
+      (rating): SidebarRow => ({
+        id: rating.id,
+        name: rating.name,
+        query: rating.query,
+        // Unlike the places, every one of these carries a count: one grouped
+        // statement answers all five, and the number is what makes the row
+        // worth a click.
+        count: rating.count,
+        depth: 0,
+        group: null,
+      }),
+    ),
     folders: sidebar.folders.map(
       (folder): SidebarRow => ({
         id: `folder:${folder.id}`,
