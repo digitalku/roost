@@ -882,6 +882,35 @@ export async function detachSubtitle(
   return apply(library, [{ op: "subtitle_detach", hash, track }]);
 }
 
+/**
+ * Detaches a caption track **and** moves it to the trash, in one batch
+ * (ADR-0025, ADR-0022).
+ *
+ * What the inspector's **Delete** sends. Two operations rather than one,
+ * because they say different things — the attachment stops being true, and the
+ * file stops being in the library — but one journal batch, so they can never be
+ * half done: a trashed asset still attached would be a caption track nobody can
+ * see and nothing can find.
+ *
+ * **Trash, not `remove`.** `Delete` means the same thing everywhere in Roost:
+ * the row is kept, everything hanging off it is kept, and nothing is ever
+ * emptied on a schedule. Restoring it from the Trash brings the file back — the
+ * attachment does not come with it, because that was a second sentence and it
+ * was un-said.
+ */
+export async function deleteSubtitle(
+  library: Library,
+  hash: ContentHash,
+  track: ContentHash,
+): Promise<void> {
+  requireAsset(library, hash);
+  requireAsset(library, track);
+  return apply(library, [
+    { op: "subtitle_detach", hash, track },
+    { op: "trash", hash: track },
+  ]);
+}
+
 /** The caption tracks attached to an asset, in the order they were attached. */
 export function subtitles(library: Library, hash: ContentHash): SubtitleRow[] {
   requireAsset(library, hash);

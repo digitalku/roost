@@ -94,7 +94,7 @@ describe("validating a request", () => {
       "asset:create",
       "clipboard:paste",
       "asset:addSubtitle",
-      "asset:subtitleDetach",
+      "asset:subtitleDelete",
       "asset:rename",
       "asset:tagAdd",
       "asset:tagRemove",

@@ -179,13 +179,19 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
  *
  * A track is an ordinary asset, so the three things worth doing to it are the
  * three a file has anywhere: open it in the editor that owns it, show it where
- * it lives, and — the one that is about the *sentence* rather than the file —
- * detach it.
+ * it lives, and delete it.
  *
- * **Detaching deletes nothing.** Both assets stay and the track becomes an
- * ordinary text asset again, visible in the grid. Removing the file is
- * `Delete`, like any other asset, and the label says "Detach" rather than
- * "Remove" so the two are never confused.
+ * **Delete detaches it and moves it to the trash**, in one batch. A "detach"
+ * that left the `.srt` behind in the grid was tried first and was the wrong
+ * half of the answer: somebody finished with a track is finished with the file.
+ * `Delete` still means what it means everywhere else — the trash keeps the row,
+ * nothing is emptied on a schedule, and restoring brings the file back (the
+ * attachment does not come with it, because that was a second sentence and it
+ * was un-said).
+ *
+ * The name takes a line of its own and the actions the line below it. Three
+ * buttons beside a filename is a row that wraps at any width worth having, and
+ * the panel is the narrowest surface in the window.
  */
 function Subtitles({
   detail,
@@ -201,10 +207,12 @@ function Subtitles({
       <ul className="subtitle-list">
         {detail.subtitles.map((track) => (
           <li key={track.hash} className="subtitle">
-            <span className="subtitle-name" title={track.name}>
-              {track.label ?? track.name}
+            <span className="subtitle-line">
+              <span className="subtitle-name" title={track.name}>
+                {track.label ?? track.name}
+              </span>
+              {track.lang !== null && <span className="subtitle-lang">{track.lang}</span>}
             </span>
-            {track.lang !== null && <span className="subtitle-lang">{track.lang}</span>}
             <span className="subtitle-actions">
               <button
                 type="button"
@@ -220,15 +228,17 @@ function Subtitles({
               >
                 Show in file manager
               </button>
-              {/* Not "Remove": nothing is deleted, and the two must never read
-                  as the same thing. */}
+              {/* No confirmation: `Delete` is the trash everywhere in Roost,
+                  and the trash is reversible (ADR-0022). A dialog here would
+                  teach people to dismiss dialogs, and the next one is the
+                  permanent delete. */}
               <button
                 type="button"
-                title="Stop this file captioning the asset. Nothing is deleted"
+                title="Detach it and move the file to the trash"
                 onClick={() => {
                   void (async () => {
                     await invoke({
-                      type: "asset:subtitleDetach",
+                      type: "asset:subtitleDelete",
                       hash: detail.hash,
                       track: track.hash,
                     });
@@ -236,7 +246,7 @@ function Subtitles({
                   })();
                 }}
               >
-                Detach
+                Delete
               </button>
             </span>
           </li>

@@ -56,15 +56,17 @@ describe("the inspector", () => {
       { type: "asset:reveal", hash: "f".repeat(64) },
     ]);
 
-    // "Detach", never "Remove": the sentence goes and both files stay.
-    await user.click(within(block).getByRole("button", { name: "Detach" }));
+    // One gesture, one request: detach *and* trash, because somebody finished
+    // with a track is finished with the file (ADR-0025, ADR-0022).
+    await user.click(within(block).getByRole("button", { name: "Delete" }));
     await waitFor(() =>
-      expect(engine.seen.filter((request) => request.type === "asset:subtitleDetach")).toEqual([
-        { type: "asset:subtitleDetach", hash: HASH, track: "f".repeat(64) },
+      expect(engine.seen.filter((request) => request.type === "asset:subtitleDelete")).toEqual([
+        { type: "asset:subtitleDelete", hash: HASH, track: "f".repeat(64) },
       ]),
     );
+    // The trash, not a permanent removal — `Delete` means the same thing here
+    // as everywhere else, and asks nothing because it is reversible.
     expect(engine.seen.some((request) => request.type === "assets:remove")).toBe(false);
-    expect(engine.seen.some((request) => request.type === "assets:trash")).toBe(false);
   });
 
   it("draws no subtitle block where nothing is attached", async () => {

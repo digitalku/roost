@@ -516,11 +516,19 @@ export class FakeEngine {
         return ok(request.paths.length);
       }
 
-      case "asset:subtitleDetach":
+      case "asset:subtitleDelete": {
+        // Detached *and* trashed, in that order, the way the engine journals
+        // it: a trashed asset still attached would be a track nobody can see
+        // and nothing can find.
+        const trashed = this.details.get(request.track);
+        if (trashed !== undefined) {
+          this.details.set(request.track, { ...trashed, trashedAt: 1_700_000_000 });
+        }
         return this.#mutate([request.hash], (detail) => ({
           ...detail,
           subtitles: detail.subtitles.filter((track) => track.hash !== request.track),
         }));
+      }
 
       case "asset:create": {
         const text = request.text;

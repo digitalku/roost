@@ -35,6 +35,7 @@ export {
   createTagGroup,
   deleteFolder,
   deleteSmartFolder,
+  deleteSubtitle,
   deleteTagGroup,
   detachSubtitle,
   emptyTrash,

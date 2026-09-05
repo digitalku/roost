@@ -365,10 +365,18 @@ with its name and language, and three actions:
 | --- | --- |
 | **Open** | Hands the track to the application that owns it — which is how a subtitle is edited, since Roost has no text editor |
 | **Show in file manager** | Reveals the track's own file, selected |
-| **Detach** | Un-says the sentence. **Nothing is deleted**: both assets stay and the track becomes an ordinary text asset again, visible in the grid |
+| **Delete** | Detaches it **and** moves the file to the trash, in one batch |
 
-The label is **Detach** and never "Remove", because removing an asset is a different, destructive
-thing that lives on `Delete` — and two words for two meanings is the only way that stays clear.
+**Delete, not "detach".** A detach that left the `.srt` behind in the grid as an ordinary text
+asset was tried first and is the wrong half of the answer: somebody finished with a track is
+finished with the file. It still means what `Delete` means everywhere else — the trash keeps the
+row, nothing is emptied on a schedule (ADR-0022), and it asks nothing because it is reversible.
+Restoring brings the file back; the attachment does not come with it, because that was a second
+sentence and it was un-said.
+
+**Each track takes two lines**: the name with its language beside it, and the actions under it.
+Three buttons beside a filename wrap at any width worth having, and the inspector is the narrowest
+surface in the window.
 
 ### 3.4 Confirming what cannot be undone
 

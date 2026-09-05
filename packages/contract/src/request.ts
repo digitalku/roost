@@ -197,13 +197,17 @@ export type Request =
       readonly paths: readonly string[];
     }
   /**
-   * Un-says which asset captions which (ADR-0025).
+   * Detaches a caption track and moves it to the trash (ADR-0025, ADR-0022).
    *
-   * **Deletes nothing.** Both assets stay; only the sentence goes, and the
-   * track becomes an ordinary text asset again, visible in the grid. Removing
-   * the file itself is `assets:trash` or `assets:remove`, like any other asset.
+   * One request because the window offers one gesture: a track somebody is
+   * finished with is a file they are finished with, and leaving the `.srt`
+   * behind in the grid as an ordinary text asset was the wrong half of the
+   * answer.
+   *
+   * `Delete` means what it means everywhere else — the trash, which keeps the
+   * row and is reversible. Nothing is emptied on a schedule.
    */
-  | { readonly type: "asset:subtitleDetach"; readonly hash: string; readonly track: string }
+  | { readonly type: "asset:subtitleDelete"; readonly hash: string; readonly track: string }
   /** Renames what the library shows. Nothing under `originals/` is touched. */
   | { readonly type: "asset:rename"; readonly hash: string; readonly name: string }
   | {
@@ -412,7 +416,7 @@ export interface Responses {
   "asset:create": WireCreated;
   /** How many caption tracks were attached (ADR-0025). */
   "asset:addSubtitle": number;
-  "asset:subtitleDetach": null;
+  "asset:subtitleDelete": null;
   "clipboard:paste": WirePasted;
   "asset:tagAdd": null;
   "asset:tagRemove": null;
@@ -591,12 +595,12 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "asset:addSubtitle", hash: hash.value, paths: paths.value });
   },
 
-  "asset:subtitleDetach": (source) => {
+  "asset:subtitleDelete": (source) => {
     const hash = readHash(source, "hash");
     if (!hash.ok) return hash;
     const track = readHash(source, "track");
     if (!track.ok) return track;
-    return ok({ type: "asset:subtitleDetach", hash: hash.value, track: track.value });
+    return ok({ type: "asset:subtitleDelete", hash: hash.value, track: track.value });
   },
 
   "asset:rename": (source) => {
