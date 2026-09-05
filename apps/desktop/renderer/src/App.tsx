@@ -648,6 +648,16 @@ function LibraryView({
     return trash !== undefined && trash.query === query;
   }, [sidebar, query]);
 
+  /**
+   * A file is open in the pane.
+   *
+   * One expression rather than two readings of the same two variables: the head
+   * of the content column is hidden by exactly what puts the preview there, or
+   * a state with `previewing` set and nothing focused would take the bar away
+   * and leave the grid behind it.
+   */
+  const showingPreview = previewing && focused !== undefined;
+
   const noteResult = useCallback(
     (line: string) => {
       setActed(undefined);
@@ -749,7 +759,7 @@ function LibraryView({
    */
   const dropped = useCallback(
     (paths: readonly string[]) => {
-      const film = previewing ? focused : undefined;
+      const film = showingPreview ? focused : undefined;
       if (!captionable(paging.assets, film) || film === undefined) {
         importing.start(paths);
         return;
@@ -766,7 +776,7 @@ function LibraryView({
         if (ignored.length > 0) importing.start(ignored);
       })();
     },
-    [previewing, focused, paging.assets, importing, noteResult],
+    [showingPreview, focused, paging.assets, importing, noteResult],
   );
 
   const paste = useCallback(() => {
@@ -852,35 +862,44 @@ function LibraryView({
         </div>
 
         <div className="pane-content">
-          <header className="bar">
-            <SearchField query={query} onApply={applyQuery} matches={matches} />
-            <div className="bar-actions">
-              <ViewMenu
-                view={view}
-                proportional={proportional}
-                zoom={zoom}
-                onView={setView}
-                onProportional={setProportional}
-                onZoom={(steps) =>
-                  setZoom((at) => (steps === 0 ? DEFAULT_ZOOM : zoomBy(at, steps)))
-                }
-              />
-              <button
-                type="button"
-                disabled={importing.running}
-                onClick={() => {
-                  void (async () => {
-                    const chosen = await invoke({ type: "dialog:chooseImport" });
-                    if (chosen.ok && chosen.value !== null) importing.start(chosen.value);
-                  })();
-                }}
-              >
-                Import…
-              </button>
-            </div>
-          </header>
+          {/*
+            Not while a file is open. Every control in this head is the grid's —
+            the search field, the view menu, the import — and the grid is not on
+            screen; the preview brings its own head, with the file's name and
+            the way out. A bar of controls for something you cannot see is one
+            more thing to read past (`UI_SPEC.md` §7).
+          */}
+          {!showingPreview && (
+            <header className="bar">
+              <SearchField query={query} onApply={applyQuery} matches={matches} />
+              <div className="bar-actions">
+                <ViewMenu
+                  view={view}
+                  proportional={proportional}
+                  zoom={zoom}
+                  onView={setView}
+                  onProportional={setProportional}
+                  onZoom={(steps) =>
+                    setZoom((at) => (steps === 0 ? DEFAULT_ZOOM : zoomBy(at, steps)))
+                  }
+                />
+                <button
+                  type="button"
+                  disabled={importing.running}
+                  onClick={() => {
+                    void (async () => {
+                      const chosen = await invoke({ type: "dialog:chooseImport" });
+                      if (chosen.ok && chosen.value !== null) importing.start(chosen.value);
+                    })();
+                  }}
+                >
+                  Import…
+                </button>
+              </div>
+            </header>
+          )}
 
-          {previewing && focused !== undefined ? (
+          {showingPreview ? (
             /* Over the asset on screen, not over the selection: "export…" while
              looking at one picture cannot sensibly mean the other eleven. */
             <AssetContextMenu
@@ -973,7 +992,10 @@ function LibraryView({
         />
       )}
 
-      <DropZone onDrop={dropped} captioning={previewing && captionable(paging.assets, focused)} />
+      <DropZone
+        onDrop={dropped}
+        captioning={showingPreview && captionable(paging.assets, focused)}
+      />
 
       <footer className="status">
         {/* One text node, so what the status bar says is one readable string

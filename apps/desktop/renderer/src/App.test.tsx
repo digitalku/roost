@@ -810,6 +810,27 @@ describe("the preview, in the window", () => {
     expect(screen.getAllByRole("option")).toHaveLength(6);
   });
 
+  it("takes the grid's controls away while a file is open", async () => {
+    // Every control in that head is the grid's — search, the view menu, the
+    // import — and the grid is not on screen. The preview brings its own head.
+    const { user } = await open();
+    expect(screen.getByRole("searchbox")).toBeDefined();
+
+    await user.click(screen.getAllByRole("option")[2] as HTMLElement);
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog");
+
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Import…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "View" })).toBeNull();
+
+    // And back, with the query it was showing before — the field is unmounted,
+    // not emptied.
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("searchbox")).toBeDefined();
+  });
+
   it("opens on a double-click", async () => {
     const { user } = await open();
     await user.dblClick(screen.getAllByRole("option")[1] as HTMLElement);

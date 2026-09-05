@@ -720,6 +720,12 @@ offer is "Open externally" is a pane in the way of what the gesture meant. The k
 grid's card so the decision costs no round trip, and `other` is the test: everything Roost has a
 backend for still opens here, even while its thumbnail is still being derived.
 
+**The content column's head goes with the grid.** Every control in it is the grid's — the search
+field, the view menu, Import — so while a file is open the bar is not drawn at all, and the pane's
+own head takes its place with the file's name and the way out. The sidebar and the inspector stay,
+because both are still about the thing on screen. The field is unmounted rather than emptied: the
+query it was showing comes back when the preview closes.
+
 Arrow keys step through the loaded
 list, and **stepping changes the selection**, so the inspector follows what is on screen — in
 `roost-old` it did not, and a note could be written onto the wrong asset.
