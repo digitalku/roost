@@ -328,13 +328,14 @@
  * which is mostly space already; Icons meets it with the hard edge of a cell.
  * The same gap therefore reads as right in one view and tight in the other, so
  * the difference is made here rather than by finding a number that is a
- * compromise in all three.
+ * compromise in all three. Twelve here on top of the eight the bar already
+ * leaves: twenty in total, against the other two views' eight.
  *
  * On the frame, not inside the scroller: padding inside `.grid` is spent as
  * soon as anything is scrolled.
  */
 .grid-frame[data-view="icons"] {
-  padding-top: var(--space-2);
+  padding-top: var(--space-3);
 }
 
 .grid-frame > .grid {
