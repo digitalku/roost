@@ -120,13 +120,15 @@ Still open, and none of it blocks M0:
   contains, so nothing about the format moved. Flagged here rather than assumed, because a
   binding document does not get edited quietly. See the port note at the top of the spec.
 
-- 🟢 **`STORAGE_SPEC.md`'s journal-op list keeps falling behind the code.** Twice now: the comment
-  and poster ops were recorded on 2026-09-02, two days after the first three shipped, and
-  `subtitle_attach`, `subtitle_detach` and `supersede` sat unrecorded from 2026-09-03 until
-  ADR-0030 went in on 2026-09-05. Nothing enforces it — `spec-conformance.test.ts` compares the
-  *schema* blocks against `DATA_MODEL.md` and has no equivalent for ops. **A test that parses the
-  op lines out of the spec and compares them with `OP_NAMES` would close it**, and it is the same
-  shape as the schema test already there.
+- ☑ ~~**`STORAGE_SPEC.md`'s journal-op list keeps falling behind the code.**~~ **Closed
+  2026-09-06**, the shape it asked for. Twice it had fallen behind: the comment and poster ops were
+  recorded on 2026-09-02, two days after the first three shipped, and `subtitle_attach`,
+  `subtitle_detach` and `supersede` sat unrecorded from 2026-09-03 until ADR-0030 went in on
+  2026-09-05. `spec-conformance.test.ts` now parses the journal lines out of the specification,
+  asserts their `op` values are exactly `OP_NAMES`, and round-trips each one through `toRecord`
+  and `toLine`. The second assertion catches the drift the first cannot see: a name in `OP_NAMES`
+  that `toRecord` has no case for, which replay reports as a **corrupt line** rather than as an
+  operation from a newer build.
 
 - 🟢 **A menu that opens a dialog has to stop Radix taking the focus back.** The close returns
   focus to the trigger **after** the dialog has focused its own field, so the caret sits in a field

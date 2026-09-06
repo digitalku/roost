@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { allMigrations, Db, latestSchemaVersion } from "@roost/core";
+import { allMigrations, Db, latestSchemaVersion, OP_NAMES, toLine, toRecord } from "@roost/core";
 import { describe, expect, it } from "vitest";
 
 const docs = (name: string): string =>
@@ -24,6 +24,31 @@ function statements(sql: string): string[] {
     .split(";")
     .map((s) => s.replace(/\s+/g, " ").trim())
     .filter((s) => s !== "");
+}
+
+/**
+ * Every journal line the specification publishes, with its hashes filled in.
+ *
+ * A document elides a hash to its first few characters, which is right for
+ * something a person reads and unparseable here. Padding restores the length
+ * `isContentHash` checks without inventing a different value: the point is the
+ * shape of the line, never which asset it names.
+ */
+function publishedOps(markdown: string): string[] {
+  return [...markdown.matchAll(/```json\n([\s\S]*?)```/g)]
+    .flatMap((block) => (block[1] ?? "").split("\n"))
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('{"ts"'))
+    .map((line) =>
+      line.replace(/"([0-9a-f]{1,63})\.\.\."/g, (_, head: string) => `"${head.padEnd(64, "0")}"`),
+    );
+}
+
+/** The `op` of one published line, read without parsing the rest of it. */
+function opOf(line: string): string {
+  const found = /"op":"([a-z_]+)"/.exec(line);
+  if (found?.[1] === undefined) throw new Error(`no op in published line: ${line}`);
+  return found[1];
 }
 
 describe("the schema on disk against the schema in the documents", () => {
@@ -108,6 +133,39 @@ describe("the schema a fresh library actually gets", () => {
       }
     } finally {
       db.close();
+    }
+  });
+});
+
+describe("the journal vocabulary against the vocabulary in the documents", () => {
+  it("publishes one example line for every operation this build understands", () => {
+    // The drift this catches has happened twice, and both times in the same
+    // direction: an operation was built, `OP_NAMES` grew, and the specification
+    // was not told — once for the three comment ops of ADR-0023, once for the
+    // two subtitle ops and `supersede` of ADR-0025 and ADR-0026. Nothing failed
+    // either time, because the list in the document is prose and prose does not
+    // compile. `sink.ts` already ties the `Op` union to the repository through
+    // a `never`, and `noImplicitReturns` ties the renderer's fake engine to the
+    // request union the same way; this is the one edge of that vocabulary the
+    // compiler cannot reach, because one end of it is a markdown file.
+    //
+    // Sorted and not deduplicated, so a second example for an operation that
+    // already has one fails too: `OP_NAMES` holds each name once.
+    const names = publishedOps(docs("STORAGE_SPEC.md")).map(opOf).sort();
+    expect(names).toEqual([...OP_NAMES]);
+  });
+
+  it("reads and rewrites every line the specification publishes, byte for byte", () => {
+    // The same promise `journal.test.ts` makes about the fixture, made about
+    // the document: an example with a field this build does not read, or a name
+    // in `OP_NAMES` that `toRecord` has no case for, fails here. The latter is
+    // otherwise invisible until a replay reports a real operation as a corrupt
+    // line, which reads like data loss rather than like a missing case.
+    const lines = publishedOps(docs("STORAGE_SPEC.md"));
+    expect(lines).toHaveLength(OP_NAMES.length);
+
+    for (const line of lines) {
+      expect(toLine(toRecord(JSON.parse(line)))).toBe(`${line}\n`);
     }
   });
 });

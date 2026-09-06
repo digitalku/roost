@@ -435,6 +435,14 @@ An older build that does not know these four skips them: it shows a video with
 no caption tracks, an edited asset with no link to its replacement, and no
 source. Showing less, again, rather than losing anything.
 
+**Every operation above is checked against the implementation.**
+`packages/core/tests/spec-conformance.test.ts` reads every JSON block in this
+document, asserts their `op` values are exactly `OP_NAMES`, and parses and
+re-serialises each line byte for byte. An operation built without a line here
+fails, and so does a line here the implementation cannot read. That check exists
+because this list fell behind twice, and a list nothing verifies is a list that
+falls behind a third time.
+
 Still undefined, for want of a feature that needs them: stacking, watched
 roots, and the partial-to-full hash upgrade described above.
 
