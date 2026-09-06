@@ -1,7 +1,8 @@
 import type { SidebarFolderRow, SidebarRow, WireSidebar } from "@roost/contract";
-import { render, screen } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { ASSET_DRAG_TYPE, FOLDER_DRAG_TYPE } from "../dnd.js";
 import { useExpansion } from "./expansion.js";
 import { Sidebar, type SidebarProps } from "./Sidebar.js";
 
@@ -47,6 +48,51 @@ const SIDEBAR: WireSidebar = {
 };
 
 /**
+ * Fires a drag event carrying a payload and a modifier.
+ *
+ * Built through `createEvent` rather than dispatched by hand, because React
+ * routes its own synthetic events and a bare `new Event("dragover")` never
+ * reaches `onDragOver`. `ctrlKey` is then defined on it: happy-dom's
+ * `DragEvent` takes no `MouseEventInit`, so passing it to `fireEvent` leaves it
+ * `undefined` — and a test asserting on the flag would pass for the wrong
+ * reason, which is how it failed first.
+ */
+function drag(
+  target: HTMLElement,
+  type: string,
+  dataTransfer: DataTransfer,
+  ctrlKey = false,
+): void {
+  const event = createEvent[type === "drop" ? "drop" : "dragOver"](target, { dataTransfer });
+  Object.defineProperty(event, "ctrlKey", { value: ctrlKey });
+  fireEvent(target, event);
+}
+
+/** The branch a folder row sits in, which is the drop target and the drag source. */
+function branchOf(name: string | RegExp): HTMLElement {
+  const branch = screen.getByRole("button", { name }).closest(".sidebar-branch");
+  if (!(branch instanceof HTMLElement)) throw new Error(`no branch for ${String(name)}`);
+  return branch;
+}
+
+/**
+ * A `dataTransfer` carrying what a drag inside the window carries.
+ *
+ * happy-dom has no drag-and-drop, so the object is built by hand — which is
+ * enough, because what these tests are about is the decision a target makes
+ * from the types and the payload.
+ */
+function transfer(data: Record<string, string>): DataTransfer {
+  return {
+    types: Object.keys(data),
+    getData: (type: string) => data[type] ?? "",
+    setData: () => {},
+    dropEffect: "none",
+    effectAllowed: "all",
+  } as unknown as DataTransfer;
+}
+
+/**
  * The pane with a live expansion state, which is what the window gives it.
  *
  * A stub would have made the collapse tests assert against their own fixture
@@ -60,6 +106,8 @@ function Pane({
   onNewFolder = () => {},
   onRenameFolder = () => {},
   onDeleteFolder = () => {},
+  onDropAssets = () => {},
+  onMoveFolder = () => {},
 }: Partial<Omit<SidebarProps, "expansion">>): React.JSX.Element {
   const expansion = useExpansion();
   return (
@@ -71,6 +119,8 @@ function Pane({
       onNewFolder={onNewFolder}
       onRenameFolder={onRenameFolder}
       onDeleteFolder={onDeleteFolder}
+      onDropAssets={onDropAssets}
+      onMoveFolder={onMoveFolder}
     />
   );
 }
@@ -199,6 +249,86 @@ describe("the navigation pane", () => {
     // `Design` has a child and `Recent PNGs` is not a folder at all; the row
     // that must not have one is the folder with nothing under it.
     expect(screen.queryByRole("button", { name: /Expand Icons/ })).toBeNull();
+  });
+
+  it("takes a drop of assets, and says whether Ctrl was held", () => {
+    // `UI_SPEC.md` §4.3. The pane reports the gesture; the *window* decides
+    // whether it is a move, because only it knows what is on screen.
+    const dropped: { folder: string; hashes: readonly string[]; copy: boolean }[] = [];
+    render(
+      <Pane
+        onDropAssets={(folder, hashes, copy) => dropped.push({ folder: folder.path, hashes, copy })}
+      />,
+    );
+
+    const design = branchOf("Design 412");
+    const carrying = transfer({ [ASSET_DRAG_TYPE]: JSON.stringify(["a".repeat(64)]) });
+
+    drag(design, "dragover", carrying);
+    expect(design.hasAttribute("data-over")).toBe(true);
+
+    drag(design, "drop", carrying, true);
+    expect(dropped).toEqual([{ folder: "Design", hashes: ["a".repeat(64)], copy: true }]);
+    // The highlight is a property of the drag, so it goes with it.
+    expect(design.hasAttribute("data-over")).toBe(false);
+  });
+
+  it("refuses a folder dropped on itself, and takes one dropped on another", () => {
+    const moves: [number, number | null][] = [];
+    render(<Pane onMoveFolder={(folder, parent) => moves.push([folder, parent])} />);
+    const design = branchOf("Design 412");
+    const itself = transfer({ [FOLDER_DRAG_TYPE]: "1" });
+    drag(design, "dragover", itself);
+    // Not a target for itself, so nothing lights up and nothing is offered.
+    expect(design.hasAttribute("data-over")).toBe(false);
+    drag(design, "drop", itself);
+    expect(moves).toEqual([]);
+
+    const other = transfer({ [FOLDER_DRAG_TYPE]: "2" });
+    drag(design, "dragover", other);
+    expect(design.hasAttribute("data-over")).toBe(true);
+    drag(design, "drop", other);
+    expect(moves).toEqual([[2, 1]]);
+  });
+
+  it("takes a folder dropped on the heading as a move to the top level", () => {
+    const moves: [number, number | null][] = [];
+    render(<Pane onMoveFolder={(folder, parent) => moves.push([folder, parent])} />);
+
+    const heading = screen.getByRole("heading", { name: /Folders/ });
+    const carrying = transfer({ [FOLDER_DRAG_TYPE]: "2" });
+    drag(heading, "dragover", carrying);
+    drag(heading, "drop", carrying);
+    expect(moves).toEqual([[2, null]]);
+
+    // Assets have no business at the top level: they live in folders, and it
+    // is not one.
+    const assets = transfer({ [ASSET_DRAG_TYPE]: JSON.stringify(["a".repeat(64)]) });
+    drag(heading, "dragover", assets);
+    expect(heading.hasAttribute("data-over")).toBe(false);
+  });
+
+  it("offers Move to top level only where there is somewhere to move from", async () => {
+    // The keyboard's half of dragging onto the heading. Disabled rather than
+    // absent on a folder already at the top: a menu that changes shape between
+    // two rows is one nobody learns.
+    const moves: [number, number | null][] = [];
+    render(<Pane onMoveFolder={(folder, parent) => moves.push([folder, parent])} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "Expand Design" }));
+    const icons = screen.getByRole("button", { name: /Icons/ });
+    icons.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await screen.findByRole("menu");
+    await user.click(screen.getByRole("menuitem", { name: "Move to top level" }));
+    expect(moves).toEqual([[2, null]]);
+
+    const design = screen.getByRole("button", { name: "Design 412" });
+    design.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await screen.findByRole("menu");
+    expect(
+      screen.getByRole("menuitem", { name: "Move to top level" }).getAttribute("aria-disabled"),
+    ).toBe("true");
   });
 
   it("raises the three folder commands and runs none of them", async () => {

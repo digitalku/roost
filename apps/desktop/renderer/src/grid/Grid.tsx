@@ -1,6 +1,7 @@
 import type { AssetCard } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { benchTarget } from "../bench/bench.js";
+import { ASSET_DRAG_TYPE } from "../dnd.js";
 import { AssetCell, cellId } from "./AssetCell.js";
 import {
   type Direction,
@@ -399,6 +400,35 @@ export function Grid({
     [onOpen],
   );
 
+  /**
+   * The grid is a drag source (`UI_SPEC.md` §4.3).
+   *
+   * One listener on the container, like every other gesture here — `dragstart`
+   * bubbles, and the hash comes back off the DOM rather than out of four
+   * hundred closures. What travels is the **selection**, not the cell under the
+   * pointer: `pointerdown` has already run by the time a drag starts, and it
+   * selects an unselected cell exactly as a right-click does, so dragging one
+   * of twelve selected assets drags all twelve.
+   *
+   * The payload is hashes under a Roost-only media type. `DropZone` takes a
+   * drop only when the types include `Files`, which an internal drag never
+   * carries — so the import overlay stays out of the way without either of them
+   * knowing about the other.
+   */
+  const onDragStart = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      const hash = hashAt(event.target);
+      if (hash === undefined) return;
+      const dragged = selection.selected();
+      const hashes = dragged.includes(hash) ? dragged : [hash];
+      event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(hashes));
+      // Both, because the drop decides which: into a folder from a folder is a
+      // move, from anywhere else there is nothing to move out of.
+      event.dataTransfer.effectAllowed = "copyMove";
+    },
+    [selection],
+  );
+
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       const direction = DIRECTIONS[event.key];
@@ -465,6 +495,7 @@ export function Grid({
         onPointerCancel={endSweep}
         onLostPointerCapture={endSweep}
         onDoubleClick={onDoubleClick}
+        onDragStart={onDragStart}
         onKeyDown={onKeyDown}
         role="listbox"
         aria-multiselectable

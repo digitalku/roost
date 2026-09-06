@@ -279,6 +279,15 @@ export type Request =
    */
   | { readonly type: "folder:create"; readonly name: string; readonly parent: number | null }
   | { readonly type: "folder:rename"; readonly folder: number; readonly name: string }
+  /**
+   * Re-parents a folder. `null` is the top level, which is a real destination
+   * rather than a missing one.
+   *
+   * The engine refuses a move into the folder's own subtree: it would cut that
+   * subtree off from the root, leaving it undrawable in the pane and therefore
+   * undeletable through it.
+   */
+  | { readonly type: "folder:move"; readonly folder: number; readonly parent: number | null }
   | {
       readonly type: "folder:delete";
       readonly folder: number;
@@ -559,6 +568,7 @@ export interface Responses {
   /** The new folder's id, so the window can go straight to it. */
   "folder:create": number;
   "folder:rename": null;
+  "folder:move": null;
   "folder:delete": WireFolderDeleted;
   "comment:add": null;
   "comment:set": null;
@@ -816,6 +826,14 @@ export const REQUEST_VALIDATORS: {
     const name = readNonEmpty(source, "name");
     if (!name.ok) return name;
     return ok({ type: "folder:rename", folder: folder.value, name: name.value });
+  },
+
+  "folder:move": (source) => {
+    const folder = readFolder(source);
+    if (!folder.ok) return folder;
+    const parent = readNullable(source, "parent", readFolderIn);
+    if (!parent.ok) return parent;
+    return ok({ type: "folder:move", folder: folder.value, parent: parent.value });
   },
 
   "folder:delete": (source) => {

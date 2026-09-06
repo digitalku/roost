@@ -104,6 +104,7 @@ describe("validating a request", () => {
       "asset:folderRemove",
       "folder:create",
       "folder:rename",
+      "folder:move",
       "folder:delete",
       "comment:add",
       "comment:set",

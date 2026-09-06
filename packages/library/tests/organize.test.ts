@@ -184,6 +184,11 @@ describe("organizing a library", () => {
     const icons = await createFolder(library, "Icons", design);
 
     await expect(moveFolder(library, design, icons)).rejects.toBeInstanceOf(FolderCycleError);
+    // Named rather than numbered: the message reaches a window now, and a
+    // sentence about rowids is one nobody can act on (ADR-0033 §5).
+    await expect(moveFolder(library, design, icons)).rejects.toThrow(
+      "Design cannot be moved into Icons",
+    );
     expect(library.db.repo.folder(design)?.parentId).toBe(null);
   });
 

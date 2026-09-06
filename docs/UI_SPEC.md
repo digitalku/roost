@@ -795,6 +795,47 @@ with an implicit `AND`, and the search field shows the compound query. There is 
 filter state that the search field does not know about — one source of truth for "what is on
 screen", and it is a string the user can read and edit.
 
+### 4.3 Dragging into a folder, and dragging a folder
+
+Built 2026-09-07 (ADR-0033 §5). Two gestures, one drop target.
+
+**Assets onto a folder row.** What travels is the **selection**, not the cell under the pointer —
+`pointerdown` has already selected an unselected cell by the time a drag starts, exactly as a
+right-click does, so dragging one of twelve selected assets drags all twelve.
+
+**Whether it is a move is decided by what is on screen, not by the drop.** A folder is a collection
+rather than a location, so there is nothing to move *out of* unless a folder is being looked at:
+
+| Dragging from | The drop means |
+| --- | --- |
+| A folder | **Move** — added to the target, removed from the folder on screen, and the row leaves the grid |
+| All assets, a search, a tag, a rating | **Add** — there is no folder to leave |
+| Anywhere, with `Ctrl` | **Add**, always |
+
+The status bar says which happened, in those words: *Moved 3 assets from Icons to Logos*, or
+*Added 3 assets to Logos*. **Two requests, not one**, and in that order: the add is what was asked
+for, and a failure between them leaves the assets in both folders — visible, harmless, and undone by
+dragging again. The reverse order could lose them from both.
+
+**A folder onto another folder** re-parents it. Onto the **FOLDERS heading**, it goes to the top
+level. The engine refuses a move into the folder's own subtree, because that cuts the subtree off
+from the root — unreachable in the pane and therefore undeletable through it — and the refusal is
+**shown**: the pane offered the drop, so a silent no reads as a gesture that did nothing. The pane
+refuses only the self-drop, which is the one case a `dragover` can see without the tree.
+
+**The keyboard has the one half it can.** **Move to top level** sits in a folder's own menu,
+disabled where the folder is already there. Moving a folder *into* another is a choice among every
+folder there is — a picker, not a menu item — and the drag is the gesture that already expresses it.
+
+**A drag target lights up rather than relying on `:hover`**, which does not match while a drag is in
+progress: the pointer is holding something, and the outline is the only thing telling the hand where
+it will land.
+
+**An internal drag carries a Roost media type and never `Files`**, which is what keeps the import
+overlay out of the way: `DropZone` appears for a drag carrying `Files`, which is what a drag from
+the desktop carries and what a drag inside this window never does. Neither has to know about the
+other.
+
 ## 5. Search
 
 The field takes RQL (`DATA_MODEL.md` §3). It is the primary control in its column's head and takes

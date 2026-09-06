@@ -58,6 +58,7 @@ import {
   libraryNameFromPath,
   listRecent,
   matches,
+  moveFolder,
   pageOf,
   pinLibrary,
   queueStatus,
@@ -270,6 +271,11 @@ export class EngineHost {
 
       case "folder:rename":
         return this.#edit(() => renameFolder(this.#require(), request.folder, request.name));
+
+      // Raises on a cycle rather than doing nothing: the pane offered the drop,
+      // and a refusal it cannot see is a gesture that appears to have worked.
+      case "folder:move":
+        return this.#edit(() => moveFolder(this.#require(), request.folder, request.parent));
 
       case "folder:delete":
         return this.#editReporting(() =>

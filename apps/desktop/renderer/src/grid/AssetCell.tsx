@@ -114,6 +114,10 @@ export const AssetCell = memo(function AssetCell({
         role="option"
         aria-selected={isSelected}
         aria-label={name}
+        // A primitive, not a handler: the grid listens once for `dragstart` on
+        // its container and reads the hash back off the DOM, the way it does
+        // for every other gesture (`UI_SPEC.md` §6).
+        draggable
         style={{ transform: `translate(${x}px, ${y}px)`, width, height }}
       >
         <div className="cell-thumb">
@@ -164,6 +168,7 @@ export const AssetCell = memo(function AssetCell({
       aria-selected={isSelected}
       aria-label={name}
       data-view="icons"
+      draggable
       style={{ transform: `translate(${x}px, ${y}px)`, width, height }}
     >
       <div className="cell-thumb" style={{ height: height - caption }}>

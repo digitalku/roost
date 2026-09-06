@@ -881,6 +881,58 @@ function LibraryView({
     [query, applyQuery, noteResult],
   );
 
+  /**
+   * Assets dropped on a folder row (`UI_SPEC.md` §4.3).
+   *
+   * **Whether this is a move is decided here**, not in the pane: a folder is a
+   * collection rather than a location, so there is nothing to move *out of*
+   * unless a folder is on screen. Dropping from `All assets` or from a search
+   * adds; dropping from inside a folder moves, because that is what the gesture
+   * means to the hand that made it. `Ctrl` forces the add, as it does in a file
+   * manager.
+   *
+   * Two requests rather than one, and deliberately in this order: the add is
+   * what was asked for, and a failure between them leaves the assets in both
+   * folders — visible, harmless, and undone by dragging again. The reverse
+   * order could lose them from both.
+   */
+  const dropOnFolder = useCallback(
+    (folder: SidebarFolderRow, hashes: readonly string[], copy: boolean) => {
+      const from = copy || openFolder === undefined ? undefined : openFolder;
+      if (from?.folder === folder.folder) return;
+
+      void (async () => {
+        const added = await invoke({ type: "asset:folderAdd", hashes, folder: folder.folder });
+        if (!added.ok) return setActed(added.problem);
+        if (from === undefined) {
+          noteResult(`Added ${assets(hashes.length)} to ${folder.name}`);
+          return;
+        }
+        const removed = await invoke({
+          type: "asset:folderRemove",
+          hashes,
+          folder: from.folder,
+        });
+        if (!removed.ok) return setActed(removed.problem);
+        // They have left the view they were dragged out of, so the same
+        // targeted drop `Ctrl+Delete` needs applies here (`paging.drop`).
+        dropRows(hashes);
+        clearSelection();
+        noteResult(`Moved ${assets(hashes.length)} from ${from.name} to ${folder.name}`);
+      })();
+    },
+    [openFolder, dropRows, clearSelection, noteResult],
+  );
+
+  /** A folder dropped on another, or on the heading (`null` is the top level). */
+  const moveFolder = useCallback((folder: number, parent: number | null) => {
+    void invoke({ type: "folder:move", folder, parent }).then((outcome) => {
+      // The refusal that matters is a cycle, and it has to be seen: the pane
+      // offered the drop, so a silent no reads as a gesture that did nothing.
+      if (!outcome.ok) setActed(outcome.problem);
+    });
+  }, []);
+
   /** The Eagle library the survey dialog is open on, if it is (ADR-0032). */
   const [eagle, setEagle] = useState<string | undefined>();
 
@@ -1135,6 +1187,8 @@ function LibraryView({
               onNewFolder={newFolder}
               onRenameFolder={renameFolder}
               onDeleteFolder={deleteFolder}
+              onDropAssets={dropOnFolder}
+              onMoveFolder={moveFolder}
             />
           )}
         </div>

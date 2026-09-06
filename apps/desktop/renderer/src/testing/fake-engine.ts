@@ -734,6 +734,25 @@ export class FakeEngine {
         return ok(null);
       }
 
+      case "folder:move": {
+        const moved = this.folders.find((row) => row.folder === request.folder);
+        const under = this.folders.find((row) => row.folder === request.parent);
+        if (moved === undefined)
+          return problem("unknown_folder", `no folder ${request.folder}`, {});
+        // Refused the way the engine refuses it: a folder cannot go inside its
+        // own subtree, or that subtree is cut off from the root.
+        if (under?.path.startsWith(`${moved.path}/`) === true) {
+          return problem("folder_cycle", "a folder cannot go inside itself", {});
+        }
+        const path = under === undefined ? moved.name : `${under.path}/${moved.name}`;
+        const depth = under === undefined ? 0 : under.depth + 1;
+        this.folders = this.folders.map((row) =>
+          row.folder === moved.folder ? { ...row, path, depth, query: `folder:"${path}"` } : row,
+        );
+        this.emit({ type: "library:changed" });
+        return ok(null);
+      }
+
       case "folder:delete": {
         // Descendants go with it, the way the cascade does in the index. By
         // path rather than by walking parents: the wire row has no parent, and

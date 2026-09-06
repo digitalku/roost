@@ -375,7 +375,7 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   stay in the library unfiled, ticked they go to the **trash** in the same journal batch.
   `ConfirmDialog` grew an optional `option` for it, and `roost folder delete --trash-contents` is
   the CLI's half.
-- ☑ ~~**Driven against a real window.**~~ `scripts/check-folders.mjs`, 29 claims, on the shared
+- ☑ ~~**Driven against a real window.**~~ `scripts/check-folders.mjs`, 38 claims, on the shared
   harness. It found two things nothing else could, both on its first run: **renaming a folder
   sprang its branch open**, because `onDone` revealed the folder it had just renamed; and
   **`Ctrl+Delete` left the asset on screen** — the status bar said it was gone, the count agreed,
@@ -391,11 +391,19 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟡 **Expansion does not survive the window.** It belongs in `settings.json` in the library
   (ADR-0019), which is decided and not built. Until then every window opens collapsed — which is
   right for a first look and wrong for the fifth.
-- 🟢 **No drag to reorder or re-parent.** `moveFolder` exists and refuses a cycle; the gesture is
-  missing, and `sort_order` is still unset and unsettable, so siblings are alphabetical. The two
-  are one piece of work: a pane people can reorder by hand is what `sort_order` is for.
+- ☑ ~~**Drag: assets onto a folder, and a folder onto a folder.**~~ Built 2026-09-07 (ADR-0033 §5),
+  at the user's word. A drop from inside a folder **moves** and from anywhere else **adds**, because
+  a folder is a collection and there is nothing to leave unless one is on screen; `Ctrl` forces the
+  add. A folder dropped on another re-parents, on the heading goes to the top level, and a move into
+  its own subtree is refused **visibly**. No journal op, no migration, no schema change — the third
+  change running.
+- 🟡 **Still no reordering.** `sort_order` is unset and unsettable, so siblings are alphabetical and
+  a drag *between* two rows means nothing. That is what `sort_order` is for and the one part of this
+  that needs a journal op.
 - 🟢 **No keyboard on the tree.** Arrow keys do not move between rows and `←`/`→` do not fold a
-  branch. The rows are buttons in a list, so `Tab` reaches them and `Enter` picks one.
+  branch. The rows are buttons in a list, so `Tab` reaches them and `Enter` picks one, and every
+  drag has a menu item behind it (**Move to top level**) except moving a folder *into* another —
+  which is a picker rather than a menu item, and is not built.
 
 ### The folders an asset is in (2026-09-06)
 - ☑ ~~**The window can file an asset and unfile it.**~~ Asked for by the user — *"untuk file yang

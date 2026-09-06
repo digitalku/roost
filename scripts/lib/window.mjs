@@ -346,8 +346,20 @@ async function session(url) {
        * A real pointer move. `:hover` matches on this and on nothing a page
        * expression can dispatch.
        */
-      async move(x, y, { buttons = 0, modifiers = 0 } = {}) {
-        await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, buttons, modifiers });
+      async move(x, y, { buttons = 0, modifiers = 0, button } = {}) {
+        await send("Input.dispatchMouseEvent", {
+          type: "mouseMoved",
+          x,
+          y,
+          buttons,
+          modifiers,
+          // Named only when a caller says so. A native drag does not start
+          // without it — Chromium reads `buttons` for the state and `button`
+          // for what is doing the moving, and a move with no `button` is not a
+          // gesture it will hand to the drag controller. Diagnosed on
+          // 2026-09-07, against a `dragstart` that fired and went nowhere.
+          ...(button === undefined ? {} : { button }),
+        });
       },
       async down(x, y, { button = "left", modifiers = 0, clickCount = 1 } = {}) {
         await send("Input.dispatchMouseEvent", {
@@ -396,6 +408,57 @@ async function session(url) {
         }
         await cdp.mouse.up(to.x, to.y, { modifiers, button });
       },
+    },
+
+    /**
+     * A real HTML5 drag, from one point to another.
+     *
+     * Chromium hands a native drag to the platform the moment one starts, and
+     * from there `Input.dispatchMouseEvent` reaches nothing — the page sees a
+     * `dragstart` and then silence, which reads exactly like a drop target that
+     * refuses the drag. `Input.setInterceptDrags` keeps the drag inside the
+     * browser and hands the payload back through `Input.dragIntercepted`, which
+     * is then replayed as `dragEnter`, `dragOver` and `drop` at the
+     * destination.
+     *
+     * Verified on 2026-09-07: without the interception the check hung on a
+     * `dragstart` that never became a drop.
+     */
+    async dragAndDrop(from, to, { steps = 8, modifiers = 0, restMs = 24 } = {}) {
+      await send("Input.setInterceptDrags", { enabled: true });
+      const intercepted = cdp.once("Input.dragIntercepted");
+      await cdp.mouse.move(from.x, from.y);
+      await cdp.mouse.down(from.x, from.y);
+      // A drag begins on the *second* position: one press and no movement is a
+      // click, and Chromium starts the drag only once the pointer has passed
+      // its threshold.
+      for (let step = 1; step <= steps; step += 1) {
+        await cdp.mouse.move(
+          Math.round(from.x + ((to.x - from.x) * step) / steps),
+          Math.round(from.y + ((to.y - from.y) * step) / steps),
+          { buttons: 1, button: "left" },
+        );
+        // Chromium starts a drag from the *movement*, and a run of positions
+        // delivered in one task is one movement as far as its threshold is
+        // concerned.
+        await sleep(restMs);
+      }
+      const payload = await intercepted;
+      if (payload === undefined) {
+        await send("Input.setInterceptDrags", { enabled: false });
+        throw new Error("no drag was intercepted; nothing started a drag");
+      }
+      for (const type of ["dragEnter", "dragOver", "drop"]) {
+        await send("Input.dispatchDragEvent", {
+          type,
+          x: to.x,
+          y: to.y,
+          data: payload.data,
+          modifiers,
+        });
+      }
+      await cdp.mouse.up(to.x, to.y);
+      await send("Input.setInterceptDrags", { enabled: false });
     },
 
     keyboard: {

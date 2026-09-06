@@ -81,6 +81,20 @@
   align-items: center;
 }
 
+/*
+ * What a drag is over. Drawn rather than left to `:hover`, which does not match
+ * while a drag is in progress — the pointer is holding something, and the only
+ * thing that tells the hand where it will land is the target lighting up.
+ * An outline rather than a fill, so the row underneath stays readable and a
+ * selected row does not change colour twice.
+ */
+.sidebar-branch[data-over],
+.sidebar-heading[data-over] {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
 .sidebar-twisty {
   flex: none;
   width: var(--space-4);

@@ -579,7 +579,14 @@ export async function moveFolder(
     requireFolder(library, parent);
     // Moving a folder into its own subtree cuts that subtree off from the root:
     // unreachable in the sidebar, and undeletable through it.
-    if (library.db.repo.folderIsWithin(parent, id)) throw new FolderCycleError(id, parent);
+    if (library.db.repo.folderIsWithin(parent, id)) {
+      throw new FolderCycleError(
+        id,
+        parent,
+        library.db.repo.folder(id)?.name ?? String(id),
+        library.db.repo.folder(parent)?.name ?? String(parent),
+      );
+    }
   }
   return apply(library, [{ op: "folder_move", id, parent }]);
 }

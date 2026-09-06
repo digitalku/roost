@@ -126,6 +126,19 @@ async function clickFirstCell() {
   );
 }
 
+/**
+ * A folder's count, asked of the engine rather than read off the pane.
+ *
+ * The pane is what is under test, so a check that reads its own subject would
+ * agree with it whatever either of them says.
+ */
+const folderCount = async (name) => {
+  const rows = await cdp.evaluate(
+    'window.roost.invoke({ type: "library:sidebar" }).then((o) => o.value.folders)',
+  );
+  return rows.find((row) => row.name === name)?.count ?? -1;
+};
+
 const liveCount = () =>
   cdp.evaluate('window.roost.invoke({ type: "assets:count", query: "" }).then((o) => o.value)');
 
@@ -303,6 +316,108 @@ try {
       "Removed 1 asset from Alpha",
   );
 
+  section("Dragging assets onto a folder");
+  // Back to everything, so there is no folder to move *out* of: the same drop
+  // means add here and move from inside a folder, and both are asserted.
+  await cdp.evaluate(`
+    [...document.querySelectorAll(".sidebar-row")]
+      .find((row) => row.querySelector(".sidebar-label")?.textContent === "All assets")?.click()`);
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === ASSETS);
+  await clickFirstCell();
+  const dragged = await cdp.evaluate(
+    "document.querySelector('.cell[aria-selected=\"true\"]')?.dataset.hash ?? null",
+  );
+
+  const cell = await cdp.box(".cell[aria-selected='true']");
+  await cdp.dragAndDrop(cell, await rowBox("Aardvark"));
+  await cdp.settle(
+    "document.querySelector('.status-note')?.textContent ?? null",
+    (note) => note === "Added 1 asset to Aardvark",
+    { attempts: 40 },
+  );
+  check("a drop from All assets adds, because there is nothing to leave", true);
+  check(
+    "and the folder's count follows",
+    (await tree()).find((row) => row.name === "Aardvark")?.count === "1",
+    `Aardvark=${(await tree()).find((row) => row.name === "Aardvark")?.count}`,
+  );
+
+  // From inside a folder the same gesture is a move, which is the half that
+  // needs the grid to drop the row as well as the engine to write two ops.
+  const aardvark = await rowBox("Aardvark");
+  await cdp.mouse.click(aardvark.x, aardvark.y);
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === 1);
+  await clickFirstCell();
+  const moved = await cdp.box(".cell[aria-selected='true']");
+  await cdp.dragAndDrop(moved, await rowBox("Design"));
+  await cdp.settle(
+    "document.querySelector('.status-note')?.textContent ?? null",
+    (note) => note === "Moved 1 asset from Aardvark to Design",
+    { attempts: 40 },
+  );
+  check("a drop from inside a folder moves", true, `${dragged?.slice(0, 8)}…`);
+  check(
+    "and the grid drops the row it was dragged out of",
+    (await cdp.evaluate("document.querySelectorAll('.cell').length")) === 0,
+    `cells=${await cdp.evaluate("document.querySelectorAll('.cell').length")}`,
+  );
+  // The claim is about the asset, not about two counts: a folder count is a
+  // *subtree* count, so `Design` legitimately reads 2 — its own new member and
+  // the one still in `Alpha`.
+  const filedIn = await cdp.evaluate(
+    `window.roost
+      .invoke({ type: "asset:detail", hash: ${JSON.stringify(dragged)} })
+      .then((o) => o.value.folders.map((f) => f.path))`,
+  );
+  check(
+    "a move leaves one membership, not two",
+    Array.isArray(filedIn) && filedIn.length === 1 && filedIn[0] === "Design",
+    `folders=${JSON.stringify(filedIn)}`,
+  );
+
+  section("Dragging a folder onto another");
+  // `Design` is open from the section above, so its subtree is on screen and
+  // the row that arrives can be seen without pressing anything.
+  await cdp.dragAndDrop(await rowBox("Aardvark"), await rowBox("Design"));
+  const reparented = await cdp.settle(
+    treeExpression,
+    (rows) => rows.length === 4 && rows[0]?.name === "Design",
+  );
+  check(
+    "it becomes a child, sorted among its new siblings",
+    names(reparented) === "0:Design 1:Aardvark 1:Alpha 0:Logos",
+    names(reparented),
+  );
+
+  // The one refusal the engine makes and the pane cannot: a folder into its own
+  // subtree cuts that subtree off from the root. The pane refuses only the
+  // self-drop, because it is the case a `dragover` can see without the tree.
+  await cdp.dragAndDrop(await rowBox("Design"), await rowBox("Alpha"));
+  const refused = await cdp.settle(
+    "document.querySelector('.problem')?.textContent ?? null",
+    (text) => typeof text === "string" && text.length > 0,
+    { attempts: 40 },
+  );
+  check("a folder dropped into its own subtree is refused, and says so", true, refused.trim());
+  check(
+    "and the tree is unchanged by the refusal",
+    names(await tree()) === "0:Design 1:Aardvark 1:Alpha 0:Logos",
+    names(await tree()),
+  );
+
+  // Back out again, through the keyboard's half of the same gesture.
+  await folderMenu("Aardvark");
+  await cdp.evaluate(clickMenuItem("Move to top level"));
+  const back = await cdp.settle(
+    treeExpression,
+    (rows) => rows[0]?.name === "Aardvark" && rows[0]?.depth === "0",
+  );
+  check(
+    "Move to top level brings it back out",
+    names(back) === "0:Aardvark 0:Design 1:Alpha 0:Logos",
+    names(back),
+  );
+
   section("Deleting a folder, leaving its assets alone");
   items = await folderMenu("Logos");
   await cdp.evaluate(clickMenuItem("Delete folder…"));
@@ -326,6 +441,9 @@ try {
   check("it goes", true, "Logos gone");
 
   section("Deleting a folder and its contents");
+  // Taken from the row rather than from a constant: the drags above changed
+  // what is in there, and the dialog's own number comes from the same place.
+  const held = Number((await tree()).find((row) => row.name === "Design")?.count ?? 0);
   await folderMenu("Design");
   await cdp.evaluate(clickMenuItem("Delete folder…"));
   const asked = await cdp.settle(
@@ -344,7 +462,7 @@ try {
   );
   check(
     "the count in the question is the folder's own subtree count",
-    asked.label === `Also move ${assetsPhrase(FILED - 1)} to the trash`,
+    asked.label === `Also move ${assetsPhrase(held)} to the trash`,
     `label=${JSON.stringify(asked.label)}`,
   );
   check("the box starts unticked", asked.checked === false);
@@ -368,18 +486,18 @@ try {
 
   check(
     "the assets in it went to the trash",
-    (await trashedCount()) === FILED - 1,
+    (await trashedCount()) === held,
     `trashed=${await trashedCount()}`,
   );
   check(
     "trashed, not removed — the library still holds them",
-    (await liveCount()) === ASSETS - (FILED - 1),
+    (await liveCount()) === ASSETS - held,
     `live=${await liveCount()}`,
   );
   check(
     "and the status bar says both halves of what it did",
     (await cdp.evaluate("document.querySelector('.status-note')?.textContent ?? null")) ===
-      `Deleted Design, and moved ${assetsPhrase(FILED - 1)} to the trash`,
+      `Deleted Design, and moved ${assetsPhrase(held)} to the trash`,
     JSON.stringify(
       await cdp.evaluate("document.querySelector('.status-note')?.textContent ?? null"),
     ),

@@ -1,8 +1,9 @@
 import type { SidebarFolderRow } from "@roost/contract";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App.js";
+import { ASSET_DRAG_TYPE } from "./dnd.js";
 import { FakeEngine, fakeAsset, fakeDetail, install } from "./testing/fake-engine.js";
 
 /**
@@ -635,6 +636,37 @@ describe("making files in the window (ADR-0026 §4, §5)", () => {
 describe("the navigation pane, in the window", () => {
   const HOLIDAY = "/home/you/Holiday Photos.roost";
 
+  /** An empty folder to drop things onto. */
+  const LOGOS: SidebarFolderRow = {
+    id: "folder:8",
+    name: "Logos",
+    query: 'folder:"Logos"',
+    count: 0,
+    depth: 0,
+    group: null,
+    stars: null,
+    folder: 8,
+    path: "Logos",
+  };
+
+  /**
+   * Drops `hashes` on a folder row.
+   *
+   * Through `createEvent`, because React routes its own synthetic events and a
+   * hand-dispatched `Event` never reaches `onDrop`.
+   */
+  function dropOn(row: string, hashes: readonly string[]): void {
+    const branch = screen.getByRole("button", { name: row }).closest(".sidebar-branch");
+    if (!(branch instanceof HTMLElement)) throw new Error(`no branch for ${row}`);
+    const dataTransfer = {
+      types: [ASSET_DRAG_TYPE],
+      getData: () => JSON.stringify(hashes),
+      dropEffect: "none",
+      effectAllowed: "all",
+    } as unknown as DataTransfer;
+    fireEvent(branch, createEvent.drop(branch, { dataTransfer }));
+  }
+
   /** One folder with something in it, which is what a delete has to ask about. */
   const DESIGN: SidebarFolderRow = {
     id: "folder:7",
@@ -723,6 +755,59 @@ describe("the navigation pane, in the window", () => {
       await screen.findByText("Deleted Design, and moved 2 assets to the trash"),
     ).toBeDefined();
     expect(screen.queryByRole("button", { name: /Design/ })).toBeNull();
+  });
+
+  it("moves assets when they are dragged out of a folder, and adds when they are not", async () => {
+    // `UI_SPEC.md` §4.3. The pane reports the drop; the window decides whether
+    // it is a move, because a folder is a collection and there is nothing to
+    // move *out of* unless one is on screen.
+    const inDesign = [fakeAsset(0), fakeAsset(1)];
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      byQuery: { 'folder:"Design"': inDesign },
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [DESIGN, LOGOS],
+        smartFolders: [],
+        tags: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(9));
+
+    // From "All assets" there is no folder to leave, so this is an add.
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    dropOn("Logos 0", [fakeAsset(0).hash]);
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "asset:folderAdd")).toBe(true),
+    );
+    expect(engine.seen.some((request) => request.type === "asset:folderRemove")).toBe(false);
+    expect(await screen.findByText("Added 1 asset to Logos")).toBeDefined();
+
+    // From inside Design there is, so the same gesture is a move.
+    await user.click(screen.getByRole("button", { name: "Design 2" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(2));
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    dropOn("Logos 0", [inDesign[0]?.hash ?? ""]);
+
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "asset:folderRemove")).toBe(true),
+    );
+    expect([...engine.seen].reverse().find((r) => r.type === "asset:folderRemove")).toMatchObject({
+      folder: DESIGN.folder,
+    });
+    // It left the view it was dragged out of, and the grid drops the row for
+    // the same reason `Ctrl+Delete` does.
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(1));
+    expect(screen.getByText("Moved 1 asset from Design to Logos")).toBeDefined();
   });
 
   it("takes the selection out of the folder on screen, and out of no other", async () => {

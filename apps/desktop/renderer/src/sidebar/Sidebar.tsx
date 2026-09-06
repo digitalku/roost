@@ -1,6 +1,13 @@
 import type { SidebarFolderRow, SidebarRow, WireSidebar } from "@roost/contract";
 import { ContextMenu } from "radix-ui";
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
+import {
+  carriesAssets,
+  carriesFolder,
+  draggedAssets,
+  draggedFolder,
+  FOLDER_DRAG_TYPE,
+} from "../dnd.js";
 import type { Expansion } from "./expansion.js";
 
 /**
@@ -32,6 +39,20 @@ export interface SidebarProps {
   readonly onNewFolder: (parent: SidebarFolderRow | null) => void;
   readonly onRenameFolder: (folder: SidebarFolderRow) => void;
   readonly onDeleteFolder: (folder: SidebarFolderRow) => void;
+  /**
+   * Assets were dropped on a folder (`UI_SPEC.md` §4.3).
+   *
+   * `copy` is the answer to "was `Ctrl` held" and nothing more — whether this
+   * is a move at all depends on what is on screen, which the window knows and
+   * the pane does not.
+   */
+  readonly onDropAssets: (
+    folder: SidebarFolderRow,
+    hashes: readonly string[],
+    copy: boolean,
+  ) => void;
+  /** A folder was dropped on another, or on the heading. `null` is the top level. */
+  readonly onMoveFolder: (folder: number, parent: number | null) => void;
 }
 
 export function Sidebar({
@@ -42,6 +63,8 @@ export function Sidebar({
   onNewFolder,
   onRenameFolder,
   onDeleteFolder,
+  onDropAssets,
+  onMoveFolder,
 }: SidebarProps): React.JSX.Element {
   // Tags are grouped, and the ungrouped ones come last (`UI_SPEC.md` §4.1).
   const tagGroups = useMemo(() => groupTags(sidebar.tags), [sidebar.tags]);
@@ -58,6 +81,8 @@ export function Sidebar({
         onNewFolder={onNewFolder}
         onRename={onRenameFolder}
         onDelete={onDeleteFolder}
+        onDropAssets={onDropAssets}
+        onMoveFolder={onMoveFolder}
       />
       <Section title="Smart folders" rows={sidebar.smartFolders} query={query} onPick={onPick} />
       {tagGroups.map(([group, rows]) => (
@@ -94,6 +119,8 @@ function Folders({
   onNewFolder,
   onRename,
   onDelete,
+  onDropAssets,
+  onMoveFolder,
 }: {
   readonly rows: readonly SidebarFolderRow[];
   readonly query: string;
@@ -102,12 +129,60 @@ function Folders({
   readonly onNewFolder: (parent: SidebarFolderRow | null) => void;
   readonly onRename: (folder: SidebarFolderRow) => void;
   readonly onDelete: (folder: SidebarFolderRow) => void;
+  readonly onDropAssets: (
+    folder: SidebarFolderRow,
+    hashes: readonly string[],
+    copy: boolean,
+  ) => void;
+  readonly onMoveFolder: (folder: number, parent: number | null) => void;
 }): React.JSX.Element {
   const visible = useMemo(() => drawn(rows, expansion.open), [rows, expansion.open]);
+  /**
+   * The row a drag is over, or `"top"` for the heading.
+   *
+   * Drawn rather than left to `:hover`, because a drag has no hover: the
+   * pointer is holding something, and the only thing that says where it will
+   * land is the target lighting up.
+   */
+  const [over, setOver] = useState<number | "top" | null>(null);
+
+  /** Whether this drag is one this pane can take, and what it would mean. */
+  const accepts = (event: React.DragEvent, folder: number | null): boolean => {
+    if (carriesAssets(event.dataTransfer)) return folder !== null;
+    if (!carriesFolder(event.dataTransfer)) return false;
+    // A folder cannot be dropped on itself. Its own subtree is refused by the
+    // engine, which knows the tree; this is the one case the pane can see.
+    return String(folder) !== event.dataTransfer.getData(FOLDER_DRAG_TYPE);
+  };
 
   return (
     <section className="sidebar-section">
-      <h2 className="sidebar-heading">
+      {/*
+        A drop target that is not a control, which the a11y lint is right to
+        ask about: dragging is pointer-only. The keyboard path is **Move to top
+        level** in a folder's own menu below, and this is the shortcut for it —
+        so the gesture has an equivalent rather than being the only way.
+      */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: see above */}
+      <h2
+        className="sidebar-heading"
+        data-over={over === "top" || undefined}
+        onDragOver={(event) => {
+          // The heading is a drop target for folders only: assets belong in a
+          // folder, and "the top level" is not one.
+          if (!carriesFolder(event.dataTransfer)) return;
+          event.preventDefault();
+          setOver("top");
+        }}
+        onDragLeave={() => setOver((held) => (held === "top" ? null : held))}
+        onDrop={(event) => {
+          setOver(null);
+          const dragged = draggedFolder(event.dataTransfer);
+          if (dragged === undefined) return;
+          event.preventDefault();
+          onMoveFolder(dragged, null);
+        }}
+      >
         Folders
         <button
           type="button"
@@ -124,7 +199,48 @@ function Folders({
           <li key={row.id}>
             <ContextMenu.Root>
               <ContextMenu.Trigger asChild>
-                <div className="sidebar-branch" data-depth={depthOf(row)}>
+                {/*
+                  Drag handlers on a row that is not itself a control. The
+                  keyboard reaches everything they do through this row's own
+                  menu — the context-menu key opens it from the focused row —
+                  so the drag is a faster way to say something sayable, which
+                  is the test this rule is really asking about (`UI_SPEC.md`
+                  §10).
+                */}
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: see above */}
+                <div
+                  className="sidebar-branch"
+                  data-depth={depthOf(row)}
+                  data-over={over === row.folder || undefined}
+                  // The branch is the drag source as well as a target: a folder
+                  // travels as its id, and the row's own `draggable` would take
+                  // the disclosure arrow with it.
+                  draggable
+                  onDragStart={(event) => {
+                    event.dataTransfer.setData(FOLDER_DRAG_TYPE, String(row.folder));
+                    event.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragOver={(event) => {
+                    if (!accepts(event, row.folder)) return;
+                    // Both halves are required: without `preventDefault` on
+                    // *every* `dragover` the browser refuses the drop, and
+                    // `dropEffect` is what the cursor shows the hand.
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect =
+                      carriesAssets(event.dataTransfer) && event.ctrlKey ? "copy" : "move";
+                    setOver(row.folder);
+                  }}
+                  onDragLeave={() => setOver((held) => (held === row.folder ? null : held))}
+                  onDrop={(event) => {
+                    setOver(null);
+                    if (!accepts(event, row.folder)) return;
+                    event.preventDefault();
+                    const folder = draggedFolder(event.dataTransfer);
+                    if (folder !== undefined) return onMoveFolder(folder, row.folder);
+                    const hashes = draggedAssets(event.dataTransfer);
+                    if (hashes.length > 0) onDropAssets(row, hashes, event.ctrlKey);
+                  }}
+                >
                   {/*
                     A button where there are children and a spacer where there
                     are none — never a disabled button, which would be a target
@@ -166,6 +282,21 @@ function Folders({
                   <ContextMenu.Item className="menu-item" onSelect={() => onRename(row)}>
                     <span className="menu-mark" />
                     <span className="menu-label">Rename…</span>
+                  </ContextMenu.Item>
+                  {/*
+                    The keyboard's half of dragging a folder onto the heading.
+                    Only the one direction: moving a folder *into* another is a
+                    choice among every folder there is, which is a picker, and
+                    the drag is the gesture that already expresses it. Coming
+                    back out has exactly one destination.
+                  */}
+                  <ContextMenu.Item
+                    className="menu-item"
+                    disabled={row.depth === 0}
+                    onSelect={() => onMoveFolder(row.folder, null)}
+                  >
+                    <span className="menu-mark" />
+                    <span className="menu-label">Move to top level</span>
                   </ContextMenu.Item>
                   <ContextMenu.Separator className="menu-separator" />
                   {/*

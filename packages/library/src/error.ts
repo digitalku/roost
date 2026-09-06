@@ -243,8 +243,16 @@ export class UnknownFolderPathError extends RoostError {
 export class FolderCycleError extends RoostError {
   readonly code = "folder_cycle";
 
-  constructor(id: number, parent: number) {
-    super(`Folder ${id} cannot be moved into ${parent}, which is inside it`, { id, parent });
+  /**
+   * Named, not numbered.
+   *
+   * The message reaches a window now (ADR-0033 §5) — a drag onto a folder is
+   * the ordinary way to hit this — and *Folder 1 cannot be moved into 2* is a
+   * sentence about rowids, which nobody has ever seen. The ids stay in the
+   * detail, where a bug report wants them.
+   */
+  constructor(id: number, parent: number, name: string, into: string) {
+    super(`${name} cannot be moved into ${into}, which is inside it`, { id, parent });
   }
 }
 
