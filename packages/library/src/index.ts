@@ -32,7 +32,6 @@ export {
   type EagleRoot,
   type EagleSurvey,
   type EagleTagGroup,
-  type FolderRename,
   importEagle,
   readEagleRoot,
   surveyEagle,

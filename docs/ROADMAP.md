@@ -329,8 +329,10 @@ support · library merge · on-image annotation.
 
 **Nothing open, as of 2026-09-06.** **ADR-0032 — importing an Eagle library** was accepted that
 day, from the user asking whether their existing Eagle library can be brought across and handing
-over a real Eagle 4.0.0 one to read rather than remember. Folders map to folders, because Roost has
-them and they are Eagle's idea of a folder; tags, ratings, notes, URLs, trash, timed comments and a
+over a real Eagle 4.0.0 one to read rather than remember. **A folder becomes a tag** (§3.1), at the
+user's request and against the ADR's own first answer — Roost has folders and they are Eagle's idea
+of one, which was said plainly before the decision was taken rather than after. Tags, ratings,
+notes, URLs, trash, timed comments and a
 `.srt` sitting beside a video all land on operations this build already writes, so the importer
 needs **no journal op, no migration, and no schema change**. `roost import --from-eagle <path>`,
 with `--dry-run` surveying the library and writing nothing. **Selective import was asked for and

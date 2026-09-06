@@ -171,7 +171,7 @@ function printSurvey(
   out(
     row(
       "",
-      `${plural(survey.folders, "folder")} · ${plural(survey.tags.length, "tag")} · ` +
+      `${plural(survey.tags.length, "tag")}, including ${survey.folders} from folders · ` +
         `${survey.rated} rated · ${plural(survey.notes, "note")} · ` +
         `${plural(survey.sources, "URL")} · ${plural(survey.comments, "comment")} · ` +
         `${plural(survey.subtitles, "subtitle")} · ${survey.trashed} in Eagle's trash`,
@@ -179,6 +179,12 @@ function printSurvey(
       0,
     ),
   );
+
+  out("");
+  out("  Changed on the way in:");
+  // The decision of 2026-09-06, said at the moment it matters rather than left
+  // to be discovered in a sidebar that has no Folders section afterwards.
+  out(row("", "Eagle's folders become tags, and their nesting is not kept", 2, 0));
 
   out("");
   out("  Not carried across:");
@@ -189,12 +195,14 @@ function printSurvey(
   out(row("", "Eagle's \"date added\" — every asset will carry this import's date,", 2, 0));
   out(row("", "though the original file's own date is kept", 2, 0));
 
-  if (survey.renamedFolders.length > 0) {
+  if (survey.merging.length > 0) {
+    // Irreversible, so it is a warning and not a line in the summary: once the
+    // two are one tag, nothing says which assets came from the folder.
     warn("");
-    warn(`${survey.renamedFolders.length} folder name(s) contain "/" and will be rewritten:`);
-    for (const rename of survey.renamedFolders.slice(0, 10)) {
-      warn(`  ${rename.from} → ${rename.to}`);
-    }
+    // No count in the sentence: the list is right underneath it, and a count
+    // agreeing with the verb is one more thing to get wrong in two languages.
+    warn("These folder names are already tags, and will merge with them for good:");
+    for (const name of survey.merging.slice(0, 10)) warn(`  ${name}`);
   }
   if (survey.missing.length > 0) {
     warn("");
@@ -242,7 +250,7 @@ function printEagleReport(
   out(
     row(
       "",
-      `${plural(report.folders, "folder")} · ${report.tagged} tagged · ` +
+      `${report.tagged} tagged, ${report.folderTags} of them from folders · ` +
         `${report.ratings} rated · ${plural(report.notes, "note")} · ` +
         `${plural(report.sources, "URL")} · ${plural(report.comments, "comment")}`,
       1,
