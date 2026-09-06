@@ -328,8 +328,33 @@ try {
     "document.querySelector('.cell[aria-selected=\"true\"]')?.dataset.hash ?? null",
   );
 
+  // The ghost only exists between `dragstart` and the next frame, so it is
+  // measured from inside the page — a `dragstart` listener on the document runs
+  // after the grid's own, which is where it is made.
+  await cdp.evaluate(`
+    window.__ghost = null;
+    document.addEventListener("dragstart", () => {
+      const el = document.querySelector(".drag-ghost");
+      const box = el?.getBoundingClientRect();
+      window.__ghost = box === undefined ? null : { w: Math.round(box.width), h: Math.round(box.height) };
+    });`);
+
   const cell = await cdp.box(".cell[aria-selected='true']");
   await cdp.dragAndDrop(cell, await rowBox("Aardvark"));
+
+  const ghost = await cdp.evaluate("window.__ghost");
+  // The browser's own drag image is a snapshot of the cell, which at this zoom
+  // is most of the content column — it covered the sidebar it was being
+  // dragged to (reported 2026-09-07).
+  check(
+    "the drag carries a thumbnail-sized picture, not the whole cell",
+    ghost?.w === 64 && ghost?.h === 64,
+    `ghost=${JSON.stringify(ghost)}`,
+  );
+  check(
+    "and it is taken out of the document again",
+    (await cdp.evaluate("document.querySelectorAll('.drag-ghost').length")) === 0,
+  );
   await cdp.settle(
     "document.querySelector('.status-note')?.textContent ?? null",
     (note) => note === "Added 1 asset to Aardvark",

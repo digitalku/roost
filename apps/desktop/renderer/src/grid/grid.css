@@ -364,3 +364,55 @@
 .details-header > span:nth-child(n + 3) {
   text-align: right;
 }
+
+/*
+ * What a drag carries under the pointer (`UI_SPEC.md` §4.3).
+ *
+ * Off-screen because `setDragImage` needs a **rendered** element to snapshot,
+ * and a snapshot is all it is — the node is gone on the next frame. Sized to a
+ * thumbnail rather than to the cell: the default drag image is a picture of the
+ * element being dragged, and a cell at a comfortable zoom covered the sidebar
+ * it was being dragged to.
+ */
+.drag-ghost {
+  position: fixed;
+  top: -200px;
+  left: -200px;
+  display: flex;
+  overflow: hidden;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.drag-ghost img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.drag-ghost-kind {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+}
+
+/* How many are coming, for a drag that is more than one. Over the corner, so
+   the picture underneath still says what they are. */
+.drag-ghost-count {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  min-width: 1.5em;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm) 0 0 0;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  text-align: center;
+}

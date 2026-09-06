@@ -827,6 +827,14 @@ refuses only the self-drop, which is the one case a `dragover` can see without t
 disabled where the folder is already there. Moving a folder *into* another is a choice among every
 folder there is — a picker, not a menu item — and the drag is the gesture that already expresses it.
 
+**The drag carries a thumbnail, not the cell.** A browser's default drag image is a snapshot of the
+element being dragged, and a grid cell at a comfortable zoom is several hundred pixels square — it
+covered the sidebar it was being dragged *to*, which is the one thing the hand needs to see
+(reported from a real window, 2026-09-07). The ghost is a 64px square carrying the cell's own
+thumbnail, anchored at its centre so it hangs under the pointer, with the count in the corner when
+more than one asset is coming — a picture of one asset over a drag of three says something untrue.
+An asset with no thumbnail carries its extension, exactly as its cell does.
+
 **A drag target lights up rather than relying on `:hover`**, which does not match while a drag is in
 progress: the pointer is holding something, and the outline is the only thing telling the hand where
 it will land.

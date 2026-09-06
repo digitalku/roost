@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ASSET_DRAG_TYPE } from "../dnd.js";
 import { fakeAsset } from "../testing/fake-engine.js";
 import { Grid } from "./Grid.js";
 import { SelectionStore } from "./selection.js";
@@ -297,6 +298,46 @@ describe("the grid", () => {
     // Every row it has, including the ones culled out of the DOM — and nothing
     // it has not fetched.
     expect(selection.size).toBe(assets.length);
+  });
+
+  it("drags the selection, under a picture the size of a thumbnail", async () => {
+    // `UI_SPEC.md` §4.3. Both halves were reported from real windows: the drag
+    // has to carry the *selection* rather than the cell under the pointer, and
+    // the browser's default drag image is a snapshot of that cell — several
+    // hundred pixels square, covering the sidebar it is being dragged to.
+    const { user, assets } = show(12);
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    await user.keyboard("{Shift>}");
+    await user.click(screen.getAllByRole("option")[2] as HTMLElement);
+    await user.keyboard("{/Shift}");
+
+    const set = new Map<string, string>();
+    let image: { node: Element; x: number; y: number } | undefined;
+    const dataTransfer = {
+      types: [],
+      setData: (type: string, value: string) => set.set(type, value),
+      getData: (type: string) => set.get(type) ?? "",
+      setDragImage: (node: Element, x: number, y: number) => {
+        image = { node, x, y };
+      },
+      effectAllowed: "none",
+    } as unknown as DataTransfer;
+
+    fireEvent(
+      screen.getAllByRole("option")[1] as HTMLElement,
+      createEvent.dragStart(screen.getAllByRole("option")[1] as HTMLElement, { dataTransfer }),
+    );
+
+    expect(JSON.parse(set.get(ASSET_DRAG_TYPE) ?? "[]")).toEqual(
+      assets.slice(0, 3).map((asset) => asset.hash),
+    );
+    expect(image?.node.className).toBe("drag-ghost");
+    // Anchored at its own centre, so it hangs under the pointer rather than
+    // off to one side of it.
+    expect([image?.x, image?.y]).toEqual([32, 32]);
+    // Three of them, said on the ghost: a picture of one asset over a drag of
+    // three is the drag saying something untrue.
+    expect(image?.node.querySelector(".drag-ghost-count")?.textContent).toBe("3");
   });
 
   it("points the listbox at the focused option rather than focusing it", async () => {

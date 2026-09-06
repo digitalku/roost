@@ -425,6 +425,13 @@ export function Grid({
       // Both, because the drop decides which: into a folder from a folder is a
       // move, from anywhere else there is nothing to move out of.
       event.dataTransfer.effectAllowed = "copyMove";
+
+      const cell = event.target instanceof Element ? event.target.closest(".cell") : null;
+      if (cell !== null) {
+        const ghost = dragGhost(cell, hashes.length);
+        event.dataTransfer.setDragImage(ghost, GHOST_ANCHOR, GHOST_ANCHOR);
+        requestAnimationFrame(() => ghost.remove());
+      }
     },
     [selection],
   );
@@ -622,6 +629,53 @@ function ConnectedCell({
     />
   );
 }
+
+/**
+ * The picture a drag carries under the cursor (`UI_SPEC.md` §4.3).
+ *
+ * **Not the cell.** A browser's default drag image is a snapshot of the element
+ * being dragged, and a grid cell at a comfortable zoom is several hundred
+ * pixels square — it covered the sidebar it was being dragged *to*, which is
+ * the one thing the hand needs to see. Reported from a real window on
+ * 2026-09-07.
+ *
+ * The thumbnail is **cloned**, not re-fetched: it is the same `roost://`
+ * address the cell already drew, so Chromium has it decoded and the ghost is
+ * painted in the frame it is asked for. A cell with no thumbnail — a `.zip`,
+ * anything still in the derive queue — carries its extension instead, which is
+ * what the cell itself shows.
+ *
+ * It goes in the document because `setDragImage` snapshots a **rendered**
+ * element, and comes out on the next frame: the snapshot is taken
+ * synchronously, so nothing needs it after that.
+ */
+function dragGhost(cell: Element, count: number): HTMLElement {
+  const ghost = document.createElement("div");
+  ghost.className = "drag-ghost";
+
+  const thumbnail = cell.querySelector(".cell-image");
+  if (thumbnail instanceof HTMLImageElement && !thumbnail.hidden) {
+    ghost.append(thumbnail.cloneNode(true));
+  } else {
+    const kind = document.createElement("span");
+    kind.className = "drag-ghost-kind";
+    kind.textContent = cell.querySelector(".cell-kind")?.textContent ?? "file";
+    ghost.append(kind);
+  }
+
+  if (count > 1) {
+    const badge = document.createElement("span");
+    badge.className = "drag-ghost-count";
+    badge.textContent = String(count);
+    ghost.append(badge);
+  }
+
+  document.body.append(ghost);
+  return ghost;
+}
+
+/** Half the ghost's side, so it hangs centred under the pointer. */
+const GHOST_ANCHOR = 32;
 
 /** The hash of the cell a pointer event landed in, if it landed in one. */
 function hashAt(target: EventTarget): string | undefined {
