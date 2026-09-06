@@ -6,13 +6,21 @@
 A local-first digital asset manager — an open alternative to Eagle.cool.
 Electron shell, TypeScript engine, React interface. Your files stay yours.
 
-> **Status: pre-implementation.** This repository holds the design and nothing else. The
-> milestone plan starts at M0 in [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status: M0 through M4 are done; it runs from source and is not packaged yet.** The engine, the
+> headless CLI, the desktop window, and the format backends — images, video, audio, PDF, SVG,
+> fonts — all work. Import, organize, search, preview, and edit a library today by following
+> [docs/SETUP.md](docs/SETUP.md); `pnpm dev` opens the window and `pnpm --filter @roost/cli start
+> -- --help` lists the CLI. What is left is M5 (discovery: colour, near-duplicates, watched
+> folders) and M6 (packaging, preferences, undo, onboarding), both deferred while the feature set
+> settles. [docs/ROADMAP.md](docs/ROADMAP.md) has the milestone detail and
+> [docs/SESSION_LOG.md](docs/SESSION_LOG.md) is the running work log.
 >
-> A working implementation of the same product exists in Rust and Tauri, complete through its
-> desktop shell. This repository re-implements the engine in TypeScript on Electron and rebuilds
-> the interface from scratch. **The library format does not change** — a library written by
-> either implementation opens in the other, and that is enforced by a test rather than hoped for.
+> This is a rewrite. An earlier Roost exists in Rust and Tauri, complete through its desktop
+> shell; this repository re-implements the engine in TypeScript on Electron and rebuilds the
+> interface from scratch. **The library format is carried over** — a library that
+> implementation wrote opens here, and a test proves it. The reverse stopped being a requirement
+> on 2026-08-29, when that project was discontinued: the schema has moved on since (it is at v13),
+> and nothing here is traded away to keep an abandoned build's approval.
 
 ## Why
 
@@ -44,6 +52,7 @@ fonts, and design files — while being offline-first, open, and honest about pe
 | [Setup](docs/SETUP.md) | Development environment |
 | [Benchmarks](docs/BENCHMARKS.md) | Measured performance, and what each run revealed |
 | [TODO](docs/TODO.md) | The working list, in priority order |
+| [Session log](docs/SESSION_LOG.md) | What each working session did, decided, and deferred |
 | [Decisions](docs/adr/) | Architecture decision records |
 
 ## License
