@@ -1,7 +1,13 @@
 import { opendir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { type ContentHash, logger, type Op, type StorageMode } from "@roost/core";
-import { apply, comments as commentsOn, createTagGroup, setTagGroup } from "./edit.js";
+import {
+  apply,
+  comments as commentsOn,
+  createFolder,
+  createTagGroup,
+  setTagGroup,
+} from "./edit.js";
 import { NotAnEagleLibraryError } from "./error.js";
 import { type ImportFailure, importInto } from "./import.js";
 import type { Library } from "./library.js";
@@ -10,15 +16,11 @@ import { isSubtitlePath } from "./subtitles.js";
 /**
  * Reading an Eagle library and translating it into this one (ADR-0032).
  *
- * Eagle's model and Roost's agree almost everywhere: tags are flat in both, and
- * every field an item carries lands on an operation this build already writes.
- * So there is no new journal op here, no migration, and no schema change — this
- * module is a translation, and the result is an ordinary library that rebuilds
- * from its journal like any other.
- *
- * **A folder becomes a tag**, by the user's decision of 2026-09-06 (ADR-0032
- * §3.1). Roost has folders and they are Eagle's idea of one, so this is a
- * choice about how somebody wants to work rather than a limit of the format.
+ * Eagle's model and Roost's agree almost everywhere: folders are collections in
+ * both, tags are flat in both, and every field an item carries lands on an
+ * operation this build already writes. So there is no new journal op here, no
+ * migration, and no schema change — this module is a translation, and the
+ * result is an ordinary library that rebuilds from its journal like any other.
  *
  * **The Eagle library is opened read-only.** Nothing is written into it and
  * nothing is moved out of it; it is intact and openable in Eagle afterwards.
@@ -93,6 +95,12 @@ export interface EagleRoot {
   readonly tagGroups: readonly EagleTagGroup[];
 }
 
+/** A folder whose name could not be carried across verbatim. */
+export interface FolderRename {
+  readonly from: string;
+  readonly to: string;
+}
+
 /**
  * What an Eagle library contains, without importing any of it.
  *
@@ -104,13 +112,9 @@ export interface EagleSurvey {
   readonly items: number;
   /** Eagle's own total, which is what the survey can know without hashing. */
   readonly bytes: number;
-  /** Folders in Eagle's tree. Every one an item is in becomes a tag. */
   readonly folders: number;
   readonly tagGroups: number;
-  /**
-   * Every tag the import would produce, sorted: what the items carry, plus the
-   * name of every folder they are in. Eagle's `tags.json` is not this list.
-   */
+  /** Every tag any item carries, sorted. Eagle's `tags.json` is not this list. */
   readonly tags: readonly string[];
   readonly rated: number;
   readonly notes: number;
@@ -118,8 +122,7 @@ export interface EagleSurvey {
   readonly comments: number;
   readonly subtitles: number;
   readonly trashed: number;
-  /** Folder names that already exist as tags, and will merge with them. */
-  readonly merging: readonly string[];
+  readonly renamedFolders: readonly FolderRename[];
   /** Items whose original file is not where the metadata says it is. */
   readonly missing: readonly string[];
   /** Item directories whose `metadata.json` could not be read or understood. */
@@ -141,8 +144,7 @@ export interface EagleReport {
    * asset count than item count reads as data loss.
    */
   readonly collapsed: number;
-  /** Distinct Eagle folder names applied as tags. */
-  readonly folderTags: number;
+  readonly folders: number;
   readonly tagGroups: number;
   readonly tagged: number;
   readonly ratings: number;
@@ -419,7 +421,7 @@ export async function surveyEagle(root: string): Promise<EagleSurvey> {
   const { version, folders, tagGroups } = await readEagleRoot(root);
 
   const tags = new Set<string>();
-  const folderTags = tagsByFolderId(folders);
+  const renamedFolders: FolderRename[] = [];
   const missing: string[] = [];
   const unreadable: string[] = [];
   let items = 0;
@@ -431,10 +433,7 @@ export async function surveyEagle(root: string): Promise<EagleSurvey> {
   let subtitles = 0;
   let trashed = 0;
 
-  const folderCount = folderTags.size;
-  // Only a folder something is *in* becomes a tag: a tag exists through the
-  // assets that carry it, so an empty folder would produce nothing to see.
-  const fromFolders = new Set<string>();
+  const folderCount = countFolders(folders, renamedFolders);
 
   for await (const entry of eagleEntries(root)) {
     if ("bad" in entry) {
@@ -446,10 +445,6 @@ export async function surveyEagle(root: string): Promise<EagleSurvey> {
     bytes += item.size;
     if (entry.file === undefined) missing.push(item.name);
     for (const tag of item.tags) tags.add(tag);
-    for (const id of item.folders) {
-      const name = folderTags.get(id);
-      if (name !== undefined) fromFolders.add(name);
-    }
     if (item.star !== undefined) rated += 1;
     if (item.note !== undefined) notes += 1;
     if (item.url !== undefined) sources += 1;
@@ -457,11 +452,6 @@ export async function surveyEagle(root: string): Promise<EagleSurvey> {
     comments += item.comments.length;
     subtitles += entry.subtitles.length;
   }
-
-  // Named before the union hides them: a folder whose name is already a tag
-  // merges into it, and afterwards nothing distinguishes the two.
-  const merging = [...fromFolders].filter((name) => tags.has(name)).sort();
-  for (const name of fromFolders) tags.add(name);
 
   return {
     version,
@@ -476,30 +466,35 @@ export async function surveyEagle(root: string): Promise<EagleSurvey> {
     comments,
     subtitles,
     trashed,
-    merging,
+    renamedFolders,
     missing,
     unreadable,
   };
 }
 
-/**
- * Every folder in the tree, keyed by Eagle's id, flattened to its own name.
- *
- * **The nesting is lost, and that is the cost of the decision** (ADR-0032
- * §3.1): a tag is flat, so `Design/Icons` and a `Deep` inside it become two
- * unrelated tags. A name is left exactly as Eagle wrote it — the rule that
- * forbids `/` belongs to folder names, where `folder:Design/Icons` would be
- * ambiguous, and a tag is not a path.
- */
-function tagsByFolderId(
-  folders: readonly EagleFolder[],
-  into: Map<string, string> = new Map(),
-): Map<string, string> {
+/** Counts the tree, collecting the names that cannot be carried verbatim. */
+function countFolders(folders: readonly EagleFolder[], renames: FolderRename[]): number {
+  let count = 0;
   for (const folder of folders) {
-    into.set(folder.id, folder.name);
-    tagsByFolderId(folder.children, into);
+    count += 1;
+    const name = folderName(folder.name);
+    if (name !== folder.name) renames.push({ from: folder.name, to: name });
+    count += countFolders(folder.children, renames);
   }
-  return into;
+  return count;
+}
+
+/**
+ * A folder name Roost will accept.
+ *
+ * Eagle allows `/` in one and Roost refuses it, for a reason worth keeping: a
+ * top-level `Design/Icons` and an `Icons` inside `Design` compile to the same
+ * `folder:` query, so one of them becomes unreachable. Substituted and
+ * reported — one renamed folder must not fail an import of twenty thousand
+ * items.
+ */
+function folderName(name: string): string {
+  return name.replace(/\//g, "-").trim();
 }
 
 // --- Importing ---------------------------------------------------------------
@@ -536,10 +531,9 @@ export async function importEagle(
     mode,
   });
 
-  // No folder is created (ADR-0032 §3.1). A folder's name travels as a tag, so
-  // there is nothing to make before the items arrive.
-  const folderTags = tagsByFolderId(folders);
-  const applied = new Set<string>();
+  // Folders first: an item's `folder_add` names a folder that has to exist.
+  const folderIds = new Map<string, number>();
+  const created = await createFolders(library, folders, null, folderIds, existingFolders(library));
 
   const seen = new Set<string>();
   const failed: ImportFailure[] = [];
@@ -560,7 +554,7 @@ export async function importEagle(
   let chunk: EagleEntry[] = [];
   const flush = async (): Promise<void> => {
     if (chunk.length === 0) return;
-    await importChunk(library, chunk, mode, extraTags, folderTags, applied, seen, counts, failed);
+    await importChunk(library, chunk, mode, extraTags, folderIds, seen, counts, failed);
     chunk = [];
     onProgress?.(seen.size, survey.items);
   };
@@ -582,7 +576,7 @@ export async function importEagle(
     imported: counts.imported,
     duplicates: counts.duplicates,
     collapsed: counts.collapsed,
-    folderTags: applied.size,
+    folders: created,
     tagGroups: groups,
     tagged: counts.tagged,
     ratings: counts.ratings,
@@ -602,6 +596,55 @@ export async function importEagle(
     ms: Math.round(report.elapsed),
   });
   return report;
+}
+
+/**
+ * Every folder already in the library, keyed by parent and name.
+ *
+ * This is what makes a re-run idempotent. Creating unconditionally would give a
+ * second import a second `majorette` beside the first, and Roost allows that —
+ * sibling names are unique only by convention — so nothing downstream would
+ * complain.
+ */
+function existingFolders(library: Library): Map<string, number> {
+  const byKey = new Map<string, number>();
+  for (const folder of library.db.repo.folders()) {
+    byKey.set(folderKey(folder.parentId, folder.name), folder.id);
+  }
+  return byKey;
+}
+
+function folderKey(parent: number | null, name: string): string {
+  return `${parent ?? "-"}/${name.toLowerCase()}`;
+}
+
+/**
+ * Creates the folder tree, depth first, mapping Eagle's ids onto Roost's.
+ *
+ * A folder that is already there is reused rather than duplicated, and is not
+ * counted as created — the report says what this run actually wrote.
+ */
+async function createFolders(
+  library: Library,
+  folders: readonly EagleFolder[],
+  parent: number | null,
+  into: Map<string, number>,
+  existing: Map<string, number>,
+): Promise<number> {
+  let count = 0;
+  for (const folder of folders) {
+    const name = folderName(folder.name);
+    const key = folderKey(parent, name);
+    let id = existing.get(key);
+    if (id === undefined) {
+      id = await createFolder(library, name, parent);
+      existing.set(key, id);
+      count += 1;
+    }
+    into.set(folder.id, id);
+    count += await createFolders(library, folder.children, id, into, existing);
+  }
+  return count;
 }
 
 /** The item's tags plus the run's own, without repeating one Eagle already had. */
@@ -631,10 +674,8 @@ async function importChunk(
   chunk: readonly EagleEntry[],
   mode: StorageMode,
   extraTags: readonly string[],
-  /** Eagle's folder ids, mapped to the tag each one becomes. */
-  folderTags: ReadonlyMap<string, string>,
-  /** The folder names actually applied, for the report to count. */
-  applied: Set<string>,
+  /** Eagle's folder ids, mapped onto this library's by {@link createFolders}. */
+  folderIds: ReadonlyMap<string, number>,
   seen: Set<string>,
   counts: Counts,
   failed: ImportFailure[],
@@ -676,20 +717,17 @@ async function importChunk(
         already.add(`${hash}\u0000${existing.atMs ?? -1}\u0000${existing.body}`);
       }
     }
-    // An id naming no folder is skipped rather than fatal: Eagle leaves a
-    // membership behind when a folder is deleted.
-    const fromFolders: string[] = [];
-    for (const folder of item.folders) {
-      const name = folderTags.get(folder);
-      if (name === undefined) continue;
-      fromFolders.push(name);
-      applied.add(name);
-    }
-
-    const tags = mergeTags(item.tags, [...fromFolders, ...extraTags]);
+    const tags = mergeTags(item.tags, extraTags);
     if (tags.length > 0) {
       ops.push({ op: "tag_add", hash, tags });
       counts.tagged += 1;
+    }
+    for (const folder of item.folders) {
+      // An id naming no folder is skipped rather than fatal: Eagle leaves the
+      // membership behind when a folder is deleted, and the sample library had
+      // exactly that.
+      const id = folderIds.get(folder);
+      if (id !== undefined) ops.push({ op: "folder_add", hash, folder: id });
     }
     if (item.star !== undefined) {
       ops.push({ op: "rate", hash, rating: item.star });
@@ -730,8 +768,8 @@ async function importChunk(
 async function applyTagGroups(library: Library, groups: readonly EagleTagGroup[]): Promise<number> {
   let created = 0;
   for (const group of groups) {
-    // Looked up before it is created, so a second run does not leave a second
-    // group of the same name.
+    // Reused rather than recreated, for the reason {@link existingFolders}
+    // gives: a second run must not leave a second group of the same name.
     const found = library.db.repo.findTagGroupByName(group.name);
     const id = found?.id ?? (await createTagGroup(library, group.name));
     if (found === undefined) created += 1;

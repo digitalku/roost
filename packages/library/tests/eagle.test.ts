@@ -88,8 +88,7 @@ async function writeEagleLibrary(root: string): Promise<void> {
       folders: [
         {
           id: "f-icons",
-          // A tag may contain "/" — the rule that forbids it belongs to folder
-          // names, where `folder:Design/Icons` would be ambiguous.
+          // Roost refuses "/" in a folder name, so this one has to be rewritten.
           name: "Design/Icons",
           children: [{ id: "f-deep", name: "Deep", children: [] }],
         },
@@ -184,11 +183,9 @@ describe("importing an Eagle library", () => {
     expect(survey.comments).toBe(2);
     expect(survey.subtitles).toBe(1);
     expect(survey.trashed).toBe(1);
-    // Every tag any item carries plus every folder one is in, and nothing from
-    // `tags.json`.
-    // Sorted the way a person reads a list, so case does not split it in two.
-    expect(survey.tags).toEqual(["blue", "Deep", "Design/Icons", "dupe", "gym", "wip"]);
-    expect(survey.merging).toEqual([]);
+    // Every tag any item carries, and nothing from `tags.json`.
+    expect(survey.tags).toEqual(["blue", "dupe", "wip"]);
+    expect(survey.renamedFolders).toEqual([{ from: "Design/Icons", to: "Design-Icons" }]);
     expect(survey.unreadable).toHaveLength(1);
 
     expect(library.db.repo.stats().assets).toBe(0);
@@ -203,32 +200,25 @@ describe("importing an Eagle library", () => {
     expect(report.assets).toBe(5);
     expect(report.collapsed).toBe(1);
     expect(library.db.repo.stats().assets).toBe(6);
+
+    const names = library.db.repo
+      .folders()
+      .map((folder) => folder.name)
+      .sort();
+    expect(names).toEqual(["Deep", "Design-Icons", "gym"]);
   });
 
-  it("makes no folders at all, and turns each one into a tag", async () => {
-    const report = await importEagle(library, eagle);
-
-    // The user's decision of 2026-09-06 (ADR-0032 §3.1). Roost has folders;
-    // this import does not use them.
-    expect(library.db.repo.folders()).toEqual([]);
-    expect(report.folderTags).toBe(3);
-
-    // An item in two folders carries both names, and the nesting is gone — the
-    // parent and the child are two unrelated tags.
-    const tags = library.db.repo.assetDetail(hashOf(library, "photo two.jpg"))?.tags ?? [];
-    expect(tags.slice().sort()).toEqual(["Deep", "Design/Icons", "blue"]);
-    expect(library.db.repo.folderIdsFor(hashOf(library, "photo two.jpg"))).toEqual([]);
-  });
-
-  it("merges a folder name that is already a tag, and says so first", async () => {
-    // `gym` is only a folder here, so nothing merges. The survey is what warns
-    // when it would, because the merge cannot be undone afterwards.
-    const survey = await surveyEagle(eagle);
-    expect(survey.merging).toEqual([]);
-
+  it("keeps a folder's nesting, and an item in two folders", async () => {
     await importEagle(library, eagle);
-    const tags = library.db.repo.assetDetail(hashOf(library, "photo three.jpg"))?.tags ?? [];
-    expect(tags).toContain("gym");
+
+    const folders = library.db.repo.folders();
+    const icons = folders.find((folder) => folder.name === "Design-Icons");
+    const deep = folders.find((folder) => folder.name === "Deep");
+    expect(deep?.parentId).toBe(icons?.id);
+
+    const hash = hashOf(library, "photo two.jpg");
+    const memberships = library.db.repo.folderIdsFor(hash).slice().sort();
+    expect(memberships).toEqual([icons?.id, deep?.id].sort());
   });
 
   it("reads a rating only where Eagle wrote one", async () => {
@@ -294,6 +284,7 @@ describe("importing an Eagle library", () => {
     const second = await importEagle(library, eagle);
 
     expect(second.imported).toBe(0);
+    expect(second.folders).toBe(0);
     expect(second.comments).toBe(0);
     expect(snapshot(library)).toEqual(before);
   });
@@ -342,6 +333,7 @@ function snapshot(library: Library): unknown {
     stats: library.db.repo.stats(),
     folders: library.db.repo.folders(),
     tags: library.db.repo.tags(),
+    memberships: hashes.map((hash) => library.db.repo.folderIdsFor(hash).slice().sort()),
     comments: hashes.flatMap((hash) =>
       library.db.repo.commentsFor(hash).map(({ atMs, body }) => ({ hash, atMs, body })),
     ),

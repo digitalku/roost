@@ -272,35 +272,36 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
 ### Importing an Eagle library (ADR-0032) — built 2026-09-06
-- ☑ ~~**A folder becomes a tag (ADR-0032 §3.1).**~~ Changed the same day, at the user's request and
-  against the ADR's own first answer, on seeing `gym` and `majorette` arrive as folders in a real
-  import. **The stated reason was that Roost has no folders, and it has them** — `Sidebar.tsx` draws
-  the section, `roost folder list` prints the tree — which was said plainly, with the file and the
-  command, before the decision was taken. It stands on preference, which is a good enough place for
-  it to stand. What it costs is in §3.1 and none of it is reversible: the nesting goes, an empty
-  folder leaves no trace, and a folder name that is already a tag merges into it — `majorette` in
-  the user's own library is both, so one tag now carries 3 tagged plus 2 from the folder and no
-  query separates them. The survey names every such folder **before** anything is written. Folder
-  names travel **verbatim**, `/` included: that character is forbidden in a *folder* name because
-  `folder:Design/Icons` would be ambiguous, and `tag:Design/Icons` is not — checked against the
-  parser rather than assumed.
+- ☑ ~~**Folders map to folders — tried the other way, and withdrawn.**~~ The user asked twice for
+  Eagle's folders to become tags, on the premise that Roost has none; it has them (`Sidebar.tsx`
+  draws the section, `roost folder list` prints the tree), which was said both times, and the
+  conversion was built anyway because how somebody organises their own library is not the
+  application's call. It lasted one import: seeing it against their own data — `majorette` was a
+  folder *and* a tag, so one tag ended up carrying 3 + 2 assets with no way to separate them — they
+  withdrew it. ADR-0032 §3.1 keeps the measurements so the next person to propose it starts from
+  them rather than from scratch. One finding survives the revert: `tag:Design/Icons` parses and
+  names exactly one tag, so the `/` rule really is a folder-name rule.
+
+- 🟢 **The folder structure itself is to be revisited**, at the user's word on 2026-09-06: *"nanti
+  diperbaiki lagi struktur foldernya supaya lebih baik."* Nothing specific is asked for yet, and
+  nothing about the Eagle import depends on it — a folder is a folder in both products, subfolders
+  included. Written down so the intent is not lost, not as work to start.
 
 - ☑ ~~**`roost import --from-eagle <DIR>`, with `--dry-run`.**~~ `packages/library/src/eagle.ts`:
-  the root `metadata.json` for the folder names and the tag groups, a streamed walk of
+  the root `metadata.json` for the folder tree and the tag groups, a streamed walk of
   `images/<id>.info/`, then two phases per chunk of 200 — the ordinary import pipeline for the
   bytes, then one `apply()` batch for the metadata, because an op naming an asset the index does
   not hold yet is a foreign-key violation. **No journal op, no migration, no schema change.** The
   pipeline gained exactly one thing: `ImportOptions.onAsset`, which reports the hash of every file
   that resolved — *including a duplicate*, since a file the library already holds is still that
   item's asset and a hook that skipped it would drop the metadata of every repeat.
-- ☑ ~~**Idempotent, and tested as such.**~~ Tag groups are looked up before they are created, tags
-  are set membership, and a comment is matched on the same words at the same moment on the same asset —
+- ☑ ~~**Idempotent, and tested as such.**~~ Folders and tag groups are looked up before they are
+  created, and a comment is matched on the same words at the same moment on the same asset —
   `comment_add` mints an id, so it is the one operation here that is neither set membership nor
   last-write-wins, and a second run would otherwise duplicate every comment. Proved on the user's
-  own library: the second run writes 0 files and 0 comments.
+  own library: the second run writes 0 files, 0 folders, 0 comments.
 - ☑ ~~**Proved against a real Eagle 4.0.0 library**~~ (14 items, 1.0 GiB, the user's own): 14
-  assets, 6 tags — 4 of Eagle's own plus `gym` and `majorette` from its folders — 1 rating, 4
-  notes, 2 URLs, 6 comments at the right milliseconds
+  assets, 2 folders, 4 tags, 1 rating, 4 notes, 2 URLs, 6 comments at the right milliseconds
   (726.211598 s → 726212 ms), 1 subtitle attached from a sibling no metadata mentions, and 15
   distinct `created_at` values against 1 `imported_at` — which is exactly the `btime` loss §7
   describes, visible in the index.
