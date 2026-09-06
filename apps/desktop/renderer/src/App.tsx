@@ -579,6 +579,7 @@ function LibraryView({
   // selection on every keystroke, and every cell's subscription with it.
   const selection = useMemo(() => new SelectionStore(), []);
   const paging = useAssetPages(query, generation);
+  const dropRows = paging.drop;
   const derives = useDeriveStatus(revision);
 
   /*
@@ -806,6 +807,12 @@ function LibraryView({
       event.preventDefault();
       void invoke({ type: "asset:folderRemove", hashes: selected, folder }).then((outcome) => {
         if (!outcome.ok) return setActed(outcome.problem);
+        // The grid re-pages only when the library's counts move, and this moves
+        // neither — the assets are still there and still live. Without the drop
+        // they stay on screen in a folder they have just left, which is the
+        // status bar and the grid saying different things. Found in a real
+        // window on 2026-09-07.
+        dropRows(selected);
         // The same order the trash actions keep: what was acted on has left
         // the view, so the selection goes before the line that reports it.
         clearSelection();
@@ -814,7 +821,7 @@ function LibraryView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openFolder, selected, clearSelection, noteResult]);
+  }, [openFolder, selected, clearSelection, noteResult, dropRows]);
 
   /** Which folder branches are open. Held here so a new one can be revealed. */
   const expansion = useExpansion();
@@ -1324,10 +1331,15 @@ function LibraryView({
           onClose={() => setNaming(undefined)}
           onDone={(folder, name) => {
             setNaming(undefined);
-            // A subfolder made inside a closed branch would be invisible, and a
-            // dialog that appears to do nothing is the bug this avoids.
-            if (naming.kind === "create" && naming.parent !== null) reveal(naming.parent);
-            reveal(folder);
+            if (naming.kind === "create") {
+              // A subfolder made inside a closed branch would be invisible, and
+              // a dialog that appears to do nothing is the bug this avoids.
+              if (naming.parent !== null) reveal(naming.parent);
+              reveal(folder);
+            }
+            // Renaming reveals nothing. It used to reveal the folder it had
+            // just renamed, which sprang the branch open under a gesture that
+            // was about the name — seen in a real window on 2026-09-07.
             noteResult(naming.kind === "create" ? `Created ${name}` : `Renamed to ${name}`);
           }}
         />

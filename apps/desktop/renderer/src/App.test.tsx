@@ -786,6 +786,13 @@ describe("the navigation pane, in the window", () => {
     // Read after the clear renders, never with `findByText` (`TODO.md` §4).
     await waitFor(() => expect(screen.queryByText(/ · 1 selected/)).toBeNull());
     expect(screen.getByText("Removed 1 asset from Design")).toBeDefined();
+
+    // The row leaves the grid. It does not re-page — an asset taken out of a
+    // folder is still there and still live, so neither count the grid watches
+    // moves — so the window drops the row itself. Found in a real window on
+    // 2026-09-07, where the status bar said it was gone and the grid still
+    // showed it (`scripts/check-folders.mjs`).
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(inDesign.length - 1));
   });
 
   it("sends a row's own query to the grid, and shows what came back", async () => {

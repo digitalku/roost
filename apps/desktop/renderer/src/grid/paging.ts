@@ -39,6 +39,22 @@ export interface Paging {
    * re-pages, which is what every other edit already does (ADR-0020).
    */
   readonly pinPoster: (hash: string, posterMs: number | null) => void;
+  /**
+   * Takes rows out of the grid without re-paging it.
+   *
+   * The targeted update `App.tsx`'s note about `revision` says is owed. The
+   * grid re-pages only when the library's *counts* move, so an asset that stops
+   * matching a filtered view without being added or trashed stays on screen —
+   * and `Ctrl+Delete` in a folder is exactly that: the asset is still in the
+   * library, still live, and no longer in the folder being looked at. Found by
+   * driving a real window on 2026-09-07; the status bar said what had happened
+   * while the grid went on showing it.
+   *
+   * Only the window that made the change calls this. Another window onto the
+   * same library keeps the row until it re-pages, which is what every other
+   * edit already does (ADR-0020).
+   */
+  readonly drop: (hashes: readonly string[]) => void;
 }
 
 export function useAssetPages(query: string, generation: number): Paging {
@@ -141,5 +157,10 @@ export function useAssetPages(query: string, generation: number): Paging {
     setAssets((held) => held.map((card) => (card.hash === hash ? { ...card, posterMs } : card)));
   }, []);
 
-  return { assets, done, loading, problem, more, pinPoster };
+  const drop = useCallback((hashes: readonly string[]): void => {
+    const gone = new Set(hashes);
+    setAssets((held) => held.filter((card) => !gone.has(card.hash)));
+  }, []);
+
+  return { assets, done, loading, problem, more, pinPoster, drop };
 }

@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { importInto, Library } from "@roost/library";
+import { addToFolder, createFolder, importInto, Library, pageOf } from "@roost/library";
 import { gradient } from "@roost/media";
 
 /** A temporary directory and the promise that it goes away again. */
@@ -42,6 +42,34 @@ export async function imageLibrary(dir, { count = 12, name = "Check", size = 64 
     await library.close();
   }
   return root;
+}
+
+/**
+ * Files an existing library's assets into a folder tree.
+ *
+ * `tree` is a list of `{ name, parent, assets }`, parents named by their own
+ * name — the tree is three folders deep at most in a fixture, and ids the
+ * caller would have to thread through are worse to read than names.
+ *
+ * **The names matter to the check that uses this.** A child whose name sorts
+ * before its parent's is what tells a real tree from an alphabetical run
+ * indented to look like one (ADR-0033 §2), so a fixture built for that has to
+ * pick names that sort the wrong way on purpose.
+ */
+export async function foldersInto(root, tree) {
+  const library = await Library.open(root);
+  try {
+    const ids = new Map();
+    const hashes = pageOf(library, "", { limit: 100 }).map((hit) => hit.hash);
+    for (const { name, parent, assets = 0 } of tree) {
+      const id = await createFolder(library, name, parent === undefined ? null : ids.get(parent));
+      ids.set(name, id);
+      if (assets > 0) await addToFolder(library, hashes.slice(0, assets), id);
+    }
+    return ids;
+  } finally {
+    await library.close();
+  }
 }
 
 /**

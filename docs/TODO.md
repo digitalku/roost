@@ -375,6 +375,19 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   stay in the library unfiled, ticked they go to the **trash** in the same journal batch.
   `ConfirmDialog` grew an optional `option` for it, and `roost folder delete --trash-contents` is
   the CLI's half.
+- ☑ ~~**Driven against a real window.**~~ `scripts/check-folders.mjs`, 29 claims, on the shared
+  harness. It found two things nothing else could, both on its first run: **renaming a folder
+  sprang its branch open**, because `onDone` revealed the folder it had just renamed; and
+  **`Ctrl+Delete` left the asset on screen** — the status bar said it was gone, the count agreed,
+  and the grid went on showing it. And one thing about the check itself, which is the same lesson
+  in a different place: the first version measured the *branch's* left edge to prove indentation,
+  which never moves — the indent is padding, so what moves is the name. It passed against a pane
+  with no indentation at all.
+- 🟡 **A filtered grid still does not drop an asset that stops matching**, except for
+  `Ctrl+Delete`, which now drops the rows itself (`paging.drop`). The general case is the note on
+  `revision` in `App.tsx`: the grid re-pages only when the library's counts move, so removing a tag
+  while looking at `tag:wip` leaves the asset on screen — the same bug, one gesture over. The fix
+  is the same shape and wants the window to know what the query is about.
 - 🟡 **Expansion does not survive the window.** It belongs in `settings.json` in the library
   (ADR-0019), which is decided and not built. Until then every window opens collapsed — which is
   right for a first look and wrong for the fifth.
