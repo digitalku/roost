@@ -13,7 +13,16 @@ import { fixture } from "./commands/fixture.js";
 import { folder } from "./commands/folder.js";
 import { runImport } from "./commands/import.js";
 import { init } from "./commands/init.js";
-import { emptyTheTrash, note, rate, remove, rename, restore, trash } from "./commands/mark.js";
+import {
+  emptyTheTrash,
+  note,
+  rate,
+  remove,
+  rename,
+  restore,
+  source,
+  trash,
+} from "./commands/mark.js";
 import { poster } from "./commands/poster.js";
 import { query } from "./commands/query.js";
 import { rebuild } from "./commands/rebuild.js";
@@ -76,6 +85,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   smart: { rename: { type: "string" }, query: { type: "string" } },
   rate: {},
   note: { clear: { type: "boolean" } },
+  source: { clear: { type: "boolean" } },
   comment: {
     at: { type: "string" },
     list: { type: "boolean" },
@@ -298,6 +308,15 @@ async function dispatch(
       // note means everywhere else in the library too.
       const text_ = flag(values, "clear") || words.length === 0 ? undefined : words.join(" ");
       return note(await library(), asset, text_, streams);
+    }
+
+    case "source": {
+      const [asset, url] = positionals;
+      if (asset === undefined) return usage(streams, command, "source needs an asset");
+      // No URL and no --clear clears it, the way `note` reads a missing
+      // argument: "no source" and "remove the source" are the same state.
+      const url_ = flag(values, "clear") || url === undefined ? undefined : url;
+      return source(await library(), asset, url_, streams);
     }
 
     case "comment": {

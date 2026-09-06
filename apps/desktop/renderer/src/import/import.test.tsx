@@ -189,9 +189,15 @@ describe("importing", () => {
     );
   });
 
+  /** Opens the Add menu and picks one of its items. */
+  const add = async (user: ReturnType<typeof userEvent.setup>, item: RegExp): Promise<void> => {
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(await screen.findByRole("menuitem", { name: item }));
+  };
+
   it("imports what the dialog chose", async () => {
     const user = await open({ importDialog: ["/photos/holiday"] });
-    await user.click(screen.getByRole("button", { name: "Import…" }));
+    await add(user, /Import files…/);
 
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "import:paths")[0]).toMatchObject({
@@ -200,11 +206,45 @@ describe("importing", () => {
     );
   });
 
+  /**
+   * The two items are two dialogs, not one filtered, which is the whole reason
+   * the menu exists — so the request has to carry which was asked for.
+   */
+  it("asks for a directory chooser when the folder item is picked", async () => {
+    const user = await open({ importDialog: ["/photos/holiday"] });
+    await add(user, /Import folder…/);
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "dialog:chooseImport")[0]).toMatchObject({
+        what: "folders",
+      }),
+    );
+  });
+
   it("does nothing when the dialog is cancelled", async () => {
     const user = await open({ importDialog: null });
-    await user.click(screen.getByRole("button", { name: "Import…" }));
+    await add(user, /Import files…/);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(engine.seen.some((r) => r.type === "import:paths")).toBe(false);
+  });
+
+  /** The accelerators the menu prints, which have to be real to be printed. */
+  it("imports from Ctrl+I, and folders from Ctrl+Shift+I", async () => {
+    const user = await open({ importDialog: ["/photos/holiday"] });
+
+    await user.keyboard("{Control>}i{/Control}");
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "dialog:chooseImport")[0]).toMatchObject({
+        what: "files",
+      }),
+    );
+
+    await user.keyboard("{Control>}{Shift>}I{/Shift}{/Control}");
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "dialog:chooseImport")[1]).toMatchObject({
+        what: "folders",
+      }),
+    );
   });
 });
 

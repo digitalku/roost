@@ -5,6 +5,7 @@ import {
   renameAsset,
   restoreAssets,
   setNote,
+  setSource,
   trashAssets,
 } from "@roost/library";
 import { assets, resolveAll, short } from "../assets.js";
@@ -60,6 +61,33 @@ export async function note(
     await setNote(library, hash, text ?? null);
     streams.out(
       text === undefined ? `Cleared the note on ${short(hash)}` : `Set the note on ${short(hash)}`,
+    );
+    return EXIT.ok;
+  });
+}
+
+/**
+ * Where the file came from (ADR-0030).
+ *
+ * `undefined` clears it, the way {@link note} reads a missing argument: "no
+ * source" and "remove the source" are the same state, so they are the same
+ * call.
+ */
+export async function source(
+  root: string,
+  needle: string,
+  url: string | undefined,
+  streams: Streams,
+): Promise<number> {
+  return withLibrary(root, async (library) => {
+    const hashes = resolveAll(library, [needle]);
+    const hash = hashes[0];
+    if (hash === undefined) throw new Error("resolveAll returned nothing for one argument");
+    await setSource(library, hash, url ?? null);
+    streams.out(
+      url === undefined
+        ? `Cleared the source on ${short(hash)}`
+        : `Set the source on ${short(hash)}`,
     );
     return EXIT.ok;
   });

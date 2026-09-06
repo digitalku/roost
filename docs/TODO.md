@@ -83,6 +83,16 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   window (a menu item is not an accelerator), and `F11` for fullscreen is the one thing lost that
   is worth a keyboard-map entry later.
 
+- ☑ ~~**ADR-0030 — where a file came from.**~~ **Accepted 2026-09-05** and built the same day, from
+  the user asking for a link under the note, as Eagle keeps one URL per item. `assets.source_url`,
+  migration 0013 (schema v13), the `source_set` op, `sourceUrl` on the wire, `asset:source` and
+  `link:open`, the field in the inspector, `roost source`, and a line in `roost show`. Stored as
+  typed — no parsing, no scheme required — and only an `http(s)` value gets a button, which hands
+  the URL to the desktop rather than fetching it, so invariant 7 is untouched. **The user accepted
+  it while rejecting §4**: the URL was proposed for `assets_fts` on ADR-0027's reasoning and ruled
+  out, because a URL is an address rather than prose about the asset. The ADR keeps both halves of
+  that argument, and what leaving it out costs — a domain typed into the search box finds nothing.
+
 - ☑ ~~**ADR-0029 — favourite is retired.**~~ **Accepted 2026-09-05** and built the same day, on
   the user seeing the two controls side by side: *"sudah ada star, kalau memang disukai tinggal
   saya bintang 5"*. A favourite is a rating with one value and no scale. Everything that authors
@@ -109,6 +119,22 @@ Still open, and none of it blocks M0:
   and the journal op source file's path. Both name where *code* lives, not what a *library*
   contains, so nothing about the format moved. Flagged here rather than assumed, because a
   binding document does not get edited quietly. See the port note at the top of the spec.
+
+- 🟢 **`STORAGE_SPEC.md`'s journal-op list keeps falling behind the code.** Twice now: the comment
+  and poster ops were recorded on 2026-09-02, two days after the first three shipped, and
+  `subtitle_attach`, `subtitle_detach` and `supersede` sat unrecorded from 2026-09-03 until
+  ADR-0030 went in on 2026-09-05. Nothing enforces it — `spec-conformance.test.ts` compares the
+  *schema* blocks against `DATA_MODEL.md` and has no equivalent for ops. **A test that parses the
+  op lines out of the spec and compares them with `OP_NAMES` would close it**, and it is the same
+  shape as the schema test already there.
+
+- 🟢 **A menu that opens a dialog has to stop Radix taking the focus back.** The close returns
+  focus to the trigger **after** the dialog has focused its own field, so the caret sits in a field
+  nothing is typing into — with the right value and the right selection, which is what makes it
+  hard to see. Found in a running window on 2026-09-05 and fixed in `AddMenu` by deferring
+  `onCloseAutoFocus` for the two items that open one. **jsdom focuses nothing to steal**, so no
+  component test can guard it, and the same class of bug arrives with the next menu item that opens
+  a dialog. `AssetContextMenu` was checked at the same time and does **not** have it.
 
 - 🟡 **Nothing follows the system's colour scheme.** `index.html` pins
   `data-theme="dark"` and no code reads `prefers-color-scheme`. Found on 2026-08-30 while
@@ -618,6 +644,14 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   hand and none is in `pnpm verify`, for the reason §M3 gives — they need Electron's binary and a
   session that composites — but four of them **build their own fixture**, so the missing piece is
   a machine, not a library to point them at.
+- ☑ ~~**A window check could not run while Roost was open.**~~ Found and fixed 2026-09-05. It read
+  as a flake — "no page target after 20s", then a clean pass on the next run — and the cause was
+  neither the port nor a race: `main.ts` takes `requestSingleInstanceLock()`, that lock is scoped
+  to the user-data directory, and every driven window used the application's own. So a Roost open
+  on the desktop made the check's Electron `app.quit()` before it built a window, leaving a
+  debugger port with nothing behind it, and raised the developer's window instead. `launch()` now
+  passes a `--user-data-dir` of the checks' own. Fixed rather than per-run, so `bench-window.mjs`
+  still measures cold start from a warm code cache.
 - 🟡 **The grid re-pages on a trash rather than dropping the row.** `readStats` now compares the
   trashed count as well as the asset count, so trashing does invalidate the pages — but it
   invalidates *all* of them and the scroll position goes with them. That is the same targeted-update

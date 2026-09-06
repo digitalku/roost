@@ -140,7 +140,8 @@ baseline, and the cause measured rather than assumed — six times the CPU per f
   stale FTS rows, `--deep` re-hash, `--reclaim` with the safety rule that reclaim refuses when
   the index and the object store disagree. Two checks the Rust build does not have: files in
   `journal/` that replay will skip, and which `sharp` and `libvips` are loaded
-- ☑ CLI: `query`, `smart`, `tag`, `folder`, `rate`, `note`, `favorite` (retired, ADR-0029), `rename`, `remove`,
+- ☑ CLI: `query`, `smart`, `tag`, `folder`, `rate`, `note`, `source` (ADR-0030),
+  `favorite` (retired, ADR-0029), `rename`, `remove`,
   `show`, `doctor`
 - ☑ Search benchmark recorded — `docs/BENCHMARKS.md`, 2026-08-26
 
@@ -177,7 +178,8 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ☑ Sidebar: places, folders with subtree counts, smart folders, grouped tags — each row
   carrying the RQL that selects it. Collapsing, drag-to-reparent, and the library switcher are
   in `TODO.md`
-- ☑ Inspector: preview, metadata, tags, rating, favourite (retired, ADR-0029), note, all editable, every edit
+- ☑ Inspector: preview, metadata, tags, rating, favourite (retired, ADR-0029), note, source
+  (ADR-0030), all editable, every edit
   reading the record back rather than trusting what it sent. Proven through the window and then
   through a `roost rebuild`: every edit the GUI made survived deleting the index
 - ☑ Preview pane: image, video, audio, external fallback; arrow keys move selection with it.
@@ -325,7 +327,15 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-03.** Two were decided that day, both on the day they were
+**Nothing open, as of 2026-09-05.** **ADR-0030 — where a file came from** was accepted that day,
+from the user asking for a link under the note because Eagle keeps a URL per item. One nullable
+column, one op shaped like `note_set`, migration 0013, and a link only for an `http(s)` value —
+opened by handing it to the desktop, which fetches nothing and so leaves invariant 7 alone. **The
+user accepted it while rejecting a part of it**: the URL was proposed for the free-text index on
+ADR-0027's reasoning and ruled out, because a URL is an address rather than prose about the asset.
+The ADR keeps both halves of that argument.
+
+Before it, on 2026-09-03, two were decided, both on the day they were
 proposed, and the second had its first stage built the same afternoon. **ADR-0026 — an edit is
 a new asset** came from the user asking for Paste and New File on the grid's empty space and
 for text assets to be edited inside Roost; editing changes the bytes that *are* the identity,

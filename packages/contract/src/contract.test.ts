@@ -90,6 +90,8 @@ describe("validating a request", () => {
       "asset:summary",
       "asset:rate",
       "asset:note",
+      "asset:source",
+      "link:open",
       "asset:poster",
       "asset:create",
       "clipboard:paste",
@@ -195,6 +197,29 @@ describe("validating a thumbnail moment", () => {
 
   it("refuses a moment that is not whole milliseconds", () => {
     expect(checkRequest({ type: "asset:poster", hash: HASH, atMs: 1.5 })).toMatchObject({
+      ok: false,
+    });
+  });
+});
+
+describe("validating the import chooser", () => {
+  it("takes each subject", () => {
+    for (const what of ["files", "folders"] as const) {
+      expect(checkRequest({ type: "dialog:chooseImport", what })).toEqual({
+        ok: true,
+        value: { type: "dialog:chooseImport", what },
+      });
+    }
+  });
+
+  /**
+   * The field decides which dialog main draws, and a request without one used
+   * to be the whole request — so a stale renderer must fail here rather than
+   * fall through to a default that quietly picks the wrong chooser.
+   */
+  it("refuses a request with no subject, and one with a subject it does not know", () => {
+    expect(checkRequest({ type: "dialog:chooseImport" })).toMatchObject({ ok: false });
+    expect(checkRequest({ type: "dialog:chooseImport", what: "both" })).toMatchObject({
       ok: false,
     });
   });

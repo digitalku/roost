@@ -1,0 +1,29 @@
+-- Schema v13 — where a file came from (ADR-0030).
+--
+-- Asked for by the user on 2026-09-05, from Eagle keeping one URL per item:
+-- somewhere to record the page a file was saved off. The note already accepts
+-- anything, but a note is prose and this is not — it is one value with a shape,
+-- and what you want to do with it is click it, which a URL buried in a
+-- paragraph cannot be.
+--
+-- **One per asset.** "Where did this come from" has a singular answer, and a
+-- list would immediately raise which of them is the one that gets clicked. An
+-- asset with genuinely several sources has a note, which is what prose is for.
+--
+-- **Whatever was typed is what is stored**, trimmed, with empty meaning absent
+-- — the rule `note` already follows. No parsing, no normalising, and no
+-- required scheme: `file:///archive/2019/` and a bare `instagram.com/p/xyz` are
+-- both answers to the question that was asked. The scheme decides only whether
+-- the window offers to open it, and that is the window's business, not the
+-- schema's (ADR-0030 §5).
+--
+-- **Not in `assets_fts`**, decided by the user the day this was proposed. A URL
+-- is an address rather than prose about the asset, so the words in it were not
+-- chosen to say what the file is — and a search for `show` matching because a
+-- URL contained `/show/` would be a match with nothing on screen to explain it.
+-- ADR-0030 §4 records what that costs.
+--
+-- No index. It is read one asset at a time, beside the row it belongs to, and
+-- nothing queries it.
+
+ALTER TABLE assets ADD COLUMN source_url TEXT;

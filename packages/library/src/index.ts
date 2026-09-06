@@ -59,6 +59,7 @@ export {
   setComment,
   setNote,
   setPoster,
+  setSource,
   setTagGroup,
   subtitles,
   supersedeAsset,

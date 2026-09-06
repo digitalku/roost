@@ -255,6 +255,30 @@ export async function setNote(
   return apply(library, [{ op: "note_set", hash, note: trimmed === "" ? null : trimmed }]);
 }
 
+/**
+ * Where the file came from (ADR-0030).
+ *
+ * `null` clears it, and so does an all-whitespace value — the rule
+ * {@link setNote} follows, for the same reason: a stored blank would show an
+ * empty link on the asset forever.
+ *
+ * **Nothing is validated beyond that.** Roost does not parse the value, does
+ * not normalise it, and does not require a scheme: `file:///archive/2019/` and
+ * a bare `instagram.com/p/xyz` are both answers to the question that was asked,
+ * and refusing them would be an application arguing with the user about what
+ * provenance is. Whether a value is offered as a *link* is decided where it is
+ * shown, from its scheme (ADR-0030 §5).
+ */
+export async function setSource(
+  library: Library,
+  hash: ContentHash,
+  url: string | null,
+): Promise<void> {
+  requireAsset(library, hash);
+  const trimmed = url === null ? null : url.trim();
+  return apply(library, [{ op: "source_set", hash, url: trimmed === "" ? null : trimmed }]);
+}
+
 // --- Comments (ADR-0023) -----------------------------------------------------
 
 /**
@@ -734,6 +758,10 @@ function carryOver(library: Library, before: AssetDetail, to: ContentHash): Op[]
   }
   if (before.rating !== null) ops.push({ op: "rate", hash: to, rating: before.rating });
   if (before.note !== null) ops.push({ op: "note_set", hash: to, note: before.note });
+  // Superseding does not change where the bytes originally came from.
+  if (before.sourceUrl !== null) {
+    ops.push({ op: "source_set", hash: to, url: before.sourceUrl });
+  }
   // Carried even though nothing can set one any more (ADR-0029): an asset that
   // *has* a favourite from before it was retired keeps it across an edit, or
   // `is:favorite` would quietly stop finding a file somebody edited.

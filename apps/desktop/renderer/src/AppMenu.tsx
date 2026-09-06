@@ -8,11 +8,11 @@ import { DropdownMenu } from "radix-ui";
  * away the query and the selection, a devtools toggle, and a Paste meaning
  * something other than Roost's (ADR-0026 §5).
  *
- * **Only what has no better home is in here.** Import stays on the bar, because
- * it is the primary action of an empty library; the view control stays on the
- * bar, because it is ADR-0018's; per-asset commands stay in the context menu. A
- * menu that repeats the toolbar teaches people to look in two places and to
- * trust neither.
+ * **Only what has no better home is in here.** Add stays on the bar, because
+ * bringing something in is the primary action of an empty library; the view
+ * control stays on the bar, because it is ADR-0018's; per-asset commands stay
+ * in the context menu. A menu that repeats the toolbar teaches people to look
+ * in two places and to trust neither.
  */
 export interface AppMenuProps {
   readonly onCloseLibrary: () => void;

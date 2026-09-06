@@ -176,6 +176,8 @@ export interface AssetDetail {
   readonly supersededBy: ContentHash | null;
   readonly rating: number | null;
   readonly note: string | null;
+  /** Where the file came from, as the user typed it (ADR-0030). */
+  readonly sourceUrl: string | null;
   readonly isFavorite: boolean;
   readonly tags: string[];
   readonly folders: string[];
@@ -543,6 +545,19 @@ export class Repo {
   }
 
   /**
+   * Where the file came from (ADR-0030).
+   *
+   * **No `#refreshFts`**, unlike the note directly above it. The user decided
+   * on 2026-09-05 that a URL stays out of the full-text index: it is an address
+   * rather than prose about the asset, so a search for `show` matching because
+   * a URL contained `/show/` would be a match with nothing on screen to explain
+   * it. ADR-0030 §4 records what that costs.
+   */
+  applySourceSet(hash: ContentHash, url: string | null): void {
+    this.#s("UPDATE assets SET source_url = ? WHERE hash = ?").run(url, hash);
+  }
+
+  /**
    * Which frame a video's thumbnail comes from (ADR-0024 stage 4).
    *
    * `null` is the default frame, not the first one: the video backend takes a
@@ -857,7 +872,8 @@ export class Repo {
               storage_mode AS storageMode, ref_path AS refPath,
               is_partial_hash AS isPartialHash, created_at AS createdAt,
               imported_at AS importedAt, trashed_at AS trashedAt,
-              rating, note, is_favorite AS isFavorite, poster_ms AS posterMs,
+              rating, note, source_url AS sourceUrl,
+              is_favorite AS isFavorite, poster_ms AS posterMs,
               superseded_by AS supersededBy
          FROM assets WHERE hash = ?`,
     ).get(hash) as

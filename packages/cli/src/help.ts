@@ -22,6 +22,7 @@ export const COMMANDS = [
   "smart",
   "rate",
   "note",
+  "source",
   "comment",
   "poster",
   "save",
@@ -63,6 +64,7 @@ Commands:
   smart     Save, list, and update smart folders — RQL queries under a name
   rate      Rate assets from 1 to 5, or \`none\` to clear
   note      Set or clear an asset's note
+  source    Set or clear where an asset came from
   comment   Comment on an asset, or on a moment in one
   poster    Choose which frame a video's thumbnail comes from
   save      Replace an asset's contents with a file's, as a new version
@@ -289,6 +291,22 @@ whitespace is removed too, rather than stored as an empty badge forever.
 Options:
 ${LIBRARY_FLAG}
       --clear            Remove the note
+${GLOBAL}`,
+
+  source: `Set or clear where an asset came from (ADR-0030).
+
+Usage: roost source <ASSET> [URL] [OPTIONS]
+
+With no URL, or with --clear, the source is removed.
+
+The value is stored as typed. Roost does not parse it, does not normalise it,
+and does not require a scheme — a bare hostname is as good an answer to "where
+did this come from" as a full address. Nothing is ever fetched: the window
+offers to open http(s) values in your browser, and only when you click.
+
+Options:
+${LIBRARY_FLAG}
+      --clear            Remove the source
 ${GLOBAL}`,
 
   comment: `Comment on an asset, or on a moment in one.

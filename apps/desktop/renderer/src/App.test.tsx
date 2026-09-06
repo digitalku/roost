@@ -561,6 +561,37 @@ describe("making files in the window (ADR-0026 §4, §5)", () => {
     );
   });
 
+  /**
+   * The second door onto the same dialog. Not a second kind of file — the only
+   * difference is that the extension is already typed.
+   */
+  it("opens with the extension already there when the menu said text document", async () => {
+    const { engine, user } = await open();
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(await screen.findByRole("menuitem", { name: "New text document…" }));
+
+    const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
+    expect(name.value).toBe(".txt");
+    // The caret sits in front of it, so what is typed becomes the stem rather
+    // than a suffix on an extension.
+    expect(name.selectionStart).toBe(0);
+    // And a prefill is not an answer: `.txt` alone would make a file called
+    // `.txt`.
+    expect(screen.getByRole("button", { name: "Create" }).hasAttribute("disabled")).toBe(true);
+
+    // The caret is stated rather than inherited: `type` clicks first, and a
+    // click in a headless DOM lands at the end of the value. Where it really
+    // starts is the assertion above; this is the typing that follows from it.
+    await user.type(name, "shopping", { initialSelectionStart: 0, initialSelectionEnd: 0 });
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:create")).toEqual([
+        { type: "asset:create", name: "shopping.txt", text: "" },
+      ]),
+    );
+  });
+
   it("keeps pasted words as the new file's contents, without a field for them", async () => {
     const { engine, user } = await open({ clipboard: { kind: "text", text: "pasted words" } });
     await openMenu();
@@ -821,7 +852,7 @@ describe("the preview, in the window", () => {
     await screen.findByRole("dialog");
 
     expect(screen.queryByRole("searchbox")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Import…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
     expect(screen.queryByRole("button", { name: "View" })).toBeNull();
 
     // And back, with the query it was showing before — the field is unmounted,

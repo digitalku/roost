@@ -16,6 +16,7 @@ import {
   rate,
   saveEdit,
   setNote,
+  setSource,
   supersedeAsset,
   tagAdd,
   trashAssets,
@@ -72,6 +73,7 @@ describe("saving an edit", () => {
     await addToFolder(library, [note], folder);
     await rate(library, [note], 4);
     await setNote(library, note, "for the talk");
+    await setSource(library, note, "https://example.com/brief");
     // Journalled directly: nothing authors a favourite any more (ADR-0029),
     // and the carry-over exists precisely for the assets that already have one.
     await apply(library, [{ op: "favorite_set", hash: note, favorite: true }]);
@@ -84,6 +86,8 @@ describe("saving an edit", () => {
     expect(detail?.folders).toEqual(["Notes"]);
     expect(detail?.rating).toBe(4);
     expect(detail?.note).toBe("for the talk");
+    // Replacing an asset's bytes does not change where they came from.
+    expect(detail?.sourceUrl).toBe("https://example.com/brief");
     expect(detail?.isFavorite).toBe(true);
     expect(library.db.repo.commentsFor(after).map((row) => row.body)).toEqual([
       "check the second paragraph",

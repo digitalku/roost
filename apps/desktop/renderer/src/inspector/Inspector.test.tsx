@@ -227,6 +227,42 @@ describe("the inspector", () => {
     await waitFor(() => expect((note as HTMLTextAreaElement).value).toBe(""));
   });
 
+  /**
+   * Where the file came from (ADR-0030).
+   *
+   * Three claims in one test, because they are one behaviour: the value is
+   * stored as typed, the open button appears only for what the desktop should
+   * be handed, and clicking it asks main rather than fetching anything.
+   */
+  it("saves a source and offers to open it only when it is an http(s) link", async () => {
+    const { user } = show();
+    const field = await screen.findByLabelText("Source");
+
+    // A bare hostname is a perfectly good answer to "where did this come from",
+    // so it is stored — and it is *not* offered as a link, because handing an
+    // arbitrary string to the desktop's URL handler on a click is not a thing
+    // to do. A control that cannot be operated is worse than an absent one.
+    await user.type(field, "instagram.com/p/xyz");
+    await user.tab();
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "asset:source")[0]).toMatchObject({
+        url: "instagram.com/p/xyz",
+      }),
+    );
+    expect(screen.queryByRole("button", { name: "Open source in browser" })).toBeNull();
+
+    await user.clear(field);
+    await user.type(field, "https://example.com/a{Enter}");
+    // Enter is the save: one value and no paragraphs, so there is no second
+    // line for it to make.
+    const open = await screen.findByRole("button", { name: "Open source in browser" });
+
+    await user.click(open);
+    expect(engine.seen.filter((r) => r.type === "link:open")).toEqual([
+      { type: "link:open", url: "https://example.com/a" },
+    ]);
+  });
+
   it("hands the file to the desktop when asked", async () => {
     const { user } = show();
     await user.click(await screen.findByRole("button", { name: "Open externally" }));

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
   Event,
+  ImportSubject,
   Request,
   RequestType,
   StorageMode,
@@ -211,6 +212,7 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "asset:reveal",
   "asset:copyPath",
   "clipboard:paste",
+  "link:open",
   // The window has no menu bar on Linux or Windows (ADR-0028), so Quit arrives
   // as a request like everything else the renderer can ask for.
   "app:quit",
@@ -224,13 +226,14 @@ async function answerHere(
   if (request.type === "asset:reveal") return reveal(request.hash);
   if (request.type === "asset:copyPath") return copyPaths(request.hashes);
   if (request.type === "clipboard:paste") return paste(engine, request.mode);
+  if (request.type === "link:open") return openLink(request.url);
   if (request.type === "app:quit") {
     // `quit` rather than `exit`: it closes the window, and closing the window is
     // what stops the engine, flushes the journal, and releases the lock.
     app.quit();
     return null;
   }
-  if (request.type === "dialog:chooseImport") return chooseImport();
+  if (request.type === "dialog:chooseImport") return chooseImport(request.what);
   if (request.type === "dialog:chooseSubtitle") return chooseSubtitle();
 
   const forOpening = request.type === "dialog:openLibrary";
@@ -259,18 +262,28 @@ async function answerHere(
 }
 
 /**
- * Files and folders to import.
+ * What to import: either files or folders, never one dialog offering both.
  *
- * Both at once — `openFile` and `openDirectory` together — because "import this
- * folder and those three loose files" is one gesture, and making it two dialogs
- * would be a menu structure standing in for a file picker.
+ * It was both at once — `openFile` and `openDirectory` together — on the
+ * reasoning that "import this folder and those three loose files" is one
+ * gesture. It is not one *dialog*: given both properties, GTK, macOS and
+ * Windows all draw the file chooser and merely permit a directory to be
+ * selected in it, so picking a folder meant navigating to its **parent** and
+ * clicking it there — the one view that does not show what is inside it. The
+ * `Add` menu asks which was meant first (`UI_SPEC.md` §1), which costs a menu
+ * item and buys a chooser that behaves.
+ *
+ * Multi-selection either way: three folders is as ordinary as three files.
  */
-async function chooseImport(): Promise<readonly string[] | null> {
+async function chooseImport(what: ImportSubject): Promise<readonly string[] | null> {
+  const folders = what === "folders";
   const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   const options = {
-    title: "Import",
+    title: folders ? "Import folder" : "Import files",
     buttonLabel: "Import",
-    properties: ["openFile", "openDirectory", "multiSelections"] as const,
+    properties: folders
+      ? (["openDirectory", "multiSelections"] as const)
+      : (["openFile", "multiSelections"] as const),
     defaultPath: app.getPath("pictures"),
   };
 
@@ -342,6 +355,29 @@ async function openExternally(hash: string): Promise<boolean> {
   const failure = await shell.openPath(path);
   if (failure !== "") log.warn("the desktop could not open an asset", { reason: failure });
   return failure === "";
+}
+
+/**
+ * Hands a stored source URL to the desktop's browser (ADR-0030 §5).
+ *
+ * **`http:` and `https:` only.** The stored value is whatever the user typed
+ * and Roost never argued with it, so it may be a bare hostname, a `file:` path,
+ * or something that is not an address at all — and handing an arbitrary scheme
+ * to the desktop's URL handler on a click is a way to run something the user
+ * did not mean to run. `isHttpUrl` is the same test the clipboard uses, so the
+ * two cannot drift apart about what a link is.
+ *
+ * **Nothing is fetched here**, which is why this does not touch invariant 7.
+ * The browser that opens is the user's, with their session and their
+ * extensions, and Roost learns nothing about what it found.
+ */
+async function openLink(url: string): Promise<boolean> {
+  if (!isHttpUrl(url)) {
+    log.warn("refused to open a source that is not an http(s) link", { url });
+    return false;
+  }
+  await shell.openExternal(url);
+  return true;
 }
 
 /**

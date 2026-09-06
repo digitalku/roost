@@ -31,6 +31,7 @@ export async function show(
     // while a library that still holds one is owed the truth.
     if (detail.isFavorite) out(row("favourite", "yes"));
     if (detail.note !== null) out(row("note", detail.note));
+    if (detail.sourceUrl !== null) out(row("source", detail.sourceUrl));
     if (detail.tags.length > 0) out(row("tags", detail.tags.join(", ")));
     if (detail.folders.length > 0) out(row("folders", detail.folders.join(", ")));
   });

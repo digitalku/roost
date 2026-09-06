@@ -149,6 +149,7 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
 
       <TagEditor hashes={hashes} shared={detail.tags} partial={[]} onSaved={read} />
       <NoteField detail={detail} onSaved={read} />
+      <SourceField detail={detail} onSaved={read} />
       {/* Keyed on the hash so a half-typed comment does not follow the
           selection onto the next asset: the drafts here belong to the asset
           they were started on, and React would otherwise keep them across a
@@ -505,6 +506,99 @@ function NoteField({
       onChange={(changed) => setDraft(changed.target.value)}
       onBlur={save}
     />
+  );
+}
+
+/**
+ * Where the file came from (ADR-0030).
+ *
+ * The note's field with one line instead of three and one addition: when the
+ * value is an `http(s)` address, a button beside it opens the desktop's
+ * browser. Nothing is fetched — invariant 7 stands — and nothing opens without
+ * that click: no preview, no favicon, no title lookup, each of which would
+ * arrive looking like a small convenience.
+ *
+ * **The affordance is absent rather than disabled for anything else.** A bare
+ * `instagram.com/p/xyz` or a `file:///archive/` is a perfectly good answer to
+ * "where did this come from" and is stored as typed (ADR-0030 §2), but it is
+ * not something to hand the desktop's URL handler on a click. A control that
+ * cannot be operated is worse than an absent one (`UI_SPEC.md` §8).
+ *
+ * A single line, not a textarea: this has one value and no paragraphs, and
+ * `Enter` therefore saves rather than making a second line.
+ */
+function SourceField({
+  detail,
+  onSaved,
+}: {
+  readonly detail: WireAssetDetail;
+  readonly onSaved: () => Promise<void>;
+}): React.JSX.Element {
+  const [draft, setDraft] = useState(detail.sourceUrl ?? "");
+  const saved = useRef(detail.sourceUrl ?? "");
+  useStoredValue(detail, detail.sourceUrl ?? "", saved, setDraft);
+
+  const save = useCallback((): void => {
+    if (draft === saved.current) return;
+    saved.current = draft;
+    void invoke({
+      type: "asset:source",
+      hash: detail.hash,
+      url: draft.trim() === "" ? null : draft,
+    }).then(onSaved);
+  }, [draft, detail.hash, onSaved]);
+
+  useEffect(() => {
+    const timer = setTimeout(save, NOTE_IDLE_MS);
+    return () => clearTimeout(timer);
+  }, [save]);
+
+  // What the *engine* holds, not what is being typed: an address half-entered
+  // is not one to offer, and the button would flicker in and out on the way to
+  // `https://`.
+  const openable = detail.sourceUrl !== null && /^https?:\/\/\S+$/.test(detail.sourceUrl);
+
+  return (
+    <div className="source">
+      <input
+        type="text"
+        className="source-field"
+        aria-label="Source"
+        placeholder="Source — where this came from"
+        spellCheck={false}
+        value={draft}
+        onChange={(changed) => setDraft(changed.target.value)}
+        onBlur={save}
+        onKeyDown={(event) => {
+          // One value and no paragraphs, so Enter is the save the blur would
+          // have done.
+          if (event.key === "Enter") {
+            event.preventDefault();
+            save();
+          }
+        }}
+      />
+      {openable && (
+        <button
+          type="button"
+          className="source-open"
+          aria-label="Open source in browser"
+          title={detail.sourceUrl ?? ""}
+          onClick={() => void invoke({ type: "link:open", url: detail.sourceUrl ?? "" })}
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path
+              d="M6.5 3.5H3.5v9h9v-3M9.5 2.5h4v4M13 3l-6 6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      )}
+    </div>
   );
 }
 

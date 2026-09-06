@@ -64,6 +64,7 @@ import {
   setComment,
   setNote,
   setPoster,
+  setSource,
   tagAdd,
   tagRemove,
   trashAssets,
@@ -166,6 +167,11 @@ export class EngineHost {
       case "asset:note":
         return this.#edit(() =>
           setNote(this.#require(), parseContentHash(request.hash), request.note),
+        );
+
+      case "asset:source":
+        return this.#edit(() =>
+          setSource(this.#require(), parseContentHash(request.hash), request.url),
         );
 
       case "asset:poster":
@@ -282,6 +288,7 @@ export class EngineHost {
         return exportAssets(this.#require(), hashes(request.hashes), request.destination);
 
       case "clipboard:paste":
+      case "link:open":
       case "dialog:chooseImport":
       case "dialog:chooseSubtitle":
       case "asset:openExternally":
@@ -291,8 +298,9 @@ export class EngineHost {
       case "dialog:chooseLocation":
       case "app:quit":
         // A dialog belongs to a window and this process has none, the clipboard
-        // belongs to the desktop, and quitting is the application's business
-        // rather than the library's. Main answers these before forwarding; one
+        // and the browser belong to the desktop, and quitting is the
+        // application's business rather than the library's. Main answers these
+        // before forwarding; one
         // arriving here is a routing bug, and it fails loudly rather than
         // returning a plausible null.
         throw new Error(`${request.type} is answered by main, not by the engine`);
@@ -747,6 +755,7 @@ function detailOf(
     supersededBy: detail.supersededBy,
     rating: detail.rating,
     note: detail.note,
+    sourceUrl: detail.sourceUrl,
     tags: detail.tags,
     folders: detail.folders,
     durationMs: detail.durationMs,

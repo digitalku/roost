@@ -1,5 +1,6 @@
 import type {
   AssetCard,
+  ImportSubject,
   LibraryStats,
   LibrarySummary,
   WireProblem,
@@ -8,6 +9,7 @@ import type {
 } from "@roost/contract";
 import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { AddMenu } from "./AddMenu.js";
 import { AppMenu } from "./AppMenu.js";
 import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
@@ -715,6 +717,46 @@ function LibraryView({
   // An import changes the counts, the sidebar, and what the grid holds, so it
   // is the one thing in the window that has to reset the paging as well.
   const importing = useImport(onImported);
+  const startImport = importing.start;
+  const importRunning = importing.running;
+
+  /**
+   * The two import doors, which differ only in the chooser main opens.
+   *
+   * Asking which was meant *before* the dialog is what makes the folder case
+   * work at all: a chooser given both `openFile` and `openDirectory` is drawn
+   * as a file chooser everywhere, so a folder had to be selected from its
+   * parent — the one view that does not show its contents.
+   */
+  const chooseAndImport = useCallback(
+    (what: ImportSubject) => {
+      if (importRunning) return;
+      void (async () => {
+        const chosen = await invoke({ type: "dialog:chooseImport", what });
+        if (chosen.ok && chosen.value !== null) startImport(chosen.value);
+      })();
+    },
+    [importRunning, startImport],
+  );
+
+  /**
+   * `Ctrl+I` and `Ctrl+Shift+I` (`UI_SPEC.md` §10).
+   *
+   * Not guarded on whether something is being typed into, unlike `Ctrl+1..3`:
+   * that guard exists because a bare digit is a character, and `Ctrl+I` is not
+   * one — it does nothing in a plain input, so importing from the search field
+   * is a shortcut working rather than a keystroke being eaten.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      if (event.key.toLowerCase() !== "i") return;
+      event.preventDefault();
+      chooseAndImport(event.shiftKey ? "folders" : "files");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [chooseAndImport]);
 
   /**
    * Steps the preview through the loaded list.
@@ -730,7 +772,12 @@ function LibraryView({
    * that asks it is a smaller thing than an editor — which the window
    * deliberately does not have, because an external one is enough.
    */
-  const [newFile, setNewFile] = useState<{ readonly text: string } | undefined>();
+  const [newFile, setNewFile] = useState<
+    { readonly name: string; readonly text: string } | undefined
+  >();
+
+  /** Opens the dialog empty, which is what every door but one wants. */
+  const composeFile = useCallback(() => setNewFile({ name: "", text: "" }), []);
 
   /**
    * Paste (ADR-0026 §5), which is four gestures wearing one name.
@@ -795,7 +842,7 @@ function LibraryView({
       }
       // Words on the clipboard are something to put in a file rather than a
       // file, so they arrive as the new file's contents and still want a name.
-      if (pasted.kind === "text") return setNewFile({ text: pasted.text });
+      if (pasted.kind === "text") return setNewFile({ name: "", text: pasted.text });
       if (pasted.kind === "url") {
         return noteResult("Pasting never fetches a link — import it deliberately instead");
       }
@@ -883,18 +930,13 @@ function LibraryView({
                     setZoom((at) => (steps === 0 ? DEFAULT_ZOOM : zoomBy(at, steps)))
                   }
                 />
-                <button
-                  type="button"
-                  disabled={importing.running}
-                  onClick={() => {
-                    void (async () => {
-                      const chosen = await invoke({ type: "dialog:chooseImport" });
-                      if (chosen.ok && chosen.value !== null) importing.start(chosen.value);
-                    })();
-                  }}
-                >
-                  Import…
-                </button>
+                <AddMenu
+                  busy={importing.running}
+                  onNewFile={composeFile}
+                  onNewTextDocument={() => setNewFile({ name: ".txt", text: "" })}
+                  onImportFiles={() => chooseAndImport("files")}
+                  onImportFolder={() => chooseAndImport("folders")}
+                />
               </div>
             </header>
           )}
@@ -929,7 +971,7 @@ function LibraryView({
               onConfirm={setConfirming}
               onGone={clearSelection}
               onPaste={paste}
-              onNewFile={() => setNewFile({ text: "" })}
+              onNewFile={composeFile}
             >
               <p className="grid-empty">
                 {query === "" ? EMPTY_LIBRARY : inTrash ? EMPTY_TRASH : NOTHING_MATCHED}
@@ -944,7 +986,7 @@ function LibraryView({
               onConfirm={setConfirming}
               onGone={clearSelection}
               onPaste={paste}
-              onNewFile={() => setNewFile({ text: "" })}
+              onNewFile={composeFile}
               onOpenHere={(hash) => {
                 selection.click(hash);
                 setPreviewing(true);
@@ -971,6 +1013,7 @@ function LibraryView({
           the state it starts with rather than something to synchronise. */}
       {newFile !== undefined && (
         <NewFileDialog
+          initialName={newFile.name}
           initialText={newFile.text}
           onClose={() => setNewFile(undefined)}
           onProblem={setActed}

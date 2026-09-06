@@ -1,6 +1,6 @@
 import type { WireProblem } from "@roost/contract";
 import { Dialog } from "radix-ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { invoke } from "./bridge.js";
 
 /**
@@ -23,16 +23,29 @@ import { invoke } from "./bridge.js";
  * without a field, because pasting has already said what they are (ADR-0026
  * §5).
  *
+ * **New text document…** is this same dialog with `initialName` set to `.txt`
+ * and the caret in front of it. It is not a second kind of file — Roost has no
+ * file types, only bytes and a name — it is the one guess the dialog can make
+ * on the user's behalf, made where the menu already said what was wanted.
+ *
  * A `Dialog` rather than an `AlertDialog`: this is a question with an answer to
  * type, not a confirmation, so it may be dismissed by clicking away and it
  * starts with focus in the field.
  */
 export function NewFileDialog({
+  initialName,
   initialText,
   onClose,
   onCreated,
   onProblem,
 }: {
+  /**
+   * What the name field starts with, and the caret lands before its extension.
+   *
+   * Read once, at mount, for the same reason `initialText` is: the dialog is
+   * mounted only while it is open.
+   */
+  readonly initialName: string;
   /**
    * Pre-filled when the contents came from the clipboard (ADR-0026 §5).
    *
@@ -45,8 +58,14 @@ export function NewFileDialog({
   readonly onCreated: (hash: string, created: boolean, name: string) => void;
   readonly onProblem: (problem: WireProblem) => void;
 }): React.JSX.Element {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName);
   const [saving, setSaving] = useState(false);
+  const field = useRef<HTMLInputElement>(null);
+
+  // The prefill is not an answer: `.txt` on its own would make a file called
+  // `.txt`. Comparing against what the field opened with covers both cases —
+  // with no prefill it is exactly "the name is empty".
+  const ready = name.trim() !== "" && name.trim() !== initialName;
 
   const create = async (): Promise<void> => {
     setSaving(true);
@@ -65,7 +84,22 @@ export function NewFileDialog({
     >
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
-        <Dialog.Content className="dialog dialog-wide">
+        <Dialog.Content
+          className="dialog dialog-wide"
+          onOpenAutoFocus={(event) => {
+            // Radix's own autofocus would land the caret at the end, which for
+            // `.txt` is the one place a name cannot be typed. Taking the focus
+            // by hand is the only way to place it, since there is no
+            // `autofocus` attribute that also says where.
+            event.preventDefault();
+            const input = field.current;
+            if (input === null) return;
+            input.focus();
+            const dot = initialName.lastIndexOf(".");
+            const caret = dot === -1 ? initialName.length : dot;
+            input.setSelectionRange(caret, caret);
+          }}
+        >
           <Dialog.Title className="dialog-title">New file</Dialog.Title>
           <Dialog.Description className="dialog-body">
             {initialText === ""
@@ -77,6 +111,7 @@ export function NewFileDialog({
             <span>Name</span>
             <input
               id="new-file-name"
+              ref={field}
               type="text"
               value={name}
               placeholder="notes.txt"
@@ -85,7 +120,7 @@ export function NewFileDialog({
               onKeyDown={(event) => {
                 // The only field, so Enter is the button: a form with one
                 // answer should not need the pointer to submit it.
-                if (event.key === "Enter" && name.trim() !== "" && !saving) {
+                if (event.key === "Enter" && ready && !saving) {
                   event.preventDefault();
                   void create();
                 }
@@ -100,7 +135,7 @@ export function NewFileDialog({
             <button
               type="button"
               data-variant="primary"
-              disabled={saving || name.trim() === ""}
+              disabled={saving || !ready}
               onClick={() => void create()}
             >
               {saving ? "Creating…" : "Create"}

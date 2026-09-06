@@ -145,6 +145,7 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     supersededBy: null,
     rating: null,
     note: null,
+    sourceUrl: null,
     durationMs: null,
     pageCount: null,
     props: {},
@@ -483,6 +484,22 @@ export class FakeEngine {
           note: trimmed === "" ? null : trimmed,
         }));
       }
+
+      case "asset:source": {
+        // Trimmed, and empty means absent — the rule the engine follows for the
+        // note and for this.
+        const trimmed = request.url === null ? null : request.url.trim();
+        return this.#mutate([request.hash], (detail) => ({
+          ...detail,
+          sourceUrl: trimmed === "" ? null : trimmed,
+        }));
+      }
+
+      case "link:open":
+        // Whether main would open it, decided the way main decides: the window
+        // only ever offers the affordance for an `http(s)` value, so a test that
+        // saw `true` for anything else would be testing a kinder fake.
+        return ok(/^https?:\/\/\S+$/.test(request.url));
 
       case "clipboard:paste":
         return ok(this.#options.clipboard ?? { kind: "empty" });

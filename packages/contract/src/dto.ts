@@ -28,6 +28,19 @@ export const STORAGE_MODES = ["managed", "referenced"] as const;
 export type StorageMode = (typeof STORAGE_MODES)[number];
 
 /**
+ * What the import chooser offers to pick.
+ *
+ * The two are separate dialogs rather than one that accepts either, because a
+ * file chooser and a directory chooser are different controls on every desktop
+ * Roost runs on: the file one filters and previews, the directory one navigates
+ * into what the other one would have opened. A single dialog offering both is
+ * the compromise that does neither well, and the `Add` menu (`UI_SPEC.md` §1)
+ * has room to ask which was meant before the dialog opens.
+ */
+export const IMPORT_SUBJECTS = ["files", "folders"] as const;
+export type ImportSubject = (typeof IMPORT_SUBJECTS)[number];
+
+/**
  * What an asset broadly is, which is what selects the preview (`UI_SPEC.md` §7).
  *
  * Declared here as well as in `@roost/core` because the renderer needs it and
@@ -317,6 +330,13 @@ export interface WireAssetDetail {
   readonly trashedAt: number | null;
   readonly rating: number | null;
   readonly note: string | null;
+  /**
+   * Where the file came from, as the user typed it (ADR-0030).
+   *
+   * Unparsed and unnormalised, so it is not necessarily a URL a browser would
+   * accept. The window decides from the scheme whether to offer opening it.
+   */
+  readonly sourceUrl: string | null;
   readonly tags: readonly string[];
   /** Slash-separated folder paths this asset is in. */
   readonly folders: readonly string[];

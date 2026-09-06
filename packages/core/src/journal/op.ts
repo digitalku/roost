@@ -36,6 +36,7 @@ export const OP_NAMES = [
   "smart_folder_create",
   "smart_folder_delete",
   "smart_folder_update",
+  "source_set",
   "subtitle_attach",
   "subtitle_detach",
   "supersede",
@@ -131,6 +132,19 @@ export type Op =
   | { readonly op: "tag_rename"; readonly from: string; readonly to: string }
   | { readonly op: "rate"; readonly hash: ContentHash; readonly rating: number | null }
   | { readonly op: "note_set"; readonly hash: ContentHash; readonly note: string | null }
+  /**
+   * Where the file came from (ADR-0030).
+   *
+   * `note_set`'s shape on purpose: last write wins, clearing is the same op
+   * with `null`, and there is no `source_clear` to keep in step with it.
+   *
+   * Stored as typed, trimmed. Roost neither parses nor normalises it and does
+   * not require a scheme — `file:///archive/2019/` and a bare
+   * `instagram.com/p/xyz` are both answers to the question that was asked. The
+   * scheme decides only whether a window offers to open it, which is the
+   * window's business rather than the journal's.
+   */
+  | { readonly op: "source_set"; readonly hash: ContentHash; readonly url: string | null }
   /**
    * Comments, which carry a moment (ADR-0023).
    *
@@ -407,6 +421,8 @@ export function toRecord(source: Raw): JournalRecord {
     }
     case "note_set":
       return { ts, op, hash: hash(source, "hash"), note: nullableStr(source, "note") };
+    case "source_set":
+      return { ts, op, hash: hash(source, "hash"), url: nullableStr(source, "url") };
     case "comment_add":
       return {
         ts,

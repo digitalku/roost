@@ -58,6 +58,7 @@ describe("against a journal written by the Rust implementation", () => {
       "subtitle_attach",
       "subtitle_detach",
       "supersede",
+      "source_set",
     ]);
     expect([...new Set(sink.records.map((r) => r.op))].sort()).toEqual(
       OP_NAMES.filter((name) => !ours.has(name)),

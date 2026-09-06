@@ -34,16 +34,38 @@ class FakePort implements Port {
     this.started = true;
   }
 
-  /** Delivers a message as Electron would, and waits for the reply. */
-  async deliver(data: unknown): Promise<ReplyEnvelope | undefined> {
+  /**
+   * Delivers a message as Electron would, and waits for the reply.
+   *
+   * **The budget depends on what is expected**, and that distinction is not
+   * decoration. A request that will be answered gets a long one and **throws**
+   * if nothing arrives — a timeout here used to return `undefined`, the caller
+   * read the index anyway, and the assertion failed against the value from
+   * *before* the edit, which reads like a broken write rather than a slow one.
+   * It cost a real diagnosis on 2026-09-05, under a full-suite run where a disk
+   * write took longer than the 100ms the old loop allowed.
+   *
+   * `silence` is the other case, and it keeps the short budget deliberately:
+   * those tests assert that nothing is ever sent, so the wait is pure cost and
+   * a generous one would be paid on every run.
+   */
+  async deliver(
+    data: unknown,
+    expecting: "reply" | "silence" = "reply",
+  ): Promise<ReplyEnvelope | undefined> {
     const before = this.sent.length;
     this.#listener?.({ data });
     // The handler is async; one macrotask is enough for a reply that never
     // touches the disk, and the loop covers the ones that do.
-    for (let tick = 0; tick < 50 && this.replies(before).length === 0; tick += 1) {
+    const ticks = expecting === "silence" ? 50 : 1000;
+    for (let tick = 0; tick < ticks && this.replies(before).length === 0; tick += 1) {
       await new Promise((resolve) => setTimeout(resolve, 2));
     }
-    return this.replies(before)[0];
+    const reply = this.replies(before)[0];
+    if (reply === undefined && expecting === "reply") {
+      throw new Error(`no reply within ${ticks * 2}ms for ${JSON.stringify(data)}`);
+    }
+    return reply;
   }
 
   /**
@@ -90,8 +112,11 @@ describe("the engine's message loop", () => {
   let host: EngineHost;
   let close: () => Promise<void>;
 
-  const ask = async (id: number, request: Request): Promise<ReplyEnvelope | undefined> =>
-    port.deliver({ id, request });
+  const ask = async (
+    id: number,
+    request: Request,
+    expecting: "reply" | "silence" = "reply",
+  ): Promise<ReplyEnvelope | undefined> => port.deliver({ id, request }, expecting);
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "roost-engine-"));
@@ -181,7 +206,7 @@ describe("the engine's message loop", () => {
     // Nothing can be replied to: a message this malformed may not carry the id
     // an answer would have to be addressed to.
     for (const message of [null, 7, { id: 1 }, { id: 1, request: { type: "library:eat" } }]) {
-      expect(await port.deliver(message)).toBeUndefined();
+      expect(await port.deliver(message, "silence")).toBeUndefined();
     }
   });
 
@@ -450,6 +475,7 @@ describe("the engine's message loop", () => {
         "rating",
         "refPath",
         "size",
+        "sourceUrl",
         "storageMode",
         "subtitles",
         "supersededBy",
@@ -500,15 +526,23 @@ describe("the engine's message loop", () => {
     await ask(5, { type: "asset:note", hash, note: "  keep this  " });
     expect((await detail())["note"]).toBe("keep this");
 
-    await ask(6, { type: "asset:tagAdd", hashes: [hash], tags: ["Wood", " wood "] });
+    // A source follows the note's rule exactly (ADR-0030): trimmed, and blank
+    // means absent. What it does *not* do is validate — the value is the
+    // user's answer to a question, not an address the engine vouches for.
+    await ask(6, { type: "asset:source", hash, url: "  instagram.com/p/xyz  " });
+    expect((await detail())["sourceUrl"]).toBe("instagram.com/p/xyz");
+    await ask(7, { type: "asset:source", hash, url: "  " });
+    expect((await detail())["sourceUrl"]).toBeNull();
+
+    await ask(8, { type: "asset:tagAdd", hashes: [hash], tags: ["Wood", " wood "] });
     // Deduplicated and trimmed on the way through, which is exactly why an
     // edit answers with `null` and the inspector re-reads.
     expect((await detail())["tags"]).toEqual(["Wood"]);
 
-    await ask(7, { type: "asset:tagRemove", hashes: [hash], tags: ["wood"] });
+    await ask(9, { type: "asset:tagRemove", hashes: [hash], tags: ["wood"] });
     expect((await detail())["tags"]).toEqual([]);
 
-    await ask(8, { type: "asset:rename", hash, name: "  Renamed.txt  " });
+    await ask(10, { type: "asset:rename", hash, name: "  Renamed.txt  " });
     expect((await detail())["name"]).toBe("Renamed.txt");
   });
 
@@ -570,8 +604,12 @@ describe("the engine's message loop", () => {
     // follows here (`serve.ts`). A body with nothing in it is a comment that
     // says nothing, and a negative offset is a number that cannot mean
     // anything; both are the validator's, and `contract.test.ts` pins them.
-    expect(await ask(2, { type: "comment:add", hash, atMs: null, body: "  " })).toBeUndefined();
-    expect(await ask(3, { type: "comment:add", hash, atMs: -1, body: "x" })).toBeUndefined();
+    expect(
+      await ask(2, { type: "comment:add", hash, atMs: null, body: "  " }, "silence"),
+    ).toBeUndefined();
+    expect(
+      await ask(3, { type: "comment:add", hash, atMs: -1, body: "x" }, "silence"),
+    ).toBeUndefined();
     // An id nothing is behind is the engine's to refuse, and it says so rather
     // than doing nothing quietly: a stale list in one window must not silently
     // edit whatever is at that id now.
@@ -704,7 +742,7 @@ describe("the engine's message loop", () => {
 
   it("refuses to open a file picker, because it has no window", async () => {
     await libraryOf(1);
-    const reply = await ask(1, { type: "dialog:chooseImport" });
+    const reply = await ask(1, { type: "dialog:chooseImport", what: "files" });
     expect(reply?.ok).toBe(false);
   });
 

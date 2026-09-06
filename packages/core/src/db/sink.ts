@@ -132,6 +132,9 @@ export class IndexSink implements ReplaySink {
       case "note_set":
         repo.applyNoteSet(record.hash, record.note);
         return;
+      case "source_set":
+        repo.applySourceSet(record.hash, record.url);
+        return;
       case "comment_add":
         // The line's own `ts` becomes `created_at`, as `trash` does with
         // `trashed_at`: a live edit and a replay then agree by construction

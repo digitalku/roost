@@ -41,6 +41,7 @@ import {
   setComment,
   setNote,
   setPoster,
+  setSource,
   setTagGroup,
   tagAdd,
   tagRemove,
@@ -195,6 +196,31 @@ describe("organizing a library", () => {
 
     expect(library.stats().assets).toBe(3);
     expect(() => resolveFolder(library, "Temporary")).toThrow(UnknownFolderPathError);
+  });
+
+  /**
+   * Where a file came from (ADR-0030).
+   *
+   * The note's rules, and one it deliberately does not have: **nothing is
+   * validated**. A bare hostname is as good an answer to "where did this come
+   * from" as a full address, and refusing it would be the library arguing with
+   * the user about what provenance is. Whether a value is offered as a link is
+   * decided from its scheme where it is shown, not here.
+   */
+  it("stores a source as typed, and clears it on a blank", async () => {
+    const hash = hashes[0] as ContentHash;
+
+    await setSource(library, hash, "  instagram.com/p/xyz  ");
+    expect(library.db.repo.assetDetail(hash)?.sourceUrl).toBe("instagram.com/p/xyz");
+
+    await setSource(library, hash, "   ");
+    expect(library.db.repo.assetDetail(hash)?.sourceUrl).toBe(null);
+
+    // And it survives losing the index, because it is a journal line first
+    // (invariant 9) — the whole reason it is an op rather than a column write.
+    await setSource(library, hash, "https://example.com/a");
+    await library.rebuild();
+    expect(library.db.repo.assetDetail(hash)?.sourceUrl).toBe("https://example.com/a");
   });
 
   it("rates, notes, and still finds a favourite, and refuses a rating the schema has no room for", async () => {

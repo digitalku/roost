@@ -519,10 +519,19 @@ button:disabled {
 
 /* ── The view menu (ADR-0018), drawn on Radix (ADR-0021) ─────────────────── */
 
-.view-trigger {
+.view-trigger,
+.add-trigger {
   display: inline-flex;
   gap: var(--space-2);
   align-items: center;
+}
+
+/* The `+` reads as a mark rather than as the first letter of the label, which
+   is what it looks like at the same weight as the word beside it. */
+.add-trigger > :first-child {
+  color: var(--text-muted);
+  font-size: var(--text-md);
+  line-height: 1;
 }
 
 /* The three labels in one cell: the button is as wide as the longest of them,

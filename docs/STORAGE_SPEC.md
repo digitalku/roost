@@ -407,6 +407,34 @@ An older build that does not know these four skips them: it shows an asset with
 no comments and a thumbnail at the default frame, which is showing less rather
 than losing anything.
 
+**M4 addendum, 2026-09-05 (ADR-0025, ADR-0026, ADR-0030).** Four more, under the
+same rule — and the first three were built on 2026-09-03 without this list being
+updated, which is the second time that has happened. They are recorded here now.
+
+```json
+{"ts":1755648800,"op":"subtitle_attach","hash":"a3f2...","track":"b7c1...","lang":"en","label":"English"}
+{"ts":1755648810,"op":"subtitle_detach","hash":"a3f2...","track":"b7c1..."}
+{"ts":1755648820,"op":"supersede","hash":"a3f2...","to":"c9d4..."}
+{"ts":1755648830,"op":"source_set","hash":"a3f2...","url":"https://example.com/the-post"}
+```
+
+**A caption track is an ordinary asset**, addressed by its own content hash, and
+the attachment is this line rather than a folder convention (ADR-0025). `lang`
+and `label` are omitted when unknown.
+
+**`supersede` records that an edit happened, not what changed** (ADR-0026). The
+bytes are the identity, so a save is a new asset; `"to":null` undoes the mark.
+
+**`source_set` carries a `null` that an absent field would lose**, as `note_set`
+does: `"url":null` clears where the file came from. The value is stored exactly
+as the user typed it — unparsed, unnormalised, and not required to have a
+scheme — because it is an answer to a question rather than an address this
+format vouches for (ADR-0030).
+
+An older build that does not know these four skips them: it shows a video with
+no caption tracks, an edited asset with no link to its replacement, and no
+source. Showing less, again, rather than losing anything.
+
 Still undefined, for want of a feature that needs them: stacking, watched
 roots, and the partial-to-full hash upgrade described above.
 

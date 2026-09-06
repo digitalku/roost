@@ -32,7 +32,7 @@ import type {
   WireSidebar,
   WireSubtitlesAdded,
 } from "./dto.js";
-import { STORAGE_MODES } from "./dto.js";
+import { IMPORT_SUBJECTS, type ImportSubject, STORAGE_MODES } from "./dto.js";
 
 /**
  * Every request the renderer can make, and what each one answers with.
@@ -145,6 +145,14 @@ export type Request =
     }
   /** `null` clears the note, and so does an all-whitespace one. */
   | { readonly type: "asset:note"; readonly hash: string; readonly note: string | null }
+  /**
+   * Where the file came from (ADR-0030). `null` clears it, and so does an
+   * all-whitespace value.
+   *
+   * One hash, like the note and unlike the rating: a source is one asset's
+   * answer, and writing one across a selection is a mistake with no undo.
+   */
+  | { readonly type: "asset:source"; readonly hash: string; readonly url: string | null }
   /**
    * Pin a video's thumbnail to a moment, or let it go back to the default
    * (ADR-0024 stage 4).
@@ -264,6 +272,20 @@ export type Request =
    */
   | { readonly type: "asset:openExternally"; readonly hash: string }
   /**
+   * Hand a URL to the desktop's browser (ADR-0030 §5).
+   *
+   * Answered by **main**, which is where `shell` lives, and **refused unless
+   * the scheme is `http:` or `https:`** — the renderer may not hand an
+   * arbitrary scheme to the desktop's URL handler on a click, and `false` comes
+   * back rather than an error, because a stored value that is not a link is an
+   * ordinary state rather than a failure.
+   *
+   * This is not a network operation and does not touch invariant 7: nothing is
+   * fetched here. The browser that opens is the user's, with their session and
+   * their extensions, and Roost learns nothing about what it found.
+   */
+  | { readonly type: "link:open"; readonly url: string }
+  /**
    * Show one asset in the desktop's file manager, selected.
    *
    * Answered by **main**, for the reason `asset:openExternally` gives, and with
@@ -353,16 +375,24 @@ export type Request =
    * reach the same answer.
    */
   | { readonly type: "derive:retry"; readonly reason: string | null }
-  /** Ask the user for files and folders to import. Answered by main. */
-  | { readonly type: "dialog:chooseImport" }
+  /**
+   * Ask the user for something to import. Answered by main.
+   *
+   * `what` picks the dialog rather than filtering one: `files` opens a file
+   * chooser, `folders` a directory chooser. It used to be one dialog with both
+   * properties set, which every desktop resolves by drawing the file chooser
+   * and letting a directory be picked in it — so "import that folder" meant
+   * navigating to the folder's parent, which is the one place its contents are
+   * not shown.
+   */
+  | { readonly type: "dialog:chooseImport"; readonly what: ImportSubject }
   /**
    * The chooser for **Add subtitle…** (ADR-0025).
    *
-   * Not `dialog:chooseImport`: that one offers folders as well as files and
-   * says "Import" on its button, because importing a folder is the ordinary
-   * gesture. Attaching a caption track is not — it is one file, filtered to the
-   * extensions a subtitle has, and a chooser that offers a folder for it is
-   * offering something the caller cannot use.
+   * Not `dialog:chooseImport` with `what: "files"`: that one says "Import" on
+   * its button and takes anything. Attaching a caption track is narrower — it
+   * is filtered to the extensions a subtitle has, and it opens in Downloads
+   * rather than Pictures, because that is where one arrives.
    */
   | { readonly type: "dialog:chooseSubtitle" }
   /**
@@ -415,6 +445,7 @@ export interface Responses {
    */
   "asset:rate": null;
   "asset:note": null;
+  "asset:source": null;
   "asset:poster": null;
   "asset:rename": null;
   "asset:create": WireCreated;
@@ -429,6 +460,8 @@ export interface Responses {
   "comment:remove": null;
   /** `false` when the desktop had no handler for it. */
   "asset:openExternally": boolean;
+  /** `false` when the scheme is not `http(s)`, or the desktop refused it. */
+  "link:open": boolean;
   /** `false` when the bytes are not on this machine. */
   "asset:reveal": boolean;
   /** `false` when nothing could be located, so nothing was put on the clipboard. */
@@ -555,6 +588,22 @@ export const REQUEST_VALIDATORS: {
     const note = readNullable(source, "note", readString);
     if (!note.ok) return note;
     return ok({ type: "asset:note", hash: hash.value, note: note.value });
+  },
+
+  "asset:source": (source) => {
+    const hash = readHash(source, "hash");
+    if (!hash.ok) return hash;
+    // No shape beyond "a string or an explicit null": what counts as a source
+    // is the user's to decide (ADR-0030 §2), and the scheme is read where the
+    // value is *opened*, not where it is stored.
+    const url = readNullable(source, "url", readString);
+    if (!url.ok) return url;
+    return ok({ type: "asset:source", hash: hash.value, url: url.value });
+  },
+
+  "link:open": (source) => {
+    const url = readNonEmpty(source, "url");
+    return url.ok ? ok({ type: "link:open", url: url.value }) : url;
   },
 
   "asset:poster": (source) => {
@@ -713,7 +762,10 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "derive:retry", reason: reason.value });
   },
 
-  "dialog:chooseImport": () => ok({ type: "dialog:chooseImport" }),
+  "dialog:chooseImport": (source) => {
+    const what = readOneOf(source, "what", IMPORT_SUBJECTS);
+    return what.ok ? ok({ type: "dialog:chooseImport", what: what.value }) : what;
+  },
 
   "dialog:chooseSubtitle": () => ok({ type: "dialog:chooseSubtitle" }),
 

@@ -109,6 +109,7 @@
 }
 
 .tag-input,
+.source-field,
 .note {
   width: 100%;
   padding: var(--space-1) var(--space-2);
@@ -122,6 +123,47 @@
 
 .note {
   resize: vertical;
+}
+
+/*
+ * Where the file came from (ADR-0030). The note's field on one line, with the
+ * open button laid over its trailing edge rather than beside it — a second
+ * column would take width from the value on every asset, including the ones
+ * with no link at all, and the value is the part worth reading.
+ */
+.source {
+  position: relative;
+  display: flex;
+}
+
+/* Room for the button, and only when there is one to make room for. */
+.source:has(.source-open) .source-field {
+  padding-right: calc(var(--space-2) + 22px);
+}
+
+.source-open {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  color: var(--text-muted);
+}
+
+.source-open:hover {
+  color: var(--text);
+}
+
+.source-open > svg {
+  width: 13px;
+  height: 13px;
 }
 
 .metadata {

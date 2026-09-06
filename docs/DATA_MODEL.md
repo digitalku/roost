@@ -563,6 +563,43 @@ feature is reached by typing — there is no `note:` or `comment:` field, delibe
 The refresh points grow instead: `applyNoteSet`, `applyCommentAdd`, `applyCommentSet`, and
 `applyCommentRemove`, the last of which reads the comment's hash *before* the delete.
 
+### 2.12 Migration 0013 — where a file came from (schema v13)
+
+Decided as ADR-0030 on 2026-09-05 and built the same day, from the user asking for a link under the
+note, as Eagle keeps one URL per item: somewhere to record the page a file was saved off. The note
+already accepts anything, but a note is prose and this is not — it is one value with a shape, and
+what you want to do with it is click it, which a URL buried in a paragraph cannot be.
+
+```sql
+ALTER TABLE assets ADD COLUMN source_url TEXT;
+```
+
+**One per asset.** "Where did this come from" has a singular answer, and a list would immediately
+raise which of them is the one that gets clicked — the first, the newest, the one you meant. Eagle
+stores one. An asset with genuinely several sources has a note, which is what prose is for.
+
+**Whatever was typed is what is stored**, trimmed, with empty meaning absent — the rule `note`
+already follows. No parsing, no normalising, and no required scheme: `file:///archive/2019/` and a
+bare `instagram.com/p/xyz` are both answers to the question that was asked, and refusing them would
+be an application arguing with the user about what provenance is. The scheme decides only whether
+the window offers to *open* it, and that is the window's business rather than the schema's.
+
+**It is not in `assets_fts`**, and that was the user's decision on the day it was proposed. The
+argument for including it was ADR-0027's own — free text reaches everything a person wrote — and
+the argument that won is that a URL is an **address**, not prose about the asset: the words in it
+are a hostname and a path, so a search for `show` matching because a URL contained `/show/` would
+be a match with nothing on screen to explain it. `applySourceSet` is therefore the one write path
+in this file that deliberately does **not** call `#refreshFts`. ADR-0030 §4 records what that
+costs: a domain typed into the search box finds nothing, and reversing it later is a rebuild of a
+derived index.
+
+**No index.** It is read one asset at a time, beside the row it belongs to, and nothing queries it.
+
+**Journal op `source_set`**, shaped exactly like `note_set` — last write wins, clearing is the same
+op with `null`, and there is no `source_clear` to keep in step with it. `saveEdit`'s carry-over
+takes it across a supersession, because replacing an asset's bytes does not change where they came
+from.
+
 ## 3. Roost Query Language (RQL)
 
 The search bar and smart folders share one grammar. It compiles to SQL with **bound

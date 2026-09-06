@@ -42,12 +42,12 @@ describe("the schema on disk against the schema in the documents", () => {
     expect(statements(migration?.sql ?? "")).toEqual(published);
   });
 
-  it("keeps migrations 0002 to 0012 identical to what DATA_MODEL publishes", () => {
-    // `DATA_MODEL.md` §2.1 through §2.11 publish one block each, in migration
+  it("keeps migrations 0002 to 0013 identical to what DATA_MODEL publishes", () => {
+    // `DATA_MODEL.md` §2.1 through §2.12 publish one block each, in migration
     // order, because the specification's schema block is v1 and stays v1 —
     // growth lives in that file (its §2).
     const published = sqlBlocks(docs("DATA_MODEL.md"));
-    expect(published).toHaveLength(11);
+    expect(published).toHaveLength(12);
 
     for (const [index, block] of published.entries()) {
       const migration = allMigrations()[index + 1];
@@ -63,8 +63,10 @@ describe("the schema on disk against the schema in the documents", () => {
     // disagree with it about what version it is. 0006 is the first migration
     // this repository authors, and it is where the two builds part company:
     // see `DATA_MODEL.md` §2.5 on what a library that goes back has to do.
-    expect(allMigrations().map((m) => m.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    expect(latestSchemaVersion()).toBe(12);
+    expect(allMigrations().map((m) => m.version)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+    ]);
+    expect(latestSchemaVersion()).toBe(13);
   });
 });
 

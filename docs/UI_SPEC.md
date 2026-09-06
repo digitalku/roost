@@ -39,7 +39,7 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 
 ```
 ┌──────────────┬──────────────────────────────────────────┬──────────────────┐
-│ [☰] library  │ [ search — RQL ......... ]  [view ▾] [+] │                  │
+│ [☰] library  │ [ search — RQL ....... ] [view ▾] [+ Add ▾] │              │
 │              ├──────────────────────────────────────────┤                  │
 │   Sidebar    │              Content                     │    Inspector     │
 │              │   icons · compact · details · preview    │                  │
@@ -59,7 +59,7 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 | Region | Width | Collapsible | Notes |
 | --- | --- | --- | --- |
 | Sidebar head | with the sidebar | with it | Fixed height. The `☰` (ADR-0028) and the library's name. |
-| Content head | with the content | no | Fixed height. Search is the widest thing in it, then the view control and Import. |
+| Content head | with the content | no | Fixed height. Search is the widest thing in it, then the view control and **Add**. |
 | Sidebar | 220–420px, drag to resize | yes, `F9` | Remembers width and collapsed state per library. |
 | Content | fills | no | Hosts exactly one of: icons, compact, details, preview. |
 | Inspector | 280–480px, drag to resize | yes, `F4` | **Always drawn.** An empty selection gets the empty state from §8, never a shell of disabled controls. Reserves a scrollbar gutter, as the grid does: how tall its content is depends on the asset, so without one the panel's fields shift sideways as the selection moves. |
@@ -89,11 +89,35 @@ changed it for these reasons.
 Window — and it carried a Reload that throws away the query and the selection, a devtools toggle,
 and a Paste meaning something other than Roost's (§3.3). It is removed on Linux and Windows, and
 the commands that belong to the application live in the toolbar's `☰` instead: **Close library**
-and **Quit**, and nothing that already has a home. Import stays on the bar because it is the
-primary action of an empty library, the view control stays on the bar because it is ADR-0018's,
-and per-asset commands stay in the context menu — a menu that repeats the toolbar teaches people
-to look in two places and to trust neither. macOS keeps a menu bar, because there it belongs to
-the system rather than to the window.
+and **Quit**, and nothing that already has a home. **Add** stays on the bar because bringing
+something in is the primary action of an empty library, the view control stays on the bar because
+it is ADR-0018's, and per-asset commands stay in the context menu — a menu that repeats the toolbar
+teaches people to look in two places and to trust neither. macOS keeps a menu bar, because there it
+belongs to the system rather than to the window.
+
+**Add is the one control that brings an asset in**, and it names the four ways rather than one of
+them. It was a bare **Import…** button, which is the door somebody arriving with a folder wants and
+hides the other three entirely: making a file and pasting lived only in the context menu over the
+grid's empty space — a place nobody right-clicks in an application they have just opened, and one
+that is not reachable at all while a file is on screen.
+
+| Item | Behaviour |
+| --- | --- |
+| **New file…** | The dialog of §3.4, with an empty name |
+| **New text document…** | The same dialog, with `.txt` already typed and the caret in front of it |
+| **Import files…** | A file chooser. `Ctrl+I` |
+| **Import folder…** | A directory chooser. `Ctrl+Shift+I` |
+
+**The two import items are two dialogs, not one dialog filtered.** A chooser given both `openFile`
+and `openDirectory` is drawn as a *file* chooser on GTK, macOS and Windows alike, and merely permits
+a directory to be selected in it — so importing a folder meant navigating to that folder's **parent**
+and clicking it there, which is the one view that does not show what is inside it. Asking which was
+meant costs a menu item and buys a chooser that behaves. Both take a multiple selection.
+
+**Add is not a File menu.** ADR-0028 removed the menu bar and put the application's own commands in
+the `☰`; this is not that returning under another name. Nothing joins this menu that acts on an
+asset, because an asset that exists has a context menu, and nothing joins it that has a home
+elsewhere.
 
 **Window chrome.** The system frame is used in v1 — no client-side decorations. Frameless
 Electron windows are the usual look, and they are also the usual way to break tiling window
@@ -193,6 +217,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `Toolbar` | toolbar | — | Composes the four below |
 | `SearchField` | toolbar | draft text | RQL input; §5 |
 | `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, sort, grouping. ADR-0018 |
+| `AddMenu` | toolbar | — | One button, one menu: the four ways an asset comes into being. §1 |
 | `AssetContextMenu` | content | — | Right-click on the selection; §3.3. Native menus were considered and rejected; ADR-0021 |
 | `NavTree` | sidebar | expansion | One component for folders and smart folders; §4.2 |
 | `TagList` | sidebar | expansion | Grouped, with counts |
@@ -205,6 +230,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over existing tags, creates on Enter |
 | `NoteField` | inspector | draft | Autosaves on blur and after 1s idle |
+| `SourceField` | inspector | draft | Where the file came from. One line, saves on blur, idle, and `Enter`; offers to open only an `http(s)` value. §3.6. ADR-0030 |
 | `Comments` | inspector | drafts | Several comments where the note is one; each may carry a moment. §3.5 |
 | `MetadataTable` | inspector | — | Key/value, monospace values, copy on click. Since M4 it also carries duration, page count, and whatever the format's own backend reported — a font's family and style, a video's codec — labelled where the label is known and under the property's own name where it is not, so a new backend is visible before any interface code is written for it. **Labels are qualified where two properties would otherwise share one**: `Video codec` and `Audio codec`, never two rows both saying `Codec` |
 | `StatusBar` | status | — | Counts, and one row per running job |
@@ -257,8 +283,8 @@ for one path and not the other.
 **What it deliberately does not show**, each for its own reason:
 
 - **No name field.** A name belongs to one asset.
-- **No note.** A note is a paragraph about one thing; writing one across twelve would silently
-  destroy eleven.
+- **No note, and no source.** A note is a paragraph about one thing and a source is one thing's
+  answer to where it came from; writing either across twelve would silently destroy eleven.
 - **No preview.** One asset's picture above controls that edit all of them is exactly the
   misreading this panel exists to correct.
 - **No "Open externally".** Handing twenty files to the desktop is more than a click's worth of
@@ -325,6 +351,11 @@ ways to bring an asset into being:
 | --- | --- |
 | **Paste** | Four gestures wearing one name. Files from a file manager are imported; image bytes are imported under a synthesised name (`Pasted 2026-09-04 14.22.08.png`), because `orig_name` cannot be null and there is no name to be had; text opens a draft; **a link does nothing at all** |
 | **New file…** | Opens a dialog that asks for the name (§3.4) |
+
+**The same two are in the toolbar's Add menu** (§1), because a right-click on empty space is a
+gesture people who already know an application use, and this menu is not reachable while a file is
+open. Paste is not: it is `Ctrl+V` and a context menu, which is where a paste belongs everywhere
+else.
 
 **An empty selection *is* the empty space.** Right-clicking a cell selects it first, so a menu with
 nothing to act on can only have been opened over the background — no second detection, and no way
@@ -423,6 +454,12 @@ and that is the user's own to weigh.
 somebody has to rename — and the extension is part of it. `Enter` is the button, and **Create**
 stays disabled until there is a name.
 
+**New text document…** (§1) opens this same dialog with `.txt` in the field and the caret in front
+of it. It is not a second kind of file — Roost has no file types, only bytes and a name — it is the
+one guess the dialog can make, made where the menu has already said what was wanted. The prefill is
+**not an answer**: **Create** stays disabled until something is typed in front of it, or the file
+would be called `.txt`.
+
 **The library holds one empty file however many are made**, and that is reported rather than
 prevented: every empty file has the same hash, and `assets.hash` is the primary key, so the second
 answers with the first under the first one's name. The status bar says so. An external editor
@@ -473,6 +510,32 @@ find.
 
 Comments follow the note in belonging to **one asset**, so like the note they are absent from the
 multi-selection panel (§3.2) — writing one across twelve assets would say twelve different things.
+
+### 3.6 Where the file came from
+
+Asked for by the user on 2026-09-05 and accepted as ADR-0030 the same day, because Eagle keeps one
+URL per item. It sits **directly under the note**, which is where it was asked for and where it
+belongs: the note, the rating, the tags and this are all what the *user* says about the file, and
+the metadata table below them is what the *file* says about itself.
+
+**One line, not a textarea.** It has one value and no paragraphs, so `Enter` saves rather than
+making a second line. Otherwise it is the note's field exactly — saves on blur and after a
+second's idle, and adopts whatever the engine stored, so a value of three spaces comes back empty
+rather than lingering in a field the library does not hold.
+
+**Whatever is typed is kept.** No parsing, no normalising, no required scheme. A bare
+`instagram.com/p/xyz` is as good an answer to "where did this come from" as a full address, and an
+application that refused it would be arguing with the user about what provenance is.
+
+**Only an `http(s)` value gets a button to open it**, and the button is *absent* otherwise rather
+than disabled (§8): handing an arbitrary string to the desktop's URL handler on a click is not a
+thing to do, and the value was still worth recording. Opening asks main, which opens the user's own
+browser — nothing is fetched here, so invariant 7 is untouched, and nothing opens without the
+click. **No favicon, no title lookup, no unfurled preview**; each would be the network operation
+that invariant exists to forbid, and each would arrive looking like a small convenience.
+
+The affordance follows what the **engine holds**, not what is being typed, or the button would
+flicker in and out on the way to `https://`.
 
 ## 4. Navigation
 
@@ -554,14 +617,16 @@ screen", and it is a string the user can read and edit.
 ## 5. Search
 
 The field takes RQL (`DATA_MODEL.md` §3). It is the primary control in its column's head and takes
-every pixel the view control and Import leave it — a query is not a paragraph, and RQL runs long
+every pixel the view control and Add leave it — a query is not a paragraph, and RQL runs long
 enough (three terms, a quoted folder path, a date range) that a capped field would scroll sideways
 while empty bar sat beside it.
 
 - **Typing words is a search, and needs no syntax** (ADR-0027). Bare words are free-text terms,
   and free text reaches everything a person wrote about an asset: its name, its tags, its note,
-  and its comments. The placeholder says so rather than teaching a field prefix — RQL is
-  discovered from the sidebar, which writes `tag:wood` into this field when a tag is clicked.
+  and its comments. **Not its source** — a URL is an address rather than prose about the asset,
+  and the user ruled it out on the day it was proposed (ADR-0030 §4). The placeholder says what
+  is reached rather than teaching a field prefix — RQL is discovered from the sidebar, which
+  writes `tag:wood` into this field when a tag is clicked.
 - **Validates before it applies.** A half-typed query leaves the grid alone. The parse error
   appears under the field with a caret at the byte offset the parser reported — not a red
   border and not a toast.
