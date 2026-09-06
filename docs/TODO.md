@@ -115,9 +115,38 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   has one, and a smart folder saying `is:favorite` must still parse (`DATA_MODEL.md` §3). The CLI
   still prints the state where it exists, and only there.
 
-**Nothing blocking.** ADR-0025 through ADR-0029 were all accepted on the day they were proposed. The
-five questions the language change forced were settled on 2026-08-24, before any code was
-written against them — ADR-0006 through ADR-0012, all Accepted. What they decided is in
+- ☑ ~~**ADR-0032 — importing an Eagle library.**~~ **Accepted 2026-09-06**, the day it was
+  proposed, from the user asking
+  whether their existing Eagle library can be brought across, and supplying a real Eagle **4.0.0**
+  library — 14 items, 1.1 GB — to read rather than remember. The premise it corrects is most of the
+  design: Roost *has* folders, and they are Eagle's idea of a folder (collections, nested, an asset
+  in many), so **folders map to folders** instead of degrading into tags. It needs **no journal op,
+  no migration, and no schema change** — every line of the mapping is an operation this build
+  already writes, which is the strongest evidence the two models agree. Reading the real library is
+  what caught the six things a parser written from memory gets wrong: `mtime.json` carries an
+  `"all"` key that is a count and not an id, `tags.json` is a typing history rather than the
+  vocabulary, `star` is omitted when unrated so absent ≠ 0, a comment's timestamp field is called
+  `duration` and is a position in float seconds, `annotation` means the note on an item and the body
+  inside a comment, and `palettes` leaks AngularJS `$$hashKey` internals to disk. Two things fit
+  better than they deserved to: the original's mtime on disk **is** the item's `mtime` field, so
+  `created_at` fills itself, and a `.srt` sits beside a video mentioned by no metadata at all —
+  exactly ADR-0025's heuristic, attached with no Eagle-specific code. **Smart folders are scoped out
+  by the user**: a half-translated saved query silently returns the wrong set. **Three questions are
+  answered** the same day: Eagle's `btime` is **not** carried — `imported_at` comes from the journal
+  line's `ts`, so every migrated asset shares one "date added" while `created_at` stays correct, and
+  the alternatives were a journal that lies about when a line was written or a column for one
+  importer; the command is **`roost import --from-eagle <path>`**, one import door where the flag
+  changes how the source is read and nothing after it; and **there are no selection flags at all**.
+  That last one is the interesting answer: the user asked for selective import, was shown the three
+  shapes it could take — prune the kinds of metadata, prune the items, or both — and took none,
+  because choosing what to keep is a judgement about specific files that is made better in a grid
+  than in a terminal, and Roost already has search, selection and trash for it. The survey
+  (`--dry-run`) stays, because it answers "what am I about to do" rather than filtering anything.
+  The work is in §3 below.
+
+**Nothing blocking.** ADR-0025 through ADR-0032 were all accepted on the day they were
+proposed. The five questions the language change forced were settled on 2026-08-24, before any
+code was written against them — ADR-0006 through ADR-0012, all Accepted. What they decided is in
 `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
 
 Electron version policy was settled the same day: **track the stable line**, exact pin,
@@ -241,6 +270,34 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   one. `ROADMAP.md` M0 records the deviation; the CI file carries the reason.
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
+
+### Importing an Eagle library (ADR-0032) — built 2026-09-06
+- ☑ ~~**`roost import --from-eagle <DIR>`, with `--dry-run`.**~~ `packages/library/src/eagle.ts`:
+  the root `metadata.json` for the folder tree and the tag groups, a streamed walk of
+  `images/<id>.info/`, then two phases per chunk of 200 — the ordinary import pipeline for the
+  bytes, then one `apply()` batch for the metadata, because an op naming an asset the index does
+  not hold yet is a foreign-key violation. **No journal op, no migration, no schema change.** The
+  pipeline gained exactly one thing: `ImportOptions.onAsset`, which reports the hash of every file
+  that resolved — *including a duplicate*, since a file the library already holds is still that
+  item's asset and a hook that skipped it would drop the metadata of every repeat.
+- ☑ ~~**Idempotent, and tested as such.**~~ Folders and tag groups are looked up before they are
+  created, and a comment is matched on the same words at the same moment on the same asset —
+  `comment_add` mints an id, so it is the one operation here that is neither set membership nor
+  last-write-wins, and a second run would otherwise duplicate every comment. Proved on the user's
+  own library: the second run writes 0 files, 0 folders, 0 comments.
+- ☑ ~~**Proved against a real Eagle 4.0.0 library**~~ (14 items, 1.0 GiB, the user's own): 14
+  assets, 2 folders, 4 tags, 1 rating, 4 notes, 2 URLs, 6 comments at the right milliseconds
+  (726.211598 s → 726212 ms), 1 subtitle attached from a sibling no metadata mentions, and 15
+  distinct `created_at` values against 1 `imported_at` — which is exactly the `btime` loss §7
+  describes, visible in the index.
+- 🟡 **A door in the window.** The CLI is the whole of it today (ADR-0005). The survey is what a
+  GUI would render — a dialog reached from the `☰`, showing what the library holds and what will
+  not come across, then the same two phases behind a progress bar. Needs `UI_SPEC.md` first.
+- 🟢 **The survey does not report formats with no thumbnail**, though an earlier draft of the ADR
+  said it would. Knowing that means probing every file, which is what the import does anyway; a
+  survey that costs an import is not a survey. The ADR now says so.
+- 🟢 **`--dry-run` opens no Roost library**, so it answers "what is in this Eagle library" before
+  there is anywhere to put it. It is the only subcommand of `import` that does not need one.
 
 ### Engine (M1)
 - ☑ ~~**A journal file not named `YYYY-MM.jsonl` is invisible to replay.**~~ `roost doctor`

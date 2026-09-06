@@ -11,7 +11,7 @@ import { comment, drop, edit, listOn } from "./commands/comment.js";
 import { doctor } from "./commands/doctor.js";
 import { fixture } from "./commands/fixture.js";
 import { folder } from "./commands/folder.js";
-import { runImport } from "./commands/import.js";
+import { runEagleImport, runImport, surveyEagleLibrary } from "./commands/import.js";
 import { init } from "./commands/init.js";
 import {
   emptyTheTrash,
@@ -62,6 +62,8 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
     mode: { type: "string" },
     tag: { type: "string", multiple: true },
     hidden: { type: "boolean" },
+    "from-eagle": { type: "string" },
+    "dry-run": { type: "boolean" },
   },
   stats: {},
   rebuild: {},
@@ -179,12 +181,42 @@ async function dispatch(
     }
 
     case "import": {
-      if (positionals.length === 0) {
-        return usage(streams, command, "import needs at least one path");
-      }
+      const eagle = text(values, "from-eagle");
       const mode = text(values, "mode") ?? "managed";
       if (!isStorageMode(mode)) {
         return usage(streams, command, `mode must be managed or referenced, not "${mode}"`);
+      }
+
+      if (eagle !== undefined) {
+        // The Eagle library is named by the flag, so a positional path is not a
+        // second source — it is a mistake worth naming rather than ignoring.
+        if (positionals.length > 0) {
+          return usage(streams, command, "--from-eagle takes the whole library; drop the paths");
+        }
+        if (flag(values, "hidden")) {
+          return usage(streams, command, "--hidden means nothing with --from-eagle");
+        }
+        if (flag(values, "dry-run")) {
+          // No library is opened: reading an Eagle library is a question that
+          // stands on its own, and there may not be anywhere to put it yet.
+          await surveyEagleLibrary(eagle, streams.out, streams.warn);
+          return EXIT.ok;
+        }
+        await runEagleImport(
+          await library(),
+          { path: eagle, mode, tags: list(values, "tag") },
+          streams.out,
+          streams.progress,
+          streams.warn,
+        );
+        return EXIT.ok;
+      }
+
+      if (flag(values, "dry-run")) {
+        return usage(streams, command, "--dry-run is only available with --from-eagle");
+      }
+      if (positionals.length === 0) {
+        return usage(streams, command, "import needs at least one path");
       }
       await runImport(
         await library(),

@@ -17,6 +17,21 @@ export class NotALibraryError extends RoostError {
   }
 }
 
+/**
+ * The directory does not look like an Eagle library (ADR-0032).
+ *
+ * Checked before anything is read, because the alternative is a survey that
+ * reports zero of everything — which looks like an empty library rather than
+ * like the wrong directory.
+ */
+export class NotAnEagleLibraryError extends RoostError {
+  readonly code = "not_an_eagle_library";
+
+  constructor(path: string, missing: string) {
+    super(`${path} is not an Eagle library (no ${missing})`, { path, missing });
+  }
+}
+
 export class AlreadyALibraryError extends RoostError {
   readonly code = "already_a_library";
 

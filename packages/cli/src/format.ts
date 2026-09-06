@@ -28,6 +28,17 @@ export function rate(count: number, ms: number): string {
   return ms <= 0 ? "—" : `${Math.round((count / ms) * 1000)}`;
 }
 
+/**
+ * A count with its noun, pluralised by adding an `s` unless told otherwise.
+ *
+ * Only the regular case is handled, because only the regular case appears here:
+ * a summary line reading "1 subtitles" is the kind of small wrongness that
+ * makes a report look machine-generated.
+ */
+export function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 /** A label-and-value line, aligned. Two spaces of indent per level. */
 export function row(label: string, value: string | number, indent = 1, width = 12): string {
   return `${"  ".repeat(indent)}${label.padEnd(width)}${value}`;

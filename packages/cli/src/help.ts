@@ -101,6 +101,13 @@ Originals are never moved, modified, or deleted. Identical bytes deduplicate
 against what the library already holds, so re-importing a folder is a no-op.
 
 Usage: roost import <PATH>... [OPTIONS]
+       roost import --from-eagle <LIBRARY> [OPTIONS]
+
+An Eagle library comes across whole: its folders become folders, and its tags,
+ratings, notes, URLs, timed comments, trashed items and subtitles come with
+them. Eagle's own library is only ever read. What cannot be carried — its
+thumbnails, colour palettes, smart folders, and its "date added" — is listed by
+--dry-run before anything is written.
 
 Options:
 ${LIBRARY_FLAG}
@@ -108,6 +115,9 @@ ${LIBRARY_FLAG}
                          the file where it is). Default: managed
       --tag <TAG>        Apply to everything imported in this run. Repeatable
       --hidden           Descend into dot-directories and import dotfiles
+      --from-eagle <DIR> Import an Eagle library, translating its metadata
+      --dry-run          With --from-eagle: report what would be imported and
+                         write nothing
 ${GLOBAL}`,
 
   stats: `Show what a library contains.

@@ -24,6 +24,20 @@ export {
   unsoundForReclaim,
 } from "./doctor.js";
 export {
+  type EagleComment,
+  type EagleFolder,
+  type EagleImportOptions,
+  type EagleItem,
+  type EagleReport,
+  type EagleRoot,
+  type EagleSurvey,
+  type EagleTagGroup,
+  type FolderRename,
+  importEagle,
+  readEagleRoot,
+  surveyEagle,
+} from "./eagle.js";
+export {
   addComment,
   addToFolder,
   apply,
@@ -84,6 +98,7 @@ export {
   LibraryBusyError,
   LibraryTooNewError,
   NotALibraryError,
+  NotAnEagleLibraryError,
   NotAVideoError,
   NotEditableError,
   PartialHashCollisionError,

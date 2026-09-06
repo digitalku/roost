@@ -72,6 +72,19 @@ export interface ImportOptions {
   readonly tags?: readonly string[];
   /** Whether to descend into dot-directories and import dotfiles. */
   readonly includeHidden?: boolean;
+  /**
+   * Called with the content hash of each file that resolved, new or already
+   * present.
+   *
+   * The Eagle importer is what needs it (ADR-0032 §3): an item's tags have to
+   * land on the asset its bytes became, and **a file the library already holds
+   * is still that item's asset** — so a hook that fired only for new imports
+   * would silently drop the metadata of every duplicate.
+   *
+   * It fires *before* the batch is committed, so the row does not exist yet.
+   * Collect here; act after {@link importInto} returns.
+   */
+  readonly onAsset?: (path: string, hash: ContentHash) => void;
 }
 
 /**
@@ -232,7 +245,7 @@ export async function importInto(
 
     const ingested = await mapWithConcurrency(window, CONCURRENCY, async (path) => {
       try {
-        return await ingest(library, storage, path, mode, tags, pending, report);
+        return await ingest(library, storage, path, mode, tags, pending, report, options.onAsset);
       } catch (error) {
         // One file that cannot be read must not end an import of ten thousand.
         report.failed.push({
@@ -309,6 +322,7 @@ async function ingest(
   tags: readonly string[],
   pending: Map<string, string>,
   report: ImportReport,
+  onAsset: ((path: string, hash: ContentHash) => void) | undefined,
 ): Promise<{ hash: ContentHash; path: string; records: JournalRecord[] } | undefined> {
   const hashStarted = performance.now();
   const hashed = await hashFile(path);
@@ -325,7 +339,10 @@ async function ingest(
   report.timings.dedupe += performance.now() - dedupeStarted;
 
   if (claim.kind !== "free") {
+    // Throws on a partial-hash collision, which is why the hook comes after:
+    // a refused file is not this path's asset.
     await recordDuplicate(claim, path, hashed.isPartial, report);
+    onAsset?.(path, hashed.hash);
     // Importing a file the library has already trashed brings it back.
     // Otherwise the import would report a duplicate and the asset would stay
     // invisible, which reads as the import having silently done nothing — and
@@ -392,6 +409,7 @@ async function ingest(
 
   report.imported += 1;
   report.bytes += hashed.size;
+  onAsset?.(path, hashed.hash);
   return { hash: hashed.hash, path, records };
 }
 

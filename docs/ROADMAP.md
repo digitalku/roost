@@ -327,7 +327,19 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-05.** **ADR-0030 — where a file came from** was accepted that day,
+**Nothing open, as of 2026-09-06.** **ADR-0032 — importing an Eagle library** was accepted that
+day, from the user asking whether their existing Eagle library can be brought across and handing
+over a real Eagle 4.0.0 one to read rather than remember. Folders map to folders, because Roost has
+them and they are Eagle's idea of a folder; tags, ratings, notes, URLs, trash, timed comments and a
+`.srt` sitting beside a video all land on operations this build already writes, so the importer
+needs **no journal op, no migration, and no schema change**. `roost import --from-eagle <path>`,
+with `--dry-run` surveying the library and writing nothing. **Selective import was asked for and
+then declined by the user** once the three shapes it could take were laid out: what to keep is a
+judgement about specific files, better made in a grid than in a terminal. Eagle's `btime` is the
+one thing deliberately lost.
+
+Before it, on 2026-09-06, **ADR-0031 — delete permanently takes the bytes** was accepted, from the
+user reporting a file gone from Roost and still on disk. Before that, **ADR-0030 — where a file came from** was accepted on 2026-09-05,
 from the user asking for a link under the note because Eagle keeps a URL per item. One nullable
 column, one op shaped like `note_set`, migration 0013, and a link only for an `http(s)` value —
 opened by handing it to the desktop, which fetches nothing and so leaves invariant 7 alone. **The
