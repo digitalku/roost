@@ -4,7 +4,7 @@ Everything known to be outstanding, in priority order. `ROADMAP.md` holds the mi
 this file holds the working list, including the small things that surface during implementation
 and would otherwise be forgotten.
 
-Last reviewed: 2026-09-03. M5 and M6 are deferred at the user's request — feature work first,
+Last reviewed: 2026-09-07. M5 and M6 are deferred at the user's request — feature work first,
 and those two milestones get planned once the feature set has settled.
 
 Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 whenever
@@ -144,8 +144,22 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   (`--dry-run`) stays, because it answers "what am I about to do" rather than filtering anything.
   The work is in §3 below.
 
-**Nothing blocking.** ADR-0025 through ADR-0032 were all accepted on the day they were
-proposed. The five questions the language change forced were settled on 2026-08-24, before any
+- ☑ ~~**ADR-0033 — the folder tree in the sidebar.**~~ **Accepted 2026-09-07**, proposed the
+  evening before, from a screenshot of the user's own library: twenty folders in one column, four
+  of them called `highlights`, none foldable. The request was expand/collapse, add, right-click for
+  a subfolder, and delete with a checkbox for the contents. What the screenshot showed underneath it
+  is the reason there is a record at all — **the pane had never drawn a tree**: `repo.folders()`
+  orders by `sort_order` then name, nothing sets `sort_order`, and the window indented that one
+  alphabetical run by depth, so a child was drawn under whatever sorted above it. The CLI never had
+  the bug because `roost folder list` walks the tree. Three decisions: a branch **starts closed**
+  (a folder's count is its subtree's, so nothing is hidden by it); the tree is **editable from the
+  pane**; and **deleting one asks a question that is not "are you sure"** — unticked the folder goes
+  and the assets stay unfiled, ticked they go to the **trash** in the same journal batch, because a
+  replay landing between two batches would produce a state nobody asked for. The work is in §3
+  below.
+
+**Nothing blocking.** ADR-0025 through ADR-0033 were all accepted on the day they were
+proposed or the morning after. The five questions the language change forced were settled on 2026-08-24, before any
 code was written against them — ADR-0006 through ADR-0012, all Accepted. What they decided is in
 `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
 

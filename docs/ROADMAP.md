@@ -331,7 +331,15 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-06.** **ADR-0032 — importing an Eagle library** was accepted that
+**Nothing open, as of 2026-09-07.** **ADR-0033 — the folder tree in the sidebar** was accepted
+that morning, proposed the evening before from a screenshot of the user's own library. A branch
+starts closed; the tree is editable from the pane (`+` in its heading, right-click for subfolder,
+rename and delete); and deleting a folder asks one question with a checkbox — the folder alone, or
+the folder and its live contents to the **trash**, in the same journal batch. Underneath the request
+was a bug worth the record: the pane had never drawn a tree, because the rows arrived sorted by name
+and were indented by depth anyway.
+
+Before it, **ADR-0032 — importing an Eagle library** was accepted on 2026-09-06, that
 day, from the user asking whether their existing Eagle library can be brought across and handing
 over a real Eagle 4.0.0 one to read rather than remember. Folders map to folders, because Roost has
 them and they are Eagle's idea of a folder; tags, ratings, notes, URLs, trash, timed comments and a
