@@ -562,11 +562,16 @@ has been chosen, so `oke` is still `oke` with `okelah` listed under it. `↓`/`�
 and wrap, Enter takes it, Escape closes the list and keeps the text — and a second Escape belongs
 to the window, so the panel does not swallow the key that clears a selection.
 
-**The list is drawn in the flow of the panel, not floating over it.** The inspector is a scroll
-container, so an absolutely positioned list would be clipped by it exactly when the field has been
-scrolled near the bottom — the case a dropdown exists for — and escaping that clip means a portal
-re-measuring the field on every scroll of a panel whose whole job is to scroll. What it costs is
-the note moving down for as long as the list is open.
+**The list floats over the panel and moves nothing under it.** It was drawn in the panel's flow
+first, which pushed the note down for as long as somebody was typing — the user reported that from
+a real window the same day, and it is the right report: a field that rearranges the panel to
+answer a keystroke is a field that makes you find your place again. In flow had a reason — the
+inspector is a scroll container, and a list positioned inside it is clipped exactly when the field
+has been scrolled near the bottom, the case a dropdown exists for — and a portal on `document.body`
+answers both: outside the clip, and pinned to the field's measured rectangle rather than to a
+parent that scrolls. The position is therefore measured rather than declared, so it is taken again
+on every scroll and resize, and **the list goes above the field when there is not enough room under
+it**.
 
 The field keeps the focus throughout: the options are an `aria-activedescendant` listbox, and a
 press on one prevents the default so the blur never fires under the click.

@@ -433,24 +433,24 @@
 }
 
 /*
- * The tag field's suggestions (UI_SPEC.md §3.2).
+ * The tag field's suggestions (UI_SPEC.md §3.7).
  *
- * Drawn in the flow of the panel rather than floating over it: the inspector
- * scrolls, so an absolutely positioned list would be clipped by it exactly when
- * the field has been scrolled near the bottom.
+ * A layer over the panel rather than a block inside it, so nothing under the
+ * field moves while somebody types. It comes from a portal on `document.body`
+ * and is placed from the field's measured rectangle: the inspector scrolls, and
+ * a list positioned inside it would be clipped by that scroll exactly when the
+ * field has been scrolled near the bottom.
  */
-.tag-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
 .tag-suggestions {
+  position: fixed;
+  z-index: 10;
+  overflow-y: auto;
   margin: 0;
   padding: var(--space-1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-2);
 }
 
 .tag-suggestion {

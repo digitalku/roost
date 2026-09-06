@@ -96,6 +96,43 @@ describe("the tag field", () => {
     expect(onAdd).toHaveBeenCalledWith("oke");
   });
 
+  it("floats over the panel instead of pushing what is under it down", async () => {
+    // Reported from a real window on 2026-09-06: the list was a block in the
+    // panel's flow, so the note moved down for as long as somebody was typing.
+    // jsdom computes no layout, so the claim it can hold is the structural one
+    // — the list is not in the panel at all, it is a layer on the document.
+    const { user, field } = show();
+    await user.type(field, "ola");
+
+    const listbox = screen.getByRole("listbox", { name: "Matching tags" });
+    expect(listbox.parentElement).toBe(document.body);
+    expect(field.closest(".tag-field")?.contains(listbox)).toBe(false);
+    expect(listbox.style.top).not.toBe("");
+  });
+
+  it("draws the list above the field when there is no room under it", async () => {
+    const { user, field } = show();
+    // A field near the foot of the window. The inspector scrolls, so this is
+    // ordinary rather than exotic.
+    const top = window.innerHeight - 28;
+    vi.spyOn(field, "getBoundingClientRect").mockReturnValue({
+      top,
+      bottom: top + 24,
+      left: 20,
+      right: 220,
+      width: 200,
+      height: 24,
+      x: 20,
+      y: top,
+      toJSON: () => ({}),
+    });
+    await user.type(field, "ola");
+
+    const listbox = screen.getByRole("listbox", { name: "Matching tags" });
+    expect(listbox.style.bottom).toBe(`${window.innerHeight - top + 4}px`);
+    expect(listbox.style.top).toBe("");
+  });
+
   it("closes on Escape and keeps what was typed", async () => {
     const { user, field } = show();
     await user.type(field, "ola{Escape}");
