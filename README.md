@@ -1,4 +1,7 @@
-# Roost
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/roost-logo-dark.svg">
+  <img src="assets/brand/roost-logo.svg" alt="Roost" height="64">
+</picture>
 
 A local-first digital asset manager — an open alternative to Eagle.cool.
 Electron shell, TypeScript engine, React interface. Your files stay yours.

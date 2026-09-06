@@ -153,6 +153,15 @@ body {
   font-weight: 600;
 }
 
+/* The wordmark stands in for the heading, so the heading has no text of its own
+   to space. Sized in `rem` rather than by the file's own dimensions: it is one
+   drawing at 470×128 and this is the only place it appears. */
+.panel h1.brand img {
+  display: block;
+  width: auto;
+  height: 4rem;
+}
+
 .panel p {
   margin: 0;
   max-width: 52ch;

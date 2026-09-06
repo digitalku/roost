@@ -253,6 +253,13 @@ user asked for first.
 
 ### 3.1 The recent list
 
+**The picker carries the wordmark**, not the word: `assets/brand/roost-logo-dark.svg` in place of
+an `<h1>` with "Roost" in it. The dark variant, because the window pins a dark theme
+(`TODO.md` §3); when the theme follows the system, this becomes a pair. The heading keeps its
+level and the name lives in the image's `alt`, so nothing is lost to a reader that does not draw
+pictures. That directory's `README.md` says which file is for what.
+
+
 The picker's way back in. Application state rather than library state, for the reason ADR-0019
 gives: this list is what *finds* a library, so it cannot live inside one.
 

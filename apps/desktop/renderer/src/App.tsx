@@ -10,6 +10,7 @@ import type {
 } from "@roost/contract";
 import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import wordmark from "../../../../assets/brand/roost-logo-dark.svg";
 import { AddMenu } from "./AddMenu.js";
 import { AppMenu } from "./AppMenu.js";
 import { markFirstPaint } from "./bench/bench.js";
@@ -289,7 +290,15 @@ export function App(): React.JSX.Element {
   return (
     <Frame>
       <section className="panel">
-        <h1>Roost</h1>
+        {/*
+          The wordmark rather than the word. `assets/brand/` holds both
+          variants; this is the one for a dark ground, which is the only ground
+          the window has while `index.html` pins the theme (`TODO.md` §3). When
+          the theme follows the system, this becomes a pair.
+        */}
+        <h1 className="brand">
+          <img src={wordmark} alt="Roost" width={235} height={64} draggable={false} />
+        </h1>
         <p>
           A library is a folder ending in <code>{LIBRARY_SUFFIX}</code>. Open one you already have,
           or make a new one.

@@ -14,6 +14,18 @@ const log = logger("main");
 
 const PRELOAD = fileURLToPath(new URL("../../preload/dist/preload.js", import.meta.url));
 
+/**
+ * What the desktop draws for this window (`assets/brand/`).
+ *
+ * A PNG, because that is what Linux and Windows take here; macOS ignores it and
+ * uses the bundle's own icon. Drawn from `roost-icon.svg` by
+ * `scripts/build-brand.mjs` and committed, because the window opens before any
+ * build step could produce one. **Packaging has to carry `assets/brand/`** —
+ * this path is relative to the built `main/dist`, and a packaged app that left
+ * the directory behind would open with Electron's default icon (M6).
+ */
+const ICON = fileURLToPath(new URL("../../../../assets/brand/icon-512.png", import.meta.url));
+
 /** Where the renderer's pages come from: the dev server, or the built bundle. */
 export function rendererUrl(): string {
   const devServer = process.env["ROOST_DEV_SERVER"];
@@ -51,6 +63,7 @@ export function createWindow(): BrowserWindow {
     // moment rather than a white flash followed by a layout.
     show: false,
     backgroundColor: "#14110f",
+    icon: ICON,
     webPreferences: { ...RENDERER_PRIVILEGES, preload: PRELOAD },
   });
 
