@@ -1498,6 +1498,30 @@ export class Repo {
   }
 
   /**
+   * The live assets in any of these folders, each once.
+   *
+   * For the one gesture that has to act on a folder's contents rather than on
+   * the folder: deleting one and taking what it holds to the trash. Distinct,
+   * because an asset in a folder *and* its child would otherwise be journalled
+   * twice; and live, because trashing what is already trashed says nothing.
+   *
+   * The ids arrive as one JSON parameter for the reason
+   * {@link selectionSummary} gives — a folder subtree is small, but the
+   * statement stays one cached string whatever its size.
+   */
+  assetsInFolders(folders: readonly number[]): ContentHash[] {
+    const rows = this.#s(
+      `SELECT DISTINCT af.hash AS hash
+         FROM asset_folders af
+         JOIN assets a ON a.hash = af.hash
+        WHERE af.folder_id IN (SELECT value FROM json_each(?))
+          AND a.trashed_at IS NULL
+        ORDER BY af.hash`,
+    ).all(JSON.stringify(folders)) as { hash: ContentHash }[];
+    return rows.map((row) => row.hash);
+  }
+
+  /**
    * Every tag, with its live asset count and its group.
    *
    * The count excludes trashed assets, for the reason {@link folderCounts}

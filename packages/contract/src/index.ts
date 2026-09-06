@@ -55,6 +55,7 @@ export {
   type WireEagleReport,
   type WireEagleSurvey,
   type WireExportReport,
+  type WireFolderDeleted,
   type WireFolderRef,
   type WireFolderRename,
   type WireImportFailure,

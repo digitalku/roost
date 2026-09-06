@@ -53,6 +53,7 @@ export {
   deleteTagGroup,
   detachSubtitle,
   emptyTrash,
+  type FolderDeletion,
   MAX_EDIT_BYTES,
   MAX_RATING,
   moveFolder,

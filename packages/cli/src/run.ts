@@ -83,7 +83,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   query: { limit: { type: "string" }, count: { type: "boolean" }, hashes: { type: "boolean" } },
   show: {},
   tag: { tag: { type: "string", multiple: true } },
-  folder: { parent: { type: "string" } },
+  folder: { parent: { type: "string" }, "trash-contents": { type: "boolean" } },
   smart: { rename: { type: "string" }, query: { type: "string" } },
   rate: {},
   note: { clear: { type: "boolean" } },
@@ -315,7 +315,12 @@ async function dispatch(
       return tag(await library(), positionals, list(values, "tag"), streams);
 
     case "folder":
-      return folder(await library(), positionals, text(values, "parent"), streams);
+      return folder(
+        await library(),
+        positionals,
+        { parent: text(values, "parent"), trashContents: flag(values, "trash-contents") },
+        streams,
+      );
 
     case "smart":
       return smart(

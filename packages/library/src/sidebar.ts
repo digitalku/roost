@@ -1,6 +1,6 @@
 import type { FolderRow } from "@roost/core";
 import { quoteValue } from "@roost/search";
-import { childrenById, descendants } from "./folder-tree.js";
+import { childrenById, descendants, orderTree } from "./folder-tree.js";
 import { type Library, nowUnix } from "./library.js";
 
 /**
@@ -85,7 +85,9 @@ export interface Sidebar {
 /** One snapshot of the navigation tree. */
 export function readSidebar(library: Library): Sidebar {
   const repo = library.db.repo;
-  const rows = repo.folders();
+  // Depth-first, so a row is followed by its own subtree: the pane indents
+  // these and a flat listing would draw a tree that is not one.
+  const rows = orderTree(repo.folders());
   const direct = repo.folderCounts();
   const byId = new Map(rows.map((row) => [row.id, row]));
   const children = childrenById(rows);

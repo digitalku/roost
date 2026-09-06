@@ -31,6 +31,7 @@ import {
   UnknownSmartFolderError,
   UnknownTagGroupError,
 } from "./error.js";
+import { childrenById, descendants } from "./folder-tree.js";
 import { enqueueDerives } from "./jobs.js";
 import { type Library, nowUnix } from "./library.js";
 import { redrawPoster } from "./thumbnails.js";
@@ -583,13 +584,45 @@ export async function moveFolder(
   return apply(library, [{ op: "folder_move", id, parent }]);
 }
 
+/** What deleting a folder did (ADR-0033). */
+export interface FolderDeletion {
+  /** How many assets went to the trash with it. Zero unless it was asked for. */
+  readonly trashed: number;
+}
+
 /**
- * Deletes a folder, its descendants, and every membership in them. The assets
- * stay in the library — folders are collections, not locations.
+ * Deletes a folder, its descendants, and every membership in them.
+ *
+ * **The assets stay in the library by default** — folders are collections, not
+ * locations, so deleting one is a change to the shelf and not to what was on
+ * it. `trashContents` is the second, deliberate gesture (ADR-0033): every live
+ * asset in the subtree goes to the trash first, in the **same journal batch**,
+ * so a replay cannot land on a state where the folder is gone and its contents
+ * were spared, or the reverse.
+ *
+ * Trashed and not removed, because the trash is what reversible means here
+ * (ADR-0022) — the folder does not come back, but everything that was in it
+ * does. An asset in another folder as well is trashed like any other: what was
+ * asked for is the contents of this one, and the trash keeps every membership
+ * it had.
  */
-export async function deleteFolder(library: Library, id: number): Promise<void> {
+export async function deleteFolder(
+  library: Library,
+  id: number,
+  { trashContents = false }: { readonly trashContents?: boolean } = {},
+): Promise<FolderDeletion> {
   requireFolder(library, id);
-  return apply(library, [{ op: "folder_delete", id }]);
+
+  const subtree = trashContents ? descendants(childrenById(library.db.repo.folders()), [id]) : [];
+  const held = subtree.length === 0 ? [] : library.db.repo.assetsInFolders(subtree);
+
+  // Trash before delete, and in one batch: after the folder is gone there is
+  // nothing left saying what was in it, so a second call could not find them.
+  await apply(library, [
+    ...held.map((hash) => ({ op: "trash", hash }) as const),
+    { op: "folder_delete", id },
+  ]);
+  return { trashed: held.length };
 }
 
 export async function addToFolder(

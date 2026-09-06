@@ -231,7 +231,9 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, sort, grouping. ADR-0018 |
 | `AddMenu` | toolbar | — | One button, one menu: the four ways an asset comes into being. §1 |
 | `AssetContextMenu` | content | — | Right-click on the selection; §3.3. Native menus were considered and rejected; ADR-0021 |
-| `NavTree` | sidebar | expansion | One component for folders and smart folders; §4.2 |
+| `NavTree` | sidebar | — | Smart folders and the flat sections; §4.2 |
+| `Folders` | sidebar | — | The one section that is a tree: disclosure arrows, a `+` in its heading, and a right-click menu. Expansion is the window's, so a new subfolder can be revealed; ADR-0033 |
+| `FolderDialog` | overlay | draft | Naming a folder, for both **New folder** and **Rename**. The engine refuses a bad name; the dialog draws its message and stays open |
 | `TagList` | sidebar | expansion | Grouped, with counts |
 | `AssetGrid` | content | scroll, pages | Virtualized; §6. Icons and compact are one component |
 | `AssetCell` | content | — | `memo`, primitive props only |
@@ -471,6 +473,13 @@ prevented is a stray click or a stray `Enter`, and a dialog either of those can 
 decoration. The confirming button says the verb — `Delete`, `Empty trash` — never `OK`, and it is
 the only place the `--danger-` ramp is used (§2).
 
+**A confirmation may carry a checkbox, and it is never a second confirmation.** Deleting a folder
+is one gesture with two outcomes — the shelf alone, or the shelf and what is on it (ADR-0033) — and
+the box chooses which rather than confirming that it happens. It starts unticked, because the
+ticked answer is the one that touches assets, and the body says in words what each answer does.
+Two menu items would have been the alternative, and *Delete folder* beside *Delete folder and its
+contents* invites reading the shorter one as a safe abbreviation of the longer.
+
 **A dialog that asks a question is not an alert dialog.** **New file…** (ADR-0026 §4) opens an
 ordinary `Dialog`: it can be dismissed by clicking away and it starts with focus in the first
 field, because there is nothing dangerous to guard against — the danger is losing what was typed,
@@ -708,10 +717,10 @@ RATING                           one row per star, then unrated — six, always
   ★☆☆☆☆                     1
   ☆☆☆☆☆                   316    unrated — `is:unrated`, and not a rating of zero
 
-FOLDERS                          user tree, drag to reorder and re-parent
-  ▸ Clients
-    ▾ Acme
-        Logos              412
+FOLDERS                       +  the tree, depth-first; the `+` makes a top-level folder
+  ▸ Clients                      closed: the count is the subtree's, so nothing is hidden by it
+  ▾ Acme                         right-click any row for subfolder, rename, delete
+      Logos              412
 SMART FOLDERS                    saved RQL
   Recent PNGs               1.2k
 TAGS                             grouped, groups collapsible
@@ -724,6 +733,30 @@ TAGS                             grouped, groups collapsible
 
 Counts are subtree counts for folders and match counts for smart folders, computed by the
 engine — the renderer never counts anything it did not receive.
+
+**The folder rows arrive depth-first**, each folder immediately followed by its own subtree
+(`@roost/library`'s `orderTree`). Until 2026-09-06 they arrived in one alphabetical run and were
+indented by depth anyway, so a child was drawn under whatever folder happened to sort above it —
+a tree in appearance and a sorted list in fact. The order is what makes both the indentation and
+the collapsing correct, and it is why no row needs to carry a parent: a closed branch is the run of
+rows that follow it at a greater depth.
+
+**Every branch starts closed** (ADR-0033). A hundred folders drawn flat is the pane that prompted
+this, and closing them costs no information, because a folder's count is its subtree's. Expansion
+lives in the window and **does not survive it**: where it belongs is `settings.json` in the library
+(ADR-0019), which is not built yet.
+
+**The tree is editable from the pane.** `+` in the heading makes a top-level folder; right-clicking
+a row offers **New subfolder…**, **Rename…**, and **Delete folder…**. The heading is drawn even when
+the section is empty, which no other section does — a new library with no folders and no way to make
+one is a dead end, and it was the state of every new library until this changed.
+
+**Deleting a folder asks what should happen to what is in it**, in one dialog with one checkbox
+(ADR-0033, §3.4). Unticked, the folder and its subfolders go and the assets stay in the library, no
+longer filed anywhere. Ticked, every live asset in the subtree goes to the **trash** in the same
+journal batch — reversible, like every other `Delete` in Roost, so restoring brings them back with
+every other folder they were in. The number in both the checkbox and the sentence is the row's own
+count, so the dialog and the sidebar cannot disagree.
 
 **A rating row matches one rating, not "this many and up".** Five nested rows would have counts
 adding up to more than the library holds, and *how many five-star assets are there* is the question

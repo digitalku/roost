@@ -344,6 +344,32 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟢 **`--dry-run` opens no Roost library**, so it answers "what is in this Eagle library" before
   there is anywhere to put it. It is the only subcommand of `import` that does not need one.
 
+### The folder tree in the sidebar (ADR-0033, 2026-09-06)
+- ☑ ~~**The sidebar was not drawing a tree.**~~ Found in the user's own screenshot: twenty folders
+  in one column, four of them called `highlights`, at three depths and none of them under its
+  parent. `repo.folders()` orders by `sort_order` then name, nothing sets `sort_order`, and the
+  window indented that alphabetical run by depth — so a child was drawn under whatever sorted above
+  it. `readSidebar` now returns the rows **depth-first** (`orderTree`), which is also what makes
+  collapsing possible with no parent id on the wire. The CLI never had the bug: `roost folder list`
+  walks the tree.
+- ☑ ~~**Expand and collapse, and every branch starts closed.**~~ A closed branch hides nothing that
+  matters, because a folder's count is its subtree's.
+- ☑ ~~**The tree is editable from the pane.**~~ `+` in the heading, and right-click for **New
+  subfolder…**, **Rename…**, **Delete folder…**. The heading is drawn even when the section is
+  empty — a new library with no folders and no way to make one was a dead end.
+- ☑ ~~**Deleting a folder asks what to do with its contents.**~~ One checkbox: unticked the assets
+  stay in the library unfiled, ticked they go to the **trash** in the same journal batch.
+  `ConfirmDialog` grew an optional `option` for it, and `roost folder delete --trash-contents` is
+  the CLI's half.
+- 🟡 **Expansion does not survive the window.** It belongs in `settings.json` in the library
+  (ADR-0019), which is decided and not built. Until then every window opens collapsed — which is
+  right for a first look and wrong for the fifth.
+- 🟢 **No drag to reorder or re-parent.** `moveFolder` exists and refuses a cycle; the gesture is
+  missing, and `sort_order` is still unset and unsettable, so siblings are alphabetical. The two
+  are one piece of work: a pane people can reorder by hand is what `sort_order` is for.
+- 🟢 **No keyboard on the tree.** Arrow keys do not move between rows and `←`/`→` do not fold a
+  branch. The rows are buttons in a list, so `Tab` reaches them and `Enter` picks one.
+
 ### The folders an asset is in (2026-09-06)
 - ☑ ~~**The window can file an asset and unfile it.**~~ Asked for by the user — *"untuk file yang
   sudah tertaut ke folder, apakah memungkinkan ada opsi untuk melepas dari folder? kalau di eagle
@@ -598,10 +624,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   rebuild.
 - 🟡 **The sidebar draws what it is given and nothing more.** What `UI_SPEC.md` §4 describes and
   it does not do yet:
-  - **Collapsing.** Folder branches and tag groups are always expanded. A library with two
-    hundred tags is a very long pane.
+  - ☑ ~~**Collapsing folder branches.**~~ Done 2026-09-06 (ADR-0033). **Tag groups are still always
+    expanded**, and a library with two hundred tags is still a very long pane — the same
+    disclosure, one section over.
   - **Drag to reorder and re-parent** a folder. `moveFolder` exists and refuses a cycle; what is
-    missing is the drag.
+    missing is the drag — and `sort_order`, which nothing writes (ADR-0033 §4).
   - **Ctrl-click to add a term** (§4.2). Clicking replaces the query; compounding needs the
     search field, because the compound query has to be visible and editable to be honest.
   - **The library switcher** at the top, and with it "Open library…" from inside an open

@@ -39,7 +39,9 @@ import {
   check as checkLibrary,
   compileFor,
   createAsset,
+  createFolder,
   type DeriveReport,
+  deleteFolder,
   deleteSubtitle,
   type EagleReport,
   type EagleSurvey,
@@ -68,6 +70,7 @@ import {
   removeComment,
   removeFromFolder,
   renameAsset,
+  renameFolder,
   restoreAssets,
   retryBlocked,
   retryFailed,
@@ -254,6 +257,25 @@ export class EngineHost {
       case "asset:folderRemove":
         return this.#edit(() =>
           removeFromFolder(this.#require(), hashes(request.hashes), request.folder),
+        );
+
+      // The tree's own three (ADR-0033). `create` answers with the id because
+      // the window goes to the folder it just made; the other two follow the
+      // house rule and answer with what the caller could not have known —
+      // nothing, and how many assets went to the trash.
+      case "folder:create":
+        return this.#editReporting(() =>
+          createFolder(this.#require(), request.name, request.parent),
+        );
+
+      case "folder:rename":
+        return this.#edit(() => renameFolder(this.#require(), request.folder, request.name));
+
+      case "folder:delete":
+        return this.#editReporting(() =>
+          deleteFolder(this.#require(), request.folder, {
+            trashContents: request.trashContents,
+          }),
         );
 
       // The id `addComment` mints is deliberately dropped: the caller re-reads

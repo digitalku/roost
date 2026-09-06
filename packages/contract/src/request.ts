@@ -27,6 +27,7 @@ import type {
   WireEagleReport,
   WireEagleSurvey,
   WireExportReport,
+  WireFolderDeleted,
   WireImportReport,
   WirePasted,
   WireRecentLibrary,
@@ -260,6 +261,28 @@ export type Request =
       readonly type: "asset:folderRemove";
       readonly hashes: readonly string[];
       readonly folder: number;
+    }
+  /**
+   * The folder tree's own three edits (ADR-0033).
+   *
+   * Separate from the membership pair above because they are about the shelf
+   * rather than about what is on it: `folder:create` makes one, `folder:rename`
+   * changes what it is called, and `folder:delete` takes it away along with its
+   * descendants and every membership in them.
+   *
+   * **`trashContents` is the whole of the question `folder:delete` asks.**
+   * `false` deletes the folder and leaves the assets in the library, no longer
+   * filed anywhere; `true` sends every live asset in the subtree to the trash
+   * in the same journal batch. It is never inferred — the window asks with a
+   * checkbox and the CLI with a flag, because the two outcomes are not
+   * degrees of the same thing.
+   */
+  | { readonly type: "folder:create"; readonly name: string; readonly parent: number | null }
+  | { readonly type: "folder:rename"; readonly folder: number; readonly name: string }
+  | {
+      readonly type: "folder:delete";
+      readonly folder: number;
+      readonly trashContents: boolean;
     }
   /**
    * Add a comment to one asset, at a moment or about the whole of it (ADR-0023).
@@ -533,6 +556,10 @@ export interface Responses {
   "asset:tagRemove": null;
   "asset:folderAdd": null;
   "asset:folderRemove": null;
+  /** The new folder's id, so the window can go straight to it. */
+  "folder:create": number;
+  "folder:rename": null;
+  "folder:delete": WireFolderDeleted;
   "comment:add": null;
   "comment:set": null;
   "comment:remove": null;
@@ -773,6 +800,36 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "asset:folderRemove", hashes: hashes.value, folder: folder.value });
   },
 
+  "folder:create": (source) => {
+    const name = readNonEmpty(source, "name");
+    if (!name.ok) return name;
+    // `null` is the top level, which is a real answer rather than a missing
+    // one: there is no root row for a folder to be created under.
+    const parent = readNullable(source, "parent", readFolderIn);
+    if (!parent.ok) return parent;
+    return ok({ type: "folder:create", name: name.value, parent: parent.value });
+  },
+
+  "folder:rename": (source) => {
+    const folder = readFolder(source);
+    if (!folder.ok) return folder;
+    const name = readNonEmpty(source, "name");
+    if (!name.ok) return name;
+    return ok({ type: "folder:rename", folder: folder.value, name: name.value });
+  },
+
+  "folder:delete": (source) => {
+    const folder = readFolder(source);
+    if (!folder.ok) return folder;
+    const trashContents = readBoolean(source, "trashContents");
+    if (!trashContents.ok) return trashContents;
+    return ok({
+      type: "folder:delete",
+      folder: folder.value,
+      trashContents: trashContents.value,
+    });
+  },
+
   "comment:add": (source) => {
     const hash = readHash(source, "hash");
     if (!hash.ok) return hash;
@@ -910,9 +967,14 @@ export const MAX_PAGE_LIMIT = 10_000;
  * raises rather than inventing one.
  */
 function readFolder(source: Record<string, unknown>): Checked<number> {
-  const folder = readInteger(source, "folder");
+  return readFolderIn(source, "folder");
+}
+
+/** The same check under whatever key names the folder. */
+function readFolderIn(source: Record<string, unknown>, key: string): Checked<number> {
+  const folder = readInteger(source, key);
   if (!folder.ok) return folder;
-  if (folder.value < 1) return bad("folder: expected a folder id");
+  if (folder.value < 1) return bad(`${key}: expected a folder id`);
   return folder;
 }
 

@@ -22,7 +22,7 @@ import { withLibrary } from "../open.js";
 export async function folder(
   root: string,
   args: readonly string[],
-  parent: string | undefined,
+  { parent, trashContents }: { parent: string | undefined; trashContents: boolean },
   streams: Streams,
 ): Promise<number> {
   const [sub, ...rest] = args;
@@ -66,8 +66,16 @@ export async function folder(
       const [path] = rest;
       if (path === undefined) return usage(streams, "folder", "folder delete needs a path");
       return withLibrary(root, async (library) => {
-        await deleteFolder(library, resolveFolder(library, path));
-        streams.out(`Deleted folder ${path}. The assets in it are still in the library.`);
+        const { trashed } = await deleteFolder(library, resolveFolder(library, path), {
+          trashContents,
+        });
+        // Which of the two things it did, always — the folder is gone either
+        // way, and only one of them touched the assets (ADR-0033).
+        streams.out(
+          trashContents
+            ? `Deleted folder ${path}, and moved ${assets(trashed)} to the trash.`
+            : `Deleted folder ${path}. The assets in it are still in the library.`,
+        );
         return EXIT.ok;
       });
     }

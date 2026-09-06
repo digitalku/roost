@@ -335,6 +335,46 @@ describe("organizing a library", () => {
     expect(resolveTagGroup(library, "material")).toBe(group);
   });
 
+  it("orders the folders as a tree, not as one alphabetical run", async () => {
+    // `repo.folders()` sorts by name, and nothing sets `sort_order` — so a
+    // plain listing puts `Archive` between `Design` and its own `Icons`, which
+    // indented reads as a tree while being none. The sidebar drew exactly that
+    // until 2026-09-06.
+    const design = await createFolder(library, "Design", null);
+    await createFolder(library, "Icons", design);
+    await createFolder(library, "Archive", null);
+
+    expect(readSidebar(library).folders.map((folder) => folder.path)).toEqual([
+      "Archive",
+      "Design",
+      "Design/Icons",
+    ]);
+  });
+
+  it("deletes a folder without touching its assets, and with them when asked", async () => {
+    // ADR-0033. The default is the shelf, not what was on it.
+    const keep = await createFolder(library, "Keep", null);
+    const inner = await createFolder(library, "Inner", keep);
+    await addToFolder(library, [hashes[0] as ContentHash], inner);
+
+    expect(await deleteFolder(library, keep)).toEqual({ trashed: 0 });
+    expect(library.db.repo.assetDetail(hashes[0] as ContentHash)?.trashedAt).toBeNull();
+    expect(library.db.repo.assetDetail(hashes[0] as ContentHash)?.folders).toEqual([]);
+
+    const gone = await createFolder(library, "Gone", null);
+    const under = await createFolder(library, "Under", gone);
+    // One asset in the folder and one in its child, and one of them in both:
+    // the subtree goes, and nothing is journalled twice.
+    await addToFolder(library, [hashes[0] as ContentHash], gone);
+    await addToFolder(library, [hashes[0] as ContentHash, hashes[1] as ContentHash], under);
+
+    expect(await deleteFolder(library, gone, { trashContents: true })).toEqual({ trashed: 2 });
+    expect(library.db.repo.assetDetail(hashes[0] as ContentHash)?.trashedAt).not.toBeNull();
+    expect(library.db.repo.assetDetail(hashes[1] as ContentHash)?.trashedAt).not.toBeNull();
+    // Trashed, not removed: the rows are still there to be restored.
+    expect(library.db.repo.stats().assets).toBe(hashes.length);
+  });
+
   it("pages without an offset, and stops at the last short page", async () => {
     const collected: string[] = [];
     for (const page of pages(library, "", 2)) collected.push(...page.map((hit) => hit.hash));

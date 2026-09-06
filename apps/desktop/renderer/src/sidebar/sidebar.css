@@ -17,6 +17,10 @@
 }
 
 .sidebar-heading {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
   margin: 0;
   padding: 0 var(--space-3);
   color: var(--text-subtle);
@@ -48,34 +52,89 @@
   text-align: left;
 }
 
+/* The `+` beside FOLDERS, which is the only way to make the first one. It sits
+   in the heading rather than in a menu because a section that can be added to
+   is the section that says so. */
+.sidebar-add {
+  width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: 1;
+}
+
+.sidebar-add:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+/* A folder's row and its disclosure arrow, on one line. The arrow is a sibling
+   of the row rather than inside it: a button inside a button is not markup a
+   browser will keep, and both of these are pressed. */
+.sidebar-branch {
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-twisty {
+  flex: none;
+  width: var(--space-4);
+  height: var(--row-height);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1;
+  /* Drawn pointing right and turned when open, so one glyph means both states
+     and the two never disagree about their size. */
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.sidebar-twisty[aria-expanded="true"] {
+  transform: rotate(90deg);
+}
+
+/* The row takes what is left, and gives up the padding the arrow now occupies
+   so the names still start where they did. */
+.sidebar-branch .sidebar-row {
+  padding-left: 0;
+}
+
 /*
  * The folder tree's indentation, in CSS so the spacing token stays the one
  * source of it. Eight steps: a path may be far deeper, and past this there
  * would be no room left for a name.
  */
-.sidebar-row[data-depth="1"] {
+.sidebar-branch[data-depth="1"] {
+  padding-left: calc(var(--space-3) * 1);
+}
+.sidebar-branch[data-depth="2"] {
   padding-left: calc(var(--space-3) * 2);
 }
-.sidebar-row[data-depth="2"] {
+.sidebar-branch[data-depth="3"] {
   padding-left: calc(var(--space-3) * 3);
 }
-.sidebar-row[data-depth="3"] {
+.sidebar-branch[data-depth="4"] {
   padding-left: calc(var(--space-3) * 4);
 }
-.sidebar-row[data-depth="4"] {
+.sidebar-branch[data-depth="5"] {
   padding-left: calc(var(--space-3) * 5);
 }
-.sidebar-row[data-depth="5"] {
+.sidebar-branch[data-depth="6"] {
   padding-left: calc(var(--space-3) * 6);
 }
-.sidebar-row[data-depth="6"] {
+.sidebar-branch[data-depth="7"] {
   padding-left: calc(var(--space-3) * 7);
 }
-.sidebar-row[data-depth="7"] {
+.sidebar-branch[data-depth="8"] {
   padding-left: calc(var(--space-3) * 8);
-}
-.sidebar-row[data-depth="8"] {
-  padding-left: calc(var(--space-3) * 9);
 }
 
 .sidebar-row:hover {

@@ -244,12 +244,12 @@ ${GLOBAL}`,
   folder: `Create and populate folders.
 
 Folders are collections, not locations: adding an asset to one moves nothing on
-disk, and deleting one deletes no assets.
+disk, and deleting one deletes no assets unless asked to.
 
 Usage: roost folder create <NAME> [--parent <PATH>]
        roost folder rename <PATH> <NAME>
        roost folder move <PATH> [--parent <PATH>]
-       roost folder delete <PATH>
+       roost folder delete <PATH> [--trash-contents]
        roost folder add <PATH> <ASSET>...
        roost folder remove <PATH> <ASSET>...
        roost folder list
@@ -261,6 +261,9 @@ Options:
 ${LIBRARY_FLAG}
       --parent <PATH>    Parent folder. Without it, create and move go to the
                          top level
+      --trash-contents   On delete, also move every asset in the folder and its
+                         subfolders to the trash. Without it the folder goes and
+                         the assets stay, no longer filed anywhere
 ${GLOBAL}`,
 
   smart: `Save, list, and update smart folders — RQL queries under a name.

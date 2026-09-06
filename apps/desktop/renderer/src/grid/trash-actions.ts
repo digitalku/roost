@@ -20,7 +20,15 @@ export interface ConfirmRequest {
   readonly title: string;
   readonly body: string;
   readonly confirmLabel: string;
-  readonly run: () => void;
+  /**
+   * A second question, asked in the same dialog (ADR-0033).
+   *
+   * Not a second confirmation: it changes *what* the action does rather than
+   * whether it happens. Its answer reaches `run`, so nothing here has to hold
+   * a checkbox's state — the dialog owns it and hands it over on the way out.
+   */
+  readonly option?: { readonly label: string };
+  readonly run: (option: boolean) => void;
 }
 
 export interface TrashActionsOptions {

@@ -81,6 +81,18 @@ export interface WireRecentLibrary {
 }
 
 /**
+ * What deleting a folder did (ADR-0033).
+ *
+ * One number, and it is the one the status bar has to say: a delete that also
+ * emptied the folder into the trash and one that only removed the shelf look
+ * identical afterwards in the sidebar, and only one of them is undone by
+ * restoring.
+ */
+export interface WireFolderDeleted {
+  readonly trashed: number;
+}
+
+/**
  * One folder, as a thing an asset is in rather than a row to draw.
  *
  * **Both fields, because neither substitutes for the other.** `id` is what

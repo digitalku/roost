@@ -229,7 +229,7 @@ describe("the asset context menu", () => {
     expect(sentTo("assets:remove")).toHaveLength(0);
     expect(confirmations[0]?.confirmLabel).toBe("Delete");
 
-    confirmations[0]?.run();
+    confirmations[0]?.run(false);
     await waitFor(() => expect(sentTo("assets:remove")).toHaveLength(1));
     expect(sentTo("assets:remove")[0]?.hashes).toEqual(HASHES);
   });
@@ -248,7 +248,7 @@ describe("the asset context menu", () => {
     await waitFor(() => expect(confirmations).toHaveLength(1));
     expect(sentTo("assets:emptyTrash")).toHaveLength(0);
 
-    confirmations[0]?.run();
+    confirmations[0]?.run(false);
     await waitFor(() => expect(notes).toHaveLength(1));
     // The freed bytes are the half a person empties the trash for (ADR-0031).
     expect(notes[0]).toBe("Deleted 12 assets, freeing 3.0 MiB");

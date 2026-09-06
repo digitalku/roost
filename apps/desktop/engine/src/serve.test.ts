@@ -591,6 +591,59 @@ describe("the engine's message loop", () => {
     expect((after as { value: { assets: unknown[] } }).value.assets).toHaveLength(1);
   });
 
+  it("makes, renames and deletes a folder, and says what the delete did", async () => {
+    const source = join(dir, "shelved");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "logo.txt"), "logo");
+    const root = join(dir, `Shelved${LIBRARY_SUFFIX}`);
+    const library = await Library.create(root, "Shelved");
+    try {
+      await importInto(library, [source]);
+    } finally {
+      await library.close();
+    }
+    await ask(100, { type: "library:open", path: root });
+
+    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+
+    const made = await ask(2, { type: "folder:create", name: "Design", parent: null });
+    const design = (made as { value: number }).value;
+    const nested = await ask(3, { type: "folder:create", name: "Icons", parent: design });
+    const icons = (nested as { value: number }).value;
+    await ask(4, { type: "asset:folderAdd", hashes: [hash], folder: icons });
+
+    await ask(5, { type: "folder:rename", folder: icons, name: "Marks" });
+    const sidebar = await ask(6, { type: "library:sidebar" });
+    const rows = (sidebar as { value: { folders: { path: string; folder: number }[] } }).value
+      .folders;
+    // Depth-first, so a row is followed by its own subtree — and the renamed
+    // child carries the new path, not a stale one.
+    expect(rows.map((row) => row.path)).toEqual(["Design", "Design/Marks"]);
+
+    // The default leaves the asset alone; only its membership goes.
+    const kept = await ask(7, { type: "folder:delete", folder: design, trashContents: false });
+    expect(kept).toMatchObject({ value: { trashed: 0 } });
+    const detail = await ask(8, { type: "asset:detail", hash });
+    expect(detail).toMatchObject({ value: { trashedAt: null, folders: [] } });
+
+    const again = await ask(9, { type: "folder:create", name: "Gone", parent: null });
+    await ask(10, {
+      type: "asset:folderAdd",
+      hashes: [hash],
+      folder: (again as { value: number }).value,
+    });
+    const taken = await ask(11, {
+      type: "folder:delete",
+      folder: (again as { value: number }).value,
+      trashContents: true,
+    });
+    expect(taken).toMatchObject({ value: { trashed: 1 } });
+    // Trashed, not removed: the row is still there, with a date on it.
+    const after = await ask(12, { type: "asset:detail", hash });
+    expect((after as { value: { trashedAt: number | null } }).value.trashedAt).not.toBeNull();
+  });
+
   it("carries comments on the asset they are about, in timeline order", async () => {
     await libraryOf(1);
     const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });

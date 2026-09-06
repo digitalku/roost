@@ -12,6 +12,12 @@ import { AlertDialog } from "radix-ui";
  * Reversible actions do not get one. Moving assets to the trash is undone by
  * restoring them, so it asks nothing (ADR-0022); emptying the trash cannot be
  * undone, so it asks.
+ *
+ * **An `option` is a second question, never a second confirmation.** Deleting a
+ * folder is one gesture with two outcomes — the shelf alone, or the shelf and
+ * what is on it (ADR-0033) — and a checkbox is what lets one dialog ask which
+ * without turning `Delete` into a menu. It starts unticked, because the ticked
+ * answer is the one that touches assets, and the body says what each does.
  */
 
 export interface ConfirmDialogProps {
@@ -21,6 +27,12 @@ export interface ConfirmDialogProps {
   readonly body: string;
   /** The verb, not "OK": a button that says what it does cannot be misread. */
   readonly confirmLabel: string;
+  /** A second thing to do, chosen before confirming. Absent for most actions. */
+  readonly option?: {
+    readonly label: string;
+    readonly checked: boolean;
+    readonly onChange: (checked: boolean) => void;
+  };
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
 }
@@ -30,6 +42,7 @@ export function ConfirmDialog({
   title,
   body,
   confirmLabel,
+  option,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps): React.JSX.Element {
@@ -45,6 +58,16 @@ export function ConfirmDialog({
         <AlertDialog.Content className="dialog">
           <AlertDialog.Title className="dialog-title">{title}</AlertDialog.Title>
           <AlertDialog.Description className="dialog-body">{body}</AlertDialog.Description>
+          {option !== undefined && (
+            <label className="dialog-option">
+              <input
+                type="checkbox"
+                checked={option.checked}
+                onChange={(event) => option.onChange(event.target.checked)}
+              />
+              <span>{option.label}</span>
+            </label>
+          )}
           <div className="dialog-actions">
             <AlertDialog.Cancel asChild>
               <button type="button">Cancel</button>

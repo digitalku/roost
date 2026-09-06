@@ -1,5 +1,7 @@
-import type { SidebarRow, WireSidebar } from "@roost/contract";
+import type { SidebarFolderRow, SidebarRow, WireSidebar } from "@roost/contract";
+import { ContextMenu } from "radix-ui";
 import { memo, useMemo } from "react";
+import type { Expansion } from "./expansion.js";
 
 /**
  * The navigation pane (`UI_SPEC.md` §4.1).
@@ -19,9 +21,28 @@ export interface SidebarProps {
   /** The query currently on screen, so the matching row can be marked. */
   readonly query: string;
   readonly onPick: (query: string) => void;
+  /** Which folder branches are open, and how to open one (§4.1). */
+  readonly expansion: Expansion;
+  /**
+   * The three folder commands (ADR-0033). `null` means the top level.
+   *
+   * The pane raises them and owns none of them: each opens a dialog, and the
+   * window owns the one dialog it has at a time.
+   */
+  readonly onNewFolder: (parent: SidebarFolderRow | null) => void;
+  readonly onRenameFolder: (folder: SidebarFolderRow) => void;
+  readonly onDeleteFolder: (folder: SidebarFolderRow) => void;
 }
 
-export function Sidebar({ sidebar, query, onPick }: SidebarProps): React.JSX.Element {
+export function Sidebar({
+  sidebar,
+  query,
+  onPick,
+  expansion,
+  onNewFolder,
+  onRenameFolder,
+  onDeleteFolder,
+}: SidebarProps): React.JSX.Element {
   // Tags are grouped, and the ungrouped ones come last (`UI_SPEC.md` §4.1).
   const tagGroups = useMemo(() => groupTags(sidebar.tags), [sidebar.tags]);
 
@@ -29,7 +50,15 @@ export function Sidebar({ sidebar, query, onPick }: SidebarProps): React.JSX.Ele
     <nav className="sidebar" aria-label="Library">
       <Section title="Places" rows={sidebar.places} query={query} onPick={onPick} />
       <Section title="Rating" rows={sidebar.ratings} query={query} onPick={onPick} />
-      <Section title="Folders" rows={sidebar.folders} query={query} onPick={onPick} />
+      <Folders
+        rows={sidebar.folders}
+        query={query}
+        onPick={onPick}
+        expansion={expansion}
+        onNewFolder={onNewFolder}
+        onRename={onRenameFolder}
+        onDelete={onDeleteFolder}
+      />
       <Section title="Smart folders" rows={sidebar.smartFolders} query={query} onPick={onPick} />
       {tagGroups.map(([group, rows]) => (
         <Section
@@ -42,6 +71,156 @@ export function Sidebar({ sidebar, query, onPick }: SidebarProps): React.JSX.Ele
       ))}
     </nav>
   );
+}
+
+/**
+ * The folder tree: the one section that is a tree rather than a list.
+ *
+ * **The rows arrive depth-first**, each folder followed by its own subtree
+ * (`@roost/library`'s `orderTree`), which is what makes both the indentation
+ * and the collapsing correct with no parent ids on the wire: a branch is closed
+ * by skipping the rows that follow it at a greater depth. Until 2026-09-06 they
+ * arrived in one alphabetical run and were indented anyway, so the pane drew a
+ * tree that was not one.
+ *
+ * **It is drawn even when it is empty**, unlike every other section, because
+ * its heading carries the only way to make the first folder.
+ */
+function Folders({
+  rows,
+  query,
+  onPick,
+  expansion,
+  onNewFolder,
+  onRename,
+  onDelete,
+}: {
+  readonly rows: readonly SidebarFolderRow[];
+  readonly query: string;
+  readonly onPick: (query: string) => void;
+  readonly expansion: Expansion;
+  readonly onNewFolder: (parent: SidebarFolderRow | null) => void;
+  readonly onRename: (folder: SidebarFolderRow) => void;
+  readonly onDelete: (folder: SidebarFolderRow) => void;
+}): React.JSX.Element {
+  const visible = useMemo(() => drawn(rows, expansion.open), [rows, expansion.open]);
+
+  return (
+    <section className="sidebar-section">
+      <h2 className="sidebar-heading">
+        Folders
+        <button
+          type="button"
+          className="sidebar-add"
+          title="New folder"
+          aria-label="New folder"
+          onClick={() => onNewFolder(null)}
+        >
+          +
+        </button>
+      </h2>
+      <ul className="sidebar-list">
+        {visible.map(({ row, hasChildren }) => (
+          <li key={row.id}>
+            <ContextMenu.Root>
+              <ContextMenu.Trigger asChild>
+                <div className="sidebar-branch" data-depth={depthOf(row)}>
+                  {/*
+                    A button where there are children and a spacer where there
+                    are none — never a disabled button, which would be a target
+                    that answers a press by doing nothing. The spacer keeps the
+                    names in one column, which is what makes the indentation
+                    readable at all.
+                  */}
+                  {hasChildren ? (
+                    <button
+                      type="button"
+                      className="sidebar-twisty"
+                      aria-expanded={expansion.open.has(row.folder)}
+                      aria-label={`${expansion.open.has(row.folder) ? "Collapse" : "Expand"} ${row.name}`}
+                      onClick={() => expansion.toggle(row.folder)}
+                    >
+                      <span aria-hidden="true">▸</span>
+                    </button>
+                  ) : (
+                    <span className="sidebar-twisty" aria-hidden="true" />
+                  )}
+                  <Row
+                    name={row.name}
+                    query={row.query}
+                    count={row.count}
+                    depth={0}
+                    stars={null}
+                    isCurrent={row.query === query}
+                    onPick={onPick}
+                  />
+                </div>
+              </ContextMenu.Trigger>
+
+              <ContextMenu.Portal>
+                <ContextMenu.Content className="menu" collisionPadding={8}>
+                  <ContextMenu.Item className="menu-item" onSelect={() => onNewFolder(row)}>
+                    <span className="menu-mark" />
+                    <span className="menu-label">New subfolder…</span>
+                  </ContextMenu.Item>
+                  <ContextMenu.Item className="menu-item" onSelect={() => onRename(row)}>
+                    <span className="menu-mark" />
+                    <span className="menu-label">Rename…</span>
+                  </ContextMenu.Item>
+                  <ContextMenu.Separator className="menu-separator" />
+                  {/*
+                    Not drawn in the danger ramp, though what it opens is: the
+                    asset menu does not colour `Delete permanently` either, and
+                    a red row in a menu is attention rather than meaning
+                    (`UI_SPEC.md` §2). The ellipsis is the promise that a
+                    dialog comes next, and the dialog is where the choice about
+                    the contents is made (ADR-0033).
+                  */}
+                  <ContextMenu.Item className="menu-item" onSelect={() => onDelete(row)}>
+                    <span className="menu-mark" />
+                    <span className="menu-label">Delete folder…</span>
+                  </ContextMenu.Item>
+                </ContextMenu.Content>
+              </ContextMenu.Portal>
+            </ContextMenu.Root>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** What a row is indented by, capped where a name would run out of room. */
+function depthOf(row: SidebarFolderRow): number | undefined {
+  return row.depth === 0 ? undefined : Math.min(row.depth, MAX_INDENT);
+}
+
+/**
+ * The rows to draw, and which of them have something under them.
+ *
+ * One pass over a depth-first list. A closed folder hides every row that
+ * follows it at a greater depth, which is its subtree and nothing else; the
+ * *next* row's depth is what says whether a folder has children at all, so no
+ * row needs to know its parent.
+ */
+export function drawn(
+  rows: readonly SidebarFolderRow[],
+  open: ReadonlySet<number>,
+): { row: SidebarFolderRow; hasChildren: boolean }[] {
+  const visible: { row: SidebarFolderRow; hasChildren: boolean }[] = [];
+  /** The depth of the closed folder currently hiding rows, if one is. */
+  let hiding: number | null = null;
+
+  for (const [at, row] of rows.entries()) {
+    if (hiding !== null) {
+      if (row.depth > hiding) continue;
+      hiding = null;
+    }
+    const hasChildren = (rows[at + 1]?.depth ?? 0) > row.depth;
+    visible.push({ row, hasChildren });
+    if (hasChildren && !open.has(row.folder)) hiding = row.depth;
+  }
+  return visible;
 }
 
 function Section({

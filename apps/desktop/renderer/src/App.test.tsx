@@ -1,3 +1,4 @@
+import type { SidebarFolderRow } from "@roost/contract";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -634,6 +635,19 @@ describe("making files in the window (ADR-0026 §4, §5)", () => {
 describe("the navigation pane, in the window", () => {
   const HOLIDAY = "/home/you/Holiday Photos.roost";
 
+  /** One folder with something in it, which is what a delete has to ask about. */
+  const DESIGN: SidebarFolderRow = {
+    id: "folder:7",
+    name: "Design",
+    query: 'folder:"Design"',
+    count: 2,
+    depth: 0,
+    group: null,
+    stars: null,
+    folder: 7,
+    path: "Design",
+  };
+
   beforeEach(() => {
     for (const [name, value] of [
       ["clientWidth", 1000],
@@ -641,6 +655,74 @@ describe("the navigation pane, in the window", () => {
     ] as const) {
       Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value });
     }
+  });
+
+  it("makes a folder from the pane, and reveals what it made", async () => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      sidebar: { ratings: [], places: [], folders: [DESIGN], smartFolders: [], tags: [] },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(9));
+
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+    await user.type(await screen.findByLabelText("Name"), "Logos");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "folder:create")).toBe(true),
+    );
+    const made = [...engine.seen].reverse().find((r) => r.type === "folder:create");
+    expect(made).toMatchObject({ name: "Logos", parent: null });
+    // The pane re-reads and the new folder is on screen, which is the whole
+    // point of the window doing this rather than the CLI.
+    expect(await screen.findByRole("button", { name: /Logos/ })).toBeDefined();
+  });
+
+  it("asks what a folder delete should do with the assets, and does that", async () => {
+    // ADR-0033: one gesture, two outcomes, and the checkbox is which. Unticked
+    // is the default, because the ticked answer is the one that touches assets.
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      sidebar: { ratings: [], places: [], folders: [DESIGN], smartFolders: [], tags: [] },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(9));
+
+    const row = screen.getByRole("button", { name: "Design 2" });
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete folder…" }));
+
+    const box = await screen.findByRole("checkbox", { name: /Also move 2 assets to the trash/ });
+    expect((box as HTMLInputElement).checked).toBe(false);
+    await user.click(box);
+    await user.click(screen.getByRole("button", { name: "Delete folder" }));
+
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "folder:delete")).toBe(true),
+    );
+    expect([...engine.seen].reverse().find((r) => r.type === "folder:delete")).toMatchObject({
+      folder: 7,
+      trashContents: true,
+    });
+    expect(
+      await screen.findByText("Deleted Design, and moved 2 assets to the trash"),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: /Design/ })).toBeNull();
   });
 
   it("takes the selection out of the folder on screen, and out of no other", async () => {

@@ -9,6 +9,7 @@ import type {
   RequestOf,
   RequestType,
   ResponseOf,
+  SidebarFolderRow,
   WireAssetDetail,
   WireComment,
   WireDeriveStatus,
@@ -288,12 +289,23 @@ export class FakeEngine {
    * still showing the version it just replaced.
    */
   #saves = 0;
+  /**
+   * Mutable: the folder tree an edit changes (ADR-0033).
+   *
+   * Modelled rather than stubbed because the sidebar re-reads after a create or
+   * a delete, and a fake that answered with the tree it was constructed with
+   * would let a component pass while showing a folder that is gone.
+   */
+  folders: readonly SidebarFolderRow[];
+  #nextFolderId: number;
   #open: LibrarySummary | undefined;
   #recent: readonly WireRecentLibrary[];
   #listeners = new Set<(event: unknown) => void>();
 
   constructor(options: FakeEngineOptions = {}) {
     this.#options = options;
+    this.folders = options.sidebar?.folders ?? [];
+    this.#nextFolderId = Math.max(0, ...this.folders.map((row) => row.folder)) + 1;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);
     for (const detail of options.details ?? []) {
       // Ordered on the way in, not only on the way out: the engine answers in
@@ -532,7 +544,7 @@ export class FakeEngine {
         if (this.#open === undefined) {
           return problem("remote", "No library is open", {});
         }
-        return ok(this.#options.sidebar ?? EMPTY_SIDEBAR);
+        return ok({ ...(this.#options.sidebar ?? EMPTY_SIDEBAR), folders: this.folders });
 
       case "library:stats":
         if (this.#open === undefined) {
@@ -672,8 +684,7 @@ export class FakeEngine {
       // own: what a renderer test asserts is what the panel sent and what it
       // draws afterwards, and neither needs a folder the window has not seen.
       case "asset:folderAdd": {
-        const tree = this.#options.sidebar?.folders ?? [];
-        const added = tree.find((folder) => folder.folder === request.folder);
+        const added = this.folders.find((folder) => folder.folder === request.folder);
         if (added === undefined) {
           return problem("unknown_folder", `no folder ${request.folder}`, {});
         }
@@ -691,6 +702,53 @@ export class FakeEngine {
           ...detail,
           folders: detail.folders.filter((held) => held.id !== request.folder),
         }));
+
+      case "folder:create": {
+        const folder = this.#nextFolderId;
+        this.#nextFolderId += 1;
+        const under = this.folders.find((row) => row.folder === request.parent);
+        const path = under === undefined ? request.name : `${under.path}/${request.name}`;
+        this.folders = [
+          ...this.folders,
+          {
+            id: `folder:${folder}`,
+            name: request.name,
+            query: `folder:"${path}"`,
+            count: 0,
+            depth: under === undefined ? 0 : under.depth + 1,
+            group: null,
+            stars: null,
+            folder,
+            path,
+          },
+        ];
+        this.emit({ type: "library:changed" });
+        return ok(folder);
+      }
+
+      case "folder:rename": {
+        this.folders = this.folders.map((row) =>
+          row.folder === request.folder ? { ...row, name: request.name } : row,
+        );
+        this.emit({ type: "library:changed" });
+        return ok(null);
+      }
+
+      case "folder:delete": {
+        // Descendants go with it, the way the cascade does in the index. By
+        // path rather than by walking parents: the wire row has no parent, and
+        // a path is exactly the ancestry it does carry.
+        const target = this.folders.find((row) => row.folder === request.folder);
+        const inside = (row: SidebarFolderRow): boolean =>
+          target !== undefined &&
+          (row.folder === target.folder || row.path.startsWith(`${target.path}/`));
+        // The row's own count is already a subtree count, so it *is* what the
+        // engine would trash. Summing the descendants would count them twice.
+        const trashed = request.trashContents ? (target?.count ?? 0) : 0;
+        this.folders = this.folders.filter((row) => !inside(row));
+        this.emit({ type: "library:changed" });
+        return ok({ trashed });
+      }
 
       case "comment:add": {
         const body = request.body.trim();

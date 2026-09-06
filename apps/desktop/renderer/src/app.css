@@ -767,6 +767,30 @@ button:disabled {
   tab-size: 4;
 }
 
+/* What the engine refused, drawn under the field it is about. The dialog stays
+   open on a refusal, so this is a correction rather than a failure. */
+.dialog-problem {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+/* A checkbox that changes what the confirmed action does, not one that confirms
+   it (`UI_SPEC.md` §3.4). Off when the dialog opens, always: the extra thing it
+   asks for is the one that touches assets. */
+.dialog-option {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.dialog-option input {
+  margin: 0;
+  /* Lines the box up with the first line of the label rather than with the
+     block, which for a two-line label is halfway down it. */
+  margin-top: 0.2em;
+}
+
 /* The Eagle survey (`UI_SPEC.md` §3.8). Reading matter rather than a form, so
    it is a stack of short blocks and the dialog's own gap is too large for it. */
 .eagle-summary {

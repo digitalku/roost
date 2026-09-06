@@ -113,6 +113,26 @@ describe("the organize commands", () => {
     expect(await ok("query", "folder:Design", "--count")).toEqual(["0"]);
   });
 
+  it("deletes a folder without touching the assets, and with, when asked", async () => {
+    await ok("folder", "create", "Keep");
+    await ok("folder", "create", "Inner", "--parent", "Keep");
+    await ok("folder", "add", "Keep/Inner", hashes[0] as string);
+
+    // The default: the shelf goes, what was on it stays (ADR-0033).
+    const kept = await ok("folder", "delete", "Keep");
+    expect(kept.join("\n")).toContain("still in the library");
+    expect(await ok("query", "", "--count")).toEqual([String(hashes.length)]);
+
+    await ok("folder", "create", "Gone");
+    await ok("folder", "add", "Gone", hashes[0] as string);
+    const taken = await ok("folder", "delete", "Gone", "--trash-contents");
+    expect(taken.join("\n")).toContain("moved 1 asset to the trash");
+    expect(await ok("query", "", "--count")).toEqual([String(hashes.length - 1)]);
+    // Trashed, not removed: it comes back.
+    await ok("trash", "--restore", hashes[0] as string);
+    expect(await ok("query", "", "--count")).toEqual([String(hashes.length)]);
+  });
+
   it("rates, notes, renames, and shows the result", async () => {
     const prefix = (hashes[0] as string).slice(0, 10);
     await ok("rate", "4", prefix);

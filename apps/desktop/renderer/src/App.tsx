@@ -35,6 +35,8 @@ import { NewFileDialog } from "./NewFileDialog.js";
 import { PreviewPane } from "./preview/PreviewPane.js";
 import { useReclaim } from "./reclaim.js";
 import { SearchField } from "./search/SearchField.js";
+import { useExpansion } from "./sidebar/expansion.js";
+import { FolderDialog, type FolderDialogProps } from "./sidebar/FolderDialog.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
 
 /**
@@ -652,6 +654,17 @@ function LibraryView({
    * not on screen when it is pressed.
    */
   const [confirming, setConfirming] = useState<ConfirmRequest | undefined>();
+  /**
+   * The confirm dialog's optional second answer (ADR-0033).
+   *
+   * Here rather than in `ConfirmRequest`, because the request is built before
+   * the box exists and read after it is ticked. It goes back to `false` with
+   * every new request: an option carried over from the last dialog is an answer
+   * nobody gave.
+   */
+  const [optionOn, setOptionOn] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the request is the trigger
+  useEffect(() => setOptionOn(false), [confirming]);
 
   // Selecting something else is how a result stops being the current one — but
   // a result written *against* this selection is not stale, which is what an
@@ -802,6 +815,64 @@ function LibraryView({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [openFolder, selected, clearSelection, noteResult]);
+
+  /** Which folder branches are open. Held here so a new one can be revealed. */
+  const expansion = useExpansion();
+  const reveal = expansion.reveal;
+
+  /** The folder being named, if one is (ADR-0033). */
+  const [naming, setNaming] = useState<FolderDialogProps["what"] | undefined>();
+
+  const newFolder = useCallback((parent: SidebarFolderRow | null) => {
+    setNaming({
+      kind: "create",
+      parent: parent === null ? null : parent.folder,
+      under: parent === null ? null : parent.path,
+    });
+  }, []);
+
+  const renameFolder = useCallback((folder: SidebarFolderRow) => {
+    setNaming({ kind: "rename", folder: folder.folder, name: folder.name });
+  }, []);
+
+  /**
+   * Deleting a folder, and the one question that goes with it (ADR-0033).
+   *
+   * The count in the body is the row's own, which is a **subtree** count — the
+   * same number the sidebar is showing beside the folder, and the number of
+   * assets the ticked box would move. Taking it from the row rather than asking
+   * the engine keeps the dialog instant and keeps the two from disagreeing.
+   */
+  const deleteFolder = useCallback(
+    (folder: SidebarFolderRow) => {
+      const held = folder.count ?? 0;
+      setConfirming({
+        title: `Delete ${folder.name}?`,
+        body:
+          held === 0
+            ? "The folder goes. Nothing else changes."
+            : `The folder goes, and its subfolders with it. The ${assets(held)} in it stay in the library unless you say otherwise below.`,
+        confirmLabel: "Delete folder",
+        ...(held === 0 ? {} : { option: { label: `Also move ${assets(held)} to the trash` } }),
+        run: (trashContents) => {
+          void invoke({ type: "folder:delete", folder: folder.folder, trashContents }).then(
+            (outcome) => {
+              if (!outcome.ok) return setActed(outcome.problem);
+              // The query on screen names a folder that no longer exists, so
+              // the grid would go on showing rows nothing can ask for again.
+              if (query === folder.query) applyQuery("");
+              noteResult(
+                outcome.value.trashed === 0
+                  ? `Deleted ${folder.name}. The assets in it are still in the library.`
+                  : `Deleted ${folder.name}, and moved ${assets(outcome.value.trashed)} to the trash`,
+              );
+            },
+          );
+        },
+      });
+    },
+    [query, applyQuery, noteResult],
+  );
 
   /** The Eagle library the survey dialog is open on, if it is (ADR-0032). */
   const [eagle, setEagle] = useState<string | undefined>();
@@ -1048,7 +1119,17 @@ function LibraryView({
               search field shows what it was replaced with — one source of truth
               for what is on screen, and it is a string the user can read and
               edit. */}
-          {sidebar !== undefined && <Sidebar sidebar={sidebar} query={query} onPick={applyQuery} />}
+          {sidebar !== undefined && (
+            <Sidebar
+              sidebar={sidebar}
+              query={query}
+              onPick={applyQuery}
+              expansion={expansion}
+              onNewFolder={newFolder}
+              onRenameFolder={renameFolder}
+              onDeleteFolder={deleteFolder}
+            />
+          )}
         </div>
 
         <div className="pane-content">
@@ -1219,12 +1300,38 @@ function LibraryView({
         title={confirming?.title ?? ""}
         body={confirming?.body ?? ""}
         confirmLabel={confirming?.confirmLabel ?? ""}
+        {...(confirming?.option === undefined
+          ? {}
+          : {
+              option: {
+                label: confirming.option.label,
+                checked: optionOn,
+                onChange: setOptionOn,
+              },
+            })}
         onConfirm={() => {
-          confirming?.run();
+          confirming?.run(optionOn);
           setConfirming(undefined);
         }}
         onCancel={() => setConfirming(undefined)}
       />
+
+      {/* Mounted only while it is open, so the name it starts with is the state
+          it starts with rather than something to synchronise. */}
+      {naming !== undefined && (
+        <FolderDialog
+          what={naming}
+          onClose={() => setNaming(undefined)}
+          onDone={(folder, name) => {
+            setNaming(undefined);
+            // A subfolder made inside a closed branch would be invisible, and a
+            // dialog that appears to do nothing is the bug this avoids.
+            if (naming.kind === "create" && naming.parent !== null) reveal(naming.parent);
+            reveal(folder);
+            noteResult(naming.kind === "create" ? `Created ${name}` : `Renamed to ${name}`);
+          }}
+        />
+      )}
       {/*
         Mounted only while it is open, so the survey it fetches is fetched once
         per opening rather than kept in step with a prop.
