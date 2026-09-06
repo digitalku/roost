@@ -228,7 +228,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `Transport` | content | position, loop | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, the comment marks, and what the native bar withholds — frame stepping, playback rate, an A-B loop; §7. ADR-0024 |
 | `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
-| `TagEditor` | inspector | draft | Typeahead over existing tags, creates on Enter |
+| `TagEditor` | inspector | draft | Typeahead over the tags the library already has, creates on Enter. §3.7 |
 | `NoteField` | inspector | draft | Autosaves on blur and after 1s idle |
 | `SourceField` | inspector | draft | Where the file came from. One line, saves on blur, idle, and `Enter`; offers to open only an `http(s)` value. §3.6. ADR-0030 |
 | `Comments` | inspector | drafts | Several comments where the note is one; each may carry a moment. §3.5 |
@@ -536,6 +536,40 @@ that invariant exists to forbid, and each would arrive looking like a small conv
 
 The affordance follows what the **engine holds**, not what is being typed, or the button would
 flicker in and out on the way to `https://`.
+
+### 3.7 The tag field, and what it offers
+
+Asked for by the user on 2026-09-06, looking at a field that made them retype a tag the library
+already had. §3's component table has said *typeahead over existing tags* since it was written;
+this is what that turned out to mean.
+
+**The vocabulary is the sidebar's.** `library:sidebar` already carries every tag with its live
+count, and the window already re-reads it whenever the library changes — so a suggestion costs no
+request, no query, and no new state to keep fresh. A tag added here is in the next suggestion
+because the edit bumps the same revision the navigation pane reads on.
+
+**Names that begin with what was typed come first, then names that contain it**, and within each
+half the most-used tag leads. Tag names are flat and globally unique — a group *arranges* tags
+for the sidebar and never nests them, which is why `tag:` still means one thing — so a match in
+the middle is the only way `raga` reaches `olahraga`, and keeping it below the prefixes stops it
+displacing the tag somebody is plainly typing. Ties break on the name, so the order does not wander between two reads. At most
+eight are offered, and a tag the selection already carries is never among them — its chip is on
+screen a few pixels above, and adding it again is a no-op.
+
+**Nothing is highlighted until an arrow key highlights it.** This is the rule that keeps a *new*
+tag possible while an old one is on offer: Enter adds exactly what was typed unless a suggestion
+has been chosen, so `oke` is still `oke` with `okelah` listed under it. `↓`/`↑` move the highlight
+and wrap, Enter takes it, Escape closes the list and keeps the text — and a second Escape belongs
+to the window, so the panel does not swallow the key that clears a selection.
+
+**The list is drawn in the flow of the panel, not floating over it.** The inspector is a scroll
+container, so an absolutely positioned list would be clipped by it exactly when the field has been
+scrolled near the bottom — the case a dropdown exists for — and escaping that clip means a portal
+re-measuring the field on every scroll of a panel whose whole job is to scroll. What it costs is
+the note moving down for as long as the list is open.
+
+The field keeps the focus throughout: the options are an `aria-activedescendant` listbox, and a
+press on one prevents the default so the blur never fires under the click.
 
 ## 4. Navigation
 

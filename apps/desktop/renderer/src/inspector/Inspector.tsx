@@ -1,9 +1,10 @@
 import type { WireAssetDetail, WireSelectionSummary } from "@roost/contract";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { duration } from "../timecode.js";
 import { Comments } from "./Comments.js";
+import { type TagChoice, TagField } from "./TagField.js";
 
 /**
  * Everything known about the selection, all of it editable.
@@ -38,6 +39,9 @@ import { Comments } from "./Comments.js";
 /** How long after the last keystroke a note saves itself. */
 export const NOTE_IDLE_MS = 1000;
 
+/** One asset has no partial tags, and a fresh `[]` per render is a new memo. */
+const NO_TAGS: readonly string[] = [];
+
 export interface InspectorProps {
   /**
    * The selection, in result order. Empty when nothing is selected.
@@ -49,9 +53,22 @@ export interface InspectorProps {
   readonly hashes: readonly string[];
   /** Bumped by the caller when something outside the inspector changed. */
   readonly generation: number;
+  /**
+   * Every tag the library has, for the tag field to suggest from.
+   *
+   * The window already holds these for the navigation pane and re-reads them
+   * whenever the library changes, so a tag added here is suggestible the moment
+   * it exists. Empty is a valid answer — a library with no tags yet, or a
+   * window whose first sidebar read has not landed.
+   */
+  readonly vocabulary: readonly TagChoice[];
 }
 
-export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Element | null {
+export function Inspector({
+  hashes,
+  generation,
+  vocabulary,
+}: InspectorProps): React.JSX.Element | null {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [summary, setSummary] = useState<WireSelectionSummary | undefined>();
 
@@ -115,7 +132,7 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
   }
 
   if (summary !== undefined) {
-    return <Selection hashes={hashes} summary={summary} onSaved={read} />;
+    return <Selection hashes={hashes} summary={summary} vocabulary={vocabulary} onSaved={read} />;
   }
 
   // Something is selected and its record has not arrived — still loading, or an
@@ -149,7 +166,13 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
 
       <Rating value={detail.rating} mixed={false} hashes={hashes} onSaved={read} />
 
-      <TagEditor hashes={hashes} shared={detail.tags} partial={[]} onSaved={read} />
+      <TagEditor
+        hashes={hashes}
+        shared={detail.tags}
+        partial={NO_TAGS}
+        vocabulary={vocabulary}
+        onSaved={read}
+      />
       <NoteField detail={detail} onSaved={read} />
       <SourceField detail={detail} onSaved={read} />
       {/* Keyed on the hash so a half-typed comment does not follow the
@@ -361,14 +384,22 @@ function TagEditor({
   hashes,
   shared,
   partial,
+  vocabulary,
   onSaved,
 }: {
   readonly hashes: readonly string[];
   readonly shared: readonly string[];
   readonly partial: readonly string[];
+  readonly vocabulary: readonly TagChoice[];
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
-  const [draft, setDraft] = useState("");
+  // Both halves, because a suggestion is a no-op for either: the engine ignores
+  // an asset that already carries the tag, and offering one would say otherwise.
+  const attached = useMemo(() => [...shared, ...partial], [shared, partial]);
+
+  const add = (tag: string): void => {
+    void invoke({ type: "asset:tagAdd", hashes, tags: [tag] }).then(onSaved);
+  };
 
   const remove = (tag: string): void => {
     void invoke({ type: "asset:tagRemove", hashes, tags: [tag] }).then(onSaved);
@@ -396,21 +427,7 @@ function TagEditor({
           </li>
         ))}
       </ul>
-      <input
-        className="tag-input"
-        aria-label="Add a tag"
-        placeholder="Add a tag"
-        spellCheck={false}
-        value={draft}
-        onChange={(changed) => setDraft(changed.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" || draft.trim() === "") return;
-          event.preventDefault();
-          const tag = draft;
-          setDraft("");
-          void invoke({ type: "asset:tagAdd", hashes, tags: [tag] }).then(onSaved);
-        }}
-      />
+      <TagField vocabulary={vocabulary} attached={attached} onAdd={add} />
     </div>
   );
 }
@@ -427,10 +444,12 @@ function TagEditor({
 function Selection({
   hashes,
   summary,
+  vocabulary,
   onSaved,
 }: {
   readonly hashes: readonly string[];
   readonly summary: WireSelectionSummary;
+  readonly vocabulary: readonly TagChoice[];
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
   return (
@@ -448,6 +467,7 @@ function Selection({
         hashes={hashes}
         shared={summary.sharedTags}
         partial={summary.partialTags}
+        vocabulary={vocabulary}
         onSaved={onSaved}
       />
 

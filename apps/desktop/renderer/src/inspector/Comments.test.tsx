@@ -21,6 +21,9 @@ import { Inspector } from "./Inspector.js";
 
 const HASH = fakeDetail(1).hash;
 
+/** Comments do not touch the tag field; it needs a vocabulary all the same. */
+const VOCABULARY: readonly { name: string; group: string | null; count: number | null }[] = [];
+
 describe("comments", () => {
   let engine: FakeEngine;
   let detach: (() => void) | undefined;
@@ -28,7 +31,7 @@ describe("comments", () => {
   const show = (comments: readonly WireComment[] = []) => {
     engine = new FakeEngine({ details: [fakeDetail(1, { comments })] });
     install(engine);
-    render(<Inspector hashes={[HASH]} generation={0} />);
+    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} />);
     return userEvent.setup();
   };
 
@@ -193,10 +196,12 @@ describe("comments", () => {
     engine = new FakeEngine({ details: [fakeDetail(1), fakeDetail(2)] });
     install(engine);
     const user = userEvent.setup();
-    const view = render(<Inspector hashes={[HASH]} generation={0} />);
+    const view = render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} />);
     await user.type(await screen.findByLabelText("Add a comment"), "half a thought");
 
-    view.rerender(<Inspector hashes={[fakeDetail(2).hash]} generation={0} />);
+    view.rerender(
+      <Inspector hashes={[fakeDetail(2).hash]} generation={0} vocabulary={VOCABULARY} />,
+    );
     await waitFor(() =>
       expect((screen.getByLabelText("Add a comment") as HTMLInputElement).value).toBe(""),
     );

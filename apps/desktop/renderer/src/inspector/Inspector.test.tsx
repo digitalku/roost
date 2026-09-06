@@ -17,13 +17,32 @@ import { Inspector } from "./Inspector.js";
 
 const HASH = fakeDetail(1).hash;
 
+/**
+ * A library that already has tags, for the field to suggest from.
+ *
+ * The counts decide the order within a half of the list, and the group is a
+ * label rather than part of the name — tags here are flat and unique.
+ */
+const VOCABULARY = [
+  { name: "olahraga", group: "Topik", count: 412 },
+  { name: "olahan-video", group: null, count: 37 },
+  { name: "sepakbola-olahraga", group: null, count: 9 },
+  { name: "oke", group: null, count: 3 },
+];
+
 describe("the inspector", () => {
   let engine: FakeEngine;
 
   const show = (over: Parameters<typeof fakeDetail>[1] = {}, hash: string | undefined = HASH) => {
     engine = new FakeEngine({ details: [fakeDetail(1, over)] });
     install(engine);
-    const view = render(<Inspector hashes={hash === undefined ? [] : [hash]} generation={0} />);
+    const view = render(
+      <Inspector
+        hashes={hash === undefined ? [] : [hash]}
+        generation={0}
+        vocabulary={VOCABULARY}
+      />,
+    );
     return { user: userEvent.setup(), ...view };
   };
 
@@ -90,7 +109,7 @@ describe("the inspector", () => {
     // in the component at all (`TODO.md` §4, lesson 9).
     engine = new FakeEngine({});
     install(engine);
-    render(<Inspector hashes={[]} generation={0} />);
+    render(<Inspector hashes={[]} generation={0} vocabulary={VOCABULARY} />);
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeDefined();
     expect(screen.getByText("Nothing selected")).toBeDefined();
     // Nothing editable: a control here would act on no asset at all.
@@ -104,7 +123,7 @@ describe("the inspector", () => {
     // grid reflows behind a selection that is still there.
     engine = new FakeEngine({ details: [] });
     install(engine);
-    render(<Inspector hashes={[HASH]} generation={0} />);
+    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} />);
     await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:detail")).toBe(true));
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeDefined();
     // Not the empty-selection wording: something *is* selected.
@@ -163,7 +182,9 @@ describe("the inspector", () => {
       details: [fakeDetail(1, { ext: "txt" }), fakeDetail(2, { ext: "png" })],
     });
     install(engine);
-    const view = render(<Inspector hashes={[fakeDetail(1).hash]} generation={0} />);
+    const view = render(
+      <Inspector hashes={[fakeDetail(1).hash]} generation={0} vocabulary={VOCABULARY} />,
+    );
     await screen.findByRole("complementary");
     const image = (): HTMLImageElement => {
       const found = document.querySelector<HTMLImageElement>(".inspector-preview .cell-image");
@@ -178,7 +199,9 @@ describe("the inspector", () => {
     fireEvent.error(image());
     expect(image().hidden).toBe(true);
 
-    view.rerender(<Inspector hashes={[fakeDetail(2).hash]} generation={0} />);
+    view.rerender(
+      <Inspector hashes={[fakeDetail(2).hash]} generation={0} vocabulary={VOCABULARY} />,
+    );
     await waitFor(() => expect(image().getAttribute("src")).toContain(fakeDetail(2).hash));
     fireEvent.load(image());
     expect(image().hidden).toBe(false);
@@ -216,6 +239,28 @@ describe("the inspector", () => {
     await user.type(screen.getByLabelText("Add a tag"), "  wood  {Enter}");
     await waitFor(() => expect(screen.getAllByText("wood")).toHaveLength(1));
     expect((screen.getByLabelText("Add a tag") as HTMLInputElement).value).toBe("");
+  });
+
+  it("suggests the library's own tags, and sends the one that was picked", async () => {
+    // The vocabulary is the sidebar's, so this costs no request: what the
+    // window already draws in the navigation pane is what it offers here.
+    const { user } = show({ tags: ["oke"] });
+    const field = await screen.findByLabelText("Add a tag");
+
+    await user.type(field, "ola");
+    const options = screen.getAllByRole("option").map((option) => option.textContent);
+    // "oke" is on the asset already and is not offered back; the match in the
+    // middle of a name comes after both matches on the beginning of one.
+    expect(options).toEqual(["olahragaTopik412", "olahan-video37", "sepakbola-olahraga9"]);
+
+    await user.click(screen.getByRole("option", { name: /olahan-video/ }));
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:tagAdd")).toEqual([
+        { type: "asset:tagAdd", hashes: [HASH], tags: ["olahan-video"] },
+      ]),
+    );
+    expect((field as HTMLInputElement).value).toBe("");
+    expect(screen.queryByRole("listbox")).toBeNull();
   });
 
   it("removes a tag", async () => {
@@ -305,11 +350,13 @@ describe("the inspector", () => {
   it("re-reads when something outside it changed the library", async () => {
     engine = new FakeEngine({ details: [fakeDetail(1, { rating: 2 })] });
     install(engine);
-    const { rerender } = render(<Inspector hashes={[HASH]} generation={0} />);
+    const { rerender } = render(
+      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} />,
+    );
     await screen.findByRole("button", { name: "4 stars" });
     const before = engine.seen.filter((r) => r.type === "asset:detail").length;
 
-    rerender(<Inspector hashes={[HASH]} generation={1} />);
+    rerender(<Inspector hashes={[HASH]} generation={1} vocabulary={VOCABULARY} />);
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail").length).toBeGreaterThan(before),
     );
@@ -324,7 +371,7 @@ describe("what a re-read must and must not overwrite", () => {
     // space the library does not hold, visible only after a reload.
     const engine = new FakeEngine({ details: [fakeDetail(1, { name: "one.png" })] });
     install(engine);
-    render(<Inspector hashes={[HASH]} generation={0} />);
+    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} />);
     const user = userEvent.setup();
 
     const field = (await screen.findByLabelText("Name")) as HTMLInputElement;
@@ -338,7 +385,9 @@ describe("what a re-read must and must not overwrite", () => {
   it("does not stomp a half-typed note when something else changed the library", async () => {
     const engine = new FakeEngine({ details: [fakeDetail(1)] });
     install(engine);
-    const { rerender } = render(<Inspector hashes={[HASH]} generation={0} />);
+    const { rerender } = render(
+      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} />,
+    );
     const user = userEvent.setup();
 
     const note = (await screen.findByLabelText("Note")) as HTMLTextAreaElement;
@@ -346,7 +395,7 @@ describe("what a re-read must and must not overwrite", () => {
 
     // An edit elsewhere re-reads this asset too. Losing what is being typed
     // because an unrelated asset was tagged is the bug this guards.
-    rerender(<Inspector hashes={[HASH]} generation={1} />);
+    rerender(<Inspector hashes={[HASH]} generation={1} vocabulary={VOCABULARY} />);
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail").length).toBe(2),
     );
@@ -372,7 +421,7 @@ describe("the inspector over several assets", () => {
       details: details.map((over, index) => fakeDetail(index, over)),
     });
     install(engine);
-    const view = render(<Inspector hashes={THREE} generation={0} />);
+    const view = render(<Inspector hashes={THREE} generation={0} vocabulary={VOCABULARY} />);
     return { user: userEvent.setup(), ...view };
   };
 
@@ -494,9 +543,11 @@ describe("the inspector over several assets", () => {
       },
     });
 
-    const view = render(<Inspector hashes={THREE.slice(0, 2)} generation={0} />);
+    const view = render(
+      <Inspector hashes={THREE.slice(0, 2)} generation={0} vocabulary={VOCABULARY} />,
+    );
     await waitFor(() => expect(held).toHaveLength(1));
-    view.rerender(<Inspector hashes={THREE} generation={0} />);
+    view.rerender(<Inspector hashes={THREE} generation={0} vocabulary={VOCABULARY} />);
     await waitFor(() => expect(held).toHaveLength(2));
 
     // The newer read answers first, the older one after it.

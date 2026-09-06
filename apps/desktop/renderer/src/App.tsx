@@ -3,6 +3,7 @@ import type {
   ImportSubject,
   LibraryStats,
   LibrarySummary,
+  SidebarRow,
   WireProblem,
   WireRecentLibrary,
   WireSidebar,
@@ -423,6 +424,9 @@ function captionable(assets: readonly AssetCard[], hash: string | undefined): bo
   const card = assets.find((asset) => asset.hash === hash);
   return card !== undefined && (card.kind === "video" || card.kind === "audio");
 }
+
+/** Before the first sidebar read lands. A fresh `[]` per render is a new memo. */
+const NO_TAGS: readonly SidebarRow[] = [];
 
 const EMPTY_LIBRARY = "Nothing in this library yet.";
 const NOTHING_MATCHED = "Nothing matches this query.";
@@ -1017,7 +1021,10 @@ function LibraryView({
           )}
         </div>
 
-        <Inspector hashes={selected} generation={revision} />
+        {/* The sidebar's tag rows are the tag field's vocabulary — the window
+            already holds every tag with its count, so suggesting one costs no
+            request. */}
+        <Inspector hashes={selected} generation={revision} vocabulary={sidebar?.tags ?? NO_TAGS} />
       </div>
 
       {/* Mounted only while it is open, so the contents a paste handed it are

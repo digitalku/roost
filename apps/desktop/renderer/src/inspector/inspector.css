@@ -431,3 +431,56 @@
   padding: var(--space-1) var(--space-2);
   font-size: var(--text-sm);
 }
+
+/*
+ * The tag field's suggestions (UI_SPEC.md §3.2).
+ *
+ * Drawn in the flow of the panel rather than floating over it: the inspector
+ * scrolls, so an absolutely positioned list would be clipped by it exactly when
+ * the field has been scrolled near the bottom.
+ */
+.tag-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.tag-suggestions {
+  margin: 0;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.tag-suggestion {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+/* Hover and the keyboard's highlight are one appearance: the arrow keys move
+   the same mark the pointer would put there, and two marks at once would be
+   two answers to what Enter does. */
+.tag-suggestion:hover,
+.tag-suggestion[data-active] {
+  background: var(--select-bg);
+  color: var(--select-text);
+}
+
+.tag-suggestion-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-suggestion-group,
+.tag-suggestion-count {
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}

@@ -470,7 +470,10 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   - **Autocomplete**: field names first, then values once a field is typed — `tag:` offers tags,
     `folder:` offers folders, `ext:` offers the extensions actually present. The vocabulary is
     `@roost/search`'s (`FLAGS`, `NAME_FIELDS`, `NUMERIC_FIELDS`) and the values are the
-    library's, so it is one more request rather than a table in the renderer.
+    library's, so it is one more request rather than a table in the renderer. The *list* is
+    solved: the inspector's tag field (`TagField`, `UI_SPEC.md` §3.7, 2026-09-06) is the same
+    highlight-and-Enter listbox, and what it does not have is the one thing this needs — a
+    vocabulary the sidebar does not already carry.
   - **Chips**, as an optional view of the parsed AST. The string stays the source of truth,
     which means the engine has to hand back the AST as well as a verdict.
   - **Save as smart folder** from the field, which is where a saved query naturally comes from.
