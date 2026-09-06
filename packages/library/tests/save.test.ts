@@ -83,7 +83,7 @@ describe("saving an edit", () => {
     const detail = library.db.repo.assetDetail(after);
 
     expect(detail?.tags).toEqual(["draft", "writing"]);
-    expect(detail?.folders).toEqual(["Notes"]);
+    expect(detail?.folders.map((folder) => folder.path)).toEqual(["Notes"]);
     expect(detail?.rating).toBe(4);
     expect(detail?.note).toBe("for the talk");
     // Replacing an asset's bytes does not change where they came from.

@@ -15,6 +15,7 @@ import type {
   WireEagleReport,
   WireEagleSurvey,
   WireExportReport,
+  WireFolderRef,
   WireImportReport,
   WirePasted,
   WireProblem,
@@ -422,6 +423,17 @@ export class FakeEngine {
     }
     const names = [...carrying.keys()].sort();
 
+    // Keyed by id, because the id is what an edit names — two folders may be
+    // called `Icons` and the panel has to tell them apart.
+    const inFolders = new Map<number, { ref: WireFolderRef; carrying: number }>();
+    for (const detail of found) {
+      for (const ref of detail.folders) {
+        const held = inFolders.get(ref.id);
+        inFolders.set(ref.id, { ref, carrying: (held?.carrying ?? 0) + 1 });
+      }
+    }
+    const folders = [...inFolders.values()].sort((a, b) => a.ref.path.localeCompare(b.ref.path));
+
     const kinds = [...new Set(found.map((detail) => detail.ext))].slice(0, 5);
 
     return {
@@ -431,6 +443,8 @@ export class FakeEngine {
       ratingMixed: rated.length > 0 && !agreed,
       sharedTags: names.filter((name) => carrying.get(name) === found.length),
       partialTags: names.filter((name) => carrying.get(name) !== found.length),
+      sharedFolders: folders.filter((f) => f.carrying === found.length).map((f) => f.ref),
+      partialFolders: folders.filter((f) => f.carrying !== found.length).map((f) => f.ref),
       kinds,
     };
   }
@@ -653,6 +667,30 @@ export class FakeEngine {
           tags: detail.tags.filter((tag) => !gone.has(tag.toLowerCase())),
         }));
       }
+
+      // The fake holds memberships on the detail rather than in a tree of its
+      // own: what a renderer test asserts is what the panel sent and what it
+      // draws afterwards, and neither needs a folder the window has not seen.
+      case "asset:folderAdd": {
+        const tree = this.#options.sidebar?.folders ?? [];
+        const added = tree.find((folder) => folder.folder === request.folder);
+        if (added === undefined) {
+          return problem("unknown_folder", `no folder ${request.folder}`, {});
+        }
+        const ref: WireFolderRef = { id: added.folder, path: added.path };
+        return this.#mutate(request.hashes, (detail) => ({
+          ...detail,
+          folders: detail.folders.some((held) => held.id === ref.id)
+            ? detail.folders
+            : [...detail.folders, ref],
+        }));
+      }
+
+      case "asset:folderRemove":
+        return this.#mutate(request.hashes, (detail) => ({
+          ...detail,
+          folders: detail.folders.filter((held) => held.id !== request.folder),
+        }));
 
       case "comment:add": {
         const body = request.body.trim();

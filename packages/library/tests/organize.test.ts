@@ -375,7 +375,7 @@ describe("organizing a library", () => {
 
     expect(library.db.repo.assetDetail(first)).toMatchObject({
       tags: ["timber"],
-      folders: ["Moodboards"],
+      folders: [{ id: 1, path: "Moodboards" }],
       rating: 4,
       note: "client approved",
       trashedAt: null,

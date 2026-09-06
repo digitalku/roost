@@ -1,10 +1,16 @@
-import type { WireAssetDetail, WireSelectionSummary } from "@roost/contract";
+import type {
+  SidebarFolderRow,
+  WireAssetDetail,
+  WireFolderRef,
+  WireSelectionSummary,
+} from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { bytes } from "../format.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { duration } from "../timecode.js";
 import { Comments } from "./Comments.js";
+import { FolderField } from "./FolderField.js";
 import { type TagChoice, TagField } from "./TagField.js";
 
 /**
@@ -43,6 +49,9 @@ export const NOTE_IDLE_MS = 1000;
 /** One asset has no partial tags, and a fresh `[]` per render is a new memo. */
 const NO_TAGS: readonly string[] = [];
 
+/** The same, for the folders one asset is in — it is in all of them. */
+const NO_FOLDERS: readonly WireFolderRef[] = [];
+
 export interface InspectorProps {
   /**
    * The selection, in result order. Empty when nothing is selected.
@@ -63,12 +72,22 @@ export interface InspectorProps {
    * window whose first sidebar read has not landed.
    */
   readonly vocabulary: readonly TagChoice[];
+  /**
+   * Every folder in the library, for the folder control to offer.
+   *
+   * The same arrangement as `vocabulary` and for the same reason: the window
+   * already holds these rows for the navigation pane and re-reads them whenever
+   * the library changes, so a folder made in the sidebar is offerable here the
+   * moment it exists, and nothing asks the engine twice for one small tree.
+   */
+  readonly folders: readonly SidebarFolderRow[];
 }
 
 export function Inspector({
   hashes,
   generation,
   vocabulary,
+  folders,
 }: InspectorProps): React.JSX.Element | null {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [summary, setSummary] = useState<WireSelectionSummary | undefined>();
@@ -133,7 +152,15 @@ export function Inspector({
   }
 
   if (summary !== undefined) {
-    return <Selection hashes={hashes} summary={summary} vocabulary={vocabulary} onSaved={read} />;
+    return (
+      <Selection
+        hashes={hashes}
+        summary={summary}
+        vocabulary={vocabulary}
+        folders={folders}
+        onSaved={read}
+      />
+    );
   }
 
   // Something is selected and its record has not arrived — still loading, or an
@@ -172,6 +199,13 @@ export function Inspector({
         shared={detail.tags}
         partial={NO_TAGS}
         vocabulary={vocabulary}
+        onSaved={read}
+      />
+      <FolderEditor
+        hashes={hashes}
+        shared={detail.folders}
+        partial={NO_FOLDERS}
+        tree={folders}
         onSaved={read}
       />
       <NoteField detail={detail} onSaved={read} />
@@ -434,6 +468,84 @@ function TagEditor({
 }
 
 /**
+ * The folders the selection is in, and a menu to add another (`UI_SPEC.md` §3.9).
+ *
+ * **The same component for one asset and for twelve**, exactly as `TagEditor`
+ * is, and for the reason §3.2 records: the panel edits the selection, and a
+ * second code path for the single-asset case is how it came to edit one asset
+ * out of five the last time these two were different components.
+ *
+ * A folder some of the selection is in is drawn apart from one all of it is in.
+ * Removing either is the same call — the engine ignores an asset that is not in
+ * the folder — so the distinction is a thing said, not a thing branched on.
+ *
+ * **Detaching is not deleting.** Taking an asset out of a folder leaves the
+ * asset alone: folders are collections, not locations (`STORAGE_SPEC.md`), and
+ * nothing on disk moves. That is why there is no confirmation here and why the
+ * button is an `×` like a tag's rather than a word like `Delete`.
+ */
+function FolderEditor({
+  hashes,
+  shared,
+  partial,
+  tree,
+  onSaved,
+}: {
+  readonly hashes: readonly string[];
+  readonly shared: readonly WireFolderRef[];
+  readonly partial: readonly WireFolderRef[];
+  readonly tree: readonly SidebarFolderRow[];
+  readonly onSaved: () => Promise<void>;
+}): React.JSX.Element {
+  const attached = useMemo(
+    () => [...shared, ...partial].map((folder) => folder.id),
+    [shared, partial],
+  );
+
+  const add = (folder: number): void => {
+    void invoke({ type: "asset:folderAdd", hashes, folder }).then(onSaved);
+  };
+
+  const remove = (folder: number): void => {
+    void invoke({ type: "asset:folderRemove", hashes, folder }).then(onSaved);
+  };
+
+  return (
+    <div className="folders">
+      <ul className="folder-list">
+        {shared.map((folder) => (
+          <li key={folder.id} className="folder">
+            <span title={folder.path}>{folder.path}</span>
+            <button
+              type="button"
+              aria-label={`Remove from ${folder.path}`}
+              onClick={() => remove(folder.id)}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+        {partial.map((folder) => (
+          <li key={folder.id} className="folder" data-partial>
+            <span title={`Only some of the ${hashes.length} selected assets are in ${folder.path}`}>
+              {folder.path}
+            </span>
+            <button
+              type="button"
+              aria-label={`Remove from ${folder.path}`}
+              onClick={() => remove(folder.id)}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+      <FolderField tree={tree} attached={attached} onAdd={add} />
+    </div>
+  );
+}
+
+/**
  * The panel for a selection of several assets (`UI_SPEC.md` §3.2).
  *
  * What is missing here is the point. There is **no name field**, because a name
@@ -446,11 +558,13 @@ function Selection({
   hashes,
   summary,
   vocabulary,
+  folders,
   onSaved,
 }: {
   readonly hashes: readonly string[];
   readonly summary: WireSelectionSummary;
   readonly vocabulary: readonly TagChoice[];
+  readonly folders: readonly SidebarFolderRow[];
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
   return (
@@ -469,6 +583,14 @@ function Selection({
         shared={summary.sharedTags}
         partial={summary.partialTags}
         vocabulary={vocabulary}
+        onSaved={onSaved}
+      />
+
+      <FolderEditor
+        hashes={hashes}
+        shared={summary.sharedFolders}
+        partial={summary.partialFolders}
+        tree={folders}
         onSaved={onSaved}
       />
 
@@ -677,7 +799,6 @@ function Metadata({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
     ...(detail.refPath === null ? [] : ([["Path", detail.refPath]] as const)),
     ["Imported", when(detail.importedAt)],
     ...(detail.createdAt === null ? [] : ([["Created", when(detail.createdAt)]] as const)),
-    ...(detail.folders.length === 0 ? [] : ([["Folders", detail.folders.join(", ")]] as const)),
     // The hash last, and in full: it is the asset's identity (invariant 1) and
     // the thing a bug report needs, but it is not what anyone reads first.
     ["Hash", detail.hash],

@@ -33,6 +33,10 @@ export async function show(
     if (detail.note !== null) out(row("note", detail.note));
     if (detail.sourceUrl !== null) out(row("source", detail.sourceUrl));
     if (detail.tags.length > 0) out(row("tags", detail.tags.join(", ")));
-    if (detail.folders.length > 0) out(row("folders", detail.folders.join(", ")));
+    if (detail.folders.length > 0) {
+      // The whole path, not the folder's own name: two folders called `Icons`
+      // print the same line otherwise, and this command exists to be read.
+      out(row("folders", detail.folders.map((folder) => folder.path).join(", ")));
+    }
   });
 }

@@ -74,7 +74,7 @@ describe("folding one operation at a time", () => {
 
     const detail = db.repo.assetDetail(a.hash);
     expect(detail?.tags).toEqual(["reference"]);
-    expect(detail?.folders).toEqual(["Moodboards"]);
+    expect(detail?.folders).toEqual([{ id: 1, path: "Moodboards" }]);
     expect(detail?.origName).toBe("asset-1 (copy).png");
     expect(detail?.importedAt).toBe(20);
   });
@@ -608,6 +608,33 @@ describe("summarising a selection", () => {
     const summary = db.repo.selectionSummary(hashes);
     expect(summary.sharedTags).toEqual(["wood"]);
     expect(summary.partialTags).toEqual(["wip"]);
+  });
+
+  it("separates a folder they are all in from one only some are in", () => {
+    const hashes = three();
+    db.repo.applyFolderCreate(1, null, "Design");
+    db.repo.applyFolderCreate(2, 1, "Icons");
+    for (const hash of hashes) db.repo.applyFolderAdd(hash, 1);
+    db.repo.applyFolderAdd(hashes[0] as ReturnType<typeof hashOf>, 2);
+
+    const summary = db.repo.selectionSummary(hashes);
+    expect(summary.sharedFolders).toEqual([{ id: 1, path: "Design" }]);
+    // The nested one carries its whole path: a control that says "Icons" alone
+    // does not say which `Icons`, and a library may hold three of them.
+    expect(summary.partialFolders).toEqual([{ id: 2, path: "Design/Icons" }]);
+  });
+
+  it("counts membership, not the subtree a folder query would match", () => {
+    // `folder:Design` finds all three through the child, but only one asset was
+    // added to `Design/Icons` — and detaching is about what was added.
+    const hashes = three();
+    db.repo.applyFolderCreate(1, null, "Design");
+    db.repo.applyFolderCreate(2, 1, "Icons");
+    for (const hash of hashes) db.repo.applyFolderAdd(hash, 2);
+
+    expect(db.repo.selectionSummary(hashes).sharedFolders).toEqual([
+      { id: 2, path: "Design/Icons" },
+    ]);
   });
 
   it("ignores an asset the library does not hold", () => {

@@ -1,4 +1,12 @@
-import type { Outcome, RequestOf, RequestType, ResponseOf, WireAssetDetail } from "@roost/contract";
+import type {
+  Outcome,
+  RequestOf,
+  RequestType,
+  ResponseOf,
+  SidebarFolderRow,
+  WireAssetDetail,
+  WireSidebar,
+} from "@roost/contract";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,17 +38,54 @@ const VOCABULARY = [
   { name: "oke", group: null, count: 3 },
 ];
 
+/**
+ * A folder tree with a nested branch in it.
+ *
+ * Two folders whose paths differ and whose names might not is the case the
+ * control has to draw honestly: the menu shows the tree, and the chip shows the
+ * path.
+ */
+const FOLDERS: readonly SidebarFolderRow[] = [
+  folderRow(1, "Design", "Design", 0),
+  folderRow(2, "Icons", "Design/Icons", 1),
+  folderRow(3, "Notes", "Notes", 0),
+];
+
+function folderRow(folder: number, name: string, path: string, depth: number): SidebarFolderRow {
+  return {
+    id: `folder:${folder}`,
+    name,
+    query: `folder:"${path}"`,
+    count: null,
+    depth,
+    group: null,
+    stars: null,
+    folder,
+    path,
+  };
+}
+
+/** What the engine answers `library:sidebar` with, so the fake can resolve one. */
+const SIDEBAR: WireSidebar = {
+  places: [],
+  ratings: [],
+  folders: FOLDERS,
+  smartFolders: [],
+  tags: [],
+};
+
 describe("the inspector", () => {
   let engine: FakeEngine;
 
   const show = (over: Parameters<typeof fakeDetail>[1] = {}, hash: string | undefined = HASH) => {
-    engine = new FakeEngine({ details: [fakeDetail(1, over)] });
+    engine = new FakeEngine({ details: [fakeDetail(1, over)], sidebar: SIDEBAR });
     install(engine);
     const view = render(
       <Inspector
         hashes={hash === undefined ? [] : [hash]}
         generation={0}
         vocabulary={VOCABULARY}
+        folders={FOLDERS}
       />,
     );
     return { user: userEvent.setup(), ...view };
@@ -109,7 +154,7 @@ describe("the inspector", () => {
     // in the component at all (`TODO.md` §4, lesson 9).
     engine = new FakeEngine({});
     install(engine);
-    render(<Inspector hashes={[]} generation={0} vocabulary={VOCABULARY} />);
+    render(<Inspector hashes={[]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />);
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeDefined();
     expect(screen.getByText("Nothing selected")).toBeDefined();
     // Nothing editable: a control here would act on no asset at all.
@@ -123,7 +168,7 @@ describe("the inspector", () => {
     // grid reflows behind a selection that is still there.
     engine = new FakeEngine({ details: [] });
     install(engine);
-    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} />);
+    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />);
     await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:detail")).toBe(true));
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeDefined();
     // Not the empty-selection wording: something *is* selected.
@@ -183,7 +228,12 @@ describe("the inspector", () => {
     });
     install(engine);
     const view = render(
-      <Inspector hashes={[fakeDetail(1).hash]} generation={0} vocabulary={VOCABULARY} />,
+      <Inspector
+        hashes={[fakeDetail(1).hash]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+      />,
     );
     await screen.findByRole("complementary");
     const image = (): HTMLImageElement => {
@@ -200,7 +250,12 @@ describe("the inspector", () => {
     expect(image().hidden).toBe(true);
 
     view.rerender(
-      <Inspector hashes={[fakeDetail(2).hash]} generation={0} vocabulary={VOCABULARY} />,
+      <Inspector
+        hashes={[fakeDetail(2).hash]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+      />,
     );
     await waitFor(() => expect(image().getAttribute("src")).toContain(fakeDetail(2).hash));
     fireEvent.load(image());
@@ -351,15 +406,92 @@ describe("the inspector", () => {
     engine = new FakeEngine({ details: [fakeDetail(1, { rating: 2 })] });
     install(engine);
     const { rerender } = render(
-      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} />,
+      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />,
     );
     await screen.findByRole("button", { name: "4 stars" });
     const before = engine.seen.filter((r) => r.type === "asset:detail").length;
 
-    rerender(<Inspector hashes={[HASH]} generation={1} vocabulary={VOCABULARY} />);
+    rerender(
+      <Inspector hashes={[HASH]} generation={1} vocabulary={VOCABULARY} folders={FOLDERS} />,
+    );
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail").length).toBeGreaterThan(before),
     );
+  });
+});
+
+describe("the folders an asset is in", () => {
+  let engine: FakeEngine;
+
+  const show = (folders: WireAssetDetail["folders"]) => {
+    engine = new FakeEngine({ details: [fakeDetail(1, { folders })], sidebar: SIDEBAR });
+    install(engine);
+    const view = render(
+      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />,
+    );
+    return { user: userEvent.setup(), ...view };
+  };
+
+  /** The last request of `type`, whatever shape it has. */
+  const last = (type: string): Record<string, unknown> | undefined =>
+    [...engine.seen].reverse().find((request) => request.type === type) as never;
+
+  it("names a folder by its whole path, because a name does not name it", async () => {
+    // Two folders can be called `Icons`. The chip is what somebody reads before
+    // pressing the `×` beside it, so it has to say which one.
+    show([{ id: 2, path: "Design/Icons" }]);
+    expect(await screen.findByText("Design/Icons")).toBeDefined();
+  });
+
+  it("detaches by id, and detaching is not a delete", async () => {
+    const { user } = show([{ id: 2, path: "Design/Icons" }]);
+    await screen.findByText("Design/Icons");
+
+    await user.click(screen.getByRole("button", { name: "Remove from Design/Icons" }));
+
+    await waitFor(() => expect(last("asset:folderRemove")).toBeDefined());
+    expect(last("asset:folderRemove")).toMatchObject({ hashes: [HASH], folder: 2 });
+    // A folder is a collection, so leaving one touches nothing else: no trash,
+    // no removal, and no dialog in between.
+    expect(engine.seen.some((request) => request.type === "assets:trash")).toBe(false);
+    expect(engine.seen.some((request) => request.type === "assets:remove")).toBe(false);
+  });
+
+  it("offers the whole tree, and refuses the folder it is already in", async () => {
+    const { user } = show([{ id: 1, path: "Design" }]);
+    await screen.findByText("Design");
+
+    await user.click(screen.getByRole("button", { name: "Add to folder" }));
+    await screen.findByRole("menu");
+
+    expect(screen.getByRole("menuitem", { name: "Icons" })).toBeDefined();
+    // Disabled rather than absent: a menu that changes shape between two
+    // openings is one nobody learns.
+    expect(screen.getByRole("menuitem", { name: "Design" }).getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+  });
+
+  it("adds the asset to the folder that was chosen", async () => {
+    const { user } = show([]);
+    await screen.findByLabelText("Name");
+
+    await user.click(screen.getByRole("button", { name: "Add to folder" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Icons" }));
+
+    await waitFor(() => expect(last("asset:folderAdd")).toBeDefined());
+    expect(last("asset:folderAdd")).toMatchObject({ hashes: [HASH], folder: 2 });
+    // The panel reads the record back rather than drawing what it sent.
+    expect(await screen.findByText("Design/Icons")).toBeDefined();
+  });
+
+  it("says so when the library has no folders to offer", async () => {
+    engine = new FakeEngine({ details: [fakeDetail(1)] });
+    install(engine);
+    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={[]} />);
+
+    const trigger = await screen.findByRole("button", { name: "Add to folder" });
+    expect(trigger.hasAttribute("disabled")).toBe(true);
   });
 });
 
@@ -371,7 +503,7 @@ describe("what a re-read must and must not overwrite", () => {
     // space the library does not hold, visible only after a reload.
     const engine = new FakeEngine({ details: [fakeDetail(1, { name: "one.png" })] });
     install(engine);
-    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} />);
+    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />);
     const user = userEvent.setup();
 
     const field = (await screen.findByLabelText("Name")) as HTMLInputElement;
@@ -386,7 +518,7 @@ describe("what a re-read must and must not overwrite", () => {
     const engine = new FakeEngine({ details: [fakeDetail(1)] });
     install(engine);
     const { rerender } = render(
-      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} />,
+      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />,
     );
     const user = userEvent.setup();
 
@@ -395,7 +527,9 @@ describe("what a re-read must and must not overwrite", () => {
 
     // An edit elsewhere re-reads this asset too. Losing what is being typed
     // because an unrelated asset was tagged is the bug this guards.
-    rerender(<Inspector hashes={[HASH]} generation={1} vocabulary={VOCABULARY} />);
+    rerender(
+      <Inspector hashes={[HASH]} generation={1} vocabulary={VOCABULARY} folders={FOLDERS} />,
+    );
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail").length).toBe(2),
     );
@@ -419,9 +553,12 @@ describe("the inspector over several assets", () => {
   const show = (details: readonly Partial<WireAssetDetail>[]) => {
     engine = new FakeEngine({
       details: details.map((over, index) => fakeDetail(index, over)),
+      sidebar: SIDEBAR,
     });
     install(engine);
-    const view = render(<Inspector hashes={THREE} generation={0} vocabulary={VOCABULARY} />);
+    const view = render(
+      <Inspector hashes={THREE} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />,
+    );
     return { user: userEvent.setup(), ...view };
   };
 
@@ -494,6 +631,33 @@ describe("the inspector over several assets", () => {
     await waitFor(() => expect(sentTo("asset:tagRemove")).toEqual(THREE));
   });
 
+  it("draws a folder some of them are in apart from one they are all in", async () => {
+    show([
+      {
+        folders: [
+          { id: 1, path: "Design" },
+          { id: 3, path: "Notes" },
+        ],
+      },
+      { folders: [{ id: 1, path: "Design" }] },
+      { folders: [{ id: 1, path: "Design" }] },
+    ]);
+    await screen.findByText("3 assets");
+
+    expect(screen.getByText("Design").closest("li")?.hasAttribute("data-partial")).toBe(false);
+    expect(screen.getByText("Notes").closest("li")?.hasAttribute("data-partial")).toBe(true);
+  });
+
+  it("takes the whole selection out of a folder, not one asset of it", async () => {
+    const folders = [{ id: 1, path: "Design" }];
+    const { user } = show([{ folders }, { folders }, { folders }]);
+    await screen.findByText("3 assets");
+
+    await user.click(screen.getByRole("button", { name: "Remove from Design" }));
+
+    await waitFor(() => expect(sentTo("asset:folderRemove")).toEqual(THREE));
+  });
+
   it("offers no name, no note, and no preview", async () => {
     // Each of the three would be wrong in its own way: a name is unique to one
     // asset, a note written across twelve would destroy eleven, and one
@@ -544,10 +708,17 @@ describe("the inspector over several assets", () => {
     });
 
     const view = render(
-      <Inspector hashes={THREE.slice(0, 2)} generation={0} vocabulary={VOCABULARY} />,
+      <Inspector
+        hashes={THREE.slice(0, 2)}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+      />,
     );
     await waitFor(() => expect(held).toHaveLength(1));
-    view.rerender(<Inspector hashes={THREE} generation={0} vocabulary={VOCABULARY} />);
+    view.rerender(
+      <Inspector hashes={THREE} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />,
+    );
     await waitFor(() => expect(held).toHaveLength(2));
 
     // The newer read answers first, the older one after it.

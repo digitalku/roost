@@ -81,6 +81,21 @@ export interface WireRecentLibrary {
 }
 
 /**
+ * One folder, as a thing an asset is in rather than a row to draw.
+ *
+ * **Both fields, because neither substitutes for the other.** `id` is what
+ * `asset:folderAdd` and `asset:folderRemove` name — the journal's ops name a
+ * folder by id, and it is the only way to be exact about which folder is meant.
+ * `path` is what the window draws: folder names are unique only among siblings,
+ * so `Icons` alone does not say which `Icons`.
+ */
+export interface WireFolderRef {
+  readonly id: number;
+  /** Slash-separated, from the root: `Design/Icons`. */
+  readonly path: string;
+}
+
+/**
  * What a selection of several assets shares, and what it does not.
  *
  * The inspector edits the selection, so it has to be able to say "3 assets ·
@@ -98,6 +113,10 @@ export interface WireSelectionSummary {
   readonly sharedTags: readonly string[];
   /** Tags some of them carry. */
   readonly partialTags: readonly string[];
+  /** Folders every selected asset is in. */
+  readonly sharedFolders: readonly WireFolderRef[];
+  /** Folders some of them are in, drawn apart exactly as the tags are. */
+  readonly partialFolders: readonly WireFolderRef[];
   /** The commonest extensions present, most first. At most five. */
   readonly kinds: readonly string[];
 }
@@ -263,12 +282,29 @@ export interface WireSubtitle {
   readonly servable: boolean;
 }
 
+/**
+ * A folder's row, which is a {@link SidebarRow} and two things only a folder
+ * has.
+ *
+ * The sidebar draws it as any other row and never reads the extra fields. They
+ * are here for the inspector, which offers **every** folder to add to and needs
+ * to name the one that is chosen: the window already re-reads this tree
+ * whenever the library changes, so a second request for the same rows would be
+ * a second read of one small table and a second idea of what it holds.
+ */
+export interface SidebarFolderRow extends SidebarRow {
+  /** The folder's own id, which is what an edit names. */
+  readonly folder: number;
+  /** Slash-separated, from the root. `name` is only the last segment. */
+  readonly path: string;
+}
+
 /** The navigation pane, in the order it is drawn. */
 export interface WireSidebar {
   readonly places: readonly SidebarRow[];
   /** One row per star, then unrated — six, drawn under Places (`UI_SPEC.md` §4.1). */
   readonly ratings: readonly SidebarRow[];
-  readonly folders: readonly SidebarRow[];
+  readonly folders: readonly SidebarFolderRow[];
   readonly smartFolders: readonly SidebarRow[];
   readonly tags: readonly SidebarRow[];
 }
@@ -338,8 +374,8 @@ export interface WireAssetDetail {
    */
   readonly sourceUrl: string | null;
   readonly tags: readonly string[];
-  /** Slash-separated folder paths this asset is in. */
-  readonly folders: readonly string[];
+  /** The folders this asset is in (`UI_SPEC.md` §3.9). */
+  readonly folders: readonly WireFolderRef[];
   /** Video and audio only, in milliseconds. */
   readonly durationMs: number | null;
   /** The moment this video's thumbnail is pinned to (ADR-0024 stage 4). */

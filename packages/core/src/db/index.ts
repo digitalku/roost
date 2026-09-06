@@ -18,6 +18,7 @@ export {
   type AssetSummary,
   type CommentRow,
   type DerivedMetadata,
+  type FolderMembership,
   type FolderRow,
   type JobClaim,
   type JobCount,

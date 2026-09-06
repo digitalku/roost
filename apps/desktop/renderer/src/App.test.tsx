@@ -643,6 +643,69 @@ describe("the navigation pane, in the window", () => {
     }
   });
 
+  it("takes the selection out of the folder on screen, and out of no other", async () => {
+    // `UI_SPEC.md` §9. The folder is the one whose query is on screen, matched
+    // on the string the engine sent — the renderer assembles no RQL — and the
+    // shortcut does nothing at all outside one.
+    const inDesign = [fakeAsset(0), fakeAsset(1)];
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      byQuery: { 'folder:"Design"': inDesign },
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [
+          {
+            id: "folder:7",
+            name: "Design",
+            query: 'folder:"Design"',
+            count: 2,
+            depth: 0,
+            group: null,
+            stars: null,
+            folder: 7,
+            path: "Design",
+          },
+        ],
+        smartFolders: [],
+        tags: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(9));
+
+    // Outside the folder the keystroke is inert: there is no folder to name,
+    // and guessing at one would be a removal nobody asked for.
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    await user.keyboard("{Control>}{Delete}{/Control}");
+    expect(engine.seen.some((request) => request.type === "asset:folderRemove")).toBe(false);
+
+    await user.click(await screen.findByRole("button", { name: "Design 2" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(2));
+
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    await user.keyboard("{Control>}{Delete}{/Control}");
+
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "asset:folderRemove")).toBe(true),
+    );
+    const sent = [...engine.seen].reverse().find((r) => r.type === "asset:folderRemove");
+    expect(sent).toMatchObject({ hashes: [inDesign[0]?.hash], folder: 7 });
+    // Nothing was trashed: leaving a collection is not leaving the library.
+    expect(engine.seen.some((request) => request.type === "assets:trash")).toBe(false);
+
+    // Read after the clear renders, never with `findByText` (`TODO.md` §4).
+    await waitFor(() => expect(screen.queryByText(/ · 1 selected/)).toBeNull());
+    expect(screen.getByText("Removed 1 asset from Design")).toBeDefined();
+  });
+
   it("sends a row's own query to the grid, and shows what came back", async () => {
     // `UI_SPEC.md` §4.1 and §4.2: the row carries the RQL, clicking it replaces
     // the query, and there is no filter state the query string does not know

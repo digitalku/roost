@@ -178,7 +178,9 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ☑ Sidebar: places, folders with subtree counts, smart folders, grouped tags — each row
   carrying the RQL that selects it. Collapsing, drag-to-reparent, and the library switcher are
   in `TODO.md`
-- ☑ Inspector: preview, metadata, tags, rating, favourite (retired, ADR-0029), note, source
+- ☑ Inspector: preview, metadata, tags, folders (2026-09-06 — the chips and the tree menu, plus
+  `Ctrl+Delete`; until then the window could neither file an asset nor unfile one), rating,
+  favourite (retired, ADR-0029), note, source
   (ADR-0030), all editable, every edit
   reading the record back rather than trusting what it sent. Proven through the window and then
   through a `roost rebuild`: every edit the GUI made survived deleting the index

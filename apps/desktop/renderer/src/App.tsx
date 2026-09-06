@@ -3,6 +3,7 @@ import type {
   ImportSubject,
   LibraryStats,
   LibrarySummary,
+  SidebarFolderRow,
   SidebarRow,
   WireEagleReport,
   WireProblem,
@@ -23,7 +24,7 @@ import { Grid } from "./grid/Grid.js";
 import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, zoomBy } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
-import { type ConfirmRequest, useTrashActions } from "./grid/trash-actions.js";
+import { assets, type ConfirmRequest, useTrashActions } from "./grid/trash-actions.js";
 import { ViewMenu } from "./grid/ViewMenu.js";
 import { DropZone } from "./import/DropZone.js";
 import { EagleDialog } from "./import/EagleDialog.js";
@@ -480,6 +481,7 @@ function captionable(assets: readonly AssetCard[], hash: string | undefined): bo
 
 /** Before the first sidebar read lands. A fresh `[]` per render is a new memo. */
 const NO_TAGS: readonly SidebarRow[] = [];
+const NO_FOLDERS: readonly SidebarFolderRow[] = [];
 
 const EMPTY_LIBRARY = "Nothing in this library yet.";
 const NOTHING_MATCHED = "Nothing matches this query.";
@@ -751,6 +753,55 @@ function LibraryView({
     onProblem: setActed,
     onConfirm: setConfirming,
   });
+
+  /**
+   * The folder whose contents are on screen, if one is.
+   *
+   * Matched on the query the **engine** sent for that row, exactly as `inTrash`
+   * is and never by writing `folder:` here: the renderer assembles no RQL
+   * (`UI_SPEC.md` §4.1). A folder reached by typing its query into the search
+   * field is the same folder by this test, which is right — what is on screen
+   * is what the shortcut acts on.
+   */
+  const openFolder = useMemo(
+    () => sidebar?.folders.find((folder) => folder.query === query),
+    [sidebar, query],
+  );
+
+  /**
+   * `Ctrl+Delete` takes the selection out of the folder being looked at
+   * (`UI_SPEC.md` §9).
+   *
+   * **Not a delete of any kind.** A folder is a collection, so leaving one
+   * changes nothing about the asset and nothing on disk — which is why this
+   * asks for no confirmation while the bare `Delete` beside it does. The
+   * keystroke pairs them because they are the two ways something stops being
+   * here, and the modifier is the weaker one.
+   *
+   * It does nothing outside a folder, deliberately: there is no folder to name,
+   * and guessing at one — the first the asset happens to be in — would be a
+   * removal nobody asked for. The panel's chips are where a folder is named.
+   */
+  useEffect(() => {
+    if (openFolder === undefined) return;
+    const folder = openFolder.folder;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "Delete" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && isTyping(target)) return;
+      if (selected.length === 0) return;
+      event.preventDefault();
+      void invoke({ type: "asset:folderRemove", hashes: selected, folder }).then((outcome) => {
+        if (!outcome.ok) return setActed(outcome.problem);
+        // The same order the trash actions keep: what was acted on has left
+        // the view, so the selection goes before the line that reports it.
+        clearSelection();
+        noteResult(`Removed ${assets(selected.length)} from ${openFolder.name}`);
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openFolder, selected, clearSelection, noteResult]);
 
   /** The Eagle library the survey dialog is open on, if it is (ADR-0032). */
   const [eagle, setEagle] = useState<string | undefined>();
@@ -1101,10 +1152,16 @@ function LibraryView({
           )}
         </div>
 
-        {/* The sidebar's tag rows are the tag field's vocabulary — the window
-            already holds every tag with its count, so suggesting one costs no
+        {/* The sidebar's rows are the two vocabularies the panel edits with —
+            the window already holds every tag with its count and every folder
+            with its id, so neither the suggestion nor the folder menu costs a
             request. */}
-        <Inspector hashes={selected} generation={revision} vocabulary={sidebar?.tags ?? NO_TAGS} />
+        <Inspector
+          hashes={selected}
+          generation={revision}
+          vocabulary={sidebar?.tags ?? NO_TAGS}
+          folders={sidebar?.folders ?? NO_FOLDERS}
+        />
       </div>
 
       {/* Mounted only while it is open, so the contents a paste handed it are

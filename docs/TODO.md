@@ -344,6 +344,34 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟢 **`--dry-run` opens no Roost library**, so it answers "what is in this Eagle library" before
   there is anywhere to put it. It is the only subcommand of `import` that does not need one.
 
+### The folders an asset is in (2026-09-06)
+- ☑ ~~**The window can file an asset and unfile it.**~~ Asked for by the user — *"untuk file yang
+  sudah tertaut ke folder, apakah memungkinkan ada opsi untuk melepas dari folder? kalau di eagle
+  ada tombol itu di inspector"* — and the honest answer was that it could not do either. The ops
+  (`folder_add`, `folder_remove`), the library functions, and `roost folder` had all been there
+  since M2; what was missing was every layer above them. No journal op, no migration, and no schema
+  change: `FolderEditor` in the inspector, `asset:folderAdd` / `asset:folderRemove` on the wire, and
+  `Ctrl+Delete` finally bound to what `UI_SPEC.md` §9 had promised since M3.
+- ☑ ~~**A membership crosses as an id *and* a path.**~~ `WireAssetDetail.folders` was a list of
+  bare folder **names** while its own doc comment claimed they were paths — a nested folder read
+  `Icons` with no way to tell which one, and nothing could name a folder to edit it. It is now
+  `{ id, path }`, walked to the root by one recursive CTE in `repo.ts` seeded twice (one asset's
+  memberships, and a selection's), and `SelectionSummary` gained the shared/partial split the tags
+  already had.
+- ☑ ~~**`Ctrl+Delete` does nothing outside a folder.**~~ Deliberate: there is no folder to name,
+  and guessing at the first one an asset happens to be in is a removal nobody asked for.
+- 🟢 **The window still cannot create, rename, move, or delete a folder.** Those are the sidebar's,
+  and the sidebar draws what it is given (see the item below it): the folder menu offers the tree
+  and says *This library has no folders yet* when there is none, which is honest and is a dead end
+  until `folder_create` has a door. `roost folder create` is the only way to make one.
+- 🟢 **No drag from the grid onto a folder row.** The gesture people reach for first, and it wants
+  the sidebar's drag work (reorder and re-parent) rather than a second drop implementation beside
+  it.
+- 🟢 **A folder's count in the sidebar is a subtree count, and membership is not.** Detaching from
+  `Design` leaves an asset that `folder:Design` still finds through `Design/Icons`, which is correct
+  and will read as a bug the first time somebody hits it. The chips say exactly what the asset is
+  *in*; the sidebar says what the query answers with.
+
 ### Engine (M1)
 - ☑ ~~**A journal file not named `YYYY-MM.jsonl` is invisible to replay.**~~ `roost doctor`
   reports them, and treats them as a reason to refuse `--reclaim`: a month replay cannot see is a

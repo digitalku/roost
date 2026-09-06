@@ -87,13 +87,18 @@
   color: var(--accent-hover);
 }
 
-.tags {
+/* Tags and folders are two lists of the same chip, so they are one rule with
+   two names rather than two rules that drift apart. What differs is what a chip
+   says and what removing it means, and that is in the components. */
+.tags,
+.folders {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.tag-list {
+.tag-list,
+.folder-list {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
@@ -102,7 +107,8 @@
   list-style: none;
 }
 
-.tag {
+.tag,
+.folder {
   display: flex;
   gap: var(--space-1);
   align-items: center;
@@ -113,12 +119,64 @@
   line-height: var(--leading-xs);
 }
 
-.tag button {
+.tag button,
+.folder button {
   border: 0;
   background: none;
   color: var(--text-subtle);
   font: inherit;
   line-height: 1;
+}
+
+/* The menu's trigger, which is a button that reads as a field: it sits where
+   the tag input sits and does the job the input does one control up. */
+.folder-trigger {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  align-self: flex-start;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.folder-trigger:disabled {
+  color: var(--text-muted);
+}
+
+/*
+ * The folder menu's own indentation, the same eight steps the sidebar draws its
+ * tree with (`sidebar.css`) and for the same reason: the paths repeat, and the
+ * shape is what tells two folders of the same name apart. In CSS so that the
+ * spacing token stays the one source of it, and so `check:css` can see it.
+ */
+.folder-item[data-depth="1"] {
+  padding-left: calc(var(--space-3) * 2);
+}
+.folder-item[data-depth="2"] {
+  padding-left: calc(var(--space-3) * 3);
+}
+.folder-item[data-depth="3"] {
+  padding-left: calc(var(--space-3) * 4);
+}
+.folder-item[data-depth="4"] {
+  padding-left: calc(var(--space-3) * 5);
+}
+.folder-item[data-depth="5"] {
+  padding-left: calc(var(--space-3) * 6);
+}
+.folder-item[data-depth="6"] {
+  padding-left: calc(var(--space-3) * 7);
+}
+.folder-item[data-depth="7"] {
+  padding-left: calc(var(--space-3) * 8);
+}
+.folder-item[data-depth="8"] {
+  padding-left: calc(var(--space-3) * 9);
 }
 
 .tag-input,
@@ -229,10 +287,11 @@
   font-style: italic;
 }
 
-/* A tag only some of the selection carries. Dimmed and outlined rather than
-   filled: it is a weaker claim than a shared tag, and the panel must not say
-   otherwise. */
-.tag[data-partial] {
+/* A tag only some of the selection carries, or a folder only some of it is in.
+   Dimmed and outlined rather than filled: it is a weaker claim than a shared
+   one, and the panel must not say otherwise. */
+.tag[data-partial],
+.folder[data-partial] {
   border: 1px dashed var(--border-strong);
   background: none;
   color: var(--text-muted);

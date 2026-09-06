@@ -241,6 +241,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over the tags the library already has, creates on Enter. §3.7 |
+| `FolderEditor` | inspector | — | The folders the selection is in, with an `×` each, and a menu of the whole tree to add one. Creates nothing. §3.9 |
 | `NoteField` | inspector | draft | Autosaves on blur and after 1s idle |
 | `SourceField` | inspector | draft | Where the file came from. One line, saves on blur, idle, and `Enter`; offers to open only an `http(s)` value. §3.6. ADR-0030 |
 | `Comments` | inspector | drafts | Several comments where the note is one; each may carry a moment. §3.5 |
@@ -297,6 +298,7 @@ for one path and not the other.
 | Heading | `3 assets` in place of the name field |
 | Rating | The rating they share; `mixed` beside empty stars when they disagree. Clicking the shared rating clears it, as for one asset; a mixed selection has nothing to clear, so a click always sets |
 | Tags | Tags **all** of them carry, then tags **some** carry, drawn apart and labelled. Adding applies to everything; removing a partial tag is the same call, since the engine ignores an asset that does not carry it |
+| Folders | The same rule, and the same two halves: folders all of them are in, then folders some are in. §3.9 |
 | Metadata | Total size and the commonest kinds. Nothing per-asset |
 
 **What it deliberately does not show**, each for its own reason:
@@ -646,6 +648,42 @@ queue: it drains five hundred paths before hashing any of them, so a line readin
 five hundred files are done when none of them are. Measured against a real window on 2026-09-06 — a
 3,000-file import emitted six progress events during its import phase and every one was a multiple
 of five hundred, which is the shape of the queue rather than of the work.
+
+### 3.9 The folders an asset is in
+
+Chips with an `×`, and a menu that adds one — the same shape the tag editor has a control above,
+because the two answer the same kind of question about the same selection. Built on 2026-09-06, at
+the user's word: *"untuk file yang sudah tertaut ke folder, apakah memungkinkan ada opsi untuk
+melepas dari folder?"* Until then a folder was in the metadata table as text, and **nothing in the
+window could put an asset in one or take it out** — the ops existed, the CLI used them, and the
+interface was the whole of the gap.
+
+**Adding is a menu, not a field.** The tag beside it takes typing because a tag that does not exist
+yet is made by typing it; a folder is not. Nothing in the window creates one, so a text field here
+would offer a gesture that can only fail. The menu draws the whole tree, indented by the depth the
+sidebar uses — the paths repeat, and three folders called `Icons` are three rows reading `Icons`
+until the shape tells them apart. Each row carries its full path as a title, and a folder the
+selection is already in is **disabled rather than absent**, so the tree does not change shape
+between two openings.
+
+**A chip says the path, not the name**, for the same reason: it is what somebody reads before
+pressing the `×` beside it.
+
+**Detaching is not deleting, and it asks nothing.** A folder is a collection, not a location
+(`STORAGE_SPEC.md`) — leaving one changes nothing about the asset and moves nothing on disk. That is
+why the button is an `×` like a tag's rather than a word like `Delete`, and why `Ctrl+Delete` needs
+no confirmation while the bare `Delete` beside it does.
+
+**It is one control over one asset and over twelve** (§3.2): folders every selected asset is in,
+then folders some of them are in, drawn apart and labelled exactly as the tags are. Removing either
+is the same call — the engine ignores an asset that is not in the folder — so the distinction is a
+thing said, not a thing branched on.
+
+**The window names a folder by id, never by path.** A path is what RQL names and what this control
+draws, but names are unique only among siblings, and one holding a `/` is still readable from a
+library written before that was refused (`TODO.md`). The id is the folder. The tree arrives with the
+sidebar's own rows, which the window already re-reads on every change, so a folder made anywhere is
+offerable here the moment it exists and nothing asks the engine twice for one small table.
 
 ## 4. Navigation
 
@@ -1085,7 +1123,7 @@ becomes a preference in M6.
 | `0`–`5` | Set rating on the selection (`0` clears to unrated) |
 | `T` | Focus the tag editor for the selection |
 | `Delete` | Move the selection to the trash — and, inside the Trash place, delete it permanently after confirming (ADR-0022) |
-| `Ctrl+Delete` | Remove from the current folder only |
+| `Ctrl+Delete` | Take the selection out of the folder on screen. Nothing outside one — there would be no folder to name, and guessing at one is a removal nobody asked for. No confirmation: a folder is a collection, so nothing is lost (§3.9) |
 | `[` / `]` | Zoom cells down · up |
 | `Ctrl+K` | Command palette (**M6**) |
 

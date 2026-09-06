@@ -1,4 +1,4 @@
-import type { SidebarRow, WireSidebar } from "@roost/contract";
+import type { SidebarFolderRow, SidebarRow, WireSidebar } from "@roost/contract";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
@@ -6,6 +6,17 @@ import { Sidebar } from "./Sidebar.js";
 
 function row(over: Partial<SidebarRow> & { name: string; query: string }): SidebarRow {
   return { id: over.id ?? over.name, count: null, depth: 0, group: null, stars: null, ...over };
+}
+
+/** A folder's row, which carries the id and the path only it has. */
+function folderRow(
+  over: Partial<SidebarFolderRow> & { folder: number; name: string; path: string },
+): SidebarFolderRow {
+  return {
+    ...row({ ...over, query: over.query ?? `folder:"${over.path}"` }),
+    folder: over.folder,
+    path: over.path,
+  };
 }
 
 const SIDEBAR: WireSidebar = {
@@ -16,8 +27,15 @@ const SIDEBAR: WireSidebar = {
     row({ id: "rating-none", name: "No stars", query: "is:unrated", count: 7, stars: 0 }),
   ],
   folders: [
-    row({ id: "folder:1", name: "Design", query: 'folder:"Design"', count: 412, depth: 0 }),
-    row({ id: "folder:2", name: "Icons", query: 'folder:"Design/Icons"', count: 40, depth: 1 }),
+    folderRow({ id: "folder:1", folder: 1, name: "Design", path: "Design", count: 412, depth: 0 }),
+    folderRow({
+      id: "folder:2",
+      folder: 2,
+      name: "Icons",
+      path: "Design/Icons",
+      count: 40,
+      depth: 1,
+    }),
   ],
   smartFolders: [row({ id: "smart:1", name: "Recent PNGs", query: "ext:png" })],
   tags: [

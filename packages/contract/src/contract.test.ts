@@ -100,6 +100,8 @@ describe("validating a request", () => {
       "asset:rename",
       "asset:tagAdd",
       "asset:tagRemove",
+      "asset:folderAdd",
+      "asset:folderRemove",
       "comment:add",
       "comment:set",
       "comment:remove",
@@ -265,6 +267,23 @@ describe("validating a comment", () => {
     expect(checkRequest({ type: "comment:add", hash: HASH, atMs: 91.5, body: "x" })).toEqual({
       ok: false,
       reason: "comment:add: atMs: expected a safe integer",
+    });
+  });
+
+  it("takes a folder by id, and refuses a number that was never one", () => {
+    expect(checkRequest({ type: "asset:folderAdd", hashes: [HASH], folder: 3 })).toEqual({
+      ok: true,
+      value: { type: "asset:folderAdd", hashes: [HASH], folder: 3 },
+    });
+    // Rowids start at one. Zero is not a folder that went away; it is a number
+    // that never named one, and the difference is worth refusing at the door.
+    expect(checkRequest({ type: "asset:folderRemove", hashes: [HASH], folder: 0 })).toEqual({
+      ok: false,
+      reason: "asset:folderRemove: folder: expected a folder id",
+    });
+    expect(checkRequest({ type: "asset:folderRemove", hashes: [HASH], folder: "Icons" })).toEqual({
+      ok: false,
+      reason: "asset:folderRemove: folder: expected a safe integer",
     });
   });
 

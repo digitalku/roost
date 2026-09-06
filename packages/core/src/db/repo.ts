@@ -145,8 +145,26 @@ export interface SelectionSummary {
   readonly sharedTags: readonly string[];
   /** Tags some of them carry. Shown apart, because "remove" means less here. */
   readonly partialTags: readonly string[];
+  /** Folders every selected asset is in. Removing one removes it from all. */
+  readonly sharedFolders: readonly FolderMembership[];
+  /** Folders some of them are in. Shown apart, exactly as the tags are. */
+  readonly partialFolders: readonly FolderMembership[];
   /** The commonest extensions present, most first. At most five. */
   readonly kinds: readonly string[];
+}
+
+/**
+ * One folder an asset is in.
+ *
+ * **Both halves are needed and neither substitutes for the other.** The id is
+ * what `folder_add` and `folder_remove` name, so it is what a control that
+ * detaches an asset has to send; the path is what a person reads, and a bare
+ * name would not be enough to read with — folder names are unique only among
+ * siblings, so a library can hold three folders called `Icons`.
+ */
+export interface FolderMembership {
+  readonly id: number;
+  readonly path: string;
 }
 
 export interface AssetDetail {
@@ -180,7 +198,7 @@ export interface AssetDetail {
   readonly sourceUrl: string | null;
   readonly isFavorite: boolean;
   readonly tags: string[];
-  readonly folders: string[];
+  readonly folders: readonly FolderMembership[];
   /** Derived, format-specific properties. Empty for most assets. */
   readonly props: Readonly<Record<string, string>>;
 }
@@ -244,6 +262,48 @@ export interface TagRow {
   readonly count: number;
   /** `null` for a tag in no group. */
   readonly group: string | null;
+}
+
+/** Depth past which a parent chain is treated as corrupt rather than deep. */
+const MAX_PATH_DEPTH = 64;
+
+/**
+ * Turns folder rows into full paths, walking each one up to its root.
+ *
+ * Written once and seeded twice — one asset's memberships, and a selection's —
+ * because the walk is the part that is easy to get subtly different between two
+ * copies. `seed` is a literal fragment from this file and never anything a
+ * caller supplies; the only bound parameter is the one the seed itself carries
+ * (invariant 5). Every seed projects the same five columns, `carrying` last: a
+ * single asset seeds it with `1`, which is what "all of them" means when there
+ * is one.
+ *
+ * A chain that does not reach a root within {@link MAX_PATH_DEPTH} is
+ * corruption, and the cap is what stops a cycle spinning here. Such a folder
+ * drops out of the answer rather than arriving with half a path — a path is
+ * what a person reads and what a query names, and half of one addresses a
+ * different folder.
+ */
+function pathsFrom(seed: string): string {
+  return `WITH RECURSIVE up(id, parent, path, depth, carrying) AS (
+            ${seed}
+            UNION ALL
+            SELECT u.id, p.parent_id, p.name || '/' || u.path, u.depth + 1, u.carrying
+              FROM up u JOIN folders p ON p.id = u.parent
+             WHERE u.depth < ${MAX_PATH_DEPTH}
+          )
+          SELECT id, path, carrying FROM up WHERE parent IS NULL ORDER BY path`;
+}
+
+/** A row {@link pathsFrom} answers with, before the count is spent. */
+interface FolderRollup extends FolderMembership {
+  /** How many of the assets asked about are in this folder. */
+  readonly carrying: number;
+}
+
+/** Spends the count and keeps the two fields that leave this module. */
+function membership(row: FolderRollup): FolderMembership {
+  return { id: row.id, path: row.path };
 }
 
 /**
@@ -891,16 +951,19 @@ export class Repo {
     ).all(hash) as { name: string }[];
 
     const folders = this.#s(
-      `SELECT f.name AS name FROM asset_folders af JOIN folders f ON f.id = af.folder_id
-        WHERE af.hash = ? ORDER BY f.name`,
-    ).all(hash) as { name: string }[];
+      pathsFrom(
+        `SELECT f.id, f.parent_id, f.name, 0, 1
+           FROM asset_folders af JOIN folders f ON f.id = af.folder_id
+          WHERE af.hash = ?`,
+      ),
+    ).all(hash) as FolderRollup[];
 
     return {
       ...base,
       isPartialHash: base.isPartialHash !== 0,
       isFavorite: base.isFavorite !== 0,
       tags: tags.map((t) => t.name),
-      folders: folders.map((f) => f.name),
+      folders: folders.map(membership),
       props: this.props(hash),
     };
   }
@@ -936,6 +999,19 @@ export class Repo {
         GROUP BY t.id ORDER BY t.name`,
     ).all(list) as { name: string; carrying: number }[];
 
+    // Grouped before the walk, not after: the count belongs to the folder the
+    // assets are actually in, and a parent on the way to the root is not a
+    // folder anything was added to (`folder:` matches the subtree; membership
+    // does not).
+    const inFolders = this.#s(
+      pathsFrom(
+        `SELECT f.id, f.parent_id, f.name, 0, count(*)
+           FROM asset_folders af JOIN folders f ON f.id = af.folder_id
+          WHERE af.hash IN (SELECT value FROM json_each(?))
+          GROUP BY f.id`,
+      ),
+    ).all(list) as FolderRollup[];
+
     const kinds = this.#s(
       `SELECT ext FROM assets WHERE hash IN (SELECT value FROM json_each(?))
         GROUP BY ext ORDER BY count(*) DESC, ext LIMIT 5`,
@@ -957,6 +1033,8 @@ export class Repo {
       ratingMixed: totals.rated > 0 && !agreed,
       sharedTags: tagged.filter((t) => t.carrying === totals.count).map((t) => t.name),
       partialTags: tagged.filter((t) => t.carrying !== totals.count).map((t) => t.name),
+      sharedFolders: inFolders.filter((f) => f.carrying === totals.count).map(membership),
+      partialFolders: inFolders.filter((f) => f.carrying !== totals.count).map(membership),
       kinds: kinds.map((k) => k.ext),
     };
   }

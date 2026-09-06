@@ -9,6 +9,7 @@ import type {
   QueryCheck,
   Request,
   ResponseOf,
+  SidebarFolderRow,
   SidebarRow,
   WireAssetDetail,
   WireComment,
@@ -34,6 +35,7 @@ import {
 import {
   addComment,
   addSubtitles,
+  addToFolder,
   check as checkLibrary,
   compileFor,
   createAsset,
@@ -64,6 +66,7 @@ import {
   rememberLibrary,
   removeAssets,
   removeComment,
+  removeFromFolder,
   renameAsset,
   restoreAssets,
   retryBlocked,
@@ -239,6 +242,19 @@ export class EngineHost {
 
       case "asset:tagRemove":
         return this.#edit(() => tagRemove(this.#require(), hashes(request.hashes), request.tags));
+
+      // Both raise on a folder that is not there rather than doing nothing:
+      // a window offering a folder the library has lost is a window reading a
+      // stale tree, and silence would leave it reading one.
+      case "asset:folderAdd":
+        return this.#edit(() =>
+          addToFolder(this.#require(), hashes(request.hashes), request.folder),
+        );
+
+      case "asset:folderRemove":
+        return this.#edit(() =>
+          removeFromFolder(this.#require(), hashes(request.hashes), request.folder),
+        );
 
       // The id `addComment` mints is deliberately dropped: the caller re-reads
       // the asset like every other edit, and an id held in the renderer would
@@ -737,7 +753,7 @@ function sidebarOf(library: Library): WireSidebar {
       }),
     ),
     folders: sidebar.folders.map(
-      (folder): SidebarRow => ({
+      (folder): SidebarFolderRow => ({
         id: `folder:${folder.id}`,
         name: folder.name,
         query: folder.query,
@@ -745,6 +761,10 @@ function sidebarOf(library: Library): WireSidebar {
         depth: depths.get(folder.id) ?? 0,
         group: null,
         stars: null,
+        // The two the inspector edits by. `id` is a key for a list and says so
+        // by being a string; this is the number an op names.
+        folder: folder.id,
+        path: folder.path,
       }),
     ),
     smartFolders: sidebar.smartFolders.map(

@@ -237,6 +237,31 @@ export type Request =
       readonly tags: readonly string[];
     }
   /**
+   * Puts the selection in a folder, or takes it out of one.
+   *
+   * **By id, not by path.** A path is what the window draws and it is what RQL
+   * names, but folder names are unique only among siblings — and a name holding
+   * a `/` is still readable from a library written before that was refused
+   * (`TODO.md`), so a path can be ambiguous in exactly the case an edit must
+   * not be. The id is the folder.
+   *
+   * Both take the whole selection, like the tag pair above and for the same
+   * reason (`UI_SPEC.md` §3.2): the panel edits the selection, and one request
+   * is one journal batch. Adding an asset already in the folder and removing
+   * one that is not are both no-ops in the engine, so neither caller has to
+   * check first.
+   */
+  | {
+      readonly type: "asset:folderAdd";
+      readonly hashes: readonly string[];
+      readonly folder: number;
+    }
+  | {
+      readonly type: "asset:folderRemove";
+      readonly hashes: readonly string[];
+      readonly folder: number;
+    }
+  /**
    * Add a comment to one asset, at a moment or about the whole of it (ADR-0023).
    *
    * `atMs` is milliseconds into the medium; `null` is a comment about the
@@ -506,6 +531,8 @@ export interface Responses {
   "clipboard:paste": WirePasted;
   "asset:tagAdd": null;
   "asset:tagRemove": null;
+  "asset:folderAdd": null;
+  "asset:folderRemove": null;
   "comment:add": null;
   "comment:set": null;
   "comment:remove": null;
@@ -730,6 +757,22 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "asset:tagRemove", hashes: hashes.value, tags: tags.value });
   },
 
+  "asset:folderAdd": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    if (!hashes.ok) return hashes;
+    const folder = readFolder(source);
+    if (!folder.ok) return folder;
+    return ok({ type: "asset:folderAdd", hashes: hashes.value, folder: folder.value });
+  },
+
+  "asset:folderRemove": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    if (!hashes.ok) return hashes;
+    const folder = readFolder(source);
+    if (!folder.ok) return folder;
+    return ok({ type: "asset:folderRemove", hashes: hashes.value, folder: folder.value });
+  },
+
   "comment:add": (source) => {
     const hash = readHash(source, "hash");
     if (!hash.ok) return hash;
@@ -857,6 +900,21 @@ export const REQUEST_VALIDATORS: {
  * caller that meant to page and did not.
  */
 export const MAX_PAGE_LIMIT = 10_000;
+
+/**
+ * A folder id, refused here when it could not be one.
+ *
+ * Rowids start at one, so zero and below are not a folder that has been deleted
+ * but a number that was never an id — the same distinction `readMoment` draws
+ * below. Whether the folder still exists is the engine's to answer, and it
+ * raises rather than inventing one.
+ */
+function readFolder(source: Record<string, unknown>): Checked<number> {
+  const folder = readInteger(source, "folder");
+  if (!folder.ok) return folder;
+  if (folder.value < 1) return bad("folder: expected a folder id");
+  return folder;
+}
 
 /**
  * A moment into a medium: milliseconds, or `null` for a comment about the asset.

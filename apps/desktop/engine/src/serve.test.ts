@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { ReplyEnvelope, Request } from "@roost/contract";
 import { ASSET_KINDS as WIRE_KINDS, LIBRARY_SUFFIX as WIRE_SUFFIX } from "@roost/contract";
 import { KINDS, latestSchemaVersion } from "@roost/core";
-import { importInto, LIBRARY_SUFFIX, Library } from "@roost/library";
+import { createFolder, importInto, LIBRARY_SUFFIX, Library } from "@roost/library";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost } from "./host.js";
 import type { Port } from "./port.js";
@@ -544,6 +544,51 @@ describe("the engine's message loop", () => {
 
     await ask(10, { type: "asset:rename", hash, name: "  Renamed.txt  " });
     expect((await detail())["name"]).toBe("Renamed.txt");
+  });
+
+  it("files an asset and unfiles it, naming the folder by id", async () => {
+    // The pair the inspector's chips send. By id and never by path: folder
+    // names are unique only among siblings, and a library written before the
+    // rule can hold one with a `/` in it.
+    const source = join(dir, "filed");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "poster.txt"), "poster");
+    const root = join(dir, `Filed${LIBRARY_SUFFIX}`);
+    const library = await Library.create(root, "Filed");
+    let nested = 0;
+    try {
+      await importInto(library, [source]);
+      const design = await createFolder(library, "Design", null);
+      nested = await createFolder(library, "Icons", design);
+    } finally {
+      await library.close();
+    }
+    await ask(100, { type: "library:open", path: root });
+
+    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const folders = async (): Promise<unknown> => {
+      const reply = await ask(99, { type: "asset:detail", hash });
+      return (reply as { value: { folders: unknown } }).value.folders;
+    };
+
+    expect(await folders()).toEqual([]);
+
+    await ask(2, { type: "asset:folderAdd", hashes: [hash], folder: nested });
+    // The whole path, walked here rather than by the window: the window draws
+    // it and would have had to hold the tree to build it.
+    expect(await folders()).toEqual([{ id: nested, path: "Design/Icons" }]);
+
+    // Adding it twice is not an error and not a second membership.
+    await ask(3, { type: "asset:folderAdd", hashes: [hash], folder: nested });
+    expect(await folders()).toEqual([{ id: nested, path: "Design/Icons" }]);
+
+    await ask(4, { type: "asset:folderRemove", hashes: [hash], folder: nested });
+    expect(await folders()).toEqual([]);
+
+    // The asset itself is untouched: a folder is a collection, not a location.
+    const after = await ask(5, { type: "assets:page", query: "", limit: 1, after: null });
+    expect((after as { value: { assets: unknown[] } }).value.assets).toHaveLength(1);
   });
 
   it("carries comments on the asset they are about, in timeline order", async () => {
