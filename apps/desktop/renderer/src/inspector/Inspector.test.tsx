@@ -1,5 +1,5 @@
 import type { Outcome, RequestOf, RequestType, ResponseOf, WireAssetDetail } from "@roost/contract";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeEngine, fakeDetail, install } from "../testing/fake-engine.js";
@@ -150,6 +150,38 @@ describe("the inspector", () => {
     const image = document.querySelector<HTMLImageElement>(".inspector-preview .cell-image");
     expect(image?.getAttribute("src")).toBe(`roost://thumb/${HASH}@512`);
     expect(document.querySelector(".inspector-preview .cell-kind")?.textContent).toBe("png");
+  });
+
+  it("draws the next asset's preview after one that had none", async () => {
+    // The panel keeps one `<img>` for whatever is selected, and the fallback
+    // hides that element by writing to the node — which React does not undo.
+    // So a `.txt`, which has no thumbnail at any size, used to blank the
+    // preview for **every asset selected afterwards**. Reported from a real
+    // window on 2026-09-05, reproduced there, and fixed by showing the element
+    // again when bytes arrive.
+    engine = new FakeEngine({
+      details: [fakeDetail(1, { ext: "txt" }), fakeDetail(2, { ext: "png" })],
+    });
+    install(engine);
+    const view = render(<Inspector hashes={[fakeDetail(1).hash]} generation={0} />);
+    await screen.findByRole("complementary");
+    const image = (): HTMLImageElement => {
+      const found = document.querySelector<HTMLImageElement>(".inspector-preview .cell-image");
+      if (found === null) throw new Error("no preview image");
+      return found;
+    };
+
+    // Twice: the 512 that is not there, then the 256 it falls back to.
+    await waitFor(() => expect(image().getAttribute("src")).toContain("@512"));
+    fireEvent.error(image());
+    expect(image().src).toContain("@256");
+    fireEvent.error(image());
+    expect(image().hidden).toBe(true);
+
+    view.rerender(<Inspector hashes={[fakeDetail(2).hash]} generation={0} />);
+    await waitFor(() => expect(image().getAttribute("src")).toContain(fakeDetail(2).hash));
+    fireEvent.load(image());
+    expect(image().hidden).toBe(false);
   });
 
   it("rates, and clears by clicking the star already set", async () => {

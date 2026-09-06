@@ -869,6 +869,15 @@ function LibraryView({
     [paging.assets],
   );
 
+  /*
+   * Where the open asset sits in the loaded list, for the head's two arrows.
+   *
+   * Only while the preview is open, because this walks the page and the grid
+   * re-renders on every scroll — and while the grid is what is on screen, there
+   * is nothing to draw the answer on.
+   */
+  const stepAt = showingPreview ? paging.assets.findIndex((asset) => asset.hash === focused) : -1;
+
   const step = useCallback(
     (delta: -1 | 1) => {
       const order = paging.assets.map((asset) => asset.hash);
@@ -956,6 +965,8 @@ function LibraryView({
               <PreviewPane
                 hash={focused}
                 generation={revision}
+                hasPrevious={stepAt > 0}
+                hasNext={stepAt >= 0 && stepAt + 1 < paging.assets.length}
                 onClose={() => setPreviewing(false)}
                 onStep={step}
               />

@@ -1,7 +1,8 @@
 import type { WireAssetDetail, WireSelectionSummary } from "@roost/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
-import { fallbackToGrid, previewSrc } from "../thumbnail.js";
+import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
+import { duration } from "../timecode.js";
 import { Comments } from "./Comments.js";
 
 /**
@@ -139,6 +140,7 @@ export function Inspector({ hashes, generation }: InspectorProps): React.JSX.Ele
           alt=""
           decoding="async"
           draggable={false}
+          onLoad={showLoaded}
           onError={fallbackToGrid}
         />
       </div>
@@ -701,21 +703,6 @@ function propertyRows(props: Readonly<Record<string, string>>): (readonly [strin
     .filter(([key]) => !PROPERTY_LABELS.some(([known]) => known === key))
     .map(([key, value]) => [key, value] as const);
   return [...known, ...rest];
-}
-
-/**
- * `3:07`, or `1:02:07` for something long enough to need hours.
- *
- * Rounded to the second: a duration in milliseconds is what the schema stores
- * and not what anyone reads.
- */
-function duration(ms: number): string {
-  const total = Math.round(ms / 1000);
-  const seconds = total % 60;
-  const minutes = Math.floor(total / 60) % 60;
-  const hours = Math.floor(total / 3600);
-  const pad = (value: number): string => String(value).padStart(2, "0");
-  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
 }
 
 /** Binary multiples, the way `STORAGE_SPEC.md` and the CLI both count. */

@@ -136,6 +136,18 @@ Still open, and none of it blocks M0:
   component test can guard it, and the same class of bug arrives with the next menu item that opens
   a dialog. `AssetContextMenu` was checked at the same time and does **not** have it.
 
+- 🟡 **A scrolling flex column must say `flex: none` on its children, and three of them did
+  not.** Found three times on 2026-09-05, each reported as something else: the toolbar "lost its
+  padding" in Icons and not in Details, the preview's bar changed height with the file in it, and
+  the inspector's picture disappeared once an asset had three comments. One cause — a flex column
+  hands its overflow to its items in proportion to their bases, so the tallest item is squeezed
+  hardest, and how tall the *other* items are is what decides how much. It looks like a property
+  that depends on unrelated content, which is why none of the three was recognised for what it
+  was. **None of the three has a regression test**: jsdom computes no layout, so a test that
+  asserted a height would pass whatever the CSS said. The honest home for this is a real window —
+  `scripts/check-grid.mjs`'s harness can measure one — and it is worth doing when that script is
+  next opened, because the class of bug will recur every time a scrolling column gains a child.
+
 - 🟡 **Nothing follows the system's colour scheme.** `index.html` pins
   `data-theme="dark"` and no code reads `prefers-color-scheme`. Found on 2026-08-30 while
   costing native menus, where it would have been a blocker — a native menu follows the GTK theme,

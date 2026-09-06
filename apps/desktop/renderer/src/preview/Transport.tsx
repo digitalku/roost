@@ -1,7 +1,7 @@
 import type { WireComment, WireSubtitle } from "@roost/contract";
 import { DropdownMenu, Slider } from "radix-ui";
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
-import { timecode } from "../timecode.js";
+import { clock, duration, timecode } from "../timecode.js";
 import { playhead } from "./playhead.js";
 
 /**
@@ -136,8 +136,6 @@ export function Transport({
   const [status, setStatus] = useState<Status>(IDLE);
   const [positionMs, setPositionMs] = useState(0);
   const [fullscreen, setFullscreen] = useState(false);
-  /** The frame actually presented, which is not the frame we asked for. */
-  const [frame, setFrame] = useState<number | null>(null);
   const [loopA, setLoopA] = useState<number | null>(null);
   const [loopB, setLoopB] = useState<number | null>(null);
   /**
@@ -252,26 +250,6 @@ export function Transport({
       media.removeEventListener("timeupdate", sample);
     };
   }, [media, loopA, loopB]);
-
-  /*
-   * The frame counter, from the frame the compositor actually presented.
-   *
-   * `currentTime` says where we asked to be; a seek in a long-GOP codec lands
-   * on the nearest decodable frame, so arithmetic on it is a counter that lies
-   * on exactly the files frame stepping exists for.
-   * `requestVideoFrameCallback` reports what was shown, and it fires after a
-   * seek while paused too — which is what makes a step legible.
-   */
-  useEffect(() => {
-    if (media === null || fps === null || !("requestVideoFrameCallback" in media)) return;
-    let handle = 0;
-    const report = (_now: number, metadata: VideoFrameCallbackMetadata): void => {
-      setFrame(Math.round(metadata.mediaTime * fps));
-      handle = media.requestVideoFrameCallback(report);
-    };
-    handle = media.requestVideoFrameCallback(report);
-    return () => media.cancelVideoFrameCallback(handle);
-  }, [media, fps]);
 
   useEffect(() => {
     const read = (): void => setFullscreen(Boolean(document.fullscreenElement));
@@ -449,9 +427,7 @@ export function Transport({
           aria-label="Timeline"
           // The timecode, not a count of milliseconds. `aria-valuetext` is what
           // a screen reader reads when it is there, and "91500" is not a time.
-          aria-valuetext={
-            seekable ? `${timecode(at)} of ${timecode(durationMs)}` : "Duration unknown"
-          }
+          aria-valuetext={seekable ? `${clock(at)} of ${duration(durationMs)}` : "Duration unknown"}
         />
       </Slider.Root>
 
@@ -491,11 +467,10 @@ export function Transport({
         )}
 
         <span className="transport-time">
-          {timecode(at)}
-          {frame !== null && <span className="transport-frame"> f{frame}</span>}
+          {clock(at)}
           <span className="transport-time-total">
             {" / "}
-            {durationMs === null ? "—" : timecode(durationMs)}
+            {durationMs === null ? "—" : duration(durationMs)}
           </span>
         </span>
 

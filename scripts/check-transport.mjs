@@ -74,13 +74,25 @@ const transportExpression = `
         left: mark.style.left,
         centre: Math.round(mark.getBoundingClientRect().left + mark.getBoundingClientRect().width / 2),
         label: mark.getAttribute("aria-label"),
-        colour: getComputedStyle(mark).backgroundColor,
+        // The button is the target and its ::after is the tick, so the paint
+        // is on the pseudo-element and the press area is on the button.
+        colour: getComputedStyle(mark, "::after").backgroundColor,
+        ink: Number.parseFloat(getComputedStyle(mark, "::after").width),
         width: Math.round(mark.getBoundingClientRect().width),
       })),
       bar: box(bar),
       track: box(track),
+      strip: box(document.querySelector(".transport-timeline")),
       video: box(video),
+      picture: box(document.querySelector(".preview-picture")),
       stageBottom: Math.round(stage.getBoundingClientRect().bottom),
+      // The floor the player stands on, which is inside the pane's gutter: the
+      // bar is level with that, not with the pane's outer edge.
+      stageFloor: Math.round(
+        stage.getBoundingClientRect().bottom -
+          Number.parseFloat(getComputedStyle(stage).paddingBottom),
+      ),
+      cursor: thumb === null ? null : getComputedStyle(thumb).cursor,
       valueText: thumb?.getAttribute("aria-valuetext") ?? null,
       valueNow: Number(thumb?.getAttribute("aria-valuenow") ?? Number.NaN),
       role: thumb?.getAttribute("role") ?? null,
@@ -96,9 +108,10 @@ const transportExpression = `
       duration: video.duration,
       paused: video.paused,
       muted: video.muted,
-      name: document.querySelector(".preview-name")?.textContent ?? null,
+      // The panel's field, because the pane's head stopped carrying a name on
+      // 2026-09-06 — the inspector had it all along.
+      name: document.querySelector(".inspector-name")?.value ?? null,
       time: document.querySelector(".transport-time")?.textContent ?? null,
-      frame: document.querySelector(".transport-frame")?.textContent?.trim() ?? null,
       rate: document.querySelector(".transport-rate")?.textContent ?? null,
       loop: (() => {
         const region = document.querySelector(".transport-loop");
@@ -138,20 +151,23 @@ try {
   section("What is drawn");
   check("the browser's own control bar is gone", drawn.controls === false);
   check(
-    "the timeline is exactly as wide as the picture it belongs to",
-    Math.abs(drawn.bar.left - drawn.video.left) <= 1 &&
-      Math.abs(drawn.bar.right - drawn.video.right) <= 1,
-    `bar=${drawn.bar.left}..${drawn.bar.right} video=${drawn.video.left}..${drawn.video.right}`,
+    "the timeline spans the pane rather than the picture in it",
+    Math.abs(drawn.bar.left - drawn.picture.left) <= 1 &&
+      Math.abs(drawn.bar.right - drawn.picture.right) <= 1 &&
+      drawn.bar.width > drawn.video.width,
+    `bar=${drawn.bar.left}..${drawn.bar.right} picture=${drawn.picture.left}..${drawn.picture.right}`,
   );
   check(
     "it sits under the picture rather than over it",
     drawn.bar.top >= drawn.video.bottom - 1,
     `barTop=${drawn.bar.top} videoBottom=${drawn.video.bottom}`,
   );
+  // Also the older check that the picture cannot push the transport off the
+  // bottom: a bar level with the foot of the pane is a bar still in it.
   check(
-    "the player and the transport both fit the pane",
-    drawn.bar.bottom <= drawn.stageBottom,
-    `barBottom=${drawn.bar.bottom} stage=${drawn.stageBottom}`,
+    "the bar is at the foot of the pane, not wherever the picture ended",
+    drawn.stageFloor - drawn.bar.bottom <= 2 && drawn.bar.bottom <= drawn.stageBottom,
+    `barBottom=${drawn.bar.bottom} floor=${drawn.stageFloor} stage=${drawn.stageBottom}`,
   );
   check(
     "one mark per timed comment, and none for the untimed one",
@@ -170,8 +186,13 @@ try {
   );
   check(
     "a mark is painted, not a declaration nothing declares",
-    drawn.marks[0].colour !== "rgba(0, 0, 0, 0)" && drawn.marks[0].width > 0,
-    `${drawn.marks[0].colour} ${drawn.marks[0].width}px`,
+    drawn.marks[0].colour !== "rgba(0, 0, 0, 0)" && drawn.marks[0].ink > 0,
+    `${drawn.marks[0].colour} ${drawn.marks[0].ink}px`,
+  );
+  check(
+    "a mark is pressable well past the tick drawn in it",
+    drawn.marks[0].width >= drawn.marks[0].ink * 3,
+    `target=${drawn.marks[0].width}px ink=${drawn.marks[0].ink}px`,
   );
   check(
     "the mark names its moment and its words",
@@ -179,10 +200,21 @@ try {
     JSON.stringify(drawn.marks[0].label),
   );
   check(
-    "the elapsed and the total are both shown",
-    // The frame between them is compositing-dependent and checked on its own
-    // further down, so it is optional here.
-    /^0:00\.0( f0)? \/ 0:20\.0$/.test((drawn.time ?? "").trim()),
+    "the pointer over the timeline is the pointer, not a web page's hand",
+    drawn.cursor === "default",
+    drawn.cursor,
+  );
+  check(
+    "the strip that takes a press is several times the line drawn in it",
+    drawn.bar.width > 0 && drawn.strip.height >= drawn.track.height * 3,
+    `strip=${drawn.strip.height}px track=${drawn.track.height}px`,
+  );
+  check(
+    "the elapsed and the total are both shown, to the second",
+    // Nothing else and nothing finer: a frame counter stood between them until
+    // 2026-09-05 and a tenth of a second until 2026-09-06, both removed at the
+    // user's word. A comment's own moment keeps its tenth (ADR-0023).
+    /^0:00 \/ 0:20$/.test((drawn.time ?? "").trim()),
     JSON.stringify(drawn.time),
   );
 
@@ -190,7 +222,7 @@ try {
   check("the timeline is a slider", drawn.role === "slider", JSON.stringify(drawn.role));
   check(
     "it announces a timecode rather than a count of milliseconds",
-    drawn.valueText === "0:00.0 of 0:20.0",
+    drawn.valueText === "0:00 of 0:20",
     JSON.stringify(drawn.valueText),
   );
   check(
@@ -329,37 +361,6 @@ try {
     (t) => t !== null && Math.abs(t.currentTime - 6) < 0.02,
   );
   check("and `>` steps ten", true, `t=${ten.currentTime.toFixed(3)}`);
-
-  /*
-   * The frame counter is the frame the compositor *presented*, so it needs a
-   * window that is actually being composited — `requestVideoFrameCallback`
-   * never fires otherwise, however visible the page says it is. Under a
-   * headless or occluded surface this is unmeasurable rather than broken, and
-   * saying so beats a check that passes or fails on the weather.
-   * `bench-window.mjs` refuses to print frame percentiles for the same reason.
-   */
-  const presented = await cdp.evaluate(`
-    new Promise((resolve) => {
-      const video = document.querySelector("video");
-      let answered = false;
-      video.requestVideoFrameCallback(() => {
-        answered = true;
-        resolve(true);
-      });
-      setTimeout(() => {
-        if (!answered) resolve(false);
-      }, 3000);
-    })`);
-  if (presented) {
-    const counted = await cdp.settle(transportExpression, (t) => t !== null && t.frame === "f60");
-    check(
-      "the frame counter reads the frame that was presented",
-      counted.frame === "f60",
-      `${counted.frame} at ${counted.currentTime}s`,
-    );
-  } else {
-    console.log("  --    the frame counter needs a composited window; not checked here");
-  }
 
   // Radix opens a menu on `pointerdown`, not on `click`, so a bare `.click()`
   // leaves it shut and every assertion after it meaningless.

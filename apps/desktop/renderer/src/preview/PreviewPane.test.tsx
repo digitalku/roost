@@ -27,6 +27,8 @@ describe("the preview pane", () => {
       <PreviewPane
         hash={HASH}
         generation={0}
+        hasPrevious
+        hasNext
         onClose={() => {
           closed += 1;
         }}
@@ -193,13 +195,29 @@ describe("the preview pane", () => {
     });
     install(engine);
     const { rerender } = render(
-      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
     );
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
     const first = document.querySelector("video");
 
     const second = fakeDetail(2).hash;
-    rerender(<PreviewPane hash={second} generation={0} onClose={vi.fn()} onStep={vi.fn()} />);
+    rerender(
+      <PreviewPane
+        hash={second}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
+    );
     await waitFor(() =>
       expect(document.querySelector("video")?.getAttribute("src")).toBe(
         `roost://original/${second}`,
@@ -221,7 +239,16 @@ describe("the transport", () => {
       details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs, comments, props })],
     });
     install(engine);
-    render(<PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />);
+    render(
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
+    );
     return { engine, user: userEvent.setup() };
   };
 
@@ -317,7 +344,14 @@ describe("the transport", () => {
     });
     install(engine);
     const view = render(
-      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
     );
     await player();
     expect(document.querySelectorAll(".transport-mark")).toHaveLength(0);
@@ -325,7 +359,16 @@ describe("the transport", () => {
     const held = engine.details.get(HASH);
     if (held === undefined) throw new Error("the fake lost the asset");
     engine.details.set(HASH, { ...held, durationMs: HOUR });
-    view.rerender(<PreviewPane hash={HASH} generation={1} onClose={vi.fn()} onStep={vi.fn()} />);
+    view.rerender(
+      <PreviewPane
+        hash={HASH}
+        generation={1}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
+    );
 
     await screen.findByRole("button", { name: "Play from 30:00.0: halfway" });
   });
@@ -339,7 +382,14 @@ describe("the transport", () => {
     });
     install(engine);
     const view = render(
-      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
     );
     await player();
     expect(document.querySelectorAll(".transport-mark")).toHaveLength(0);
@@ -347,7 +397,16 @@ describe("the transport", () => {
     await engine
       .bridge()
       .invoke({ type: "comment:add", hash: HASH, atMs: HOUR / 2, body: "halfway" });
-    view.rerender(<PreviewPane hash={HASH} generation={1} onClose={vi.fn()} onStep={vi.fn()} />);
+    view.rerender(
+      <PreviewPane
+        hash={HASH}
+        generation={1}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
+    );
 
     await screen.findByRole("button", { name: "Play from 30:00.0: halfway" });
   });
@@ -360,11 +419,27 @@ describe("the transport", () => {
     });
     install(engine);
     const view = render(
-      <PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />,
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
     );
     const playing = await player();
 
-    view.rerender(<PreviewPane hash={HASH} generation={1} onClose={vi.fn()} onStep={vi.fn()} />);
+    view.rerender(
+      <PreviewPane
+        hash={HASH}
+        generation={1}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
+    );
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail")).toHaveLength(2),
     );
@@ -397,6 +472,8 @@ describe("the transport", () => {
       <PreviewPane
         hash={HASH}
         generation={0}
+        hasPrevious
+        hasNext
         onClose={vi.fn()}
         onStep={(delta) => steps.push(delta)}
       />,
@@ -446,6 +523,8 @@ describe("the transport", () => {
       <PreviewPane
         hash={HASH}
         generation={0}
+        hasPrevious
+        hasNext
         onClose={vi.fn()}
         onStep={(delta) => steps.push(delta)}
       />,
@@ -461,6 +540,50 @@ describe("the transport", () => {
     expect(steps).toEqual([]);
   });
 
+  it("steps the list from the head, and stops at the ends", async () => {
+    // The arrows are the buttons for what the arrow *keys* already did, put
+    // where a pointer can reach them (asked for 2026-09-06). Whether there is
+    // anything either side is the caller's answer, not the pane's: the list
+    // belongs to the grid and ends where the loaded page does.
+    const stepped: number[] = [];
+    render(
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious={false}
+        hasNext
+        onClose={vi.fn()}
+        onStep={(delta) => stepped.push(delta)}
+      />,
+    );
+    await screen.findByRole("button", { name: "Next asset" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Next asset" }));
+    expect(stepped).toEqual([1]);
+    // Dead rather than absent: an end of the list is a fact worth drawing, and
+    // a control that does nothing when pressed is worse than one that says so.
+    expect(screen.getByRole("button", { name: "Previous asset" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+  });
+
+  it("draws no filename, because the inspector holds it", async () => {
+    // One asset, one name, and the panel's copy is editable. Removed from the
+    // head on 2026-09-06 at the user's request.
+    render(
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
+    );
+    await screen.findByRole("button", { name: "Close" });
+    expect(document.querySelector(".preview-name")).toBeNull();
+  });
+
   it("announces a timecode rather than a count of milliseconds", async () => {
     showVideo();
     const video = await player();
@@ -470,7 +593,7 @@ describe("the transport", () => {
 
     await waitFor(() =>
       expect(screen.getByRole("slider", { name: "Timeline" }).getAttribute("aria-valuetext")).toBe(
-        "1:31.5 of 1:00:00.0",
+        "1:31 of 1:00:00",
       ),
     );
   });
@@ -490,7 +613,7 @@ describe("the transport", () => {
 
     await waitFor(() =>
       expect(screen.getByRole("slider", { name: "Timeline" }).getAttribute("aria-valuetext")).toBe(
-        "1:31.5 of 1:00:00.0",
+        "1:31 of 1:00:00",
       ),
     );
   });
@@ -541,7 +664,16 @@ describe("what the native bar withholds", () => {
       details: [fakeDetail(1, { kind: "video", ext: "mp4", durationMs: HOUR, props })],
     });
     install(engine);
-    render(<PreviewPane hash={HASH} generation={0} onClose={vi.fn()} onStep={vi.fn()} />);
+    render(
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+      />,
+    );
     return { engine, user: userEvent.setup() };
   };
 
@@ -720,7 +852,14 @@ describe("a document with pages to turn", () => {
     });
     install(engine);
     render(
-      <PreviewPane hash={HASH} generation={0} onClose={() => undefined} onStep={() => undefined} />,
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={() => undefined}
+        onStep={() => undefined}
+      />,
     );
     return userEvent.setup();
   };
@@ -772,7 +911,14 @@ describe("a font", () => {
     });
     install(engine);
     render(
-      <PreviewPane hash={HASH} generation={0} onClose={() => undefined} onStep={() => undefined} />,
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={() => undefined}
+        onStep={() => undefined}
+      />,
     );
 
     const specimen = (await screen.findByRole("img", {

@@ -22,6 +22,8 @@ import { spawn } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 /** Chromium's modifier bitmask, for `Input.dispatch*Event`. */
@@ -65,6 +67,9 @@ function single(key) {
   return { code, keyCode: upper.charCodeAt(0), text: key };
 }
 
+/** Where a driven window keeps its profile — never the application's own. */
+const PROFILE = join(tmpdir(), "roost-window-checks");
+
 /** Electron's binary, or a clear exit rather than a confusing spawn failure. */
 export function electronBinary() {
   const binary = createRequire(import.meta.url)("electron");
@@ -105,6 +110,15 @@ export async function launch({ library, args = [], env = {}, open = library !== 
     [
       "apps/desktop/main/dist/main.js",
       `--remote-debugging-port=${port}`,
+      // A profile of the checks' own, because `requestSingleInstanceLock` is
+      // scoped to it: on the default profile a Roost already open on the
+      // developer's desktop takes the lock, `main.ts` quits before it makes a
+      // window, and the attach below waits out its twenty seconds against a
+      // debugger port with nothing behind it. Diagnosed on 2026-09-05, after
+      // the same script passed and failed on nothing but whether the
+      // application happened to be running. Fixed rather than per-run, so a
+      // cold-start measurement still starts from a warm code cache.
+      `--user-data-dir=${PROFILE}`,
       // Without it the window is blurry on a HiDPI Wayland session and
       // fractional scaling is wrong, which reads as a rendering bug and is not
       // one (`TODO.md` §2).

@@ -18,6 +18,19 @@
   scrollbar-gutter: stable;
 }
 
+/*
+ * Nothing in here shrinks.
+ *
+ * The panel scrolls, and a flex column hands its overflow to its items in
+ * proportion to their bases — so the tallest item is squeezed hardest, and the
+ * tallest item is the square preview. Three comments were enough to make the
+ * picture vanish and the note collapse to a line, on an asset whose panel had
+ * been fine with two.
+ */
+.inspector > * {
+  flex: none;
+}
+
 .inspector-preview {
   position: relative;
   display: flex;

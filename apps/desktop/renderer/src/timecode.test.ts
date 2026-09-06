@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { timecode } from "./timecode.js";
+import { clock, duration, timecode } from "./timecode.js";
 
 describe("a moment as a person reads it", () => {
   it("keeps one decimal, always", () => {
@@ -24,5 +24,26 @@ describe("a moment as a person reads it", () => {
     // in, and clicking it would land after the frame somebody meant.
     expect(timecode(59_999)).toBe("0:59.9");
     expect(timecode(999)).toBe("0:00.9");
+  });
+});
+
+describe("a running time", () => {
+  it("drops the tenths a moment keeps", () => {
+    // A comment is a place somebody chose and will click back to; a playhead is
+    // passing through. The digit changed ten times a second under a number
+    // nobody reads that fast — removed 2026-09-06 at the user's request.
+    expect(clock(972_000)).toBe("16:12");
+    expect(clock(4_200_800)).toBe("1:10:00");
+    expect(clock(0)).toBe("0:00");
+  });
+
+  it("floors the position and rounds the length", () => {
+    // At 16:12.6 you are in the twelfth second, so a clock saying 16:13 runs
+    // ahead of the picture. A *length* of 1:10:00.8 is about 1:10:01, and the
+    // inspector's Duration row says so — both come from here, so the transport
+    // and the panel cannot disagree by a second about the same file.
+    expect(clock(972_600)).toBe("16:12");
+    expect(duration(972_600)).toBe("16:13");
+    expect(duration(4_200_800)).toBe("1:10:01");
   });
 });

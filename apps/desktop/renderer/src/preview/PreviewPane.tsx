@@ -1,7 +1,7 @@
 import type { WireAssetDetail, WireSubtitle } from "@roost/contract";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
-import { fallbackToGrid, previewSrc } from "../thumbnail.js";
+import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { playhead } from "./playhead.js";
 import { Transport } from "./Transport.js";
 
@@ -32,6 +32,15 @@ export interface PreviewPaneProps {
    * somebody used the panel next to it.
    */
   readonly generation: number;
+  /**
+   * Whether there is an asset either side of this one, so the buttons in the
+   * head can be drawn dead rather than pressed to no effect (`UI_SPEC.md` §3.5).
+   *
+   * The caller's, not the pane's: the list is the grid's and it ends where the
+   * loaded page does, which is a fact this component has no way to learn.
+   */
+  readonly hasPrevious: boolean;
+  readonly hasNext: boolean;
   readonly onClose: () => void;
   /** Moves to the previous or next loaded asset, changing the selection. */
   readonly onStep: (delta: -1 | 1) => void;
@@ -73,6 +82,8 @@ function mediaKey(key: string): boolean {
 export function PreviewPane({
   hash,
   generation,
+  hasPrevious,
+  hasNext,
   onClose,
   onStep,
 }: PreviewPaneProps): React.JSX.Element {
@@ -162,8 +173,34 @@ export function PreviewPane({
         }
       }}
     >
+      {/*
+        No filename here. The inspector carries the name of whatever is
+        selected — an editable field, three inches to the right — and the pane
+        cannot be open without something being selected, so a second copy said
+        the same thing twice and read as a title bar the window already has.
+        Removed at the user's request on 2026-09-06.
+      */}
       <header className="preview-bar">
-        <span className="preview-name">{detail?.name ?? ""}</span>
+        <button
+          type="button"
+          className="preview-step"
+          aria-label="Previous asset"
+          title="Previous asset"
+          disabled={!hasPrevious}
+          onClick={() => onStep(-1)}
+        >
+          <Arrow back />
+        </button>
+        <button
+          type="button"
+          className="preview-step"
+          aria-label="Next asset"
+          title="Next asset"
+          disabled={!hasNext}
+          onClick={() => onStep(1)}
+        >
+          <Arrow />
+        </button>
         <button type="button" onClick={onClose}>
           Close
         </button>
@@ -345,23 +382,28 @@ function Player({
 
   return (
     <div className="preview-player" data-kind={detail.kind} ref={stage}>
-      {detail.kind === "audio" ? (
-        // The tracks below are the captions, and there are as many as the asset
-        // has — often none, and never a literal the rule can see.
-        // biome-ignore lint/a11y/useMediaCaption: see above
-        <audio ref={setElement} className="preview-audio" src={src} autoPlay>
-          {tracks.map((track) => (
-            <Caption key={track.hash} track={track} />
-          ))}
-        </audio>
-      ) : (
-        // biome-ignore lint/a11y/useMediaCaption: see above
-        <video ref={setElement} className="preview-media" src={src} autoPlay>
-          {tracks.map((track) => (
-            <Caption key={track.hash} track={track} />
-          ))}
-        </video>
-      )}
+      {/* The picture takes whatever is left above the bar, which is what keeps
+          the bar at the foot of the pane rather than wherever the file's aspect
+          ratio happens to end. */}
+      <div className="preview-picture">
+        {detail.kind === "audio" ? (
+          // The tracks below are the captions, and there are as many as the
+          // asset has — often none, and never a literal the rule can see.
+          // biome-ignore lint/a11y/useMediaCaption: see above
+          <audio ref={setElement} className="preview-audio" src={src} autoPlay>
+            {tracks.map((track) => (
+              <Caption key={track.hash} track={track} />
+            ))}
+          </audio>
+        ) : (
+          // biome-ignore lint/a11y/useMediaCaption: see above
+          <video ref={setElement} className="preview-media" src={src} autoPlay>
+            {tracks.map((track) => (
+              <Caption key={track.hash} track={track} />
+            ))}
+          </video>
+        )}
+      </div>
       <Transport
         media={element}
         stage={stage}
@@ -372,6 +414,30 @@ function Player({
         onAddSubtitle={addSubtitle}
       />
     </div>
+  );
+}
+
+/**
+ * The two arrows in the head, drawn here.
+ *
+ * Inline rather than an icon package, for invariant 7's reason and the
+ * transport's: one shape mirrored is not a dependency. The `<button>` around it
+ * carries the words, so this is hidden from the accessible tree.
+ */
+function Arrow({ back = false }: { readonly back?: boolean }): React.JSX.Element {
+  return (
+    <svg
+      className="preview-arrow"
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      focusable="false"
+      style={back ? { transform: "scaleX(-1)" } : undefined}
+    >
+      <path
+        d="M9 3.5 13.5 8 9 12.5 7.9 11.4l2.6-2.6H2.5V7.2h8L7.9 4.6 9 3.5z"
+        fill="currentColor"
+      />
+    </svg>
   );
 }
 
@@ -414,6 +480,7 @@ function Specimen({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
         className="preview-media"
         src={previewSrc(detail.hash, detail.posterMs)}
         alt={`Specimen of ${family}`}
+        onLoad={showLoaded}
         onError={fallbackToGrid}
       />
       <p className="preview-specimen-name">
@@ -447,6 +514,7 @@ function Fallback({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
           src={previewSrc(detail.hash, detail.posterMs)}
           alt=""
           decoding="async"
+          onLoad={showLoaded}
           onError={fallbackToGrid}
         />
       </div>

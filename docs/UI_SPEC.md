@@ -788,10 +788,17 @@ grid's card so the decision costs no round trip, and `other` is the test: everyt
 backend for still opens here, even while its thumbnail is still being derived.
 
 **The content column's head goes with the grid.** Every control in it is the grid's — the search
-field, the view menu, Import — so while a file is open the bar is not drawn at all, and the pane's
-own head takes its place with the file's name and the way out. The sidebar and the inspector stay,
-because both are still about the thing on screen. The field is unmounted rather than emptied: the
-query it was showing comes back when the preview closes.
+field, the view menu, Add — so while a file is open the bar is not drawn at all, and the pane's
+own head takes its place: **two arrows and the way out**, all of it at the end of the row. The
+sidebar and the inspector stay, because both are still about the thing on screen. The field is
+unmounted rather than emptied: the query it was showing comes back when the preview closes.
+
+**The head carries no filename.** It did until 2026-09-06, while the inspector three inches to the
+right carried the same name in an editable field — and the pane cannot be open with nothing
+selected, so the second copy was a title bar the window already has. The arrows are what the arrow
+*keys* already did, put where a pointer can reach them; each is **drawn dead at its end of the
+list** rather than hidden, because an end is a fact worth showing (§3.5), and the list is the
+grid's, so it ends where the loaded page does.
 
 Arrow keys step through the loaded
 list, and **stepping changes the selection**, so the inspector follows what is on screen — in
@@ -818,7 +825,7 @@ did.
 | Play / pause | The button, `Space`, and `K` |
 | Timeline | A `role="slider"` whose `aria-valuetext` is a timecode, never a count of milliseconds. Arrow keys move a tenth of a second, which is the precision a comment's moment carries |
 | Buffered ranges | Drawn from `video.buffered`, behind the played range — the difference between a slow file and a broken one |
-| Elapsed / duration | Monospace and tabular, so the digits do not dance |
+| Elapsed / duration | Monospace and tabular, so the digits do not dance. **To the second**, both of them: a comment's moment carries a tenth because somebody chose it, and a playhead only passes through. The elapsed is floored — at 16:12.6 you are in the twelfth second — and the total is rounded, which is the same number the inspector's Duration row shows |
 | Volume and mute | `M`, and a slider that is also a slider to a screen reader |
 | Fullscreen | On the **player's box**, not on the video: sending the video alone takes the controls off the screen with it |
 | Picture-in-picture | Video only. Audio has no picture |
@@ -828,11 +835,35 @@ did.
 | Playback rate | 0.25× to 8×, in a menu that shows the current one as text. The extremes play **silently**: the platform stops stretching sound outside roughly 0.5×–4×, and the menu says so rather than letting it read as a fault |
 | A-B loop | One button and three states — set the start, set the end, clear — plus `I` and `O`. The region is drawn along the track, and a start with no end is a mark rather than a band, because the loop is not running yet |
 
-**The frame counter is the frame that was presented, not the frame that was asked for.** A seek in
-a long-GOP codec lands on the nearest decodable frame, so arithmetic on `currentTime` is a counter
-that lies on exactly the files frame stepping exists for. It comes from
-`requestVideoFrameCallback`, which reports what the compositor showed — and which fires after a
-seek while paused, so a step is legible. Video only, and only with a probed frame rate.
+**The transport is the foot of the pane, and it spans it.** The picture takes whatever is left
+above it, centred and fitted rather than filled, so a small video keeps its own pixels. Until
+2026-09-05 the player shrink-wrapped the media and the bar was a caption under it, which put the
+controls wherever the file's aspect ratio happened to end — a different place for every asset — and
+gave a portrait video a timeline a few hundred pixels long. A bar that stands still is a bar the
+hand can find without looking, and the longest timeline the pane can give is the finest resolution
+somebody scrubbing can aim with. `<audio>` is the exception, and for the reason that proves the
+rule: with no picture above it there is nothing for the bar to be the foot of, so it stays in the
+middle of the pane.
+
+**Every control in the bar is a target before it is a drawing.** The transport is pressed while
+something is playing, often in a hurry and sometimes at the edge of a window, so nothing here is
+sized to the ink in it. The timeline takes the press across a strip four times the height of the line
+drawn inside it, because a pointer aimed at a timeline is aimed at a moment and the height it has
+to hit to say so is nobody's intent; the line itself stays thin. Radix turns a press into a moment from the root's *width* alone, so the height costs nothing
+but the room it takes, and the drag it starts holds the pointer, so leaving the strip mid-scrub
+keeps scrubbing. A comment mark is a target a row
+wide with a three-pixel tick inside it, and the tick grows on hover while the button does not — a
+target that changed size under the pointer would move its neighbour out from under it. Missing a
+mark costs nothing: the press falls through to the slider and seeks to roughly where it was aimed.
+The buttons stand at the toolbar's height, not a generic control's.
+
+**The elapsed time stands alone.** A frame counter sat beside it from 2026-09-02 until
+2026-09-05, drawn from `requestVideoFrameCallback` so that it reported the frame the compositor
+presented rather than arithmetic on `currentTime` — which is a real distinction, because a seek in
+a long-GOP codec lands on the nearest decodable frame. It was withdrawn at the user's word all the
+same: the number answered a question nobody in this application was asking, and it was moving too
+fast to read for most of the time it was on screen. Frame *stepping* stays. It never needed the
+counter — a step is `currentTime ± n/fps` — and the keys are what it is for.
 
 Both platform controls are drawn **only where the platform has them**: a window with no Fullscreen
 API gets no fullscreen button, for the same reason §3.5 gives about a timecode.

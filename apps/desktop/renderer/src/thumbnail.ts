@@ -52,3 +52,21 @@ export function fallbackToGrid(event: React.SyntheticEvent<HTMLImageElement>): v
   }
   image.src = fallback;
 }
+
+/**
+ * Shows an image that has arrived, undoing a hiding meant for a different one.
+ *
+ * The hiding above is written straight onto the node, which React neither knows
+ * about nor undoes — and the panel draws **one** `<img>` for whatever is
+ * selected, so the element survives the change of asset. Select a `.txt`, which
+ * has no thumbnail at any size, and the next asset's picture loads into an
+ * element still marked hidden: a panel that is blank for everything until the
+ * selection empties and the node is finally thrown away. Reported from a real
+ * window on 2026-09-05 and reproduced there before this was written.
+ *
+ * `load` is the right event to undo it on: it fires when bytes have arrived and
+ * only then, so the flag tracks what the element is actually showing.
+ */
+export function showLoaded(event: React.SyntheticEvent<HTMLImageElement>): void {
+  event.currentTarget.hidden = false;
+}

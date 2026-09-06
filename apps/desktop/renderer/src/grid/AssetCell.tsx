@@ -42,6 +42,18 @@ function hideBroken(event: React.SyntheticEvent<HTMLImageElement>): void {
   event.currentTarget.hidden = true;
 }
 
+/**
+ * And shows it again when one arrives.
+ *
+ * A cell is keyed on its hash, so today the hiding above cannot outlive the
+ * asset it was for. That is a property of the grid rather than of this file,
+ * and the panel that lacked it drew nothing at all for an hour on 2026-09-05
+ * (`thumbnail.ts`). Pairing the two here costs a stable function reference.
+ */
+function showLoaded(event: React.SyntheticEvent<HTMLImageElement>): void {
+  event.currentTarget.hidden = false;
+}
+
 export interface AssetCellProps {
   readonly hash: string;
   readonly name: string;
@@ -112,6 +124,7 @@ export const AssetCell = memo(function AssetCell({
             loading="lazy"
             decoding="async"
             draggable={false}
+            onLoad={showLoaded}
             onError={hideBroken}
           />
         </div>
@@ -168,6 +181,7 @@ export const AssetCell = memo(function AssetCell({
           loading="lazy"
           decoding="async"
           draggable={false}
+          onLoad={showLoaded}
           onError={hideBroken}
         />
       </div>

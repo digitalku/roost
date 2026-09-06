@@ -13,22 +13,61 @@
   outline-offset: -2px;
 }
 
+/*
+ * The head of the content column while a file is open.
+ *
+ * It stands where the toolbar stands and takes the toolbar's measurements
+ * (`app.css`): the same height, the same control height, and `flex: none` for
+ * the same reason — a flex item shrinks in proportion to the basis of what is
+ * below it, and what is below this is a picture that can be any size at all.
+ * A row that changed height with the file in it is what this fixes.
+ */
 .preview-bar {
   display: flex;
-  gap: var(--space-3);
+  flex: none;
+  /* Everything sits at the end. The name the bar used to carry was the
+     inspector's all along (2026-09-06), and a row of three controls spread
+     across a pane reads as three unrelated things. */
+  gap: var(--space-2);
   align-items: center;
-  justify-content: space-between;
-  height: var(--row-height);
+  justify-content: flex-end;
+  height: var(--space-9);
   padding: 0 var(--gutter);
   border-bottom: 1px solid var(--border);
 }
 
-.preview-name {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.preview-bar button {
+  height: var(--bar-control-height);
+}
+
+/* Two arrows rather than two more buttons beside Close: giving them its box
+   would make the head read as a toolbar. Square and sized like the transport's
+   controls, for the same reason — a target before a drawing. */
+.preview-step {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--bar-control-height);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.preview-step:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
+/* An end of the list is worth showing rather than hiding: the arrow stays where
+   it was and stops answering. */
+.preview-step:disabled {
+  color: var(--text-subtle);
+}
+
+.preview-arrow {
+  width: var(--space-5);
+  height: var(--space-5);
 }
 
 .preview-stage {
@@ -114,22 +153,46 @@
    the bar below the picture is ours, which is the only way a comment mark can be
    drawn *on* the timeline rather than beside it. */
 
+/* The transport is the foot of the pane, not a caption under the picture
+   (asked for on 2026-09-05, against Eagle). It shrink-wrapped the media until
+   then, which put the controls wherever the file's aspect ratio happened to
+   end — a different place for every asset — and made the timeline of a portrait
+   video a few hundred pixels long. Now the picture takes the space above and
+   the bar stands still: the controls are where they were for the last file,
+   and the timeline is as long as the pane can make it, which is the resolution
+   somebody scrubbing has to aim with. */
 .preview-player {
-  /* Shrink-wraps the media, so the transport is exactly as wide as the picture
-     it belongs to rather than as wide as the pane. */
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  width: 100%;
+  height: 100%;
   min-height: 0;
-  max-width: 100%;
-  max-height: 100%;
+}
+
+/* What is left above the bar. The picture is centred in it and still *fits*
+   rather than fills — the `max-*` below, so a small video keeps its own pixels
+   instead of being blown up into mush. */
+.preview-picture {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
 }
 
 /* Audio has no picture. The element stays in the document — it is the decoder —
-   and the transport is the whole of what is drawn. */
+   and the transport is the whole of what is drawn, so it stays in the middle of
+   the pane: a bar at the foot of an empty rectangle is a bar with nothing above
+   it to be the foot of. */
 .preview-player[data-kind="audio"] {
   width: 100%;
+  height: auto;
   max-width: 480px;
+}
+
+.preview-player[data-kind="audio"] .preview-picture {
+  display: none;
 }
 
 .preview-player .preview-media {
@@ -144,7 +207,6 @@
    keeps the transport reachable once it is there. */
 .preview-player:fullscreen {
   gap: 0;
-  justify-content: center;
   width: 100vw;
   height: 100vh;
   max-width: none;
@@ -161,27 +223,50 @@
 
 /* The timeline. A Radix slider (ADR-0021) rather than a div with a pointer
    handler: the keyboard, the ARIA, and the drag are the part of a transport
-   that is easy to leave half-done. */
+   that is easy to leave half-done.
+
+   The whole strip takes the press, not the six pixels of line inside it: Radix
+   seeks from anywhere in the root, so the target is as tall as a row while the
+   track stays as thin as it should look. A pointer aimed at a timeline is
+   aimed at a moment, and the height it has to hit to say so is nobody's
+   intent. */
 .transport-timeline,
 .transport-volume {
   position: relative;
   display: flex;
-  flex: 1;
+  /* `flex: none`, and it matters more than it looks. The timeline is a child of
+     a *column*, so flex's main axis here is the height — and `flex: 1` sets a
+     basis of zero on it, which collapsed the root onto its own content and left
+     the press area exactly as tall as the six pixels of line inside it. Every
+     height written here was silently discarded until 2026-09-05, which is why
+     the bar stayed fussy to hit through two attempts at making it forgiving.
+     `check-transport.mjs` measures the strip against the track now, because
+     nothing else in the window would have shown this. */
+  flex: none;
   align-items: center;
-  height: var(--space-4);
   touch-action: none;
   user-select: none;
 }
 
+/* Four times the line and no more. Radix reads only the root's *width* to turn
+   a press into a moment, so height here is free accuracy — but it is not free
+   room: at forty pixels the bar read as loose, and the user asked for the
+   middle of the two on 2026-09-05. Twenty-four forgives a pointer that misses
+   the line without leaving a band of nothing under the picture, and the drag it
+   starts is captured, so wandering off the strip mid-scrub keeps scrubbing. */
+.transport-timeline,
 .transport-volume {
-  flex: none;
+  height: var(--space-6);
+}
+
+.transport-volume {
   width: 72px;
 }
 
 .transport-track {
   position: relative;
   flex: 1;
-  height: 4px;
+  height: 6px;
   border-radius: var(--radius-full);
   background: var(--surface-raised);
 }
@@ -204,14 +289,18 @@
   background: var(--accent);
 }
 
+/* The pointer stays the pointer. A `grab` hand here is a web habit — nothing
+   else in the window changes the cursor, and a native slider does not either;
+   with the thumb and its strip now as large as they are, the palm appeared over
+   a good part of the bar and read as a mode the transport had entered. */
 .transport-thumb {
   display: block;
-  width: var(--space-3);
-  height: var(--space-3);
+  width: var(--space-4);
+  height: var(--space-4);
   border: 2px solid var(--accent);
   border-radius: var(--radius-full);
   background: var(--text);
-  cursor: grab;
+  cursor: default;
 }
 
 .transport-thumb:focus-visible {
@@ -236,26 +325,50 @@
 }
 
 /* One per timed comment, over the track it is a moment on. Drawn after the
-   slider so a 3px target is not covered by the surface that seeks. */
+   slider so the target is not covered by the surface that seeks.
+
+   The button is the target and the tick is only the ink: a mark three pixels
+   wide is a mark nobody hits, so the press extends a whole row either side of
+   it while the drawing stays narrow enough to read as a moment. Missing it
+   costs nothing — the press lands on the slider underneath and seeks to
+   roughly where it was aimed. */
 .transport-mark {
   position: absolute;
   top: 50%;
-  width: 3px;
-  height: var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-3);
+  height: var(--space-6);
   padding: 0;
   border: 0;
-  border-radius: var(--radius-full);
-  background: var(--warning);
+  background: transparent;
   /* Centred on its moment rather than starting at it: a tick drawn from the
      offset would sit consistently late. */
   transform: translate(-50%, -50%);
 }
 
-.transport-mark:hover,
-.transport-mark:focus-visible {
+.transport-mark::after {
+  content: "";
+  display: block;
+  width: 3px;
+  height: var(--space-4);
+  border-radius: var(--radius-full);
   background: var(--warning);
-  /* Reaches past the track so a tick can be found without hitting 3 pixels. */
-  transform: translate(-50%, -50%) scaleY(1.4) scaleX(1.6);
+}
+
+/* `:not(:disabled)` only to outrank the global button hover, which would paint
+   a box behind a mark whose whole drawing is the tick. */
+.transport-mark:hover:not(:disabled) {
+  background: transparent;
+}
+
+/* The ink grows, not the button: a target that changed size under the pointer
+   would move the next one out from under it. */
+.transport-mark:hover::after,
+.transport-mark:focus-visible::after {
+  width: 5px;
+  height: var(--space-5);
 }
 
 .transport-controls {
@@ -268,12 +381,15 @@
   flex: 1;
 }
 
+/* The bar's height, not a generic control's: this is a row of icons pressed
+   while something plays, and every one of them is a target before it is a
+   drawing. */
 .transport-button {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--control-height);
-  height: var(--control-height);
+  width: var(--bar-control-height);
+  height: var(--bar-control-height);
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
@@ -286,8 +402,8 @@
 }
 
 .transport-icon {
-  width: var(--space-4);
-  height: var(--space-4);
+  width: var(--space-5);
+  height: var(--space-5);
 }
 
 /* Monospace and tabular, so the digits do not dance while it plays. */
@@ -302,16 +418,11 @@
   color: var(--text-muted);
 }
 
-/* The frame actually presented, beside the moment it was presented at. */
-.transport-frame {
-  color: var(--text-subtle);
-}
-
 /* Text rather than an icon: `1.25×` is shorter than any drawing of it, and it
    is the one control whose current value has to be readable at a glance. */
 .transport-rate {
   min-width: 4ch;
-  height: var(--control-height);
+  height: var(--bar-control-height);
   padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--radius-sm);
