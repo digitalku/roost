@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { bytes } from "../format.js";
 import { gridSrc } from "../thumbnail.js";
 import type { GridView } from "./layout.js";
 
@@ -191,18 +192,6 @@ export const AssetCell = memo(function AssetCell({
     </div>
   );
 });
-
-/** Binary multiples, the way the inspector and the CLI both count. */
-function bytes(size: number): string {
-  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-  let value = size;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
-}
 
 /** The date alone: a details row has no room for a clock, and rarely a use. */
 function day(unix: number): string {

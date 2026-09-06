@@ -16,10 +16,19 @@ import { DropdownMenu } from "radix-ui";
  */
 export interface AppMenuProps {
   readonly onCloseLibrary: () => void;
+  /**
+   * Delete the objects nothing references (ADR-0031).
+   *
+   * Here because it is the application acting on the whole library rather than
+   * on anything selected, and because the trash is not where an orphan comes
+   * from — a permanent delete takes its own bytes with it, so what is left is
+   * the wreckage of interrupted work and of libraries older than that rule.
+   */
+  readonly onReclaim: () => void;
   readonly onQuit: () => void;
 }
 
-export function AppMenu({ onCloseLibrary, onQuit }: AppMenuProps): React.JSX.Element {
+export function AppMenu({ onCloseLibrary, onReclaim, onQuit }: AppMenuProps): React.JSX.Element {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -37,6 +46,13 @@ export function AppMenu({ onCloseLibrary, onQuit }: AppMenuProps): React.JSX.Ele
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="menu" sideOffset={4} align="start" collisionPadding={8}>
+          <DropdownMenu.Item className="menu-item" onSelect={onReclaim}>
+            <span className="menu-mark" />
+            <span className="menu-label">Reclaim space…</span>
+          </DropdownMenu.Item>
+
+          <DropdownMenu.Separator className="menu-separator" />
+
           <DropdownMenu.Item className="menu-item" onSelect={onCloseLibrary}>
             <span className="menu-mark" />
             <span className="menu-label">Close library</span>

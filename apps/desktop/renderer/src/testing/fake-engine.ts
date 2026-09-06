@@ -17,6 +17,7 @@ import type {
   WirePasted,
   WireProblem,
   WireRecentLibrary,
+  WireReclaimable,
   WireSelectionSummary,
   WireSidebar,
 } from "@roost/contract";
@@ -97,6 +98,10 @@ export interface FakeEngineOptions {
   readonly exportReport?: Partial<WireExportReport>;
   /** How many assets `assets:emptyTrash` reports having removed. */
   readonly trashSize?: number;
+  /** Bytes a removal reports having freed from `originals/` (ADR-0031). */
+  readonly freedBytes?: number;
+  /** What `library:reclaimable` answers with; the reclaim itself echoes it. */
+  readonly reclaimable?: WireReclaimable;
   /** What `dialog:chooseImport` answers with. `null` is a cancelled dialog. */
   readonly importDialog?: readonly string[] | null;
   /** What `dialog:chooseSubtitle` answers with. Files only, in the real one. */
@@ -622,12 +627,18 @@ export class FakeEngine {
       // *not* modelled — a fake that could put a row back would be pretending to
       // a query language it does not have, and the tests that matter here are
       // about what the renderer sends.
-      case "assets:trash":
-      case "assets:remove": {
+      case "assets:trash": {
         const gone = new Set(request.hashes);
         this.assets = this.assets.filter((asset) => !gone.has(asset.hash));
         this.emit({ type: "library:changed" });
         return ok(null);
+      }
+
+      case "assets:remove": {
+        const gone = new Set(request.hashes);
+        this.assets = this.assets.filter((asset) => !gone.has(asset.hash));
+        this.emit({ type: "library:changed" });
+        return ok({ assets: gone.size, bytes: this.#options.freedBytes ?? 0 });
       }
 
       case "assets:restore":
@@ -636,7 +647,23 @@ export class FakeEngine {
 
       case "assets:emptyTrash":
         this.emit({ type: "library:changed" });
-        return ok(this.#options.trashSize ?? 0);
+        return ok({
+          assets: this.#options.trashSize ?? 0,
+          bytes: this.#options.freedBytes ?? 0,
+        });
+
+      // The real one walks the object store twice — once for the numbers the
+      // confirmation shows, once before deleting anything. The fake answers the
+      // same shape to both, because what the renderer must get right is which
+      // of the three outcomes it is looking at: blocked, nothing, or a size.
+      case "library:reclaimable":
+        return ok(this.#options.reclaimable ?? { objects: 0, bytes: 0, blocked: null });
+
+      case "library:reclaim": {
+        const answer = this.#options.reclaimable ?? { objects: 0, bytes: 0, blocked: null };
+        this.emit({ type: "library:changed" });
+        return ok({ objects: answer.objects, bytes: answer.bytes, blocked: null });
+      }
 
       case "asset:openExternally":
         return ok(this.#options.opensExternally ?? true);

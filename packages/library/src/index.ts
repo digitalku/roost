@@ -43,6 +43,7 @@ export {
   MAX_RATING,
   moveFolder,
   poster,
+  type Removal,
   rate,
   removeAssets,
   removeComment,

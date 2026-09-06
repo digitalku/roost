@@ -88,8 +88,13 @@ changed it for these reasons.
 **There is no menu bar** (ADR-0028). Electron installs one by default — File · Edit · View ·
 Window — and it carried a Reload that throws away the query and the selection, a devtools toggle,
 and a Paste meaning something other than Roost's (§3.3). It is removed on Linux and Windows, and
-the commands that belong to the application live in the toolbar's `☰` instead: **Close library**
-and **Quit**, and nothing that already has a home. **Add** stays on the bar because bringing
+the commands that belong to the application live in the toolbar's `☰` instead: **Reclaim space…**,
+**Close library** and **Quit**, and nothing that already has a home. Reclaiming is there because it
+acts on the whole library rather than on anything selected (ADR-0031); it is not in the Trash
+place, because a permanent delete takes its own bytes with it and the trash is therefore not where
+an orphaned object comes from. It shows three different things: nothing to reclaim, a refusal with
+the reason the index cannot be trusted, or a confirmation naming the size — and it re-checks before
+deleting anything, because the numbers on screen are a screenful old and this deletes files. **Add** stays on the bar because bringing
 something in is the primary action of an empty library, the view control stays on the bar because
 it is ADR-0018's, and per-asset commands stay in the context menu — a menu that repeats the toolbar
 teaches people to look in two places and to trust neither. macOS keeps a menu bar, because there it
@@ -378,8 +383,13 @@ the **engine** sent for the Trash row — the renderer assembles no RQL (§4.1),
 | Item (in the Trash) | Behaviour |
 | --- | --- |
 | **Restore** | takes the selection back out of the trash. Asks nothing: it is the undo |
-| **Delete permanently** | confirms, then removes the selection from the library |
+| **Delete permanently** | confirms, then removes the selection from the library **and deletes the files it owns** (ADR-0031). A referenced original is never touched |
 | **Empty trash** | confirms, then removes everything the trash holds — which is not the selection, so the count comes back from the engine |
+
+Both say what came back as well as what went: `Deleted 3 assets, freeing 3.0 MiB`. The freed bytes
+are the half a person deleting to make room came for, and **zero is said too** — a selection of
+referenced assets frees nothing, and a line that mentioned bytes only when there were some would
+make that read as a failure to report rather than as a fact about those assets.
 
 **Nothing here hands a path to the renderer.** Open, reveal, and copy are all answered by main,
 which resolves the hash, acts, and returns a boolean. Copying is the one case where a path

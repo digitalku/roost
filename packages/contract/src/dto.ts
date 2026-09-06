@@ -540,6 +540,35 @@ export interface ImportProgress {
 }
 
 /**
+ * What a removal took out of the library (ADR-0031).
+ *
+ * Two numbers because they answer two different questions, and only one of them
+ * used to be answerable: how much of the library is gone, and how much of the
+ * disk came back. `bytes` is zero for a referenced asset — those bytes are the
+ * user's own file, and Roost does not touch them (invariant 6) — so a status
+ * line that said only "Deleted 3 assets" would leave the interesting half out.
+ */
+export interface WireRemoval {
+  readonly assets: number;
+  readonly bytes: number;
+}
+
+/**
+ * What "Reclaim space" would delete, or did (ADR-0031).
+ *
+ * `blocked` carries the reason a reclaim would be refused — the index and the
+ * object store disagree, so "nothing references these bytes" may simply be the
+ * index being wrong — or `null` when it is safe. It is a sentence for the user
+ * rather than a flag, because the answer is always the same action (`roost
+ * rebuild`) and the interesting part is which disagreement was found.
+ */
+export interface WireReclaimable {
+  readonly objects: number;
+  readonly bytes: number;
+  readonly blocked: string | null;
+}
+
+/**
  * What an export did.
  *
  * Counts rather than a list of names: exporting a selection of ten thousand is

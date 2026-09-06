@@ -29,6 +29,7 @@ import { Inspector } from "./inspector/Inspector.js";
 import { RecentList } from "./library/RecentList.js";
 import { NewFileDialog } from "./NewFileDialog.js";
 import { PreviewPane } from "./preview/PreviewPane.js";
+import { useReclaim } from "./reclaim.js";
 import { SearchField } from "./search/SearchField.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
 
@@ -693,6 +694,12 @@ function LibraryView({
     onGone: clearSelection,
   });
 
+  const reclaim = useReclaim({
+    onNote: noteResult,
+    onProblem: setActed,
+    onConfirm: setConfirming,
+  });
+
   /**
    * `Delete` on the selection (`UI_SPEC.md` §9).
    *
@@ -908,6 +915,7 @@ function LibraryView({
           <header className="bar bar-sidebar">
             <AppMenu
               onCloseLibrary={onClose}
+              onReclaim={reclaim}
               onQuit={() => {
                 void invoke({ type: "app:quit" });
               }}

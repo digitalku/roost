@@ -150,10 +150,14 @@ describe("the organize commands", () => {
     expect((await ok("smart", "list")).join("\n")).toContain("No smart folders yet");
   });
 
-  it("removes index rows and says the bytes are still there", async () => {
+  it("removes the row, deletes the bytes, and says how many came back", async () => {
     const out = await ok("remove", hashes[0] as string);
-    expect(out.join("\n")).toContain("Originals were not deleted");
+    expect(out.join("\n")).toContain("Freed ");
+    expect(out.join("\n")).toContain("from originals/");
     expect(await ok("query", "", "--count")).toEqual(["2"]);
+    // The object went with the row (ADR-0031), so `doctor` has nothing left to
+    // reclaim — which is the observable difference from the old behaviour.
+    expect((await ok("doctor")).join("\n")).not.toContain("Objects nothing references");
   });
 
   it("separates a wrong command line from a command that failed", async () => {

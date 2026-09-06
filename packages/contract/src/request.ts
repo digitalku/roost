@@ -28,6 +28,8 @@ import type {
   WireImportReport,
   WirePasted,
   WireRecentLibrary,
+  WireReclaimable,
+  WireRemoval,
   WireSelectionSummary,
   WireSidebar,
   WireSubtitlesAdded,
@@ -315,19 +317,37 @@ export type Request =
   /**
    * Remove the selection from the library, permanently.
    *
-   * What "Delete permanently" sends. Not reversible: the row and everything
-   * hanging off it are gone, and only the bytes survive for a deliberate
-   * `roost doctor --reclaim`.
+   * What "Delete permanently" sends. Not reversible: the row, everything
+   * hanging off it, and the bytes it owned under `originals/` are all gone
+   * (ADR-0031). A referenced original is never touched.
    */
   | { readonly type: "assets:remove"; readonly hashes: readonly string[] }
   /**
-   * Remove everything the trash holds, and answer with how many.
+   * Remove everything the trash holds, and answer with what went.
    *
    * The count comes back because the renderer cannot compute it: emptying is
    * over what the *engine* sees in the trash, not over a selection, and the
    * status bar has to be able to say what happened.
    */
   | { readonly type: "assets:emptyTrash" }
+  /**
+   * What "Reclaim space" would delete: objects nothing references (ADR-0031).
+   *
+   * A whole-store walk, so it is asked for by a menu item and never on a
+   * schedule. Separate from the reclaim itself because the numbers are what the
+   * confirmation is *about* — nobody should approve a deletion whose size they
+   * have not been shown.
+   */
+  | { readonly type: "library:reclaimable" }
+  /**
+   * Delete the objects nothing references, and answer with what went.
+   *
+   * Checks again rather than acting on the numbers the dialog was shown: those
+   * are a screenful old by the time anyone clicks, and this deletes files.
+   * Refuses — as `roost doctor --reclaim` does — when the index and the object
+   * store disagree, because an orphan is only an orphan relative to the index.
+   */
+  | { readonly type: "library:reclaim" }
   /**
    * Copy the selection's originals into a directory the user chose.
    *
@@ -468,9 +488,11 @@ export interface Responses {
   "asset:copyPath": boolean;
   "assets:trash": null;
   "assets:restore": null;
-  "assets:remove": null;
-  /** How many assets emptying removed. */
-  "assets:emptyTrash": number;
+  "assets:remove": WireRemoval;
+  "assets:emptyTrash": WireRemoval;
+  "library:reclaimable": WireReclaimable;
+  /** What was actually deleted; `blocked` is always `null` here. */
+  "library:reclaim": WireReclaimable;
   "assets:export": WireExportReport;
   "import:paths": WireImportReport;
   "derive:status": WireDeriveStatus;
@@ -729,6 +751,10 @@ export const REQUEST_VALIDATORS: {
   },
 
   "assets:emptyTrash": () => ok({ type: "assets:emptyTrash" }),
+
+  "library:reclaimable": () => ok({ type: "library:reclaimable" }),
+
+  "library:reclaim": () => ok({ type: "library:reclaim" }),
 
   "assets:export": (source) => {
     const hashes = readHashArray(source, "hashes");

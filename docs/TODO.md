@@ -93,6 +93,19 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   out, because a URL is an address rather than prose about the asset. The ADR keeps both halves of
   that argument, and what leaving it out costs — a domain typed into the search box finds nothing.
 
+- ☑ ~~**ADR-0031 — a permanent delete takes the bytes.**~~ **Accepted 2026-09-06** and built the
+  same day, from the user reporting that a file deleted permanently was gone from Roost and still
+  on disk. It was: `removeAssets` deleted the row and left the object for `doctor --reclaim`, on
+  ADR-0022's reasoning that a metadata edit must not delete someone's only copy — which does not
+  describe a gesture called **Delete permanently**, reached from inside the trash, behind a
+  confirmation. The managed object now goes with the row, a **referenced original is never
+  touched** (invariant 6), and the order is journal → index → bytes so a crash leaves waste rather
+  than loss. Both frontends report what came back (`Freed 12 B from originals/.`,
+  `Deleted 3 assets, freeing 3.0 MiB`), and **zero is said too**. Reclaiming stays for orphans from
+  elsewhere and finally has a door in the window: **Reclaim space…** in the `☰`, with
+  `library:reclaimable` and `library:reclaim`, the CLI's refusal rule, and a re-check before
+  anything is deleted. `STORAGE_SPEC.md` is untouched — the `remove` op means what it always meant.
+
 - ☑ ~~**ADR-0029 — favourite is retired.**~~ **Accepted 2026-09-05** and built the same day, on
   the user seeing the two controls side by side: *"sudah ada star, kalau memang disukai tinggal
   saya bintang 5"*. A favourite is a rating with one value and no scale. Everything that authors

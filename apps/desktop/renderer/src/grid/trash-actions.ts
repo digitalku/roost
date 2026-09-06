@@ -1,6 +1,7 @@
 import type { WireProblem } from "@roost/contract";
 import { useMemo } from "react";
 import { invoke } from "../bridge.js";
+import { bytes } from "../format.js";
 
 /**
  * Trashing, restoring, and deleting a selection (ADR-0022).
@@ -90,13 +91,13 @@ export function useTrashActions({
       if (count === 0) return;
       onConfirm({
         title: count === 1 ? "Delete this asset?" : `Delete ${count} assets?`,
-        body: `${capitalise(assets(count))} will be removed from the library. Tags, ratings, notes, and folder memberships go with them, and this cannot be undone.`,
+        body: `${capitalise(assets(count))} will be removed from the library, and the files they own will be deleted from it. Tags, ratings, notes, and folder memberships go with them, and this cannot be undone.`,
         confirmLabel: "Delete",
         run: () => {
           void invoke({ type: "assets:remove", hashes }).then((outcome) => {
             if (!outcome.ok) return onProblem(outcome.problem);
             onGone();
-            onNote(`Deleted ${assets(count)}`);
+            onNote(deleted(outcome.value.assets, outcome.value.bytes));
           });
         },
       });
@@ -105,13 +106,13 @@ export function useTrashActions({
     const emptyTrash = (): void => {
       onConfirm({
         title: "Empty the trash?",
-        body: "Everything in the trash will be removed from the library. Tags, ratings, notes, and folder memberships go with it, and this cannot be undone.",
+        body: "Everything in the trash will be removed from the library, and the files it owns will be deleted from it. Tags, ratings, notes, and folder memberships go with it, and this cannot be undone.",
         confirmLabel: "Empty trash",
         run: () => {
           void invoke({ type: "assets:emptyTrash" }).then((outcome) => {
             if (!outcome.ok) return onProblem(outcome.problem);
             onGone();
-            onNote(`Deleted ${assets(outcome.value)}`);
+            onNote(deleted(outcome.value.assets, outcome.value.bytes));
           });
         },
       });
@@ -119,6 +120,20 @@ export function useTrashActions({
 
     return { trash, restore, deletePermanently, emptyTrash };
   }, [hashes, onNote, onProblem, onConfirm, onGone]);
+}
+
+/**
+ * What a permanent delete did, in one line.
+ *
+ * The freed bytes are said because they are the half a person came for
+ * (ADR-0031), and **zero is said too**: a selection of referenced assets frees
+ * nothing, and a line that mentioned bytes only when there were some would make
+ * that case look like a failure to report rather than a fact about the assets.
+ */
+function deleted(count: number, freed: number): string {
+  return freed === 0
+    ? `Deleted ${assets(count)}, freeing nothing — none of them was stored here`
+    : `Deleted ${assets(count)}, freeing ${bytes(freed)}`;
 }
 
 /** "1 asset" or "12 assets" — the CLI's phrasing, so the two frontends agree. */

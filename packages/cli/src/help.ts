@@ -435,9 +435,10 @@ ${GLOBAL}`,
 Not reversible, and not what \`Delete\` does in the window — see \`roost trash\`.
 This is what emptying the trash sends.
 
-Index rows only. The bytes under originals/ stay where they are: reclaiming them
-is a separate, reviewable step, because deleting someone's only copy of a file
-as a side effect of a metadata edit is not a trade this project makes.
+The row goes, and so do the bytes it owned under originals/ (ADR-0031). A
+referenced original is never touched: those bytes are your own file in your own
+directory. \`roost doctor --reclaim\` remains, for objects orphaned by anything
+other than a removal.
 
 Usage: roost remove <ASSET>... [OPTIONS]
 

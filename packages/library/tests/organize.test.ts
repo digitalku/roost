@@ -263,16 +263,35 @@ describe("organizing a library", () => {
     expect(() => resolveAsset(library, "not-a-hash")).toThrow(UnknownAssetError);
   });
 
-  it("removes index rows without touching the bytes", async () => {
+  it("removes the row and deletes the bytes it owned", async () => {
     const hash = hashes[0] as ContentHash;
     const detail = library.db.repo.assetDetail(hash);
     const path = library.storageFor("managed").locate(hash, detail?.ext ?? "");
 
-    await removeAssets(library, [hash]);
+    const removal = await removeAssets(library, [hash]);
 
     expect(library.stats().assets).toBe(2);
     expect(library.db.repo.orphanSearchRows()).toBe(0);
-    // The object store is untouched: reclaiming is a separate, reviewable step.
+    // ADR-0031. Until 2026-09-06 the object stayed here until somebody ran
+    // `doctor --reclaim`, so "Delete permanently" left the disk exactly as full
+    // as it found it.
+    await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(removal).toEqual({ assets: 1, bytes: detail?.size });
+  });
+
+  it("never deletes a referenced original, and says it freed nothing", async () => {
+    // Invariant 6: those bytes are the user's own file in the user's own
+    // directory. The count of assets removed is the same; the bytes are not.
+    const outside = join(dir, "outside");
+    await mkdir(outside, { recursive: true });
+    const path = join(outside, "linked.bin");
+    await writeFile(path, "referenced payload");
+    await importInto(library, [outside], { mode: "referenced" });
+    const hash = library.db.repo.allHashes().find((one) => !hashes.includes(one)) as ContentHash;
+
+    const removal = await removeAssets(library, [hash]);
+
+    expect(removal).toEqual({ assets: 1, bytes: 0 });
     await expect(readFile(path)).resolves.toBeInstanceOf(Buffer);
   });
 
@@ -386,13 +405,12 @@ describe("organizing a library", () => {
     await trashAssets(library, [first, second]);
     await restoreAssets(library, [second]);
 
-    expect(await emptyTrash(library)).toBe(1);
+    expect((await emptyTrash(library)).assets).toBe(1);
     expect(library.stats().assets).toBe(2);
     expect(count(library, "is:trashed")).toBe(0);
     // Restoring did not merely hide the second one from Trash: it is still a
     // row, and emptying must not have taken it.
     expect(library.db.repo.assetDetail(second)).toBeDefined();
-    // The bytes stay for a deliberate `doctor --reclaim`, as `remove` always has.
     expect(library.db.repo.orphanSearchRows()).toBe(0);
   });
 

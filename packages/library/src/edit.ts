@@ -470,8 +470,20 @@ export async function restoreAssets(
   );
 }
 
+/** What a removal took out of the library, and out of the object store. */
+export interface Removal {
+  readonly assets: number;
+  /**
+   * Bytes deleted from `originals/`.
+   *
+   * Not the size of what was removed: a referenced asset's bytes are the user's
+   * own file and are never touched, so it counts nothing here.
+   */
+  readonly bytes: number;
+}
+
 /**
- * Removes every trashed asset from the library, and answers with how many.
+ * Removes every trashed asset from the library, and answers with what went.
  *
  * "Empty trash" is {@link removeAssets} over what the trash holds, which is why
  * emptying needs no operation of its own: `remove` already means exactly this,
@@ -480,35 +492,59 @@ export async function restoreAssets(
  * application that deletes a person's files on a schedule, possibly while they
  * are not looking, is not one this project ships (ADR-0022).
  */
-export async function emptyTrash(library: Library): Promise<number> {
-  const trashed = library.db.repo.trashedHashes();
-  await removeAssets(library, trashed);
-  return trashed.length;
+export async function emptyTrash(library: Library): Promise<Removal> {
+  return removeAssets(library, library.db.repo.trashedHashes());
 }
 
 /**
- * Removes assets from the library, permanently as far as the index goes.
+ * Removes assets from the library, and deletes the bytes they own.
  *
  * Not what `Delete` does — see {@link trashAssets}. This is what "Empty trash"
  * and "Delete permanently" send, and what `roost remove` has always done.
  *
- * Index rows only. The bytes under `originals/` stay where they are: reclaiming
- * them is a separate, reviewable step (`roost doctor --reclaim`), because
- * deleting someone's only copy of a file as a side effect of a metadata edit is
- * not a trade this project makes. A referenced original is never touched at all
- * (invariant 6).
+ * **The managed object goes with the row** (ADR-0031, amending ADR-0022 §"What
+ * already exists"). It did not until 2026-09-06: the bytes stayed until someone
+ * ran `roost doctor --reclaim`, on the reasoning that deleting a person's only
+ * copy should not be a side effect of a metadata edit. That reasoning survives
+ * for every *other* removal and is why the reclaim step still exists — but this
+ * one is not a side effect. It is a gesture called "Delete permanently", after
+ * a confirmation, on an asset already in the trash; a user who does that and
+ * finds their disk no smaller has been told something untrue.
+ *
+ * **A referenced original is never touched** (invariant 6). Those bytes are the
+ * user's own file in the user's own directory, and Roost has no business in it;
+ * `ReferencedStorage.remove` is a no-op for the same reason, so the mode is
+ * read here to know what was *freed* rather than to decide what to spare.
+ *
+ * Order matters: journal, then index, then bytes. A crash between the last two
+ * leaves an object nothing references, which `roost doctor` reports and
+ * `--reclaim` collects. The reverse order would delete bytes for a removal no
+ * replay knows about.
  */
 export async function removeAssets(
   library: Library,
   assets: readonly ContentHash[],
-): Promise<void> {
-  return apply(
+): Promise<Removal> {
+  // Read where the bytes are before deleting the rows that say so.
+  const objects = assets.map((hash) => {
+    const record = library.db.repo.findOriginal(hash);
+    if (record === undefined) throw new UnknownAssetError(hash);
+    return { hash, ext: record.ext, size: record.size, mode: record.storageMode };
+  });
+
+  await apply(
     library,
-    assets.map((hash) => {
-      requireAsset(library, hash);
-      return { op: "remove", hash } as const;
-    }),
+    objects.map(({ hash }) => ({ op: "remove", hash }) as const),
   );
+
+  const storage = library.storageFor("managed");
+  let bytes = 0;
+  for (const object of objects) {
+    if (object.mode !== "managed") continue;
+    await storage.remove(object.hash, object.ext);
+    bytes += object.size;
+  }
+  return { assets: objects.length, bytes };
 }
 
 // --- Folders -----------------------------------------------------------------

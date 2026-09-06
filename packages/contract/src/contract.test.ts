@@ -110,6 +110,8 @@ describe("validating a request", () => {
       "assets:restore",
       "assets:remove",
       "assets:emptyTrash",
+      "library:reclaimable",
+      "library:reclaim",
       "assets:export",
       "import:paths",
       "derive:status",

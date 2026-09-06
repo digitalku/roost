@@ -9,6 +9,7 @@ import {
   trashAssets,
 } from "@roost/library";
 import { assets, resolveAll, short } from "../assets.js";
+import { bytes } from "../format.js";
 import { EXIT, type Streams, usage } from "../io.js";
 import { withLibrary } from "../open.js";
 
@@ -147,9 +148,9 @@ export async function restore(
 
 export async function emptyTheTrash(root: string, streams: Streams): Promise<number> {
   return withLibrary(root, async (library) => {
-    const removed = await emptyTrash(library);
-    streams.out(`Removed ${assets(removed)} from the library`);
-    streams.out("  Originals were not deleted. Nothing under originals/ is reclaimed yet.");
+    const removal = await emptyTrash(library);
+    streams.out(`Removed ${assets(removal.assets)} from the library`);
+    streams.out(`  ${freedLine(removal.bytes)}`);
     return EXIT.ok;
   });
 }
@@ -161,9 +162,22 @@ export async function remove(
 ): Promise<number> {
   return withLibrary(root, async (library) => {
     const hashes = resolveAll(library, needles);
-    await removeAssets(library, hashes);
-    streams.out(`Removed ${assets(hashes.length)} from the library`);
-    streams.out("  Originals were not deleted. Nothing under originals/ is reclaimed yet.");
+    const removal = await removeAssets(library, hashes);
+    streams.out(`Removed ${assets(removal.assets)} from the library`);
+    streams.out(`  ${freedLine(removal.bytes)}`);
     return EXIT.ok;
   });
+}
+
+/**
+ * What the removal gave back to the disk.
+ *
+ * Zero is worth saying rather than hiding: a selection of referenced assets
+ * frees nothing, and silence there would read as the same success as freeing a
+ * gigabyte (ADR-0031).
+ */
+function freedLine(count: number): string {
+  return count === 0
+    ? "No bytes were freed: nothing removed was stored in this library."
+    : `Freed ${bytes(count)} from originals/.`;
 }

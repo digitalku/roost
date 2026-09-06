@@ -57,6 +57,8 @@ export {
   type WirePasted,
   type WireProblem,
   type WireRecentLibrary,
+  type WireReclaimable,
+  type WireRemoval,
   type WireSelectionSummary,
   type WireSidebar,
   type WireSubtitle,

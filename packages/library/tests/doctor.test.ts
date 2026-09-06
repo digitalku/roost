@@ -10,10 +10,10 @@ import {
   Library,
   reclaim,
   reclaimableBytes,
-  removeAssets,
   UnsoundReclaimError,
   unsoundForReclaim,
 } from "@roost/library";
+import { hashFile } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 describe("checking a library against itself", () => {
@@ -54,9 +54,14 @@ describe("checking a library against itself", () => {
   });
 
   it("counts bytes nothing references as waste, not as damage", async () => {
-    const hash = library.db.repo.allHashes()[0] as ContentHash;
-    const path = objectPath(hash);
-    await removeAssets(library, [hash]);
+    // An orphan is made by hand, because a removal no longer leaves one behind
+    // (ADR-0031): the row and its object go together now. What is left for
+    // reclaiming is wreckage — an import interrupted between the file and the
+    // row, or a library carried over from a build that kept the bytes.
+    const stray = join(dir, "stray.bin");
+    await writeFile(stray, "orphaned payload");
+    const { hash } = await hashFile(stray);
+    const { path } = await library.storageFor("managed").put(stray, hash, "bin");
 
     const report = await check(library);
 

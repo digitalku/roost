@@ -1,6 +1,7 @@
 import type { WireAssetDetail, WireSelectionSummary } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
+import { bytes } from "../format.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { duration } from "../timecode.js";
 import { Comments } from "./Comments.js";
@@ -723,18 +724,6 @@ function propertyRows(props: Readonly<Record<string, string>>): (readonly [strin
     .filter(([key]) => !PROPERTY_LABELS.some(([known]) => known === key))
     .map(([key, value]) => [key, value] as const);
   return [...known, ...rest];
-}
-
-/** Binary multiples, the way `STORAGE_SPEC.md` and the CLI both count. */
-function bytes(size: number): string {
-  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-  let value = size;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${unit === 0 ? value : value.toFixed(1)} ${units[unit]}`;
 }
 
 /**

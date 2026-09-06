@@ -237,7 +237,11 @@ describe("the asset context menu", () => {
   it("confirms before emptying the trash, and reports what the engine removed", async () => {
     // The count comes back from the engine: emptying is over what the trash
     // holds, which is not the selection the renderer sent.
-    const { user } = show(HASHES, { trashSize: 12 }, { inTrash: true });
+    const { user } = show(
+      HASHES,
+      { trashSize: 12, freedBytes: 3 * 1024 * 1024 },
+      { inTrash: true },
+    );
     await open();
     await user.click(screen.getByRole("menuitem", { name: "Empty trash" }));
 
@@ -246,7 +250,8 @@ describe("the asset context menu", () => {
 
     confirmations[0]?.run();
     await waitFor(() => expect(notes).toHaveLength(1));
-    expect(notes[0]).toBe("Deleted 12 assets");
+    // The freed bytes are the half a person empties the trash for (ADR-0031).
+    expect(notes[0]).toBe("Deleted 12 assets, freeing 3.0 MiB");
   });
 
   /*

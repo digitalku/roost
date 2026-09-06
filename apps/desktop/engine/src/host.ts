@@ -32,6 +32,7 @@ import {
 import {
   addComment,
   addSubtitles,
+  check as checkLibrary,
   compileFor,
   createAsset,
   type DeriveReport,
@@ -53,6 +54,8 @@ import {
   queueStatus,
   rate,
   readSidebar,
+  reclaim,
+  reclaimableBytes,
   rememberLibrary,
   removeAssets,
   removeComment,
@@ -68,6 +71,7 @@ import {
   tagAdd,
   tagRemove,
   trashAssets,
+  unsoundForReclaim,
 } from "@roost/library";
 import { capabilities } from "@roost/media";
 import { formatFromExtension, isConvertible, kindOf } from "@roost/media/serving";
@@ -258,10 +262,31 @@ export class EngineHost {
         return this.#edit(() => restoreAssets(this.#require(), hashes(request.hashes)));
 
       case "assets:remove":
-        return this.#edit(() => removeAssets(this.#require(), hashes(request.hashes)));
+        // Reporting, because the bytes freed are the half of this that used to
+        // be missing (ADR-0031): a person deleting to make room needs to see
+        // that room appear.
+        return this.#editReporting(() => removeAssets(this.#require(), hashes(request.hashes)));
 
       case "assets:emptyTrash":
         return this.#editReporting(() => emptyTrash(this.#require()));
+
+      case "library:reclaimable": {
+        const report = await checkLibrary(this.#require());
+        return {
+          objects: report.orphans.length,
+          bytes: reclaimableBytes(report),
+          blocked: unsoundForReclaim(report) ?? null,
+        };
+      }
+
+      case "library:reclaim": {
+        const library = this.#require();
+        // Checked again rather than trusting the numbers the dialog showed:
+        // this deletes files, and that report is a screenful old.
+        const report = await checkLibrary(library);
+        const bytes = await reclaim(library, report);
+        return { objects: report.orphans.length, bytes, blocked: null };
+      }
 
       case "import:paths":
         return this.#import(request.paths, request.mode, request.tags);
