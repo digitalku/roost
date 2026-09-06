@@ -4,6 +4,7 @@ import type {
   LibraryStats,
   LibrarySummary,
   SidebarRow,
+  WireEagleReport,
   WireProblem,
   WireRecentLibrary,
   WireSidebar,
@@ -25,6 +26,7 @@ import { SelectionStore } from "./grid/selection.js";
 import { type ConfirmRequest, useTrashActions } from "./grid/trash-actions.js";
 import { ViewMenu } from "./grid/ViewMenu.js";
 import { DropZone } from "./import/DropZone.js";
+import { EagleDialog } from "./import/EagleDialog.js";
 import { type Importing, useImport } from "./import/useImport.js";
 import { Inspector } from "./inspector/Inspector.js";
 import { RecentList } from "./library/RecentList.js";
@@ -373,7 +375,11 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
         ? "Importing…"
         : progress.thumbnails > 0
           ? `Thumbnails… ${progress.thumbnails.toLocaleString()} of ${progress.imported.toLocaleString()}`
-          : `Importing… ${progress.scanned.toLocaleString()} scanned`;
+          : progress.total === null
+            ? `Importing… ${progress.scanned.toLocaleString()} scanned`
+            : // An Eagle import counted its items before it began, so this one
+              // can say how far through it is without estimating (ADR-0032).
+              `Importing… ${progress.scanned.toLocaleString()} of ${progress.total.toLocaleString()}`;
     return <span className="status-job">{said}</span>;
   }
 
@@ -385,8 +391,17 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
     );
   }
 
-  const report = importing.report;
-  if (report === undefined) return null;
+  const outcome = importing.outcome;
+  if (outcome === undefined) return null;
+  if (outcome.kind === "eagle") {
+    return (
+      <button type="button" className="status-job" onClick={importing.dismiss}>
+        {eagleSaid(outcome.report).join(" · ")}
+      </button>
+    );
+  }
+
+  const report = outcome.report;
   const parts = [
     `${report.imported.toLocaleString()} imported`,
     ...(report.duplicates + report.partialDuplicates > 0
@@ -412,6 +427,30 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
       {parts.join(" · ")}
     </button>
   );
+}
+
+/**
+ * What an Eagle import says in the status bar (ADR-0032).
+ *
+ * The same rule the path import's line follows: only what happened. A library
+ * with no comments must not produce "0 comments" — a zero here is a sentence
+ * about something the user does not use.
+ *
+ * `collapsed` is the exception that is always worth saying when it is not zero,
+ * because a lower asset count than item count reads as data loss until it is
+ * explained.
+ */
+function eagleSaid(report: WireEagleReport): string[] {
+  return [
+    `${report.assets.toLocaleString()} from Eagle`,
+    ...(report.duplicates > 0 ? [`${report.duplicates.toLocaleString()} already here`] : []),
+    ...(report.collapsed > 0 ? [`${report.collapsed.toLocaleString()} merged by content`] : []),
+    ...(report.folders > 0 ? [`${report.folders.toLocaleString()} folders`] : []),
+    ...(report.comments > 0 ? [`${report.comments.toLocaleString()} comments`] : []),
+    ...(report.subtitles > 0 ? [`${report.subtitles.toLocaleString()} captioned`] : []),
+    ...(report.trashed > 0 ? [`${report.trashed.toLocaleString()} trashed`] : []),
+    ...(report.failed.length > 0 ? [`${report.failed.length.toLocaleString()} failed`] : []),
+  ];
 }
 
 /**
@@ -709,6 +748,9 @@ function LibraryView({
     onConfirm: setConfirming,
   });
 
+  /** The Eagle library the survey dialog is open on, if it is (ADR-0032). */
+  const [eagle, setEagle] = useState<string | undefined>();
+
   /**
    * `Delete` on the selection (`UI_SPEC.md` §9).
    *
@@ -758,6 +800,22 @@ function LibraryView({
     },
     [importRunning, startImport],
   );
+
+  /**
+   * **Import from Eagle…** (ADR-0032): choose a library, then look at it.
+   *
+   * Two steps, and the chooser is the first because the survey has nothing to
+   * survey without a path. The dialog that follows selects nothing — the import
+   * brings everything — so it exists to say what is about to happen, including
+   * what will not come across.
+   */
+  const chooseEagle = useCallback(() => {
+    if (importRunning) return;
+    void (async () => {
+      const chosen = await invoke({ type: "dialog:chooseEagle" });
+      if (chosen.ok && chosen.value !== null) setEagle(chosen.value);
+    })();
+  }, [importRunning]);
 
   /**
    * `Ctrl+I` and `Ctrl+Shift+I` (`UI_SPEC.md` §10).
@@ -966,6 +1024,7 @@ function LibraryView({
                   onNewTextDocument={() => setNewFile({ name: ".txt", text: "" })}
                   onImportFiles={() => chooseAndImport("files")}
                   onImportFolder={() => chooseAndImport("folders")}
+                  onImportEagle={chooseEagle}
                 />
               </div>
             </header>
@@ -1105,6 +1164,20 @@ function LibraryView({
         }}
         onCancel={() => setConfirming(undefined)}
       />
+      {/*
+        Mounted only while it is open, so the survey it fetches is fetched once
+        per opening rather than kept in step with a prop.
+      */}
+      {eagle !== undefined && (
+        <EagleDialog
+          path={eagle}
+          onCancel={() => setEagle(undefined)}
+          onImport={() => {
+            setEagle(undefined);
+            importing.startEagle(eagle);
+          }}
+        />
+      )}
     </div>
   );
 }

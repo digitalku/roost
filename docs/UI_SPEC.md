@@ -112,12 +112,19 @@ that is not reachable at all while a file is on screen.
 | **New text document…** | The same dialog, with `.txt` already typed and the caret in front of it |
 | **Import files…** | A file chooser. `Ctrl+I` |
 | **Import folder…** | A directory chooser. `Ctrl+Shift+I` |
+| **Import from Eagle…** | A directory chooser for one Eagle library, then §3.8 |
 
 **The two import items are two dialogs, not one dialog filtered.** A chooser given both `openFile`
 and `openDirectory` is drawn as a *file* chooser on GTK, macOS and Windows alike, and merely permits
 a directory to be selected in it — so importing a folder meant navigating to that folder's **parent**
 and clicking it there, which is the one view that does not show what is inside it. Asking which was
 meant costs a menu item and buys a chooser that behaves. Both take a multiple selection.
+
+**Import from Eagle… sits in the same group and carries no accelerator.** It is an import, and the
+group is where the bytes come from; a third keystroke would be an arbitrary one for something
+somebody does once. Its chooser takes exactly **one** directory where the other two take several,
+because an Eagle library is a whole thing with a folder tree and a tag vocabulary of its own — two
+at once would raise which tree the folders belong to.
 
 **Add is not a File menu.** ADR-0028 removed the menu bar and put the application's own commands in
 the `☰`; this is not that returning under another name. Nothing joins this menu that acts on an
@@ -592,6 +599,46 @@ it**.
 
 The field keeps the focus throughout: the options are an `aria-activedescendant` listbox, and a
 press on one prevents the default so the blur never fires under the click.
+
+### 3.8 What importing an Eagle library would do
+
+Reached from **Import from Eagle…** in the Add menu, after the chooser (ADR-0032 §6). A `Dialog`
+rather than an `AlertDialog`: an import is not destructive — Eagle's library is only ever read, and
+what arrives can be trashed like anything else — so it dismisses by clicking away and confirms with
+a plain button. The danger ramp means *cannot be undone* (§2) and this is not that.
+
+**It selects nothing.** The import brings every item and every kind of metadata, which is the user's
+decision of 2026-09-06, so this is not a filter with checkboxes. It answers *what am I about to do*,
+and its real work is the second half of that: the things which **will not** come across. Afterwards
+they are unfalsifiable — a colour palette that was dropped and one that never existed look identical
+in a library — so this is the only moment they can be said while the Eagle library is certainly
+still there.
+
+Four blocks, and every one of them omits what does not apply. A count of zero is a sentence about
+something the user does not use:
+
+| Block | Holds |
+| --- | --- |
+| The library | `Eagle <version> · <n> items · <size>`, from Eagle's own byte count |
+| What it holds | Tags, folders, tag groups, rated, notes, URLs, comments, subtitles, items in Eagle's trash |
+| Not carried across | Eagle's thumbnails, colour palettes, smart folders, quick access, and **its "date added"** |
+| Warnings | Folders that will be renamed, and how many items will be skipped |
+
+**Eagle's "date added" is listed with the losses and not buried.** It cannot be recovered once the
+Eagle library is deleted, and it is the one thing in the mapping with no home here — `imported_at`
+comes from the journal line's own timestamp. The file's own date does survive, which is the half
+that makes it bearable, and the line says so.
+
+**The survey is fetched when the dialog opens**, not passed in: it costs a read per item and the
+caller has only a path. Until it answers the dialog says *Reading the library…* and **Import** is
+disabled — as it stays for a survey of zero items, which is what a directory that is not an Eagle
+library looks like once the engine has refused it. The refusal's own message is shown, because
+"no `metadata.json`" is more use than "could not read it".
+
+**Progress goes to the status bar, not to this dialog**, like every other import (§8): a run of
+ninety thousand items is a state the window is in rather than a notification. It is the one import
+that can say *3 of 14*, because the survey counted the items before the run began; a directory walk
+cannot, and says how many it has scanned instead.
 
 ## 4. Navigation
 

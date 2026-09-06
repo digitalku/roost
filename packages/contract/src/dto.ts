@@ -490,6 +490,74 @@ export interface WireImportReport {
   readonly failed: readonly WireImportFailure[];
 }
 
+/** A folder Eagle allows and Roost does not, and the name it will get. */
+export interface WireFolderRename {
+  readonly from: string;
+  readonly to: string;
+}
+
+/**
+ * What an Eagle library holds, before anything is imported (ADR-0032 §6).
+ *
+ * Counts rather than lists, with two exceptions. The renames are named because
+ * the user is being asked to approve them, and there are as many as there are
+ * folders — a number, not a library's worth. Everything else that could grow
+ * without bound arrives as a count: a survey of a hundred thousand items must
+ * not put a hundred thousand strings through the port to fill in a dialog that
+ * would say "and 99,990 more".
+ */
+export interface WireEagleSurvey {
+  /** Eagle's `applicationVersion`, so a surprise is attributable. */
+  readonly version: string;
+  readonly items: number;
+  /** Eagle's own total, which is what a survey can know without hashing. */
+  readonly bytes: number;
+  readonly folders: number;
+  readonly tagGroups: number;
+  readonly tags: number;
+  readonly rated: number;
+  readonly notes: number;
+  readonly sources: number;
+  readonly comments: number;
+  readonly subtitles: number;
+  readonly trashed: number;
+  readonly renamedFolders: readonly WireFolderRename[];
+  /** Items whose file is not where Eagle's metadata says it is. */
+  readonly missing: number;
+  /** Item directories whose `metadata.json` could not be read. */
+  readonly unreadable: number;
+}
+
+/**
+ * What importing an Eagle library did (ADR-0032).
+ *
+ * `assets` and `imported` are different numbers and both are worth showing:
+ * a subtitle is an asset of its own (ADR-0025), so a library of fourteen items
+ * with one `.srt` beside a film writes fifteen files. `collapsed` is the count
+ * that reads as data loss when it arrives unexplained — Eagle identifies an
+ * item by id and Roost by content hash, so identical bytes are one asset here.
+ */
+export interface WireEagleReport {
+  readonly items: number;
+  readonly assets: number;
+  readonly imported: number;
+  readonly duplicates: number;
+  readonly collapsed: number;
+  readonly folders: number;
+  readonly tagGroups: number;
+  readonly tagged: number;
+  readonly ratings: number;
+  readonly notes: number;
+  readonly sources: number;
+  readonly comments: number;
+  readonly trashed: number;
+  readonly subtitles: number;
+  readonly bytes: number;
+  readonly thumbnails: number;
+  readonly elapsedMs: number;
+  readonly failed: readonly WireImportFailure[];
+}
+
 /**
  * What pasting found on the clipboard, and what was done about it (ADR-0026 §5).
  *
@@ -537,6 +605,16 @@ export interface ImportProgress {
   readonly failed: number;
   /** Non-zero once the import is done and the thumbnails are being made. */
   readonly thumbnails: number;
+  /**
+   * How many there are in total, when that is known before the run ends.
+   *
+   * `null` for an import of paths, and not as an oversight: the total is the
+   * walk's own result, so a bar that filled to an estimate would jump back
+   * every time the walk found more. An Eagle import knows it from the survey,
+   * which is the whole difference — there, "3 of 14" is a fact rather than a
+   * guess (ADR-0032).
+   */
+  readonly total: number | null;
 }
 
 /**

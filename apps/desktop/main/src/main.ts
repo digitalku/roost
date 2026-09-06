@@ -208,6 +208,7 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "dialog:chooseLocation",
   "dialog:chooseImport",
   "dialog:chooseSubtitle",
+  "dialog:chooseEagle",
   "asset:openExternally",
   "asset:reveal",
   "asset:copyPath",
@@ -235,6 +236,7 @@ async function answerHere(
   }
   if (request.type === "dialog:chooseImport") return chooseImport(request.what);
   if (request.type === "dialog:chooseSubtitle") return chooseSubtitle();
+  if (request.type === "dialog:chooseEagle") return chooseEagle();
 
   const forOpening = request.type === "dialog:openLibrary";
 
@@ -312,6 +314,36 @@ async function chooseImport(what: ImportSubject): Promise<readonly string[] | nu
  * Opens in Downloads rather than Pictures: a subtitle almost always arrives
  * that way, and Pictures is where a library's assets come from.
  */
+/**
+ * The chooser for **Import from Eagle…** (ADR-0032).
+ *
+ * One directory, and only one: an Eagle library is a whole thing with a folder
+ * tree and a tag vocabulary of its own, so two of them at once would raise
+ * which tree the folders belong to. {@link chooseImport} takes several because
+ * three folders of pictures is as ordinary as three pictures.
+ *
+ * `openDirectory` without `createDirectory`, since the answer has to be a
+ * library that already exists, and no filter: `.library` is a directory rather
+ * than an extension, and a chooser cannot filter on one.
+ */
+async function chooseEagle(): Promise<string | null> {
+  const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const options = {
+    title: "Choose an Eagle library",
+    buttonLabel: "Choose",
+    properties: ["openDirectory"] as const,
+    defaultPath: app.getPath("pictures"),
+  };
+
+  const chosen =
+    parent === undefined
+      ? await dialog.showOpenDialog({ ...options, properties: [...options.properties] })
+      : await dialog.showOpenDialog(parent, { ...options, properties: [...options.properties] });
+
+  const [first] = chosen.filePaths;
+  return chosen.canceled || first === undefined ? null : first;
+}
+
 async function chooseSubtitle(): Promise<readonly string[] | null> {
   const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   const options = {

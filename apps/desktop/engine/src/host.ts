@@ -14,6 +14,8 @@ import type {
   WireComment,
   WireCursor,
   WireDeriveStatus,
+  WireEagleReport,
+  WireEagleSurvey,
   WireImportReport,
   WireSidebar,
 } from "@roost/contract";
@@ -37,12 +39,15 @@ import {
   createAsset,
   type DeriveReport,
   deleteSubtitle,
+  type EagleReport,
+  type EagleSurvey,
   emptyTrash,
   enqueueMissing,
   ensurePreview,
   exportAssets,
   forgetLibrary,
   type ImportReport,
+  importEagle,
   importInto,
   Library,
   libraryDirectory,
@@ -68,6 +73,7 @@ import {
   setNote,
   setPoster,
   setSource,
+  surveyEagle,
   tagAdd,
   tagRemove,
   trashAssets,
@@ -291,6 +297,14 @@ export class EngineHost {
       case "import:paths":
         return this.#import(request.paths, request.mode, request.tags);
 
+      case "eagle:survey":
+        // No library is required, and none is opened: this reads somebody
+        // else's directory and writes nothing (ADR-0032 §6).
+        return wireSurvey(await surveyEagle(request.path));
+
+      case "eagle:import":
+        return this.#importEagle(request.path, request.mode);
+
       case "derive:status":
         return this.#deriveStatus();
 
@@ -316,6 +330,7 @@ export class EngineHost {
       case "link:open":
       case "dialog:chooseImport":
       case "dialog:chooseSubtitle":
+      case "dialog:chooseEagle":
       case "asset:openExternally":
       case "asset:reveal":
       case "asset:copyPath":
@@ -404,6 +419,47 @@ export class EngineHost {
 
     this.onChanged?.();
     return reportOf(report, derived?.derived ?? 0);
+  }
+
+  /**
+   * Importing an Eagle library, and then the pictures for it (ADR-0032).
+   *
+   * The same shape as {@link #import} and for the same reason: the CLI keeps
+   * `import` and `thumb` apart because a headless run into a library nobody is
+   * looking at should not pay for pictures, and a run somebody *is* watching
+   * produces a screen of placeholders without them.
+   *
+   * Progress is reported in items rather than files. An Eagle item can be two
+   * files — a video and the `.srt` beside it — and the number somebody watches
+   * is the one that matches the number the survey showed them.
+   */
+  async #importEagle(path: string, mode: StorageMode): Promise<WireEagleReport> {
+    const library = this.#require();
+
+    const report = await importEagle(library, path, { mode }, (done, total) => {
+      this.onProgress?.({
+        scanned: done,
+        imported: done,
+        duplicates: 0,
+        failed: 0,
+        thumbnails: 0,
+        total,
+      });
+    });
+
+    const derived = await this.#runDerives((running) => {
+      this.onProgress?.({
+        scanned: report.survey.items,
+        imported: report.assets,
+        duplicates: report.duplicates,
+        failed: report.failed.length,
+        thumbnails: running.derived,
+        total: report.survey.items,
+      });
+    });
+
+    this.onChanged?.();
+    return wireEagleReport(report, derived?.derived ?? 0);
   }
 
   /**
@@ -842,6 +898,9 @@ function progressOf(report: ImportReport, thumbnails: number): ImportProgress {
     duplicates: report.duplicates + report.partialDuplicates,
     failed: report.failed.length + report.partialCollisions,
     thumbnails,
+    // The walk is what produces the total, so there is nothing honest to say
+    // here until it has finished — see {@link ImportProgress.total}.
+    total: null,
   };
 }
 
@@ -861,6 +920,51 @@ function reportOf(report: ImportReport, thumbnails: number): WireImportReport {
     bytes: report.bytes,
     subtitles: report.subtitles,
     subtitlesUnattached: report.subtitlesUnattached,
+    thumbnails,
+    elapsedMs: Math.round(report.elapsed),
+    failed: report.failed.map((failure) => ({ path: failure.path, reason: failure.reason })),
+  };
+}
+
+/** The survey, with everything unbounded reduced to a count (ADR-0032 §6). */
+function wireSurvey(survey: EagleSurvey): WireEagleSurvey {
+  return {
+    version: survey.version,
+    items: survey.items,
+    bytes: survey.bytes,
+    folders: survey.folders,
+    tagGroups: survey.tagGroups,
+    tags: survey.tags.length,
+    rated: survey.rated,
+    notes: survey.notes,
+    sources: survey.sources,
+    comments: survey.comments,
+    subtitles: survey.subtitles,
+    trashed: survey.trashed,
+    renamedFolders: survey.renamedFolders.map((rename) => ({ from: rename.from, to: rename.to })),
+    missing: survey.missing.length,
+    unreadable: survey.unreadable.length,
+  };
+}
+
+/** The report, mapped field by field. The timings are dropped, as {@link reportOf} drops them. */
+function wireEagleReport(report: EagleReport, thumbnails: number): WireEagleReport {
+  return {
+    items: report.survey.items,
+    assets: report.assets,
+    imported: report.imported,
+    duplicates: report.duplicates,
+    collapsed: report.collapsed,
+    folders: report.folders,
+    tagGroups: report.tagGroups,
+    tagged: report.tagged,
+    ratings: report.ratings,
+    notes: report.notes,
+    sources: report.sources,
+    comments: report.comments,
+    trashed: report.trashed,
+    subtitles: report.subtitles,
+    bytes: report.bytes,
     thumbnails,
     elapsedMs: Math.round(report.elapsed),
     failed: report.failed.map((failure) => ({ path: failure.path, reason: failure.reason })),

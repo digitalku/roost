@@ -1,4 +1,4 @@
-import { bad, type Checked, isRecord, ok, readInteger, within } from "./checked.js";
+import { bad, type Checked, isRecord, ok, readInteger, readNullable, within } from "./checked.js";
 import type { DeriveProgress, ImportProgress } from "./dto.js";
 
 /**
@@ -48,6 +48,11 @@ export const EVENT_VALIDATORS: {
       if (!value.ok) return value;
       counts[field] = value.value;
     }
+    // Nullable rather than one more of the five: an unknown total and a total
+    // of zero are different things, and only one of them is a number.
+    const total = readNullable(source, "total", readInteger);
+    if (!total.ok) return total;
+
     return ok({
       type: "import:progress",
       scanned: counts["scanned"] ?? 0,
@@ -55,6 +60,7 @@ export const EVENT_VALIDATORS: {
       duplicates: counts["duplicates"] ?? 0,
       failed: counts["failed"] ?? 0,
       thumbnails: counts["thumbnails"] ?? 0,
+      total: total.value,
     });
   },
 

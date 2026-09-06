@@ -114,10 +114,13 @@ describe("validating a request", () => {
       "library:reclaim",
       "assets:export",
       "import:paths",
+      "eagle:survey",
+      "eagle:import",
       "derive:status",
       "derive:retry",
       "dialog:chooseImport",
       "dialog:chooseSubtitle",
+      "dialog:chooseEagle",
       "dialog:openLibrary",
       "dialog:chooseLocation",
     ]);
@@ -358,6 +361,7 @@ describe("validating an envelope", () => {
         duplicates: 2,
         failed: 0,
         thumbnails: 0,
+        total: null,
       }),
     ).toEqual({
       ok: true,
@@ -368,8 +372,24 @@ describe("validating an envelope", () => {
         duplicates: 2,
         failed: 0,
         thumbnails: 0,
+        total: null,
       },
     });
+
+    // `null` and a number are both accepted, and they mean different things:
+    // a walk does not know its total until it ends, and an Eagle import counted
+    // its items before it began (ADR-0032).
+    expect(
+      checkEvent({
+        type: "import:progress",
+        scanned: 3,
+        imported: 3,
+        duplicates: 0,
+        failed: 0,
+        thumbnails: 0,
+        total: 14,
+      }),
+    ).toMatchObject({ ok: true, value: { total: 14 } });
 
     expect(checkEvent({ type: "import:progress", scanned: 1, imported: 1, duplicates: 0 })).toEqual(
       {
@@ -386,6 +406,7 @@ describe("validating an envelope", () => {
       duplicates: 0,
       failed: 0,
       thumbnails: 0,
+      total: null,
       path: "/home/you/secret",
     });
     expect(smuggled).toEqual({
@@ -397,6 +418,7 @@ describe("validating an envelope", () => {
         duplicates: 0,
         failed: 0,
         thumbnails: 0,
+        total: null,
       },
     });
   });

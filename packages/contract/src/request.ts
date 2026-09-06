@@ -24,6 +24,8 @@ import type {
   WireCreated,
   WireCursor,
   WireDeriveStatus,
+  WireEagleReport,
+  WireEagleSurvey,
   WireExportReport,
   WireImportReport,
   WirePasted,
@@ -380,6 +382,26 @@ export type Request =
       readonly tags: readonly string[];
     }
   /**
+   * What an Eagle library holds, without importing any of it (ADR-0032 §6).
+   *
+   * Writes nothing, and needs no library open: reading what is in an Eagle
+   * library is a question that stands on its own, and answering it should not
+   * require having somewhere to put the answer yet.
+   *
+   * It is **not** a filter. Nothing is selected from the result — the import
+   * brings everything — so this exists to answer "what am I about to do",
+   * including the parts that cannot be carried across.
+   */
+  | { readonly type: "eagle:survey"; readonly path: string }
+  /**
+   * Import an Eagle library, translating its metadata (ADR-0032).
+   *
+   * `managed` by default and by intention: `referenced` would leave every asset
+   * pointing into the Eagle library, so deleting it afterwards would empty
+   * Roost. Eagle's own library is only ever read.
+   */
+  | { readonly type: "eagle:import"; readonly path: string; readonly mode: StorageMode }
+  /**
    * What the derive queue is holding, and what this machine can draw.
    *
    * Asked when the window opens a library and after a run finishes, so an
@@ -415,6 +437,15 @@ export type Request =
    * rather than Pictures, because that is where one arrives.
    */
   | { readonly type: "dialog:chooseSubtitle" }
+  /**
+   * Ask the user for an Eagle library directory (ADR-0032).
+   *
+   * Its own chooser rather than `dialog:chooseImport` with `what: "folders"`,
+   * for the reason {@link dialog:chooseSubtitle} has one: that dialog says
+   * "Import" on its button and takes several directories, and this takes
+   * exactly one and does something different with it.
+   */
+  | { readonly type: "dialog:chooseEagle" }
   /**
    * Ask the user for an existing library directory.
    *
@@ -495,6 +526,8 @@ export interface Responses {
   "library:reclaim": WireReclaimable;
   "assets:export": WireExportReport;
   "import:paths": WireImportReport;
+  "eagle:survey": WireEagleSurvey;
+  "eagle:import": WireEagleReport;
   "derive:status": WireDeriveStatus;
   /** The status after the retry, so one round trip answers "and now?". */
   "derive:retry": WireDeriveStatus;
@@ -502,6 +535,8 @@ export interface Responses {
   "dialog:chooseImport": readonly string[] | null;
   /** The chosen subtitles, or `null` if the dialog was cancelled. */
   "dialog:chooseSubtitle": readonly string[] | null;
+  /** One Eagle library directory, or `null` if the dialog was cancelled. */
+  "dialog:chooseEagle": string | null;
   /** `null` when the user cancelled, which is an outcome rather than a failure. */
   "dialog:openLibrary": string | null;
   "dialog:chooseLocation": string | null;
@@ -778,6 +813,19 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "import:paths", paths: paths.value, mode: mode.value, tags: tags.value });
   },
 
+  "eagle:survey": (source) => {
+    const path = readNonEmpty(source, "path");
+    return path.ok ? ok({ type: "eagle:survey", path: path.value }) : path;
+  },
+
+  "eagle:import": (source) => {
+    const path = readNonEmpty(source, "path");
+    if (!path.ok) return path;
+    const mode = readOneOf(source, "mode", STORAGE_MODES);
+    if (!mode.ok) return mode;
+    return ok({ type: "eagle:import", path: path.value, mode: mode.value });
+  },
+
   "derive:status": () => ok({ type: "derive:status" }),
 
   "derive:retry": (source) => {
@@ -794,6 +842,8 @@ export const REQUEST_VALIDATORS: {
   },
 
   "dialog:chooseSubtitle": () => ok({ type: "dialog:chooseSubtitle" }),
+
+  "dialog:chooseEagle": () => ok({ type: "dialog:chooseEagle" }),
 
   "dialog:openLibrary": () => ok({ type: "dialog:openLibrary" }),
   "dialog:chooseLocation": () => ok({ type: "dialog:chooseLocation" }),

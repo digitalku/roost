@@ -305,9 +305,24 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   (726.211598 s → 726212 ms), 1 subtitle attached from a sibling no metadata mentions, and 15
   distinct `created_at` values against 1 `imported_at` — which is exactly the `btime` loss §7
   describes, visible in the index.
-- 🟡 **A door in the window.** The CLI is the whole of it today (ADR-0005). The survey is what a
-  GUI would render — a dialog reached from the `☰`, showing what the library holds and what will
-  not come across, then the same two phases behind a progress bar. Needs `UI_SPEC.md` first.
+- ☑ ~~**A door in the window.**~~ Built 2026-09-06 at the user's request. **Import from Eagle…**
+  in the Add menu — an import, so it sits with the other two rather than in the `☰`, and it carries
+  no accelerator because the obvious pair is taken and a third would be arbitrary. Its chooser takes
+  **one** directory where the others take several. The survey is `UI_SPEC.md` §3.8: what the library
+  holds, what will not come across, the folders that will be renamed, and how many items will be
+  skipped — every block omitting what does not apply, because "0 comments" is a sentence about
+  something the user does not use. Two requests (`eagle:survey`, `eagle:import`) and one chooser
+  (`dialog:chooseEagle`, answered by main).
+- ☑ ~~**`ImportProgress` gained a nullable `total`.**~~ An Eagle import counted its items before it
+  began, so its status line says *3 of 14*; a directory walk cannot, sends `null`, and says how many
+  it has scanned. Nullable rather than a sixth count: an unknown total and a total of zero are
+  different things and only one of them is a number.
+- ☑ ~~**`scripts/check-eagle.mjs`**~~ — 27 claims against a **running window**, with a real preload,
+  main, engine, and Eagle library on disk. The one step it cannot drive is the native directory
+  chooser, which belongs to the desktop; the menu item is asserted and the path handed to the page
+  after that. It caught two things a component test could not: Radix opens on `pointerdown`, so a
+  dispatched `click()` leaves the menu shut, and the first fixture shared `imageLibrary`'s gradients
+  so every import deduplicated against the destination and proved the opposite of what it meant to.
 - 🟢 **The survey does not report formats with no thumbnail**, though an earlier draft of the ADR
   said it would. Knowing that means probing every file, which is what the import does anyway; a
   survey that costs an import is not a survey. The ADR now says so.

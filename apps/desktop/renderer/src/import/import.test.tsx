@@ -159,8 +159,8 @@ describe("importing", () => {
   it("shows progress while it runs and the outcome when it stops", async () => {
     await open({
       importProgress: [
-        { scanned: 100, imported: 98, duplicates: 2, failed: 0, thumbnails: 0 },
-        { scanned: 400, imported: 396, duplicates: 4, failed: 0, thumbnails: 0 },
+        { scanned: 100, imported: 98, duplicates: 2, failed: 0, thumbnails: 0, total: null },
+        { scanned: 400, imported: 396, duplicates: 4, failed: 0, thumbnails: 0, total: null },
       ],
       importReport: { scanned: 500, imported: 495, duplicates: 4, partialCollisions: 1 },
     });

@@ -9,8 +9,8 @@ import { useRef } from "react";
  * empty space — a place nobody right-clicks in an application they have just
  * opened, and one that is not even reachable while a file is on screen.
  *
- * **Add is the verb, and the four items are where the bytes come from.** Two
- * make them here, two take them from the filesystem, and the separator is the
+ * **Add is the verb, and the items are where the bytes come from.** Two make
+ * them here, three take them from the filesystem, and the separator is the
  * whole of the difference. Nothing else joins this menu: it is not a File menu
  * (ADR-0028 removed the menu bar), and a per-asset command belongs to the
  * asset.
@@ -28,6 +28,8 @@ export interface AddMenuProps {
   readonly onNewTextDocument: () => void;
   readonly onImportFiles: () => void;
   readonly onImportFolder: () => void;
+  /** Opens the Eagle chooser, then the survey dialog (ADR-0032). */
+  readonly onImportEagle: () => void;
   /** An import is running, and there is one at a time (`useImport`). */
   readonly busy: boolean;
 }
@@ -37,6 +39,7 @@ export function AddMenu({
   onNewTextDocument,
   onImportFiles,
   onImportFolder,
+  onImportEagle,
   busy,
 }: AddMenuProps): React.JSX.Element {
   /**
@@ -130,6 +133,20 @@ export function AddMenu({
             <span className="menu-mark" />
             <span className="menu-label">Import folder…</span>
             <span className="menu-accelerator">Ctrl+Shift+I</span>
+          </DropdownMenu.Item>
+
+          {/*
+            In this group and not a separator away from it: it is an import, and
+            the group is "where the bytes come from". No accelerator — the two
+            above have the obvious pair, and a third would be an arbitrary
+            keystroke for something somebody does once.
+
+            It goes through a native chooser like the other two, so
+            `opening.current` stays false and Radix may take the focus back.
+          */}
+          <DropdownMenu.Item className="menu-item" disabled={busy} onSelect={onImportEagle}>
+            <span className="menu-mark" />
+            <span className="menu-label">Import from Eagle…</span>
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

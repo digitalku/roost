@@ -12,6 +12,8 @@ import type {
   WireAssetDetail,
   WireComment,
   WireDeriveStatus,
+  WireEagleReport,
+  WireEagleSurvey,
   WireExportReport,
   WireImportReport,
   WirePasted,
@@ -111,9 +113,54 @@ export interface FakeEngineOptions {
   /** Rows an import adds to what the empty query answers with. */
   readonly importAdds?: readonly AssetCard[];
   readonly importProgress?: readonly ImportProgress[];
+  /** What `dialog:chooseEagle` answers with. `null` is a cancelled dialog. */
+  readonly eagleDialog?: string | null;
+  /** What `eagle:survey` answers with, over an otherwise empty one. */
+  readonly eagleSurvey?: Partial<WireEagleSurvey>;
+  /** What `eagle:import` reports. */
+  readonly eagleReport?: Partial<WireEagleReport>;
   /** What `derive:status` and `derive:retry` answer with. */
   readonly deriveStatus?: WireDeriveStatus;
 }
+
+const EMPTY_SURVEY: WireEagleSurvey = {
+  version: "4.0.0",
+  items: 0,
+  bytes: 0,
+  folders: 0,
+  tagGroups: 0,
+  tags: 0,
+  rated: 0,
+  notes: 0,
+  sources: 0,
+  comments: 0,
+  subtitles: 0,
+  trashed: 0,
+  renamedFolders: [],
+  missing: 0,
+  unreadable: 0,
+};
+
+const EMPTY_EAGLE_REPORT: WireEagleReport = {
+  items: 0,
+  assets: 0,
+  imported: 0,
+  duplicates: 0,
+  collapsed: 0,
+  folders: 0,
+  tagGroups: 0,
+  tagged: 0,
+  ratings: 0,
+  notes: 0,
+  sources: 0,
+  comments: 0,
+  trashed: 0,
+  subtitles: 0,
+  bytes: 0,
+  thumbnails: 0,
+  elapsedMs: 0,
+  failed: [],
+};
 
 const EMPTY_REPORT: WireImportReport = {
   scanned: 0,
@@ -686,6 +733,24 @@ export class FakeEngine {
 
       case "dialog:chooseSubtitle":
         return ok(this.#options.subtitleDialog ?? null);
+
+      case "dialog:chooseEagle":
+        return ok(this.#options.eagleDialog ?? null);
+
+      case "eagle:survey":
+        // No library needed, as in the engine: a survey reads somebody else's
+        // directory and writes nothing.
+        return ok({ ...EMPTY_SURVEY, ...this.#options.eagleSurvey });
+
+      case "eagle:import": {
+        if (this.#open === undefined) return problem("remote", "No library is open", {});
+        for (const step of this.#options.importProgress ?? []) {
+          this.emit({ type: "import:progress", ...step });
+        }
+        this.assets = [...(this.#options.importAdds ?? []), ...this.assets];
+        this.emit({ type: "library:changed" });
+        return ok({ ...EMPTY_EAGLE_REPORT, ...this.#options.eagleReport });
+      }
 
       case "import:paths": {
         if (this.#open === undefined) return problem("remote", "No library is open", {});

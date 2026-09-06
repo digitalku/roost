@@ -767,6 +767,44 @@ button:disabled {
   tab-size: 4;
 }
 
+/* The Eagle survey (`UI_SPEC.md` §3.8). Reading matter rather than a form, so
+   it is a stack of short blocks and the dialog's own gap is too large for it. */
+.eagle-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: min(24rem, 50vh);
+  /* The lists are bounded but not by much: five renamed folders plus three
+     lines of what is lost is taller than a short window. */
+  overflow-y: auto;
+}
+
+.eagle-line {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.eagle-heading {
+  margin: var(--space-2) 0 0;
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.eagle-list {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--text-muted);
+}
+
+/* Not the danger ramp: nothing is being destroyed, these are items the import
+   will pass over. */
+.eagle-warning {
+  margin: var(--space-2) 0 0;
+  color: var(--warning);
+}
+
 /* Destructive only (`UI_SPEC.md` §2): the danger ramp is not a way to draw
    attention, it is what an action that cannot be undone looks like. */
 .button-danger {
