@@ -551,12 +551,19 @@ export async function importEagle(
     bytes: 0,
   };
 
+  // Counted here rather than from `seen`, which only grows once a chunk has
+  // been committed: an import of fewer items than one chunk would otherwise
+  // report nothing until it had finished, which is a progress bar that goes
+  // from empty to done.
+  let done = 0;
   let chunk: EagleEntry[] = [];
   const flush = async (): Promise<void> => {
     if (chunk.length === 0) return;
-    await importChunk(library, chunk, mode, extraTags, folderIds, seen, counts, failed);
+    await importChunk(library, chunk, mode, extraTags, folderIds, seen, counts, failed, () => {
+      done += 1;
+      onProgress?.(done, survey.items);
+    });
     chunk = [];
-    onProgress?.(seen.size, survey.items);
   };
 
   for await (const entry of eagleEntries(root)) {
@@ -679,17 +686,29 @@ async function importChunk(
   seen: Set<string>,
   counts: Counts,
   failed: ImportFailure[],
+  /** Called once per item whose bytes have been placed, for the progress line. */
+  onItem: () => void,
 ): Promise<void> {
   const hashes = new Map<string, ContentHash>();
   const sources: string[] = [];
+  /** The chunk's originals, so progress counts *items* and not files. */
+  const originals = new Set<string>();
   for (const entry of chunk) {
-    if (entry.file !== undefined) sources.push(entry.file);
+    if (entry.file !== undefined) {
+      sources.push(entry.file);
+      originals.add(entry.file);
+    }
     sources.push(...entry.subtitles);
   }
 
   const report = await importInto(library, sources, {
     mode,
-    onAsset: (path, hash) => hashes.set(path, hash),
+    onAsset: (path, hash) => {
+      hashes.set(path, hash);
+      // A subtitle is a second file for one item (ADR-0025), so counting files
+      // here would run the progress past the total the survey showed.
+      if (originals.has(path)) onItem();
+    },
   });
   counts.imported += report.imported;
   counts.duplicates += report.duplicates;

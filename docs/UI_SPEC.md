@@ -636,9 +636,16 @@ library looks like once the engine has refused it. The refusal's own message is 
 "no `metadata.json`" is more use than "could not read it".
 
 **Progress goes to the status bar, not to this dialog**, like every other import (§8): a run of
-ninety thousand items is a state the window is in rather than a notification. It is the one import
-that can say *3 of 14*, because the survey counted the items before the run began; a directory walk
-cannot, and says how many it has scanned instead.
+ninety thousand items is a state the window is in rather than a notification. The line is *done of
+total* — and this is the one import where the total is a **fact**, because the survey counted the
+items before the run began. A directory walk has no total until it ends, so there the denominator is
+what the walk has found so far, which is the honest upper bound and grows as it goes.
+
+**The numerator is what has finished, never what has been found.** `scanned` is the walk's own
+queue: it drains five hundred paths before hashing any of them, so a line reading `500 scanned` says
+five hundred files are done when none of them are. Measured against a real window on 2026-09-06 — a
+3,000-file import emitted six progress events during its import phase and every one was a multiple
+of five hundred, which is the shape of the queue rather than of the work.
 
 ## 4. Navigation
 

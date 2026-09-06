@@ -370,16 +370,20 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
     // No percentage: the total is not known until the walk finishes, and a bar
     // that fills to an estimate and then jumps back is worse than a count. The
     // thumbnails are a second phase of the same run and say so.
+    // What is *finished*, over what is known to be there. `scanned` alone was
+    // the walk's own queue — it jumps by a batch of five hundred and then sits
+    // still, which reads as five hundred files done in an instant.
+    const done =
+      progress === undefined ? 0 : progress.imported + progress.duplicates + progress.failed;
     const said =
       progress === undefined
         ? "Importing…"
         : progress.thumbnails > 0
           ? `Thumbnails… ${progress.thumbnails.toLocaleString()} of ${progress.imported.toLocaleString()}`
-          : progress.total === null
-            ? `Importing… ${progress.scanned.toLocaleString()} scanned`
-            : // An Eagle import counted its items before it began, so this one
-              // can say how far through it is without estimating (ADR-0032).
-              `Importing… ${progress.scanned.toLocaleString()} of ${progress.total.toLocaleString()}`;
+          : // The denominator is the total where one is known — an Eagle import
+            // counted its items before it began (ADR-0032) — and otherwise what
+            // the walk has found so far, which is the honest upper bound.
+            `Importing… ${done.toLocaleString()} of ${(progress.total ?? progress.scanned).toLocaleString()}`;
     return <span className="status-job">{said}</span>;
   }
 

@@ -157,15 +157,31 @@ describe("importing", () => {
   });
 
   it("shows progress while it runs and the outcome when it stops", async () => {
+    // The reply is held open, or there is no "while it runs" to look at: every
+    // fake request otherwise resolves in the microtask that started it, and the
+    // running line is mounted and unmounted before a render happens.
+    let finish = (): void => {};
+    const reply = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+
     await open({
       importProgress: [
-        { scanned: 100, imported: 98, duplicates: 2, failed: 0, thumbnails: 0, total: null },
-        { scanned: 400, imported: 396, duplicates: 4, failed: 0, thumbnails: 0, total: null },
+        { scanned: 500, imported: 98, duplicates: 2, failed: 0, thumbnails: 0, total: null },
+        { scanned: 500, imported: 396, duplicates: 4, failed: 0, thumbnails: 0, total: null },
       ],
       importReport: { scanned: 500, imported: 495, duplicates: 4, partialCollisions: 1 },
+      hold: { "import:paths": reply },
     });
 
     fire("drop", [droppedFile("/photos")]);
+
+    // **Done over found**, not the walk's own queue: `scanned` jumps by a batch
+    // of five hundred before any of those files is hashed, so a line reading
+    // "500 scanned" would say five hundred are finished when none are.
+    expect(await screen.findByText(/Importing… 400 of 500/)).toBeDefined();
+
+    finish();
 
     // The outcome, not a toast: an import of five hundred files is a state the
     // window is in, and `duplicates` is the ordinary case rather than a warning.

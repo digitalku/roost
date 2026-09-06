@@ -121,6 +121,13 @@ export interface FakeEngineOptions {
   readonly eagleReport?: Partial<WireEagleReport>;
   /** What `derive:status` and `derive:retry` answer with. */
   readonly deriveStatus?: WireDeriveStatus;
+  /**
+   * Requests whose reply waits on a promise the test resolves.
+   *
+   * The progress *events* still fire immediately, which is the point: it is the
+   * gap between the first event and the reply that the running state lives in.
+   */
+  readonly hold?: Partial<Record<RequestType, Promise<void>>>;
 }
 
 const EMPTY_SURVEY: WireEagleSurvey = {
@@ -320,11 +327,18 @@ export class FakeEngine {
   /** The bridge the renderer will find on `window`. */
   bridge(): WindowBridge {
     return {
-      invoke: <T extends RequestType>(request: RequestOf<T>): Promise<Outcome<ResponseOf<T>>> =>
+      invoke: <T extends RequestType>(request: RequestOf<T>): Promise<Outcome<ResponseOf<T>>> => {
         // Cast because the answer is chosen by the request's own type, which is
         // exactly what the contract's mapped types express and what a switch
         // over a union cannot narrow for the caller.
-        Promise.resolve(this.#answer(request) as Outcome<ResponseOf<T>>),
+        const answer = this.#answer(request) as Outcome<ResponseOf<T>>;
+        // Held open when a test asked for it, so the *running* state exists
+        // long enough to be looked at. Without this every request resolves in
+        // the same microtask that started it, and "shows progress while it
+        // runs" is a claim nothing can check.
+        const holding = this.#options.hold?.[request.type];
+        return holding === undefined ? Promise.resolve(answer) : holding.then(() => answer);
+      },
       onEvent: (listener) => {
         this.#listeners.add(listener);
         return () => this.#listeners.delete(listener);

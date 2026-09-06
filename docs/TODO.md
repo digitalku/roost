@@ -313,6 +313,21 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   skipped — every block omitting what does not apply, because "0 comments" is a sentence about
   something the user does not use. Two requests (`eagle:survey`, `eagle:import`) and one chooser
   (`dialog:chooseEagle`, answered by main).
+- ☑ ~~**The progress line said the queue's size, not the work's.**~~ Reported by the user —
+  *"kok tidak ada tampilan progress nya ya?"* — and it was two defects, both measured against a
+  running window rather than argued about. **The Eagle import reported once per chunk of 200**, so a
+  library of fourteen items got its first progress event *after* everything was imported: two events
+  in total, the first already reading 14 of 14. It now reports per item, from `onAsset`, counting
+  originals only so a subtitle does not run the count past the survey's total — fifteen events for
+  the same library. **And the path import throttled on `scanned`**, which is what the walk has
+  *found*: it drains five hundred paths before hashing any of them, so a 3,000-file import emitted
+  six events during its import phase and every one was a multiple of five hundred. It now throttles
+  on what has finished, and the line reads *done of total* — the total being a fact for an Eagle
+  import and the walk's running discovery otherwise. **Both are now asserted**, which needed
+  `FakeEngine.hold`: every fake reply used to resolve in the microtask that started it, so the
+  running state was mounted and unmounted before a render, and the test named *"shows progress while
+  it runs"* checked only the outcome.
+
 - ☑ ~~**`ImportProgress` gained a nullable `total`.**~~ An Eagle import counted its items before it
   began, so its status line says *3 of 14*; a directory walk cannot, sends `null`, and says how many
   it has scanned. Nullable rather than a sixth count: an unknown total and a total of zero are

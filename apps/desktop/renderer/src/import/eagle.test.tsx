@@ -119,6 +119,33 @@ describe("importing an Eagle library", () => {
     await screen.findByText(/14 from Eagle · 2 folders · 6 comments/);
   });
 
+  /**
+   * The one import that can count against a real total, because the survey
+   * counted the items before the run began (ADR-0032).
+   */
+  it("counts up against the total the survey found", async () => {
+    let finish = (): void => {};
+    const reply = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+
+    const user = await open({
+      eagleDialog: EAGLE,
+      eagleSurvey: { items: 14 },
+      importProgress: [
+        { scanned: 3, imported: 3, duplicates: 0, failed: 0, thumbnails: 0, total: 14 },
+      ],
+      eagleReport: { items: 14, assets: 14 },
+      hold: { "eagle:import": reply },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Import" }));
+    expect(await screen.findByText(/Importing… 3 of 14/)).toBeDefined();
+
+    finish();
+    await screen.findByText(/14 from Eagle/);
+  });
+
   it("writes nothing when the dialog is cancelled", async () => {
     const user = await open({ eagleDialog: EAGLE, eagleSurvey: { items: 14 } });
 
