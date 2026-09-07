@@ -799,6 +799,15 @@ this, and closing them costs no information, because a folder's count is its sub
 lives in the window and **does not survive it**: where it belongs is `settings.json` in the library
 (ADR-0019), which is not built yet.
 
+**The disclosure control is a `--space-5` square holding a drawn chevron**, and a folder with no
+children gets a spacer of the same width rather than a disabled button — a target that answers a
+press by doing nothing is worse than no target. It was a full-height 16px strip with a `▸` in it
+until 2026-09-07, when the user reported it as too small to aim at: the glyph was the font's, at a
+size that left a speck of ink, and the hover state — inherited whole from the base button — painted
+a tall rectangle that read as a stripe of the row rather than as a button. The chevron is a path
+now, so it is the same shape at both densities, and the turn is the glyph's rather than the box's:
+a square that rotates with the arrow takes its hover state round with it.
+
 **The tree is editable from the pane.** `+` in the heading makes a top-level folder; right-clicking
 a row offers **New subfolder…**, **Rename…**, and **Delete folder…**. The heading is drawn even when
 the section is empty, which no other section does — a new library with no folders and no way to make

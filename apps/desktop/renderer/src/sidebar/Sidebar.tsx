@@ -256,7 +256,21 @@ function Folders({
                       aria-label={`${expansion.open.has(row.folder) ? "Collapse" : "Expand"} ${row.name}`}
                       onClick={() => expansion.toggle(row.folder)}
                     >
-                      <span aria-hidden="true">▸</span>
+                      {/* Drawn rather than typed: `▸` is a glyph the font
+                          decides the weight and the size of, and at the size
+                          this control wants it arrived as a speck the pointer
+                          had to hunt for. A path is the same shape at every
+                          density and turns cleanly. */}
+                      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                        <path
+                          d="M6 3.5 10.5 8 6 12.5"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.75"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
                     </button>
                   ) : (
                     <span className="sidebar-twisty" aria-hidden="true" />

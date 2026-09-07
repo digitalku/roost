@@ -95,23 +95,40 @@
   border-radius: var(--radius-sm);
 }
 
+/* The disclosure control, and the spacer that keeps a childless folder's name
+   in the same column. A square rather than a full-height strip: the hover state
+   is what says "this is a button", and a 16×28 rectangle with a chevron adrift
+   in it said something nearer "a stripe of the row is different". Reported on
+   2026-09-07, from a real pane. */
 .sidebar-twisty {
+  display: grid;
+  place-items: center;
   flex: none;
-  width: var(--space-4);
-  height: var(--row-height);
+  width: var(--space-5);
+  height: var(--space-5);
   padding: 0;
   border: 0;
+  border-radius: var(--radius-sm);
   background: none;
   color: var(--text-subtle);
-  font: inherit;
-  font-size: var(--text-xs);
-  line-height: 1;
-  /* Drawn pointing right and turned when open, so one glyph means both states
-     and the two never disagree about their size. */
+}
+
+.sidebar-twisty:hover:not(:disabled) {
+  background: var(--surface-overlay);
+  color: var(--text);
+}
+
+.sidebar-twisty > svg {
+  width: 14px;
+  height: 14px;
+  /* Drawn pointing right and turned when open, so one shape means both states
+     and the two never disagree about their size. The turn is the glyph's, not
+     the button's — a square that rotates with it takes its hover state round
+     with it. */
   transition: transform var(--dur-fast) var(--ease-out);
 }
 
-.sidebar-twisty[aria-expanded="true"] {
+.sidebar-twisty[aria-expanded="true"] > svg {
   transform: rotate(90deg);
 }
 

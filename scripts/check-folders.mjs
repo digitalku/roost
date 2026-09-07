@@ -207,6 +207,38 @@ try {
   const closed = await cdp.settle(treeExpression, (rows) => rows.length === 2);
   check("pressing it again closes it", names(closed) === "0:Design 0:Zebra", names(closed));
 
+  // The arrow was a 16px-wide strip of the whole row's height with a `▸` adrift
+  // in it, reported on 2026-09-07 as too small to aim at and not obviously a
+  // button. Neither its size nor its shape is anything a component test can
+  // read, and the size comes from a token — so this asserts the box the token
+  // asks for rather than a number written twice.
+  const arrow = await cdp.evaluate(`
+    (() => {
+      const el = document.querySelector(".sidebar-branch button.sidebar-twisty");
+      if (el === null) return null;
+      const box = el.getBoundingClientRect();
+      const glyph = el.querySelector("svg")?.getBoundingClientRect() ?? null;
+      return {
+        width: Math.round(box.width),
+        height: Math.round(box.height),
+        glyph: glyph === null ? null : Math.round(glyph.width),
+        asked: parseInt(
+          getComputedStyle(document.documentElement).getPropertyValue("--space-5"),
+          10,
+        ),
+      };
+    })()`);
+  check(
+    "the arrow is the square the token asks for, not a strip of the row",
+    arrow.width === arrow.asked && arrow.height === arrow.asked,
+    JSON.stringify(arrow),
+  );
+  check(
+    "and it is drawn, at a size the eye can find",
+    arrow.glyph !== null && arrow.glyph >= 12,
+    `glyph=${arrow.glyph}px`,
+  );
+
   section("Making a folder from the pane");
   const plus = await cdp.box(".sidebar-add");
   await cdp.mouse.click(plus.x, plus.y);
