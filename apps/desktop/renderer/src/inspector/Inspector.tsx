@@ -83,6 +83,15 @@ export interface InspectorProps {
    */
   readonly folders: readonly SidebarFolderRow[];
   /**
+   * An asset was renamed here, and the window holds a card that says otherwise.
+   *
+   * A rename moves neither the asset count nor the trash count, so the grid does
+   * not re-page on one (`App.tsx`, on `revision`) and its cell kept the old name
+   * until the view was left and come back to. Optional because the panel works
+   * without a grid behind it, which is what every test of it renders.
+   */
+  readonly onRenamed?: (hash: string, name: string) => void;
+  /**
    * Show what this query selects, replacing what is on screen.
    *
    * The same callback a sidebar row is given and the same rule with it: the
@@ -97,6 +106,7 @@ export function Inspector({
   generation,
   vocabulary,
   folders,
+  onRenamed,
   onPick,
 }: InspectorProps): React.JSX.Element | null {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
@@ -201,7 +211,7 @@ export function Inspector({
         />
       </div>
 
-      <NameField detail={detail} onSaved={read} />
+      <NameField detail={detail} onRenamed={onRenamed} onSaved={read} />
 
       <Rating value={detail.rating} mixed={false} hashes={hashes} onSaved={read} />
 
@@ -376,9 +386,11 @@ function extensionOf(detail: WireAssetDetail): string {
  */
 function NameField({
   detail,
+  onRenamed,
   onSaved,
 }: {
   readonly detail: WireAssetDetail;
+  readonly onRenamed: ((hash: string, name: string) => void) | undefined;
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
   const extension = extensionOf(detail);
@@ -420,7 +432,13 @@ function NameField({
     // sent and `useStoredValue` adopts what the library actually stored, which
     // is how a typed trailing space disappears from the field.
     saved.current = draft;
-    void invoke({ type: "asset:rename", hash: detail.hash, name }).then(onSaved);
+    void invoke({ type: "asset:rename", hash: detail.hash, name }).then((outcome) => {
+      // The name that was sent, and `cleanName` only trims — which this has
+      // already done. Told after the engine confirms, never before: a cell
+      // showing a name the write then refused is worse than a stale one.
+      if (outcome.ok) onRenamed?.(detail.hash, name);
+      return onSaved();
+    });
   };
 
   return (

@@ -40,6 +40,18 @@ export interface Paging {
    */
   readonly pinPoster: (hash: string, posterMs: number | null) => void;
   /**
+   * Puts a new name on a card already held.
+   *
+   * Same reason as {@link pinPoster}, and the same shape: a rename moves
+   * neither the asset count nor the trash count, so the grid does not re-page —
+   * and the cell under the inspector went on showing the old name until the
+   * view was left and come back to. Reported from real use on 2026-09-07.
+   *
+   * Only the window that made the change calls this. Another window onto the
+   * same library keeps the old name until it re-pages (ADR-0020).
+   */
+  readonly rename: (hash: string, name: string) => void;
+  /**
    * Takes rows out of the grid without re-paging it.
    *
    * The targeted update `App.tsx`'s note about `revision` says is owed. The
@@ -157,10 +169,14 @@ export function useAssetPages(query: string, generation: number): Paging {
     setAssets((held) => held.map((card) => (card.hash === hash ? { ...card, posterMs } : card)));
   }, []);
 
+  const rename = useCallback((hash: string, name: string): void => {
+    setAssets((held) => held.map((card) => (card.hash === hash ? { ...card, name } : card)));
+  }, []);
+
   const drop = useCallback((hashes: readonly string[]): void => {
     const gone = new Set(hashes);
     setAssets((held) => held.filter((card) => !gone.has(card.hash)));
   }, []);
 
-  return { assets, done, loading, problem, more, pinPoster, drop };
+  return { assets, done, loading, problem, more, pinPoster, rename, drop };
 }

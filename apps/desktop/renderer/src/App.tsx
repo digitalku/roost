@@ -75,9 +75,12 @@ export function App(): React.JSX.Element {
    *
    * Keeping them apart is what stops a keystroke in the note field from
    * re-paging the grid from row one and throwing the scroll position away.
-   * The cost is that a *filtered* grid does not drop an asset that has just
-   * stopped matching; `TODO.md` §M3 records it, and the fix is a targeted
-   * update rather than a reload.
+   * The cost is paid twice, and the answer to both is a targeted update rather
+   * than a reload: a card the grid holds can go stale in itself — a pinned
+   * poster, a rename — which `paging.pinPoster` and `paging.rename` put right,
+   * and a *filtered* grid does not drop an asset that has just stopped
+   * matching, which `paging.drop` answers only for `Ctrl+Delete`. `TODO.md`
+   * §M3 records what is left.
    */
   const [generation, setGeneration] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -1303,6 +1306,7 @@ function LibraryView({
           generation={revision}
           vocabulary={sidebar?.tags ?? NO_TAGS}
           folders={sidebar?.folders ?? NO_FOLDERS}
+          onRenamed={paging.rename}
           onPick={applyQuery}
         />
       </div>

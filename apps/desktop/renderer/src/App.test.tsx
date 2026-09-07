@@ -355,6 +355,43 @@ describe("the library view", () => {
     expect(pages()).toBe(3);
   });
 
+  it("shows a rename in the grid, without re-paging it", async () => {
+    // Reported from real use on 2026-09-07: renaming in the inspector left the
+    // cell under it saying the old name until the view was left and come back
+    // to. The grid re-pages only when a count moves (`App.tsx`, on `revision`)
+    // and a rename moves neither — so the window has to put the new name on the
+    // card it already holds. Re-paging instead would answer the complaint and
+    // throw the scroll position away with it, which is why the second half of
+    // this test matters as much as the first.
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 12 },
+      assets: Array.from({ length: 12 }, (_, i) => fakeAsset(i)),
+      // The panel needs a record to draw; the cards and this one agree on the
+      // name, the way the engine's two reads of one row do.
+      details: [fakeDetail(0)],
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    const field = (await screen.findByLabelText("Name")) as HTMLTextAreaElement;
+    const pages = engine.seen.filter((request) => request.type === "assets:page").length;
+
+    await user.clear(field);
+    await user.type(field, "sunset{Enter}");
+
+    // The cell's accessible name is the asset's name, so this is the grid
+    // reading differently and not merely the panel.
+    expect(await screen.findByRole("option", { name: "sunset.png" })).toBeDefined();
+    expect(screen.queryByRole("option", { name: "asset-0.png" })).toBeNull();
+    expect(engine.seen.filter((request) => request.type === "assets:page").length).toBe(pages);
+  });
+
   it("counts the selection in the status bar", async () => {
     const { user } = await open(12);
     await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
