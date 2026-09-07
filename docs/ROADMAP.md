@@ -331,8 +331,14 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-07.** **ADR-0033 — the folder tree in the sidebar** was accepted
-that morning, proposed the evening before from a screenshot of the user's own library. A branch
+**Nothing open, as of 2026-09-07.** **ADR-0034 — handing a file to another application** was
+accepted that day: a named copy staged inside the library, by reflink where the filesystem allows it
+and never by hardlink, and a clipboard that takes exactly one format chosen by the desktop reading
+it. **Its §4 is accepted open**, which is unusual and deliberate — dragging a file *out* waits on a
+fact nobody has, since a window cannot be an HTML5 drag source and a native file drag source in the
+same gesture and the grid's drag already files assets into folders.
+
+Before it that morning, **ADR-0033 — the folder tree in the sidebar** was accepted, proposed the evening before from a screenshot of the user's own library. A branch
 starts closed; the tree is editable from the pane (`+` in its heading, right-click for subfolder,
 rename and delete); and deleting a folder asks one question with a checkbox — the folder alone, or
 the folder and its live contents to the **trash**, in the same journal batch. Underneath the request

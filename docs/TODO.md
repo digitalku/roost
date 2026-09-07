@@ -158,7 +158,17 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
   replay landing between two batches would produce a state nobody asked for. The work is in §3
   below.
 
-**Nothing blocking.** ADR-0025 through ADR-0033 were all accepted on the day they were
+- ☑ ~~**ADR-0034 — handing a file to another application.**~~ **Accepted 2026-09-07**, the day it
+  was proposed, from the user asking for drag-out and copy-out together. Its subject is the
+  filename: the store names a file by its hash, which is right for the library and unreadable
+  anywhere else, so a named copy is staged in a new `staging/` directory **inside** the library — a
+  layout change to the binding spec, approved in the ask. Reflink, then copy, and **never a
+  hardlink**, because a shared inode would let another application write into the original. It is
+  the first ADR here accepted with a section left **open on purpose**: whether a native drag
+  delivers `drop` back to its own window is a fact nobody has, and it decides which of §4's three
+  designs is even possible. The work is in §3 below.
+
+**Nothing blocking.** ADR-0025 through ADR-0034 were all accepted on the day they were
 proposed or the morning after. The five questions the language change forced were settled on 2026-08-24, before any
 code was written against them — ADR-0006 through ADR-0012, all Accepted. What they decided is in
 `ROADMAP.md` §Decision status; what they now *oblige* is in §3 below.
