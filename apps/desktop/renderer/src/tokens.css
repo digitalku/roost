@@ -95,6 +95,16 @@
    */
   --bar-control-height: 32px;
   --gutter: var(--space-3);
+
+  /*
+   * The width of a scroller's own strip (UI_SPEC.md §2.5).
+   *
+   * Not to be confused with `--scrollbar` in `grid.css`, which is the strip
+   * *measured* off a live element: this is what the strip is asked to be, that
+   * is what it turned out to be once the platform had its say.
+   */
+  --scrollbar-size: 12px;
+  --scrollbar-inset: 3px;
 }
 
 :root[data-density="compact"] {
@@ -102,6 +112,8 @@
   --control-height: 24px;
   --bar-control-height: 28px;
   --gutter: var(--space-2);
+  --scrollbar-size: 10px;
+  --scrollbar-inset: 2px;
 }
 
 :root[data-theme="dark"] {
@@ -132,6 +144,13 @@
      selecting, and they have to stay recognisable underneath it. */
   --marquee-bg: rgb(79 170 161 / 18%);
   --marquee-border: var(--accent-5);
+
+  /* `--gray-7` is the one step on the ramp that clears the 3:1 floor §2 sets
+     for a non-text control against *both* ends of it, which is why the resting
+     thumb is the same step in both themes and only the hand moves it. */
+  --scrollbar-thumb: var(--gray-7);
+  --scrollbar-thumb-hover: var(--gray-8);
+  --scrollbar-thumb-active: var(--gray-9);
 
   --accent: var(--accent-4);
   --accent-hover: var(--accent-5);
@@ -177,6 +196,12 @@
      grid is barely a tint. */
   --marquee-bg: rgb(44 106 101 / 20%);
   --marquee-border: var(--accent-3);
+
+  /* The same resting step, and the hand moves it the other way — the ramp
+     reversing rather than a second decision. */
+  --scrollbar-thumb: var(--gray-7);
+  --scrollbar-thumb-hover: var(--gray-6);
+  --scrollbar-thumb-active: var(--gray-5);
 
   --accent: var(--accent-3);
   --accent-hover: var(--accent-2);

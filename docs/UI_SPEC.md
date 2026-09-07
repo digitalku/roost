@@ -217,6 +217,38 @@ tabular figures.
 anything during an active scroll. `prefers-reduced-motion: reduce` collapses every duration to
 0ms through the token, so no component needs to know about it.
 
+### 2.5 Scrollbars
+
+The scrollbar is drawn, not inherited. Unstyled, Chromium gives Linux a 15px bar with a stepper
+at each end and a thumb brighter than anything in the grid it is scrolling — the one widget in
+the window that ignored `data-theme` entirely, so the dark library and the light one had the
+same grey column down the right edge.
+
+```
+--scrollbar-size     12px, 10px in compact — the strip a scroller reserves
+--scrollbar-inset    the transparent border that makes the thumb a pill inside that strip
+--scrollbar-thumb    --scrollbar-thumb-hover     --scrollbar-thumb-active
+```
+
+- **The track is transparent**, so a bar shows the surface it rides on rather than adding a
+  column of its own to the sidebar, the grid, and the inspector alike.
+- **The thumb is a pill**, inset from the strip by a transparent border with the background
+  clipped to the padding box — a thumb takes no margin, and the strip has to stay wide enough
+  to grab even when what is drawn in it is narrow.
+- **No steppers.** Two targets for one line of travel.
+- **Under the hand it brightens and thickens**, by shrinking that border. The strip does not
+  change width, so nothing reflows — which is the rule from §2.4 applied to the one control
+  that lives on a scroll.
+
+Written as `::-webkit-scrollbar`, not `scrollbar-color`. The two are exclusive — a
+`scrollbar-width` other than `auto` makes Chromium drop the pseudo-elements — and the standard
+properties can neither round the thumb nor inset it. The renderer is Chromium by construction
+(ADR-0001), so no portability is spent.
+
+`--scrollbar-size` is what the strip is *asked* to be. `grid.css` also carries a `--scrollbar`,
+which is what it *measured* on a live element (§6); they are different facts and keep different
+names.
+
 ## 3. Components
 
 The inventory, with what each one owes. "Owns state" means it holds state no parent needs.

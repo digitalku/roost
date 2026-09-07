@@ -20,6 +20,11 @@
  *   matches for one.
  * - `--select-border` and `--border-focus` resolved to the same colour in both
  *   themes, so "the focused one is brighter" was a claim nothing could see.
+ * - The scrollbar was Chromium's own — a stepper at each end and a thumb
+ *   brighter than the pictures under it, the one widget in the window that
+ *   ignored `data-theme`. Found in a screenshot, because a scrollbar has no
+ *   computed style to read: the strip's width is the only handle on it, and
+ *   only a real window has one.
  *
  * And the marquee, whose autoscroll, paint, and refusal to start on the
  * scrollbar strip are all gestures rather than state.
@@ -111,6 +116,20 @@ const cellStyle = (index) => `
  * tokens holding one colour read as different for as long as nobody resolves
  * them.
  */
+/**
+ * What the scroller reserves, against what the token asks for.
+ *
+ * Measured off the element rather than read off a rule, because a scrollbar
+ * pseudo-element is not in the computed style of anything.
+ */
+const stripExpression = `
+  (() => {
+    const grid = document.querySelector(".grid");
+    const asked = getComputedStyle(document.documentElement)
+      .getPropertyValue("--scrollbar-size");
+    return { measured: grid.offsetWidth - grid.clientWidth, asked: parseFloat(asked) };
+  })()`;
+
 const resolve = (...tokens) => `
   (() => {
     const probe = document.createElement("span");
@@ -225,6 +244,23 @@ try {
     rightDrift <= 1,
     `worst drift ${rightDrift}px`,
   );
+
+  section("The scrollbar is drawn, not inherited (UI_SPEC.md §2.5)");
+  // A pseudo-element scrollbar has no computed style to read back, so the strip
+  // is what stands in for it: Chromium's own is 15px on Linux and ours is what
+  // `--scrollbar-size` asks for. If a `scrollbar-width` ever appears in the
+  // stylesheet, Chromium drops the whole `::-webkit-scrollbar` block and this
+  // is the line that notices.
+  for (const density of ["comfortable", "compact"]) {
+    await cdp.evaluate(`document.documentElement.dataset.density = ${JSON.stringify(density)}`);
+    const strip = await cdp.evaluate(stripExpression);
+    check(
+      `the strip is the width the token asks for (${density})`,
+      Math.abs(strip.measured - strip.asked) <= 1,
+      `--scrollbar-size=${strip.asked}px measured=${strip.measured}px`,
+    );
+  }
+  await cdp.evaluate('document.documentElement.dataset.density = "comfortable"');
 
   section("Two tokens, two roles");
   for (const theme of ["dark", "light"]) {

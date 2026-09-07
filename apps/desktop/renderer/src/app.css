@@ -32,6 +32,72 @@ body {
   outline-offset: 1px;
 }
 
+/*
+ * Every scroller in the window, drawn rather than inherited (UI_SPEC.md §2.5).
+ *
+ * Unstyled, Chromium hands Linux a 15px bar with a stepper at each end, a light
+ * track, and a thumb that reads as the brightest object on a dark grid — chrome
+ * shouting over the pictures it is there to move. It is also the one widget in
+ * the app that ignored the theme entirely, so the light and the dark window had
+ * the same grey column down their right edge.
+ *
+ * `::-webkit-scrollbar` rather than `scrollbar-color`, and the two are
+ * exclusive: setting `scrollbar-width` to anything but `auto` makes Chromium
+ * drop these rules. The standard properties cannot round a thumb or inset it,
+ * and the renderer is Chromium by construction (ADR-0001), so there is no
+ * portability being spent here.
+ */
+::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+/* Transparent, so the strip shows whatever surface it is over and the sidebar,
+   the grid, and the inspector do not each grow a grey column. */
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/*
+ * A pill floating in the strip rather than a block filling it.
+ *
+ * The inset is a transparent border with the background clipped to the padding
+ * box: a scrollbar thumb cannot take a margin, and this is the only way to make
+ * one narrower than the strip that has to stay wide enough to grab.
+ */
+::-webkit-scrollbar-thumb {
+  border: var(--scrollbar-inset) solid transparent;
+  border-radius: var(--radius-full);
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+/* Thicker as well as brighter under the hand — the strip does not change width,
+   so nothing reflows and the target that was already there simply shows more of
+   itself. */
+::-webkit-scrollbar-thumb:hover {
+  border-width: calc(var(--scrollbar-inset) - 1px);
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  border-width: calc(var(--scrollbar-inset) - 1px);
+  background: var(--scrollbar-thumb-active);
+  background-clip: padding-box;
+}
+
+/* No steppers. They are two 15px targets for one line of travel, and every
+   desktop that still draws them has spent a decade hiding them. */
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* Where two bars meet. Only Details can have both, and only mid-resize. */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 .app {
   display: grid;
   grid-template-rows: 1fr auto;
