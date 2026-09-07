@@ -328,8 +328,36 @@ function Subtitles({
 }
 
 /**
+ * The extension the name ends with, as the name spells it — or `""`.
+ *
+ * Taken from the name rather than from `detail.ext` so that its *case* is the
+ * one on screen: the column is lowercased at import (`import.ts`) and a file
+ * called `Holiday.JPG` would otherwise come back shouting.
+ *
+ * `""` when the name does not end in the extension at all, which is a name some
+ * earlier rename left disagreeing with the file. There is nothing to hide then,
+ * and nothing is appended on the way out either — the name is shown whole and
+ * saved as typed.
+ */
+function extensionOf(detail: WireAssetDetail): string {
+  if (detail.ext === "") return "";
+  const suffix = `.${detail.ext}`;
+  const tail = detail.name.slice(-suffix.length);
+  return tail.toLowerCase() === suffix ? tail : "";
+}
+
+/**
  * The display name, and the panel's heading (`UI_SPEC.md` §3.10). The file on
  * disk keeps its hash filename (invariant 3).
+ *
+ * **The extension is not in the field.** `ext` is decided once, at import, from
+ * the file that arrived, and `asset_rename` has never touched it — so typing
+ * over `.txt` here renamed nothing: the column, the object under `originals/`,
+ * the kind the grid draws and everything that reads them all went on saying
+ * `txt`, and the panel was the only place in the application that claimed
+ * otherwise. A field that cannot change a thing should not offer to. The
+ * extension is still on screen twice, as the placeholder's badge and as
+ * **Kind** — what is gone is the invitation to edit it.
  *
  * **It wraps, and it grows to fit.** A generated filename is routinely longer
  * than a 280px column, and a single-line field answers that by scrolling
@@ -353,9 +381,11 @@ function NameField({
   readonly detail: WireAssetDetail;
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
-  const [draft, setDraft] = useState(detail.name);
-  const saved = useRef(detail.name);
-  useStoredValue(detail, detail.name, saved, setDraft);
+  const extension = extensionOf(detail);
+  const stem = detail.name.slice(0, detail.name.length - extension.length);
+  const [draft, setDraft] = useState(stem);
+  const saved = useRef(stem);
+  useStoredValue(detail, stem, saved, setDraft);
   const field = useRef<HTMLTextAreaElement>(null);
 
   // Before paint: a box that is briefly one line high and then jumps is the
@@ -377,12 +407,20 @@ function NameField({
   }, [draft]);
 
   const save = (): void => {
-    if (draft.trim() === "" || draft === detail.name) {
-      setDraft(detail.name);
+    // Trimmed here rather than left to `cleanName`, which trims the whole name:
+    // with the extension put back on, a trailing space would be in the middle
+    // and would survive, and the field would then show one the reader did not
+    // type.
+    const name = `${draft.trim()}${extension}`;
+    if (draft.trim() === "" || name === detail.name) {
+      setDraft(stem);
       return;
     }
+    // The draft, not the trimmed name: the re-read then disagrees with what was
+    // sent and `useStoredValue` adopts what the library actually stored, which
+    // is how a typed trailing space disappears from the field.
     saved.current = draft;
-    void invoke({ type: "asset:rename", hash: detail.hash, name: draft }).then(onSaved);
+    void invoke({ type: "asset:rename", hash: detail.hash, name }).then(onSaved);
   };
 
   return (
@@ -400,7 +438,7 @@ function NameField({
           event.preventDefault();
           event.currentTarget.blur();
         }
-        if (event.key === "Escape") setDraft(detail.name);
+        if (event.key === "Escape") setDraft(stem);
       }}
     />
   );

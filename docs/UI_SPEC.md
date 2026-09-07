@@ -273,7 +273,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
 | `Transport` | content | position, loop | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, the comment marks, and what the native bar withholds — frame stepping, playback rate, an A-B loop; §7. ADR-0024 |
 | `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
-| `NameField` | inspector | draft | The panel's heading, and the only editable name. **Wraps over as many lines as the name takes**; `Enter` commits and a name never holds one. §3.10 |
+| `NameField` | inspector | draft | The panel's heading, and the only editable name. Holds the **stem**: the extension is not editable and is not shown here. **Wraps over as many lines as the name takes**; `Enter` commits and a name never holds one. §3.10 |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over the tags the library already has, creates on Enter. §3.7 |
 | `FolderEditor` | inspector | — | The folders the selection is in, with an `×` each, and a menu of the whole tree to add one. Creates nothing. §3.9 |
@@ -752,6 +752,22 @@ offerable here the moment it exists and nothing asks the engine twice for one sm
 
 The panel's heading is the name, and it is a field: the one place an asset is renamed, since the
 file on disk is called after its hash and always will be (invariant 3, `STORAGE_SPEC.md`).
+
+**The extension is not in it.** An asset's `ext` is decided once, at import, from the file that
+arrived, and `asset_rename` has never touched it — so typing over `.txt` renamed nothing: the
+column, the object under `originals/`, the kind the grid draws and every query that reads them went
+on saying `txt`, and this field was the only place in the application claiming otherwise. So it
+holds the stem, and the extension goes back on when the name is saved. It is still on screen twice —
+the preview placeholder's badge, and **Kind** in the metadata table — and the grid still draws the
+whole filename, because that is what the file is called. What is gone is the invitation to edit a
+thing that cannot change.
+
+Two edges follow from taking the suffix off the *name* rather than off the column. Its case is the
+name's: `Holiday.JPG` keeps its shouting extension, where the column is lowercased. And a name that
+does not end in its extension at all — one an earlier rename or the CLI left behind — is shown
+whole and saved as typed, because there is nothing to hide and appending one would rename the asset
+on a click into the field. `roost rename` keeps taking a whole name: a terminal has no stem, and
+somebody typing a full filename there means it.
 
 **It wraps, and it grows to fit what it holds.** The names this has to show are not chosen by
 anybody — `Gemini_Generated_Image_lxhl6dlxhl6dlxhlfefwefwefewfwef.png` came out of a generator, and

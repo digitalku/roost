@@ -213,7 +213,8 @@ describe("the inspector", () => {
   it("shows what the library knows", async () => {
     show({ name: "photo.png", size: 2048, width: 800, height: 600, tags: ["wood"] });
     expect(await screen.findByRole("complementary", { name: "Inspector" })).toBeDefined();
-    expect((screen.getByLabelText("Name") as HTMLTextAreaElement).value).toBe("photo.png");
+    // The stem alone: the extension is not editable, so it is not in the field.
+    expect((screen.getByLabelText("Name") as HTMLTextAreaElement).value).toBe("photo");
     expect(screen.getByText("2.0 KiB")).toBeDefined();
     expect(screen.getByText("800 × 600")).toBeDefined();
     expect(screen.getByText("wood")).toBeDefined();
@@ -406,17 +407,68 @@ describe("the inspector", () => {
     expect(picked).toEqual([]);
   });
 
-  it("renames on blur, and shows the name the engine stored", async () => {
-    const { user } = show({ name: "one.png" });
+  it("renames on blur, keeps the extension, and shows the name the engine stored", async () => {
+    const { user } = show({ name: "one.png", ext: "png" });
     const field = await screen.findByLabelText("Name");
 
     await user.clear(field);
-    await user.type(field, "  two.png  ");
+    await user.type(field, "  two  ");
     await user.tab();
 
-    // Trimmed by the engine. Displaying the draft would show two spaces that
-    // the library does not hold.
-    await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe("two.png"));
+    // The extension goes back on, and the typed spaces do not: a trailing space
+    // would land in the middle of the name, where `cleanName` cannot reach it.
+    await waitFor(() =>
+      expect(engine.seen.find((r) => r.type === "asset:rename")).toMatchObject({ name: "two.png" }),
+    );
+    await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe("two"));
+  });
+
+  // `ext` is decided at import and `asset_rename` never touches it, so a field
+  // holding `.txt` offered an edit that changed nothing anywhere.
+  it("does not offer the extension for editing", async () => {
+    const { user } = show({ name: "notes.txt", ext: "txt" });
+    const field = (await screen.findByLabelText("Name")) as HTMLTextAreaElement;
+    expect(field.value).toBe("notes");
+
+    await user.clear(field);
+    await user.type(field, "notes.jpg");
+    await user.tab();
+
+    await waitFor(() =>
+      expect(engine.seen.find((r) => r.type === "asset:rename")).toMatchObject({
+        name: "notes.jpg.txt",
+      }),
+    );
+  });
+
+  // A rename made before this rule existed, or by the CLI, can leave a name that
+  // does not end in the file's extension. There is nothing to hide then, and
+  // appending one anyway would rename the asset on a click into the field.
+  it("shows the whole name when it does not end in the extension", async () => {
+    const { user } = show({ name: "notes", ext: "txt" });
+    const field = (await screen.findByLabelText("Name")) as HTMLTextAreaElement;
+    expect(field.value).toBe("notes");
+
+    await user.click(field);
+    await user.tab();
+    expect(engine.seen.some((r) => r.type === "asset:rename")).toBe(false);
+  });
+
+  // The column is lowercased at import; the name is not.
+  it("keeps the extension spelled the way the name spells it", async () => {
+    const { user } = show({ name: "Holiday.JPG", ext: "jpg" });
+    const field = (await screen.findByLabelText("Name")) as HTMLTextAreaElement;
+    expect(field.value).toBe("Holiday");
+
+    await user.clear(field);
+    await user.type(field, "Trip");
+    await user.tab();
+
+    await waitFor(() =>
+      expect(engine.seen.find((r) => r.type === "asset:rename")).toMatchObject({
+        name: "Trip.JPG",
+      }),
+    );
   });
 
   it("puts the stored name back on Escape", async () => {
@@ -424,7 +476,7 @@ describe("the inspector", () => {
     const field = (await screen.findByLabelText("Name")) as HTMLTextAreaElement;
     await user.clear(field);
     await user.type(field, "typo{Escape}");
-    expect(field.value).toBe("one.png");
+    expect(field.value).toBe("one");
     expect(engine.seen.some((r) => r.type === "asset:rename")).toBe(false);
   });
 
@@ -437,11 +489,11 @@ describe("the inspector", () => {
     const field = (await screen.findByLabelText("Name")) as HTMLTextAreaElement;
 
     await user.clear(field);
-    await user.paste("two\nlines.png");
-    expect(field.value).toBe("two lines.png");
+    await user.paste("two\nlines");
+    expect(field.value).toBe("two lines");
 
     await user.type(field, "{Enter}");
-    expect(field.value).toBe("two lines.png");
+    expect(field.value).toBe("two lines");
     await waitFor(() =>
       expect(engine.seen.find((request) => request.type === "asset:rename")).toMatchObject({
         name: "two lines.png",
@@ -643,11 +695,12 @@ describe("the folders an asset is in", () => {
 });
 
 describe("what a re-read must and must not overwrite", () => {
-  it("adopts a normalised name even when the stored value did not change", async () => {
-    // The subtle half of "every edit reads the record back". `one.png  ` is
-    // stored as `one.png`, which is what was already there — so watching the
-    // value would see no change and the field would go on showing a trailing
-    // space the library does not hold, visible only after a reload.
+  it("does not leave the field showing a name the library does not hold", async () => {
+    // The subtle half of "every edit reads the record back". Typing two spaces
+    // onto `one` names the same asset `one.png` again — nothing to send, and
+    // nothing for a re-read to adopt — so the field has to be put back from the
+    // record here, or it goes on showing a trailing space that exists nowhere
+    // else and vanishes only on the next reload.
     const engine = new FakeEngine({ details: [fakeDetail(1, { name: "one.png" })] });
     install(engine);
     render(
@@ -663,10 +716,10 @@ describe("what a re-read must and must not overwrite", () => {
 
     const field = (await screen.findByLabelText("Name")) as HTMLTextAreaElement;
     await user.type(field, "  ");
-    expect(field.value).toBe("one.png  ");
+    expect(field.value).toBe("one  ");
     await user.tab();
 
-    await waitFor(() => expect(field.value).toBe("one.png"));
+    await waitFor(() => expect(field.value).toBe("one"));
   });
 
   it("does not stomp a half-typed note when something else changed the library", async () => {
