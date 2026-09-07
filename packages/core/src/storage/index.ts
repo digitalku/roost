@@ -1,3 +1,4 @@
+export { fileNameFor, STAGING_DIR, stageFile, sweepStaging } from "./handoff.js";
 export { ManagedStorage } from "./managed.js";
 export { ReferencedStorage } from "./referenced.js";
 export {

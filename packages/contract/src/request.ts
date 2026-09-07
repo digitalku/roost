@@ -365,6 +365,15 @@ export type Request =
    */
   | { readonly type: "asset:copyPath"; readonly hashes: readonly string[] }
   /**
+   * Puts the selection on the clipboard as **files**, for pasting into a file
+   * manager or anything else that takes them (ADR-0034).
+   *
+   * Not the same thing as `asset:copyPath`, which puts the paths on as text —
+   * that reaches a terminal and a text field, and a file manager ignores it.
+   * Both are offered, because they answer different questions.
+   */
+  | { readonly type: "asset:copyFiles"; readonly hashes: readonly string[] }
+  /**
    * Move the selection to the trash, or bring it back out (ADR-0022).
    *
    * Reversible, and the only thing `Delete` does. Nothing on disk moves and no
@@ -581,6 +590,8 @@ export interface Responses {
   "asset:reveal": boolean;
   /** `false` when nothing could be located, so nothing was put on the clipboard. */
   "asset:copyPath": boolean;
+  /** How many files reached the clipboard; zero when none could be staged. */
+  "asset:copyFiles": number;
   "assets:trash": null;
   "assets:restore": null;
   "assets:remove": WireRemoval;
@@ -886,6 +897,11 @@ export const REQUEST_VALIDATORS: {
   "asset:copyPath": (source) => {
     const hashes = readHashArray(source, "hashes");
     return hashes.ok ? ok({ type: "asset:copyPath", hashes: hashes.value }) : hashes;
+  },
+
+  "asset:copyFiles": (source) => {
+    const hashes = readHashArray(source, "hashes");
+    return hashes.ok ? ok({ type: "asset:copyFiles", hashes: hashes.value }) : hashes;
   },
 
   "assets:trash": (source) => {

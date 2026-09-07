@@ -1,7 +1,15 @@
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
-import { type ContentHash, logger, ManagedStorage, ReadOnlyIndex } from "@roost/core";
+import {
+  type ContentHash,
+  fileNameFor,
+  logger,
+  ManagedStorage,
+  ReadOnlyIndex,
+  stageFile,
+  sweepStaging,
+} from "@roost/core";
 import { formatFromExtension, isConvertible, mediaTypeOf, toWebVtt } from "@roost/media/serving";
 import { contentRange, parseRange, type Slice } from "./range.js";
 import { parseRoostUrl, type Route } from "./route.js";
@@ -45,6 +53,10 @@ export class AssetServer {
       storage: new ManagedStorage(root),
     };
     log.debug("serving bytes for a library", { root });
+    // Whatever a previous session handed out has been had by now (ADR-0034):
+    // a clipboard reference does not survive a reboot, and a drop that was
+    // still being read when the window closed has long since finished.
+    void sweepStaging(root);
   }
 
   detach(): void {
@@ -76,6 +88,48 @@ export class AssetServer {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Files with readable names, for handing this selection to another
+   * application (ADR-0034).
+   *
+   * A `referenced` original is handed over where it lies — that file is already
+   * the user's own, under the user's own name. A managed one is staged inside
+   * the library under the name the library shows, because the name on disk is
+   * its hash and nobody can read that.
+   *
+   * Assets whose bytes are not on this machine are skipped rather than passed
+   * on as a path that resolves to nothing: a handoff with a hole in it is worse
+   * than a shorter one, which is the rule `copyPaths` already follows.
+   */
+  async stage(hashes: readonly ContentHash[]): Promise<string[]> {
+    const open = this.#open;
+    if (open === undefined) return [];
+
+    const files: string[] = [];
+    for (const hash of hashes) {
+      const record = open.index.findOriginal(hash);
+      const name = open.index.displayName(hash);
+      if (record === undefined || name === undefined) continue;
+
+      if (record.storageMode === "referenced") {
+        if (record.refPath !== null) files.push(record.refPath);
+        continue;
+      }
+
+      const source = await this.locate(hash);
+      if (source === undefined) continue;
+      try {
+        const { path } = await stageFile(open.root, source, fileNameFor(name, record.ext));
+        files.push(path);
+      } catch (error) {
+        log.warn("an asset could not be staged", {
+          reason: error instanceof Error ? error.message : "unknown",
+        });
+      }
+    }
+    return files;
   }
 
   async handle(request: Request): Promise<Response> {

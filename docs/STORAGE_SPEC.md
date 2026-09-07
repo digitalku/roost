@@ -42,11 +42,31 @@ MyLibrary/
 │   ├── 2026-08.jsonl     Append-only. Source of truth.
 │   └── 2026-07.jsonl
 ├── library.json          Format version and library id. Strictly validated.
-└── settings.json         Per-library preferences. Optional (ADR-0019).
+├── settings.json         Per-library preferences. Optional (ADR-0019).
+└── staging/              Named copies handed to other applications. Transient
+    └── Holiday.jpg       (ADR-0034). Emptied when the library opens.
 ```
 
-`settings.json` was added on 2026-08-30 by the user's decision, and it is the
-only change this repository has made to the layout. It is optional in the
+`staging/` was added on 2026-09-07 by the user's decision (ADR-0034). It exists
+because the store names a file by its hash, which is right for a
+content-addressed library and unreadable the moment a file is handed to another
+application: dropping `a3f2c9….jpg` into a chat window gives somebody a name
+they cannot read. A copy under the name the library shows goes here first.
+
+It is **inside the library** rather than in `/tmp` for one reason: a reflink
+works only within a filesystem, and `/tmp` is routinely a different one — so
+staging elsewhere would turn a free copy-on-write clone into a full byte copy on
+exactly the machines that support cloning.
+
+**It is not library data.** Nothing here is journalled, nothing is derived from
+it, and a rebuild neither reads nor writes it. Deleting the directory at any
+moment costs nothing but the files somebody has already been handed. It is
+emptied when the library opens rather than when it closes: a file given to
+another application may still be being read, and a clipboard reference outlives
+the session that wrote it.
+
+`settings.json` was added on 2026-08-30 by the user's decision, and it was the
+only other change this repository has made to the layout. It is optional in the
 strongest sense: a library without one is complete, and a damaged one falls back
 to defaults rather than making the library unopenable — which is why it is a
 second file and not fields inside `library.json`. It is **not journalled**, and

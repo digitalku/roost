@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { invoke } from "../bridge.js";
 import { playhead, usePlayer } from "../preview/playhead.js";
 import { timecode } from "../timecode.js";
-import { type ConfirmRequest, useTrashActions } from "./trash-actions.js";
+import { assets, type ConfirmRequest, useTrashActions } from "./trash-actions.js";
 
 /**
  * Right-click on the grid or on an open preview (`UI_SPEC.md` §3.3).
@@ -134,6 +134,25 @@ export function AssetContextMenu({
   const copyPaths = (): void => {
     void invoke({ type: "asset:copyPath", hashes }).then((outcome) => {
       if (!outcome.ok) onProblem(outcome.problem);
+    });
+  };
+
+  /**
+   * The files themselves, for pasting into a file manager (ADR-0034).
+   *
+   * A different thing from **Copy path** above, which puts text on the
+   * clipboard: that reaches a terminal and a text field, and a file manager
+   * ignores it. Both are offered because they answer different questions, and
+   * the labels say which is which.
+   */
+  const copyFiles = (): void => {
+    void invoke({ type: "asset:copyFiles", hashes }).then((outcome) => {
+      if (!outcome.ok) return onProblem(outcome.problem);
+      onNote(
+        outcome.value === 0
+          ? "Nothing could be copied — those files are not on this machine"
+          : `Copied ${assets(outcome.value)} to the clipboard`,
+      );
     });
   };
 
@@ -288,6 +307,18 @@ export function AssetContextMenu({
               )}
 
               <ContextMenu.Separator className="menu-separator" />
+
+              {/*
+                The file first and the path second: copying the file is what
+                somebody means by "copy" nine times out of ten, and the path is
+                the specialist's answer.
+              */}
+              <ContextMenu.Item className="menu-item" onSelect={copyFiles}>
+                <span className="menu-mark" />
+                <span className="menu-label">
+                  {count === 1 ? "Copy file" : `Copy ${count} files`}
+                </span>
+              </ContextMenu.Item>
 
               <ContextMenu.Item className="menu-item" onSelect={copyPaths}>
                 <span className="menu-mark" />

@@ -84,6 +84,8 @@ export interface FakeEngineOptions {
   readonly byQuery?: Readonly<Record<string, readonly AssetCard[]>>;
   /** The navigation pane. Absent means an empty one. */
   readonly sidebar?: WireSidebar;
+  /** How many files a copy put on the clipboard; defaults to the whole selection. */
+  readonly copiedFiles?: number;
   /**
    * Queries the engine would refuse to parse, and where each one stopped.
    *
@@ -847,6 +849,11 @@ export class FakeEngine {
       case "asset:reveal":
       case "asset:copyPath":
         return ok(this.#options.desktopAnswers ?? true);
+
+      // A count rather than a yes: "three files are on the clipboard" and
+      // "one is" are different sentences, and the window says which.
+      case "asset:copyFiles":
+        return ok(this.#options.copiedFiles ?? request.hashes.length);
 
       case "assets:export":
         return ok({

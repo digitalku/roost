@@ -358,6 +358,28 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟢 **`--dry-run` opens no Roost library**, so it answers "what is in this Eagle library" before
   there is anywhere to put it. It is the only subcommand of `import` that does not need one.
 
+### Handing a file to another application (ADR-0034, 2026-09-07)
+- ☑ ~~**Copy file(s) to the clipboard.**~~ `Copy file` / `Copy N files` in the asset menu, beside
+  `Copy path` — which stays, because a path is what a terminal wants and a file manager ignores it.
+- ☑ ~~**A `staging/` directory inside the library.**~~ A **layout change** to `STORAGE_SPEC.md`, the
+  second this repository has made, approved by the user when they asked for this. Inside the library
+  rather than `/tmp` because a reflink works only within one filesystem. Reflink, then copy, and
+  **never a hardlink**: a shared inode would let another application write into the original.
+  Emptied when a library **opens**, since a clipboard reference outlives the session that wrote it.
+- ☑ ~~**`reflinkSupported()` finally matters.**~~ It has existed since M1 with no caller. It is what
+  decides whether a correct filename is free (btrfs, XFS) or costs the whole file (ext4, NTFS).
+- 🔴 **Dragging a file out is not built, and cannot be decided by reading.** A window cannot be an
+  HTML5 drag source and a native file drag source in the same gesture: `webContents.startDrag`
+  *replaces* the HTML5 drag, and the grid's drag is already how an asset is filed into a folder
+  (ADR-0033 §5). The design worth wanting — a native drag whose drops the folder rows read back —
+  rests on an untested assumption: **that a native drag started by `startDrag` still delivers `drop`
+  to its own window**, which may differ between X11 and Wayland. It needs somebody to try it.
+  ADR-0034 §4 lays out the three options.
+- 🟢 **One format, chosen by the desktop.** Electron's clipboard holds exactly one custom format —
+  `writeBuffer` clears what was there, measured rather than assumed — and GNOME's file managers read
+  `x-special/gnome-copied-files` while everything else reads `text/uri-list`. `XDG_CURRENT_DESKTOP`
+  picks. This is the only place in Roost that branches on which desktop is running.
+
 ### The folder tree in the sidebar (ADR-0033, 2026-09-06)
 - ☑ ~~**The sidebar was not drawing a tree.**~~ Found in the user's own screenshot: twenty folders
   in one column, four of them called `highlights`, at three depths and none of them under its
@@ -1263,6 +1285,14 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
     prebuilt, and `--ozone-platform-hint=auto` in the `start` script is a Linux flag.
   - Packaging targets, signing, and whether ffmpeg is bundled are an ADR of their own when the
     milestone arrives — the same question M6 answers for Linux, asked again.
+
+### Flakes
+
+- 🟡 **`no-ffmpeg.test.ts` — "imports everything, draws what it can" times out under load.** Seen
+  twice on 2026-09-07 in `pnpm verify` and never when run alone; it took 5.4s on the run that
+  failed. It spawns the built CLI and probes for ffmpeg, so it is the slowest test in the suite and
+  the first to lose a race for the machine. Not caused by that day's work — nothing in it touches
+  the import path — but a suite that fails one run in three is a suite people stop reading.
 
 ## 4. Lessons carried over — do not re-learn these
 

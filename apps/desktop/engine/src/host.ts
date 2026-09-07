@@ -378,6 +378,7 @@ export class EngineHost {
       case "asset:openExternally":
       case "asset:reveal":
       case "asset:copyPath":
+      case "asset:copyFiles":
       case "dialog:openLibrary":
       case "dialog:chooseLocation":
       case "app:quit":

@@ -93,6 +93,31 @@ describe("the asset context menu", () => {
     expect(sentTo("asset:copyPath")[0]?.hashes).toEqual(HASHES);
   });
 
+  it("copies the files, which is a different thing from copying the paths", async () => {
+    // `Copy path` puts text on the clipboard: a terminal takes it and a file
+    // manager ignores it. `Copy file` puts the files there (ADR-0034), and both
+    // are offered because they answer different questions.
+    const { user } = show();
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: /Copy 3 files/ }));
+
+    await waitFor(() => expect(sentTo("asset:copyFiles")).toHaveLength(1));
+    expect(sentTo("asset:copyFiles")[0]?.hashes).toEqual(HASHES);
+    expect(notes).toEqual(["Copied 3 assets to the clipboard"]);
+  });
+
+  it("says when a copy could reach nothing, rather than reporting a success", async () => {
+    // A referenced original the user moved, or a library on a disk that is not
+    // plugged in: the gesture worked and the clipboard is empty, and only one
+    // of those is worth saying.
+    const { user } = show(HASHES, { copiedFiles: 0 });
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: /Copy 3 files/ }));
+
+    await waitFor(() => expect(notes.length).toBe(1));
+    expect(notes[0]).toMatch(/not on this machine/);
+  });
+
   it("names the count, so a menu over twelve does not read like a menu over one", async () => {
     show([HASHES[0] as string]);
     await open();

@@ -84,6 +84,21 @@ export class ReadOnlyIndex {
     ).get(hash) as OriginalRecord | undefined;
   }
 
+  /**
+   * The name the library shows for an asset (ADR-0034).
+   *
+   * Its own statement rather than a fifth column on {@link findOriginal}: that
+   * one runs on every preview the window opens and is deliberately four columns
+   * and no joins, while this is asked once per file being handed to another
+   * application.
+   */
+  displayName(hash: ContentHash): string | undefined {
+    const row = this.#s("SELECT orig_name AS name FROM assets WHERE hash = ?").get(hash) as
+      | { name: string }
+      | undefined;
+    return row?.name;
+  }
+
   close(): void {
     this.#cache.clear();
     this.#db.close();

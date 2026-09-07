@@ -1,6 +1,7 @@
 import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type {
   Event,
   ImportSubject,
@@ -212,6 +213,7 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "asset:openExternally",
   "asset:reveal",
   "asset:copyPath",
+  "asset:copyFiles",
   "clipboard:paste",
   "link:open",
   // The window has no menu bar on Linux or Windows (ADR-0028), so Quit arrives
@@ -222,10 +224,11 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
 async function answerHere(
   engine: Engine,
   request: Request,
-): Promise<string | boolean | readonly string[] | WirePasted | null> {
+): Promise<string | number | boolean | readonly string[] | WirePasted | null> {
   if (request.type === "asset:openExternally") return openExternally(request.hash);
   if (request.type === "asset:reveal") return reveal(request.hash);
   if (request.type === "asset:copyPath") return copyPaths(request.hashes);
+  if (request.type === "asset:copyFiles") return copyFiles(request.hashes);
   if (request.type === "clipboard:paste") return paste(engine, request.mode);
   if (request.type === "link:open") return openLink(request.url);
   if (request.type === "app:quit") {
@@ -448,6 +451,38 @@ async function copyPaths(hashList: readonly string[]): Promise<boolean> {
   clipboard.writeText(paths.join("\n"));
   return true;
 }
+
+/**
+ * Puts the selection on the clipboard as files (ADR-0034).
+ *
+ * **One format, chosen by the desktop that will read it.** Electron's clipboard
+ * takes exactly one custom format at a time — `writeBuffer` clears what was
+ * there, which was measured rather than assumed — and the two Linux desktops
+ * disagree: GNOME's file managers paste from `x-special/gnome-copied-files`
+ * and everything else reads `text/uri-list`. Roost's own paste handler below
+ * reads both, which is the same disagreement seen from the other side.
+ *
+ * `XDG_CURRENT_DESKTOP` is the signal, and where it says nothing the
+ * standard format wins.
+ */
+async function copyFiles(hashList: readonly string[]): Promise<number> {
+  const hashes = hashList.filter(isContentHash);
+  const files = await assets.stage(hashes);
+  if (files.length === 0) return 0;
+
+  const uris = files.map((file) => pathToFileURL(file).href);
+  if (GNOME_DESKTOPS.test(process.env["XDG_CURRENT_DESKTOP"] ?? "")) {
+    // `copy` rather than `cut`: nothing here moves the library's own files.
+    clipboard.writeBuffer("x-special/gnome-copied-files", Buffer.from(`copy\n${uris.join("\n")}`));
+  } else {
+    // CRLF, which is what the `text/uri-list` registration asks for.
+    clipboard.writeBuffer("text/uri-list", Buffer.from(`${uris.join("\r\n")}\r\n`));
+  }
+  return files.length;
+}
+
+/** The desktops whose file managers paste from GNOME's own format. */
+const GNOME_DESKTOPS = /gnome|cinnamon|mate|unity|budgie|pantheon/i;
 
 /**
  * What the clipboard holds, and what that deserves (ADR-0026 §5).

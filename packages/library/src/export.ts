@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
-import { type ContentHash, logger } from "@roost/core";
+import { extname, join } from "node:path";
+import { type ContentHash, fileNameFor, logger } from "@roost/core";
 import type { Library } from "./library.js";
 
 /**
@@ -68,7 +68,7 @@ export async function exportAssets(
     }
 
     try {
-      const outcome = await copyOut(source, destination, exportName(summary.origName, record.ext));
+      const outcome = await copyOut(source, destination, fileNameFor(summary.origName, record.ext));
       exported += 1;
       if (outcome === "renamed") renamed += 1;
     } catch (error) {
@@ -86,22 +86,6 @@ export async function exportAssets(
   }
 
   return { exported, renamed, missing, failed };
-}
-
-/**
- * The filename to write.
- *
- * `basename` is not cosmetic: the name is user-authored, and a name of
- * `../../.bashrc` would otherwise make an export a way to write outside the
- * directory the user picked.
- */
-function exportName(name: string, ext: string): string {
-  const clean = basename(name).trim();
-  if (clean === "" || clean === "." || clean === "..") return ext === "" ? "asset" : `asset.${ext}`;
-  // A rename in the library does not have to keep the extension, and an
-  // exported file that the desktop cannot open is not an export.
-  if (ext !== "" && extname(clean).toLowerCase() !== `.${ext}`) return `${clean}.${ext}`;
-  return clean;
 }
 
 /**

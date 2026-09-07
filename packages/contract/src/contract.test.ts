@@ -112,6 +112,7 @@ describe("validating a request", () => {
       "asset:openExternally",
       "asset:reveal",
       "asset:copyPath",
+      "asset:copyFiles",
       "assets:trash",
       "assets:restore",
       "assets:remove",
