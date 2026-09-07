@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { addToFolder, createFolder, importInto, Library, pageOf } from "@roost/library";
+import { addToFolder, createFolder, importInto, Library, pageOf, tagAdd } from "@roost/library";
 import { gradient } from "@roost/media";
 
 /** A temporary directory and the promise that it goes away again. */
@@ -67,6 +67,26 @@ export async function foldersInto(root, tree) {
       if (assets > 0) await addToFolder(library, hashes.slice(0, assets), id);
     }
     return ids;
+  } finally {
+    await library.close();
+  }
+}
+
+/**
+ * Tags the first `count` assets of an existing library.
+ *
+ * In page order, which is the order the grid draws — so the asset a check
+ * selects first is the one it just tagged, and a check does not have to hunt
+ * for the chip it means to press.
+ */
+export async function tagsOnto(root, tags, count = 1) {
+  const library = await Library.open(root);
+  try {
+    const hashes = pageOf(library, "", { limit: 100 })
+      .map((hit) => hit.hash)
+      .slice(0, count);
+    await tagAdd(library, hashes, tags);
+    return hashes;
   } finally {
     await library.close();
   }

@@ -124,8 +124,8 @@
    taller and far wider than the glyph it removes — and the base hover then
    paints that whole rectangle. The chip's `×` is a round target the size of the
    text beside it, so what lights up under the pointer is the `×` itself. */
-.tag button,
-.folder button {
+.tag .chip-remove,
+.folder .chip-remove {
   display: grid;
   place-items: center;
   width: var(--leading-xs);
@@ -139,10 +139,31 @@
   line-height: 1;
 }
 
-.tag button:hover,
-.folder button:hover {
+.tag .chip-remove:hover,
+.folder .chip-remove:hover {
   background: var(--surface-overlay);
   color: var(--text);
+}
+
+/* A folder chip's name shows the folder (`UI_SPEC.md` §3.9), so it is a button
+   — reachable from the keyboard, and undressed to look like the text it
+   replaced. It wraps, because a path is as long as the tree is deep. */
+.folder .folder-name {
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+}
+
+.folder .folder-name:hover:not(:disabled),
+.folder .folder-name:focus-visible {
+  background: none;
+  text-decoration: underline;
 }
 
 /* The menu's trigger, which is a button that reads as a field: it sits where

@@ -1303,6 +1303,7 @@ function LibraryView({
           generation={revision}
           vocabulary={sidebar?.tags ?? NO_TAGS}
           folders={sidebar?.folders ?? NO_FOLDERS}
+          onPick={applyQuery}
         />
       </div>
 

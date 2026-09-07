@@ -32,10 +32,10 @@ const HASH = fakeDetail(1).hash;
  * label rather than part of the name — tags here are flat and unique.
  */
 const VOCABULARY = [
-  { name: "olahraga", group: "Topik", count: 412 },
-  { name: "olahan-video", group: null, count: 37 },
-  { name: "sepakbola-olahraga", group: null, count: 9 },
-  { name: "oke", group: null, count: 3 },
+  { name: "olahraga", group: "Topik", count: 412, query: 'tag:"olahraga"' },
+  { name: "olahan-video", group: null, count: 37, query: 'tag:"olahan-video"' },
+  { name: "sepakbola-olahraga", group: null, count: 9, query: 'tag:"sepakbola-olahraga"' },
+  { name: "oke", group: null, count: 3, query: 'tag:"oke"' },
 ];
 
 /**
@@ -65,6 +65,24 @@ function folderRow(folder: number, name: string, path: string, depth: number): S
   };
 }
 
+/**
+ * Where a chip's query lands.
+ *
+ * The window hands the panel the same callback it hands the navigation pane, so
+ * what these tests assert is the **query that was sent** — a chip that filtered
+ * by assembling `tag:olahraga` itself would pass a test that only asked whether
+ * something was picked.
+ */
+const picked: string[] = [];
+
+const remember = (query: string): void => {
+  picked.push(query);
+};
+
+beforeEach(() => {
+  picked.length = 0;
+});
+
 /** What the engine answers `library:sidebar` with, so the fake can resolve one. */
 const SIDEBAR: WireSidebar = {
   places: [],
@@ -86,6 +104,7 @@ describe("the inspector", () => {
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
+        onPick={remember}
       />,
     );
     return { user: userEvent.setup(), ...view };
@@ -154,7 +173,15 @@ describe("the inspector", () => {
     // in the component at all (`TODO.md` §4, lesson 9).
     engine = new FakeEngine({});
     install(engine);
-    render(<Inspector hashes={[]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />);
+    render(
+      <Inspector
+        hashes={[]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+      />,
+    );
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeDefined();
     expect(screen.getByText("Nothing selected")).toBeDefined();
     // Nothing editable: a control here would act on no asset at all.
@@ -168,7 +195,15 @@ describe("the inspector", () => {
     // grid reflows behind a selection that is still there.
     engine = new FakeEngine({ details: [] });
     install(engine);
-    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />);
+    render(
+      <Inspector
+        hashes={[HASH]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+      />,
+    );
     await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:detail")).toBe(true));
     expect(screen.getByRole("complementary", { name: "Inspector" })).toBeDefined();
     // Not the empty-selection wording: something *is* selected.
@@ -233,6 +268,7 @@ describe("the inspector", () => {
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
+        onPick={remember}
       />,
     );
     await screen.findByRole("complementary");
@@ -255,6 +291,7 @@ describe("the inspector", () => {
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
+        onPick={remember}
       />,
     );
     await waitFor(() => expect(image().getAttribute("src")).toContain(fakeDetail(2).hash));
@@ -323,6 +360,50 @@ describe("the inspector", () => {
     await user.click(await screen.findByRole("button", { name: "Remove wood" }));
     await waitFor(() => expect(screen.queryByText("wood")).toBeNull());
     expect(screen.getByText("metal")).toBeDefined();
+  });
+
+  /** Right-clicks a tag's chip and waits for its menu. */
+  const openTagMenu = async (tag: string): Promise<void> => {
+    // Dispatched rather than driven through `userEvent`, as the grid's menu is:
+    // Radix opens on a `contextmenu` event and happy-dom does not synthesise
+    // one from a right click.
+    const chip = await screen.findByText(tag);
+    chip.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await screen.findByRole("menu");
+  };
+
+  it("filters by a tag from its chip, with the query the engine wrote", async () => {
+    // Asked for on 2026-09-07: the tag on the panel is the fastest way to ask
+    // what else is like this, and the query is the sidebar row's own — the
+    // quoting belongs to `@roost/library`, not to a chip.
+    const { user } = show({ tags: ["olahraga"] });
+    await openTagMenu("olahraga");
+
+    await user.click(screen.getByRole("menuitem", { name: "Filter by this tag" }));
+    expect(picked).toEqual(['tag:"olahraga"']);
+  });
+
+  it("removes a tag from the same menu, which the × does with a pointer only", async () => {
+    const { user } = show({ tags: ["olahraga", "metal"] });
+    await openTagMenu("olahraga");
+
+    await user.click(screen.getByRole("menuitem", { name: "Remove tag" }));
+    await waitFor(() => expect(screen.queryByText("olahraga")).toBeNull());
+    expect(screen.getByText("metal")).toBeDefined();
+    expect(picked).toEqual([]);
+  });
+
+  it("offers no filter for a tag the sidebar has not caught up with", async () => {
+    // The moment after a tag is made: the chip is drawn from the asset's record
+    // and the query comes from the sidebar, which the window re-reads on its
+    // own schedule. Disabled rather than absent, so the menu keeps its shape.
+    const { user } = show({ tags: ["wood"] });
+    await openTagMenu("wood");
+
+    const filter = screen.getByRole("menuitem", { name: "Filter by this tag" });
+    expect(filter.getAttribute("aria-disabled")).toBe("true");
+    await user.click(filter);
+    expect(picked).toEqual([]);
   });
 
   it("renames on blur, and shows the name the engine stored", async () => {
@@ -406,13 +487,25 @@ describe("the inspector", () => {
     engine = new FakeEngine({ details: [fakeDetail(1, { rating: 2 })] });
     install(engine);
     const { rerender } = render(
-      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />,
+      <Inspector
+        hashes={[HASH]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+      />,
     );
     await screen.findByRole("button", { name: "4 stars" });
     const before = engine.seen.filter((r) => r.type === "asset:detail").length;
 
     rerender(
-      <Inspector hashes={[HASH]} generation={1} vocabulary={VOCABULARY} folders={FOLDERS} />,
+      <Inspector
+        hashes={[HASH]}
+        generation={1}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+      />,
     );
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail").length).toBeGreaterThan(before),
@@ -427,7 +520,13 @@ describe("the folders an asset is in", () => {
     engine = new FakeEngine({ details: [fakeDetail(1, { folders })], sidebar: SIDEBAR });
     install(engine);
     const view = render(
-      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />,
+      <Inspector
+        hashes={[HASH]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+      />,
     );
     return { user: userEvent.setup(), ...view };
   };
@@ -441,6 +540,25 @@ describe("the folders an asset is in", () => {
     // pressing the `×` beside it, so it has to say which one.
     show([{ id: 2, path: "Design/Icons" }]);
     expect(await screen.findByText("Design/Icons")).toBeDefined();
+  });
+
+  it("shows the folder when its chip is clicked, no menu in between", async () => {
+    // Not the tag chip's gesture, and deliberately (2026-09-07): a folder chip
+    // says one thing, so there is nothing to choose between and a menu would be
+    // a click in the way. The query is the tree row's, quoted by the engine.
+    const { user } = show([{ id: 2, path: "Design/Icons" }]);
+
+    await user.click(await screen.findByRole("button", { name: "Design/Icons" }));
+    expect(picked).toEqual(['folder:"Design/Icons"']);
+  });
+
+  it("does not offer to show a folder the tree does not know yet", async () => {
+    const { user } = show([{ id: 9, path: "Elsewhere" }]);
+
+    const chip = await screen.findByRole("button", { name: "Elsewhere" });
+    expect((chip as HTMLButtonElement).disabled).toBe(true);
+    await user.click(chip);
+    expect(picked).toEqual([]);
   });
 
   it("detaches by id, and detaching is not a delete", async () => {
@@ -488,7 +606,15 @@ describe("the folders an asset is in", () => {
   it("says so when the library has no folders to offer", async () => {
     engine = new FakeEngine({ details: [fakeDetail(1)] });
     install(engine);
-    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={[]} />);
+    render(
+      <Inspector
+        hashes={[HASH]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={[]}
+        onPick={remember}
+      />,
+    );
 
     const trigger = await screen.findByRole("button", { name: "Add to folder" });
     expect(trigger.hasAttribute("disabled")).toBe(true);
@@ -503,7 +629,15 @@ describe("what a re-read must and must not overwrite", () => {
     // space the library does not hold, visible only after a reload.
     const engine = new FakeEngine({ details: [fakeDetail(1, { name: "one.png" })] });
     install(engine);
-    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />);
+    render(
+      <Inspector
+        hashes={[HASH]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+      />,
+    );
     const user = userEvent.setup();
 
     const field = (await screen.findByLabelText("Name")) as HTMLInputElement;
@@ -518,7 +652,13 @@ describe("what a re-read must and must not overwrite", () => {
     const engine = new FakeEngine({ details: [fakeDetail(1)] });
     install(engine);
     const { rerender } = render(
-      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />,
+      <Inspector
+        hashes={[HASH]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+      />,
     );
     const user = userEvent.setup();
 
@@ -528,7 +668,13 @@ describe("what a re-read must and must not overwrite", () => {
     // An edit elsewhere re-reads this asset too. Losing what is being typed
     // because an unrelated asset was tagged is the bug this guards.
     rerender(
-      <Inspector hashes={[HASH]} generation={1} vocabulary={VOCABULARY} folders={FOLDERS} />,
+      <Inspector
+        hashes={[HASH]}
+        generation={1}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+      />,
     );
     await waitFor(() =>
       expect(engine.seen.filter((r) => r.type === "asset:detail").length).toBe(2),
@@ -557,7 +703,13 @@ describe("the inspector over several assets", () => {
     });
     install(engine);
     const view = render(
-      <Inspector hashes={THREE} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />,
+      <Inspector
+        hashes={THREE}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+      />,
     );
     return { user: userEvent.setup(), ...view };
   };
@@ -713,11 +865,18 @@ describe("the inspector over several assets", () => {
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
+        onPick={remember}
       />,
     );
     await waitFor(() => expect(held).toHaveLength(1));
     view.rerender(
-      <Inspector hashes={THREE} generation={0} vocabulary={VOCABULARY} folders={FOLDERS} />,
+      <Inspector
+        hashes={THREE}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+      />,
     );
     await waitFor(() => expect(held).toHaveLength(2));
 

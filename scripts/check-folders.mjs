@@ -2,6 +2,11 @@
  * Folders, asserted against a **running window** (ADR-0033, and the inspector's
  * chips from the session before it).
  *
+ * It also covers what a chip *does*: a folder chip shows its folder on a click
+ * and a tag chip offers the same through a menu (`UI_SPEC.md` §3.7, §3.9). The
+ * component tests can see which query was handed over; only a window can say
+ * whether it reached the search field and the grid.
+ *
  * The unit tests cover what a folder *is* — a row, a membership, two journal
  * ops — and the component tests cover what each control sends. Neither can see
  * the thing this exists for: a sidebar, a tree order computed in the engine, a
@@ -19,13 +24,15 @@
  */
 import { setTimeout as sleep } from "node:timers/promises";
 import { ledger } from "./lib/checks.mjs";
-import { foldersInto, imageLibrary, scratch } from "./lib/fixtures.mjs";
+import { foldersInto, imageLibrary, scratch, tagsOnto } from "./lib/fixtures.mjs";
 import { launch } from "./lib/window.mjs";
 
 /** Enough assets to file some and leave some outside every folder. */
 const ASSETS = 6;
 /** How many of them go into `Design/Alpha`. */
 const FILED = 2;
+/** The one tag in the fixture, on the first asset only. */
+const TAG = "olahraga";
 
 const { dir, dispose } = await scratch("check-folders");
 const root = await imageLibrary(dir, { count: ASSETS });
@@ -35,6 +42,10 @@ await foldersInto(root, [
   { name: "Zebra" },
   { name: "Beta", parent: "Zebra" },
 ]);
+// On the asset the grid draws first, which is also one of the two filed ones:
+// the chip menu and the folder chip are then on screen together, over one
+// selection.
+await tagsOnto(root, [TAG], 1);
 
 const window = await launch({ library: root });
 const { cdp } = window;
@@ -62,7 +73,7 @@ const chipsExpression = `
     if (block === null) return null;
     return {
       chips: [...block.querySelectorAll(".folder")].map((chip) => ({
-        path: chip.querySelector("span")?.textContent ?? null,
+        path: chip.querySelector(".folder-name")?.textContent ?? null,
         partial: chip.hasAttribute("data-partial"),
       })),
       trigger: block.querySelector(".folder-trigger")?.disabled === true ? "disabled" : "ready",
@@ -277,6 +288,55 @@ try {
     "and renaming does not spring the branch open",
     renamed.every((row) => row.name !== "Beta"),
     names(renamed),
+  );
+
+  section("Filtering from a chip in the inspector");
+  // What the unit tests cannot see: whether the query on a chip reaches the
+  // search field and the grid. Both gestures were asked for on 2026-09-07 and
+  // they are deliberately different — a folder chip says one thing, so a click
+  // shows it; a tag chip has two things to offer, so it opens a menu.
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === ASSETS);
+  await clickFirstCell();
+  const both = await cdp.settle(chipsExpression, (state) => state?.chips.length > 0);
+  check(
+    "the asset on screen carries both a folder and a tag",
+    both.chips[0]?.path === "Design/Alpha" &&
+      (await cdp.evaluate("document.querySelector('.tag span')?.textContent ?? null")) === TAG,
+    `chips=${JSON.stringify(both.chips)}`,
+  );
+
+  const nameButton = await cdp.box(".folder .folder-name");
+  await cdp.mouse.click(nameButton.x, nameButton.y);
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === FILED);
+  check(
+    "clicking a folder chip shows that folder, with the query the engine wrote",
+    (await cdp.evaluate("document.querySelector('.search-input')?.value ?? null")) ===
+      "folder:Design/Alpha",
+    await cdp.evaluate("document.querySelector('.search-input')?.value ?? null"),
+  );
+
+  // The panel reads the library for itself, so the chip is a frame or two
+  // behind the click that selected the asset.
+  await clickFirstCell();
+  await cdp.settle("document.querySelector('.tag span')?.textContent ?? null", (t) => t === TAG);
+  const tagChip = await cdp.box(".tag");
+  await cdp.mouse.click(tagChip.x, tagChip.y, { button: "right" });
+  const tagItems = await cdp.settle(
+    "[...document.querySelectorAll('[role=menuitem]')].map((i) => i.textContent)",
+    (list) => Array.isArray(list) && list.length > 0,
+  );
+  check(
+    "a tag chip opens a menu, and offers the two things a tag can do",
+    tagItems.join(" · ") === "Filter by this tag · Remove tag",
+    tagItems.join(" · "),
+  );
+
+  await cdp.evaluate(clickMenuItem("Filter by this tag"));
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === 1);
+  check(
+    "and filtering by it asks for exactly what the sidebar row asks for",
+    (await cdp.evaluate("document.querySelector('.search-input')?.value ?? null")) === `tag:${TAG}`,
+    await cdp.evaluate("document.querySelector('.search-input')?.value ?? null"),
   );
 
   section("The folder chips in the inspector");

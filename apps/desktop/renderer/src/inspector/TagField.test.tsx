@@ -12,11 +12,11 @@ import { rankTags, TagField } from "./TagField.js";
  */
 
 const VOCABULARY = [
-  { name: "olahraga", group: "Topik", count: 412 },
-  { name: "olahan-video", group: null, count: 37 },
-  { name: "sepakbola-olahraga", group: null, count: 9 },
-  { name: "oke", group: null, count: 3 },
-  { name: "okelah", group: null, count: 1 },
+  { name: "olahraga", group: "Topik", count: 412, query: 'tag:"olahraga"' },
+  { name: "olahan-video", group: null, count: 37, query: 'tag:"olahan-video"' },
+  { name: "sepakbola-olahraga", group: null, count: 9, query: 'tag:"sepakbola-olahraga"' },
+  { name: "oke", group: null, count: 3, query: 'tag:"oke"' },
+  { name: "okelah", group: null, count: 1, query: 'tag:"okelah"' },
 ];
 
 const names = (): string[] =>
@@ -178,6 +178,7 @@ describe("ranking tags", () => {
       name: `tag-${index}`,
       group: null,
       count: index,
+      query: `tag:"tag-${index}"`,
     }));
     expect(rankTags(many, "tag", []).map((choice) => choice.count)).toEqual([
       19, 18, 17, 16, 15, 14, 13, 12,
@@ -186,8 +187,8 @@ describe("ranking tags", () => {
 
   it("breaks a tie on the name, so the order does not wander between reads", () => {
     const tied = [
-      { name: "beta", group: null, count: 2 },
-      { name: "alpha", group: null, count: 2 },
+      { name: "beta", group: null, count: 2, query: 'tag:"beta"' },
+      { name: "alpha", group: null, count: 2, query: 'tag:"alpha"' },
     ];
     expect(rankTags(tied, "a", []).map((choice) => choice.name)).toEqual(["alpha", "beta"]);
   });

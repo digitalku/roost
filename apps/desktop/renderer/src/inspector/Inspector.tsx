@@ -4,6 +4,7 @@ import type {
   WireFolderRef,
   WireSelectionSummary,
 } from "@roost/contract";
+import { ContextMenu } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { bytes } from "../format.js";
@@ -81,6 +82,14 @@ export interface InspectorProps {
    * moment it exists, and nothing asks the engine twice for one small tree.
    */
   readonly folders: readonly SidebarFolderRow[];
+  /**
+   * Show what this query selects, replacing what is on screen.
+   *
+   * The same callback a sidebar row is given and the same rule with it: the
+   * query travels from the engine, through the row or the chip, to the window —
+   * the panel assembles none of it (`UI_SPEC.md` §3.2).
+   */
+  readonly onPick: (query: string) => void;
 }
 
 export function Inspector({
@@ -88,6 +97,7 @@ export function Inspector({
   generation,
   vocabulary,
   folders,
+  onPick,
 }: InspectorProps): React.JSX.Element | null {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [summary, setSummary] = useState<WireSelectionSummary | undefined>();
@@ -158,6 +168,7 @@ export function Inspector({
         summary={summary}
         vocabulary={vocabulary}
         folders={folders}
+        onPick={onPick}
         onSaved={read}
       />
     );
@@ -199,6 +210,7 @@ export function Inspector({
         shared={detail.tags}
         partial={NO_TAGS}
         vocabulary={vocabulary}
+        onPick={onPick}
         onSaved={read}
       />
       <FolderEditor
@@ -206,6 +218,7 @@ export function Inspector({
         shared={detail.folders}
         partial={NO_FOLDERS}
         tree={folders}
+        onPick={onPick}
         onSaved={read}
       />
       <NoteField detail={detail} onSaved={read} />
@@ -420,17 +433,34 @@ function TagEditor({
   shared,
   partial,
   vocabulary,
+  onPick,
   onSaved,
 }: {
   readonly hashes: readonly string[];
   readonly shared: readonly string[];
   readonly partial: readonly string[];
   readonly vocabulary: readonly TagChoice[];
+  readonly onPick: (query: string) => void;
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
   // Both halves, because a suggestion is a no-op for either: the engine ignores
   // an asset that already carries the tag, and offering one would say otherwise.
   const attached = useMemo(() => [...shared, ...partial], [shared, partial]);
+
+  /**
+   * The query each tag carries, by name.
+   *
+   * The vocabulary is the sidebar's, and a sidebar row arrives with the RQL
+   * that selects it — so filtering by a chip asks for exactly what clicking the
+   * tag in the navigation pane asks for, down to the quoting. Case-folded on
+   * the way in because the two lists come from different statements: the
+   * summary says what the selection carries and the sidebar says what the
+   * library has, and tag names are case-insensitive as the schema stores them.
+   */
+  const queries = useMemo(
+    () => new Map(vocabulary.map((choice) => [choice.name.toLowerCase(), choice.query])),
+    [vocabulary],
+  );
 
   const add = (tag: string): void => {
     void invoke({ type: "asset:tagAdd", hashes, tags: [tag] }).then(onSaved);
@@ -440,27 +470,75 @@ function TagEditor({
     void invoke({ type: "asset:tagRemove", hashes, tags: [tag] }).then(onSaved);
   };
 
+  /**
+   * One chip, with the menu the user asked for on 2026-09-07.
+   *
+   * **Filter is the reason it exists**: a tag on the panel is the fastest way
+   * to ask "what else is like this", and until this the answer was to find the
+   * same tag again in the sidebar. Remove is beside it because the `×` is a
+   * pointer-only target, and a menu that offers one of a chip's two actions
+   * reads as if the other were unavailable.
+   *
+   * The item is disabled rather than hidden when the vocabulary does not know
+   * the tag — which is the moment after one is added, before the window has
+   * re-read the sidebar. A chip whose menu changes shape in that window would
+   * be a menu people learn not to trust; assembling the missing query here
+   * would be the renderer spelling the grammar (`Sidebar`'s own rule).
+   */
+  const chip = (tag: string, only: boolean): React.JSX.Element => {
+    const query = queries.get(tag.toLowerCase());
+    return (
+      <ContextMenu.Root key={tag}>
+        <ContextMenu.Trigger asChild>
+          <li className="tag" {...(only ? { "data-partial": "" } : {})}>
+            <span
+              {...(only
+                ? { title: `Only some of the ${hashes.length} selected assets carry this` }
+                : {})}
+            >
+              {tag}
+            </span>
+            <button
+              type="button"
+              className="chip-remove"
+              aria-label={`Remove ${tag}`}
+              onClick={() => remove(tag)}
+            >
+              ×
+            </button>
+          </li>
+        </ContextMenu.Trigger>
+
+        <ContextMenu.Portal>
+          <ContextMenu.Content className="menu" collisionPadding={8}>
+            <ContextMenu.Item
+              className="menu-item"
+              disabled={query === undefined}
+              onSelect={() => {
+                if (query !== undefined) onPick(query);
+              }}
+            >
+              <span className="menu-mark" />
+              <span className="menu-label">Filter by this tag</span>
+            </ContextMenu.Item>
+
+            <ContextMenu.Separator className="menu-separator" />
+
+            <ContextMenu.Item className="menu-item" onSelect={() => remove(tag)}>
+              <span className="menu-mark" />
+              <span className="menu-label">Remove tag</span>
+            </ContextMenu.Item>
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
+    );
+  };
+
   return (
     <div className="tags">
       <ul className="tag-list">
-        {shared.map((tag) => (
-          <li key={tag} className="tag">
-            <span>{tag}</span>
-            <button type="button" aria-label={`Remove ${tag}`} onClick={() => remove(tag)}>
-              ×
-            </button>
-          </li>
-        ))}
-        {partial.map((tag) => (
-          <li key={tag} className="tag" data-partial>
-            <span title={`Only some of the ${hashes.length} selected assets carry this`}>
-              {tag}
-            </span>
-            <button type="button" aria-label={`Remove ${tag}`} onClick={() => remove(tag)}>
-              ×
-            </button>
-          </li>
-        ))}
+        {shared.map((tag) => chip(tag, false))}
+        {partial.map((tag) => chip(tag, true))}
       </ul>
       <TagField vocabulary={vocabulary} attached={attached} onAdd={add} />
     </div>
@@ -489,18 +567,24 @@ function FolderEditor({
   shared,
   partial,
   tree,
+  onPick,
   onSaved,
 }: {
   readonly hashes: readonly string[];
   readonly shared: readonly WireFolderRef[];
   readonly partial: readonly WireFolderRef[];
   readonly tree: readonly SidebarFolderRow[];
+  readonly onPick: (query: string) => void;
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
   const attached = useMemo(
     () => [...shared, ...partial].map((folder) => folder.id),
     [shared, partial],
   );
+
+  // By id rather than by path: two folders may share a name, the path is what
+  // is drawn, and the id is the only thing both lists agree on.
+  const queries = useMemo(() => new Map(tree.map((row) => [row.folder, row.query])), [tree]);
 
   const add = (folder: number): void => {
     void invoke({ type: "asset:folderAdd", hashes, folder }).then(onSaved);
@@ -510,35 +594,52 @@ function FolderEditor({
     void invoke({ type: "asset:folderRemove", hashes, folder }).then(onSaved);
   };
 
+  /**
+   * One chip. **The name is a button, and clicking it shows the folder** —
+   * asked for on 2026-09-07, beside the tag chip's menu and deliberately not
+   * the same gesture. A folder chip says one thing where a tag chip says two:
+   * there is nothing to choose between, so a menu would be a click in the way.
+   *
+   * It is a plain button when the tree has not arrived — the panel and the
+   * navigation pane read the library separately, and a chip that navigated
+   * nowhere would be worse than one that plainly does not.
+   */
+  const chip = (folder: WireFolderRef, only: boolean): React.JSX.Element => {
+    const query = queries.get(folder.id);
+    return (
+      <li key={folder.id} className="folder" {...(only ? { "data-partial": "" } : {})}>
+        <button
+          type="button"
+          className="folder-name"
+          disabled={query === undefined}
+          title={
+            only
+              ? `Only some of the ${hashes.length} selected assets are in ${folder.path}`
+              : folder.path
+          }
+          onClick={() => {
+            if (query !== undefined) onPick(query);
+          }}
+        >
+          {folder.path}
+        </button>
+        <button
+          type="button"
+          className="chip-remove"
+          aria-label={`Remove from ${folder.path}`}
+          onClick={() => remove(folder.id)}
+        >
+          ×
+        </button>
+      </li>
+    );
+  };
+
   return (
     <div className="folders">
       <ul className="folder-list">
-        {shared.map((folder) => (
-          <li key={folder.id} className="folder">
-            <span title={folder.path}>{folder.path}</span>
-            <button
-              type="button"
-              aria-label={`Remove from ${folder.path}`}
-              onClick={() => remove(folder.id)}
-            >
-              ×
-            </button>
-          </li>
-        ))}
-        {partial.map((folder) => (
-          <li key={folder.id} className="folder" data-partial>
-            <span title={`Only some of the ${hashes.length} selected assets are in ${folder.path}`}>
-              {folder.path}
-            </span>
-            <button
-              type="button"
-              aria-label={`Remove from ${folder.path}`}
-              onClick={() => remove(folder.id)}
-            >
-              ×
-            </button>
-          </li>
-        ))}
+        {shared.map((folder) => chip(folder, false))}
+        {partial.map((folder) => chip(folder, true))}
       </ul>
       <FolderField tree={tree} attached={attached} onAdd={add} />
     </div>
@@ -559,12 +660,14 @@ function Selection({
   summary,
   vocabulary,
   folders,
+  onPick,
   onSaved,
 }: {
   readonly hashes: readonly string[];
   readonly summary: WireSelectionSummary;
   readonly vocabulary: readonly TagChoice[];
   readonly folders: readonly SidebarFolderRow[];
+  readonly onPick: (query: string) => void;
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
   return (
@@ -583,6 +686,7 @@ function Selection({
         shared={summary.sharedTags}
         partial={summary.partialTags}
         vocabulary={vocabulary}
+        onPick={onPick}
         onSaved={onSaved}
       />
 
@@ -591,6 +695,7 @@ function Selection({
         shared={summary.sharedFolders}
         partial={summary.partialFolders}
         tree={folders}
+        onPick={onPick}
         onSaved={onSaved}
       />
 

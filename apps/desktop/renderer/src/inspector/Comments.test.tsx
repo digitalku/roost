@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { playhead } from "../preview/playhead.js";
 import { FakeEngine, fakeDetail, install } from "../testing/fake-engine.js";
 import { Inspector } from "./Inspector.js";
+import type { TagChoice } from "./TagField.js";
 
 /**
  * Comments, driven through the panel that holds them (ADR-0023).
@@ -22,7 +23,7 @@ import { Inspector } from "./Inspector.js";
 const HASH = fakeDetail(1).hash;
 
 /** Comments do not touch the tag field; it needs a vocabulary all the same. */
-const VOCABULARY: readonly { name: string; group: string | null; count: number | null }[] = [];
+const VOCABULARY: readonly TagChoice[] = [];
 
 describe("comments", () => {
   let engine: FakeEngine;
@@ -31,7 +32,15 @@ describe("comments", () => {
   const show = (comments: readonly WireComment[] = []) => {
     engine = new FakeEngine({ details: [fakeDetail(1, { comments })] });
     install(engine);
-    render(<Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={[]} />);
+    render(
+      <Inspector
+        hashes={[HASH]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={[]}
+        onPick={() => {}}
+      />,
+    );
     return userEvent.setup();
   };
 
@@ -197,7 +206,13 @@ describe("comments", () => {
     install(engine);
     const user = userEvent.setup();
     const view = render(
-      <Inspector hashes={[HASH]} generation={0} vocabulary={VOCABULARY} folders={[]} />,
+      <Inspector
+        hashes={[HASH]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={[]}
+        onPick={() => {}}
+      />,
     );
     await user.type(await screen.findByLabelText("Add a comment"), "half a thought");
 
@@ -207,6 +222,7 @@ describe("comments", () => {
         generation={0}
         vocabulary={VOCABULARY}
         folders={[]}
+        onPick={() => {}}
       />,
     );
     await waitFor(() =>

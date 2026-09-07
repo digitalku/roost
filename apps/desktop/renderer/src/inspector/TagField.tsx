@@ -14,6 +14,15 @@ export interface TagChoice {
   readonly name: string;
   readonly group: string | null;
   readonly count: number | null;
+  /**
+   * The RQL that selects this tag, as the engine wrote it.
+   *
+   * Carried rather than assembled: `tag:Some Name` needs the quoting rules that
+   * live beside `quoteValue` in `@roost/library`, and a renderer spelling them a
+   * second time is the one that gets them wrong. The field itself never reads
+   * this — the chip's menu does, which is where a tag becomes a search.
+   */
+  readonly query: string;
 }
 
 /** How many suggestions are offered at once. */

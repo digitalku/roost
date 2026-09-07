@@ -623,6 +623,19 @@ displacing the tag somebody is plainly typing. Ties break on the name, so the or
 eight are offered, and a tag the selection already carries is never among them — its chip is on
 screen a few pixels above, and adding it again is a no-op.
 
+**A tag already on the asset is a chip, and right-clicking one opens a menu.** Asked for on
+2026-09-07, from a panel where the only way to see everything else carrying a tag was to find that
+tag again in the sidebar. Two items and no more: **Filter by this tag**, which replaces the query
+exactly as clicking the row in the navigation pane does, and **Remove tag**, which is what the `×`
+does — offered here because the `×` is a pointer-only target, and a menu holding one of a chip's
+two actions reads as if the other were unavailable.
+
+**The query travels; it is never assembled.** The chip filters with the RQL the engine wrote for
+that tag's sidebar row, quoting included — the rule §4.1 states for the pane, and the same reason:
+a renderer spelling `tag:Some Name` is a second implementation of the grammar and the one that
+gets it wrong. A tag the sidebar has not caught up with — the moment after one is added — leaves
+the item **disabled rather than absent**, so the menu does not change shape between two openings.
+
 **Nothing is highlighted until an arrow key highlights it.** This is the rule that keeps a *new*
 tag possible while an old one is on offer: Enter adds exactly what was typed unless a suggestion
 has been chosen, so `oke` is still `oke` with `okelah` listed under it. `↓`/`↑` move the highlight
@@ -709,6 +722,14 @@ between two openings.
 
 **A chip says the path, not the name**, for the same reason: it is what somebody reads before
 pressing the `×` beside it.
+
+**Clicking the path shows that folder.** Asked for on 2026-09-07, beside the tag chip's menu in
+§3.7 and deliberately not the same gesture: a folder chip offers one thing, so a menu would be a
+click in the way, while a tag chip offers two and has to ask which. The name is therefore a button
+— reachable from the keyboard, undressed to look like the text it replaced — and the query it
+sends is the **sidebar row's own**, found by the folder's id in the tree this control already
+holds. A chip whose folder the tree does not know yet is drawn plainly and does nothing, because
+the panel and the navigation pane read the library separately and one can be a moment behind.
 
 **Detaching is not deleting, and it asks nothing.** A folder is a collection, not a location
 (`STORAGE_SPEC.md`) — leaving one changes nothing about the asset and moves nothing on disk. That is
