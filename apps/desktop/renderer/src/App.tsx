@@ -5,10 +5,13 @@ import type {
   LibrarySummary,
   SidebarFolderRow,
   SidebarRow,
+  SidebarTypeRow,
   WireEagleReport,
+  WireFacets,
   WireProblem,
   WireRecentLibrary,
   WireSidebar,
+  WireSplitQuery,
 } from "@roost/contract";
 import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -19,6 +22,7 @@ import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
+import { FilterBar } from "./filter/FilterBar.js";
 import { AssetContextMenu } from "./grid/AssetContextMenu.js";
 import { Grid } from "./grid/Grid.js";
 import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, zoomBy } from "./grid/layout.js";
@@ -38,6 +42,37 @@ import { SearchField } from "./search/SearchField.js";
 import { useExpansion } from "./sidebar/expansion.js";
 import { FolderDialog, type FolderDialogProps } from "./sidebar/FolderDialog.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
+
+/**
+ * A query nobody has read yet: no place, no facets, and describable.
+ *
+ * The starting state of the filter bar, and what a failed read leaves standing.
+ * Frozen at module scope so it is one object — it is a `useState` initial value
+ * and a ref's, and a fresh one per render would be a fresh dependency too.
+ */
+const NO_SPLIT: WireSplitQuery = {
+  place: "",
+  facets: { tags: [], stars: [], unrated: false, exts: [] },
+  representable: true,
+};
+
+/**
+ * The facets a picked row implies, over the ones already on.
+ *
+ * Per facet, not per set: a folder row names no tags, so its click leaves the
+ * tag filter standing, while a tag chip names one and replaces it. Which is
+ * what "replaces every conjunct the bar does not own" means when the thing
+ * being picked happens to own one (ADR-0035 §6).
+ */
+function merge(held: WireFacets, picked: WireFacets): WireFacets {
+  const rating = picked.stars.length > 0 || picked.unrated;
+  return {
+    tags: picked.tags.length > 0 ? picked.tags : held.tags,
+    stars: rating ? picked.stars : held.stars,
+    unrated: rating ? picked.unrated : held.unrated,
+    exts: picked.exts.length > 0 ? picked.exts : held.exts,
+  };
+}
 
 /**
  * The window, at the point where it can open a library and say what is in it.
@@ -487,6 +522,7 @@ function captionable(assets: readonly AssetCard[], hash: string | undefined): bo
 /** Before the first sidebar read lands. A fresh `[]` per render is a new memo. */
 const NO_TAGS: readonly SidebarRow[] = [];
 const NO_FOLDERS: readonly SidebarFolderRow[] = [];
+const NO_TYPES: readonly SidebarTypeRow[] = [];
 
 const EMPTY_LIBRARY = "Nothing in this library yet.";
 const NOTHING_MATCHED = "Nothing matches this query.";
@@ -576,6 +612,15 @@ function LibraryView({
    * lands; when the search field arrives, it edits this same string.
    */
   const [query, setQuery] = useState("");
+  /**
+   * The query, read as a place plus the three facets the bar draws (ADR-0035).
+   *
+   * Derived from `query` and never edited directly — the bar is a **view** of
+   * the query, so this follows the string rather than the string following it.
+   * Until the first answer arrives it is the empty split, which draws a bar with
+   * nothing chosen: the honest state for a query nobody has read yet.
+   */
+  const [split, setSplit] = useState<WireSplitQuery>(NO_SPLIT);
   const [sidebar, setSidebar] = useState<WireSidebar | undefined>();
   const [matches, setMatches] = useState<number | undefined>();
   // One store for the life of the view. A new one per render would drop the
@@ -617,6 +662,23 @@ function LibraryView({
     };
   }, [query, revision]);
 
+  /*
+   * The bar reads the query, and the engine does the reading: the grammar has
+   * one implementation and it is not in the sandbox (`UI_SPEC.md` §4.1). A
+   * query that is still in flight leaves the last answer on screen rather than
+   * blanking the chips, which would flicker on every keystroke.
+   */
+  useEffect(() => {
+    let current = true;
+    void (async () => {
+      const outcome = await invoke({ type: "query:split", query });
+      if (current && outcome.ok) setSplit(outcome.value);
+    })();
+    return () => {
+      current = false;
+    };
+  }, [query]);
+
   const applyQuery = useCallback(
     (picked: string) => {
       // The selection goes with the query: what was selected is no longer on
@@ -625,6 +687,53 @@ function LibraryView({
       setQuery(picked);
     },
     [selection],
+  );
+
+  /**
+   * What the query is, without the callbacks below re-forming on every change.
+   *
+   * Both of them are handed to memoised children — the pane and the bar — and a
+   * callback that changed identity whenever a facet did would re-render the
+   * whole navigation tree on every tick of a checkbox.
+   */
+  const held = useRef(NO_SPLIT);
+  held.current = split;
+
+  /** A facet was ticked: the place stands, the facets are the new ones. */
+  const applyFacets = useCallback(
+    (facets: WireFacets) => {
+      void (async () => {
+        const outcome = await invoke({ type: "query:join", place: held.current.place, facets });
+        if (outcome.ok) applyQuery(outcome.value);
+      })();
+    },
+    [applyQuery],
+  );
+
+  /**
+   * A row was clicked — in the pane, or on a chip in the inspector.
+   *
+   * **It replaces every conjunct the bar does not own and leaves the ones it
+   * does** (ADR-0035 §6). One rule for all three sections: a folder becomes the
+   * new place and the filters stand; a chip that names a tag becomes the tag
+   * facet and the rating and type filters stand; **All assets** carries the
+   * empty query and so clears the place and nothing else.
+   *
+   * Two round trips for one click, both pure functions of a string. The
+   * alternative is a renderer that knows which half of a query is which, which
+   * is the thing this design exists to avoid.
+   */
+  const pickQuery = useCallback(
+    (picked: string) => {
+      void (async () => {
+        const read = await invoke({ type: "query:split", query: picked });
+        if (!read.ok) return applyQuery(picked);
+        const facets = merge(held.current.facets, read.value.facets);
+        const joined = await invoke({ type: "query:join", place: read.value.place, facets });
+        applyQuery(joined.ok ? joined.value : picked);
+      })();
+    },
+    [applyQuery],
   );
   // The library's problem outranks the grid's: a library that failed to open
   // explains an empty grid, and showing both would say the same thing twice.
@@ -1177,15 +1286,15 @@ function LibraryView({
             />
             <h1 className="bar-title">{opened.summary.name}</h1>
           </header>
-          {/* Clicking a row replaces the query (`UI_SPEC.md` §4.2), and the
-              search field shows what it was replaced with — one source of truth
-              for what is on screen, and it is a string the user can read and
-              edit. */}
+          {/* Clicking a row replaces where the query looks and leaves the bar's
+              three filters standing (ADR-0035 §6), and the search field shows
+              the result — one source of truth for what is on screen, and it is
+              a string the user can read and edit. */}
           {sidebar !== undefined && (
             <Sidebar
               sidebar={sidebar}
               query={query}
-              onPick={applyQuery}
+              onPick={pickQuery}
               expansion={expansion}
               onNewFolder={newFolder}
               onRenameFolder={renameFolder}
@@ -1205,29 +1314,45 @@ function LibraryView({
             more thing to read past (`UI_SPEC.md` §7).
           */}
           {!showingPreview && (
-            <header className="bar">
-              <SearchField query={query} onApply={applyQuery} matches={matches} />
-              <div className="bar-actions">
-                <ViewMenu
-                  view={view}
-                  proportional={proportional}
-                  zoom={zoom}
-                  onView={setView}
-                  onProportional={setProportional}
-                  onZoom={(steps) =>
-                    setZoom((at) => (steps === 0 ? DEFAULT_ZOOM : zoomBy(at, steps)))
-                  }
-                />
-                <AddMenu
-                  busy={importing.running}
-                  onNewFile={composeFile}
-                  onNewTextDocument={() => setNewFile({ name: ".txt", text: "" })}
-                  onImportFiles={() => chooseAndImport("files")}
-                  onImportFolder={() => chooseAndImport("folders")}
-                  onImportEagle={chooseEagle}
-                />
-              </div>
-            </header>
+            <>
+              <header className="bar">
+                {/* The field is edited directly and the bar is derived from it, so
+                  typing goes to `applyQuery` and every row and chip goes through
+                  `pickQuery`, which keeps the filters standing (ADR-0035 §6). */}
+                <SearchField query={query} onApply={applyQuery} matches={matches} />
+                <div className="bar-actions">
+                  <ViewMenu
+                    view={view}
+                    proportional={proportional}
+                    zoom={zoom}
+                    onView={setView}
+                    onProportional={setProportional}
+                    onZoom={(steps) =>
+                      setZoom((at) => (steps === 0 ? DEFAULT_ZOOM : zoomBy(at, steps)))
+                    }
+                  />
+                  <AddMenu
+                    busy={importing.running}
+                    onNewFile={composeFile}
+                    onNewTextDocument={() => setNewFile({ name: ".txt", text: "" })}
+                    onImportFiles={() => chooseAndImport("files")}
+                    onImportFolder={() => chooseAndImport("folders")}
+                    onImportEagle={chooseEagle}
+                  />
+                </div>
+              </header>
+              {/* A row of its own under the toolbar, and always drawn (ADR-0035
+                §3.6): with the pane's rating and tag sections gone, this is the
+                only thing on screen that can say a filter is on. */}
+              <FilterBar
+                facets={split.facets}
+                representable={split.representable}
+                tags={sidebar?.tags ?? NO_TAGS}
+                ratings={sidebar?.ratings ?? NO_TAGS}
+                types={sidebar?.types ?? NO_TYPES}
+                onChange={applyFacets}
+              />
+            </>
           )}
 
           {showingPreview ? (
@@ -1307,7 +1432,7 @@ function LibraryView({
           vocabulary={sidebar?.tags ?? NO_TAGS}
           folders={sidebar?.folders ?? NO_FOLDERS}
           onRenamed={paging.rename}
-          onPick={applyQuery}
+          onPick={pickQuery}
         />
       </div>
 

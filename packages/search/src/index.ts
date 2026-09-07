@@ -34,6 +34,14 @@ export {
   QueryError,
   type QueryErrorKind,
 } from "./error.js";
+export {
+  type Facets,
+  joinQuery,
+  NO_FACETS,
+  type SplitQuery,
+  type Stars,
+  splitQuery,
+} from "./facets.js";
 export { MAX_DEPTH, parse } from "./parser.js";
 export { quoteValue } from "./quote.js";
 

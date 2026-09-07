@@ -88,7 +88,7 @@ import {
 } from "@roost/library";
 import { capabilities } from "@roost/media";
 import { formatFromExtension, isConvertible, kindOf } from "@roost/media/serving";
-import { QueryError } from "@roost/search";
+import { joinQuery, QueryError, splitQuery } from "@roost/search";
 
 /**
  * One library, and the requests that reach it.
@@ -157,6 +157,16 @@ export class EngineHost {
 
       case "query:check":
         return check(this.#require(), request.query);
+
+      // Both are pure functions of a string and neither touches the library,
+      // but they live here rather than in the renderer for the reason
+      // `UI_SPEC.md` §4.1 gives: the grammar has one implementation, and it is
+      // not in the sandbox.
+      case "query:split":
+        return splitQuery(request.query);
+
+      case "query:join":
+        return joinQuery(request.place, request.facets);
 
       case "asset:detail": {
         const library = this.#require();
@@ -821,6 +831,9 @@ function sidebarOf(library: Library): WireSidebar {
         stars: null,
       }),
     ),
+    // Straight across: the one vocabulary here that is not a row, because a
+    // facet value carries no query of its own (ADR-0035).
+    types: sidebar.types,
   };
 }
 

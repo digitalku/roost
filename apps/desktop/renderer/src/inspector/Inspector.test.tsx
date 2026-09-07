@@ -90,6 +90,7 @@ const SIDEBAR: WireSidebar = {
   folders: FOLDERS,
   smartFolders: [],
   tags: [],
+  types: [],
 };
 
 describe("the inspector", () => {

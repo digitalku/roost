@@ -259,6 +259,13 @@ M5 and M6 are deferred at the user's request (below), so a feature they ask for 
 ask for it rather than waiting for a milestone nobody has planned yet. What has arrived that way
 is listed here, so the order stays visible instead of becoming folklore.
 
+- ☑ **A filter bar over the grid** — 2026-09-07, ADR-0035, from the user asking for Eagle's filter
+  row and naming the three facets they wanted: tags, rating, file type, with rating and tags taken
+  out of the sidebar. Built the same day. The decision worth the record is that the bar is a **view
+  of the query** — `query:split` and `query:join` in `@roost/search`, the parts the bar does not own
+  carried as source slices because the AST's values are normalised and cannot be printed back — so
+  `UI_SPEC.md` §4.2's promise that the search field knows every filter survives the first control
+  big enough to break it. `scripts/check-filters.mjs` holds it to §4.4 in a real window, 19 checks
 - ☑ **Trash** — 2026-09-01, ADR-0022. Also listed under M6, which is where the Trash place was
   first promised
 - ☑ **Marquee selection** — 2026-09-01, the last of `UI_SPEC.md` §6's grid gestures
@@ -333,7 +340,16 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-07.** **ADR-0034 — handing a file to another application** was
+**Nothing open, as of 2026-09-07.** **ADR-0035 — a filter bar over the grid** was accepted that
+evening, proposed the same hour, from the user asking for Eagle's filter row with three facets
+named: tags, rating, file type. It decides one thing and the rest follows — the bar is a *view of
+the query*, so the engine reads and writes the query and the renderer sends values. Three answers
+came from the user, all as recommended: **types are extensions** (`ext:` needs no grammar change,
+and `kind:` stays unbuilt), **a sidebar row keeps the filters standing** — the one change it makes
+to an existing rule — and **the bar is always drawn**, because with the pane's rating and tag
+sections gone it is the only thing on screen that can say a filter is on.
+
+Before it, **ADR-0034 — handing a file to another application** was
 accepted that day: a named copy staged inside the library, by reflink where the filesystem allows it
 and never by hardlink, and a clipboard that takes exactly one format chosen by the desktop reading
 it. **Its §4 is accepted open**, which is unusual and deliberate — dragging a file *out* waits on a

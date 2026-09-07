@@ -27,6 +27,7 @@ import type {
   WireEagleReport,
   WireEagleSurvey,
   WireExportReport,
+  WireFacets,
   WireFolderDeleted,
   WireImportReport,
   WirePasted,
@@ -35,9 +36,11 @@ import type {
   WireRemoval,
   WireSelectionSummary,
   WireSidebar,
+  WireSplitQuery,
+  WireStars,
   WireSubtitlesAdded,
 } from "./dto.js";
-import { IMPORT_SUBJECTS, type ImportSubject, STORAGE_MODES } from "./dto.js";
+import { IMPORT_SUBJECTS, type ImportSubject, STARS, STORAGE_MODES } from "./dto.js";
 
 /**
  * Every request the renderer can make, and what each one answers with.
@@ -119,6 +122,25 @@ export type Request =
    * bouncing (`UI_SPEC.md` §5).
    */
   | { readonly type: "query:check"; readonly query: string }
+  /**
+   * A query, read as somewhere to look plus the three facets the bar draws
+   * (ADR-0035).
+   *
+   * The renderer cannot answer this either, and for a stronger reason than
+   * `query:check`: reading a query means knowing the grammar, and there is one
+   * implementation of it. The bar sends the string it holds and draws what
+   * comes back.
+   */
+  | { readonly type: "query:split"; readonly query: string }
+  /**
+   * The query a place and a set of facets spell.
+   *
+   * The other half of `query:split`, and the reason the bar never concatenates
+   * anything: it changes one field of the structure it was given and asks what
+   * that says. Also how a sidebar row keeps the filters standing — the row's
+   * own query is the new `place`.
+   */
+  | { readonly type: "query:join"; readonly place: string; readonly facets: WireFacets }
   /**
    * Everything the inspector shows about one asset.
    *
@@ -550,6 +572,9 @@ export interface Responses {
   "assets:page": AssetPage;
   "assets:count": number;
   "query:check": QueryCheck;
+  "query:split": WireSplitQuery;
+  /** The composed query text, which the window puts in the search field. */
+  "query:join": string;
   "asset:detail": WireAssetDetail | null;
   "asset:summary": WireSelectionSummary;
   /**
@@ -690,6 +715,22 @@ export const REQUEST_VALIDATORS: {
   "query:check": (source) => {
     const query = readString(source, "query");
     return query.ok ? ok({ type: "query:check", query: query.value }) : query;
+  },
+
+  "query:split": (source) => {
+    const query = readString(source, "query");
+    return query.ok ? ok({ type: "query:split", query: query.value }) : query;
+  },
+
+  "query:join": (source) => {
+    // An empty place is the whole library, so `readString` rather than
+    // `readNonEmpty` — filtering everything is the ordinary case.
+    const place = readString(source, "place");
+    if (!place.ok) return place;
+    const facets = readFacets(source["facets"]);
+    return facets.ok
+      ? ok({ type: "query:join", place: place.value, facets: facets.value })
+      : facets;
   },
 
   "asset:detail": (source) => {
@@ -1028,6 +1069,36 @@ function readMoment(source: Record<string, unknown>): Checked<number | null> {
 }
 
 /** A cursor as it arrives: `null`, or the two fields a previous page handed out. */
+/**
+ * The filter bar's three facets, checked one field at a time (ADR-0035).
+ *
+ * A star is checked against the five the schema has rather than against a
+ * range: `rating:0` is not unrated, it is a value the grammar refuses, and a
+ * message that gets past here would be refused deeper down where nothing can
+ * say which field was wrong.
+ */
+function readFacets(value: unknown): Checked<WireFacets> {
+  if (!isRecord(value)) return bad("facets: expected an object");
+  const tags = readStringArray(value, "tags");
+  if (!tags.ok) return tags;
+  const exts = readStringArray(value, "exts");
+  if (!exts.ok) return exts;
+  const unrated = readBoolean(value, "unrated");
+  if (!unrated.ok) return unrated;
+
+  const stars = value["stars"];
+  if (!Array.isArray(stars)) return bad("facets.stars: expected an array");
+  const checked: WireStars[] = [];
+  for (const star of stars) {
+    if (typeof star !== "number" || !STARS.includes(star as WireStars)) {
+      return bad(`facets.stars: expected one of ${STARS.join(", ")}`);
+    }
+    checked.push(star as WireStars);
+  }
+
+  return ok({ tags: tags.value, stars: checked, unrated: unrated.value, exts: exts.value });
+}
+
 function readCursor(value: unknown): Checked<WireCursor | null> {
   if (value === null) return ok(null);
   if (!isRecord(value)) return bad("expected null or an object");

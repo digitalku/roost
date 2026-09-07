@@ -10,7 +10,15 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { addToFolder, createFolder, importInto, Library, pageOf, tagAdd } from "@roost/library";
+import {
+  addToFolder,
+  createFolder,
+  importInto,
+  Library,
+  pageOf,
+  rate,
+  tagAdd,
+} from "@roost/library";
 import { gradient } from "@roost/media";
 
 /** A temporary directory and the promise that it goes away again. */
@@ -86,6 +94,26 @@ export async function tagsOnto(root, tags, count = 1) {
       .map((hit) => hit.hash)
       .slice(0, count);
     await tagAdd(library, hashes, tags);
+    return hashes;
+  } finally {
+    await library.close();
+  }
+}
+
+/**
+ * Rates the first `count` assets, for the filter bar's rating facet
+ * (ADR-0035).
+ *
+ * Every one of them the same, so a check can say how many rows a rating should
+ * return without restating the fixture's arithmetic.
+ */
+export async function rateFirst(root, stars, count = 1) {
+  const library = await Library.open(root);
+  try {
+    const hashes = pageOf(library, "", { limit: 100 })
+      .map((hit) => hit.hash)
+      .slice(0, count);
+    await rate(library, hashes, stars);
     return hashes;
   } finally {
     await library.close();

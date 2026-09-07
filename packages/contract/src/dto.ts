@@ -311,14 +311,74 @@ export interface SidebarFolderRow extends SidebarRow {
   readonly path: string;
 }
 
-/** The navigation pane, in the order it is drawn. */
+/**
+ * One extension the library holds, for the filter bar's Types facet
+ * (ADR-0035).
+ *
+ * The one thing here that is **not** a {@link SidebarRow}, and the missing
+ * field is the reason: it carries no query. A facet value is `OR`ed with the
+ * others ticked beside it, so what selects it depends on what else is on — the
+ * engine composes that when asked, and no single row can carry it.
+ */
+export interface SidebarTypeRow {
+  /** Lowercased and without a dot, as the schema stores it. `""` for none. */
+  readonly ext: string;
+  readonly count: number;
+}
+
+/** The navigation pane, in the order it is drawn, and the vocabularies over it. */
 export interface WireSidebar {
   readonly places: readonly SidebarRow[];
-  /** One row per star, then unrated — six, drawn under Places (`UI_SPEC.md` §4.1). */
+  /**
+   * One row per star, then unrated — six, always.
+   *
+   * Drawn by the filter bar since 2026-09-07 rather than by the pane
+   * (ADR-0035). Still here, and still six: what moved is where the counts are
+   * shown, not what the engine answers.
+   */
   readonly ratings: readonly SidebarRow[];
   readonly folders: readonly SidebarFolderRow[];
   readonly smartFolders: readonly SidebarRow[];
+  /** Every tag: the bar's Tags facet, and the inspector's suggestions. */
   readonly tags: readonly SidebarRow[];
+  /** Every extension the library holds, commonest first (ADR-0035). */
+  readonly types: readonly SidebarTypeRow[];
+}
+
+/** The five ratings a filter can select. Unrated is not one of them. */
+export const STARS = [1, 2, 3, 4, 5] as const;
+
+export type WireStars = (typeof STARS)[number];
+
+/**
+ * What the filter bar has narrowed the query to (ADR-0035).
+ *
+ * Structured, never a query string: the renderer holds this, changes one field
+ * of it, and asks the engine for the query it spells. Within a facet the values
+ * are `OR`ed and across facets they are `AND`ed — which is the only thing two
+ * ratings can mean together.
+ */
+export interface WireFacets {
+  readonly tags: readonly string[];
+  readonly stars: readonly WireStars[];
+  /** `is:unrated`, which sits in the rating facet without being a rating. */
+  readonly unrated: boolean;
+  readonly exts: readonly string[];
+}
+
+/** A query read as somewhere to look plus what the bar narrowed it to. */
+export interface WireSplitQuery {
+  /** Everything the bar does not own, in the words it was written in. */
+  readonly place: string;
+  readonly facets: WireFacets;
+  /**
+   * Whether the bar can show this query honestly.
+   *
+   * False for a top-level `OR`, or two terms of one facet, which mean `AND`
+   * where the bar can only mean `OR`. Nothing is absorbed then: every chip is
+   * off, and choosing one adds to the query rather than claiming to own it.
+   */
+  readonly representable: boolean;
 }
 
 /**

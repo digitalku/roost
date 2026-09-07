@@ -746,6 +746,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   carries both — the CLI has had `--mode` and `--tag` since M1 — and what is missing is where to
   put them: the mode belongs in a preference (the application config that window state is also
   waiting for) and the tags in an import dialog that does not exist yet.
+- 🟢 **`kind:` is not in the grammar.** The filter bar's Types facet offers extensions, which is
+  what the user chose when asked (ADR-0035 §3.4 and §6): `ext:` exists, and Image / Video / Audio /
+  Document would be a new term in a grammar frozen by compatibility. Nothing decided in ADR-0035
+  would have to move to add it — the facet's values would simply be kinds instead — so this is a
+  note rather than a gap.
 - 🟡 **A filtered grid does not re-page when an edit changes what matches.** The window keeps
   two counters: a library `generation`, which throws the grid's pages away, and a `revision`,
   which every derived read follows. Without the split, one keystroke in the note field would

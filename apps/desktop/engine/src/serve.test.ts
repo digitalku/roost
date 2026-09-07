@@ -348,10 +348,15 @@ describe("the engine's message loop", () => {
       "ratings",
       "smartFolders",
       "tags",
+      "types",
     ]);
     // `UI_SPEC.md` §4.1: the renderer never assembles RQL, so a row without a
-    // query is a row it cannot act on.
-    for (const rows of Object.values(value)) {
+    // query is a row it cannot act on. **Except the types**, which are the one
+    // vocabulary here that is not a row: a facet value is `OR`ed with whatever
+    // is ticked beside it, so what selects it depends on the rest of the bar
+    // and no single entry could carry it (ADR-0035).
+    for (const [section, rows] of Object.entries(value)) {
+      if (section === "types") continue;
       for (const row of rows) expect(typeof row.query).toBe("string");
     }
 

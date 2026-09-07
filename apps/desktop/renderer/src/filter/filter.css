@@ -1,0 +1,129 @@
+/*
+ * The filter bar over the grid (ADR-0035, `UI_SPEC.md` §4.4).
+ *
+ * A row of its own under the toolbar rather than three more controls in it: the
+ * toolbar's buttons act on the library — import, view, the application's menu —
+ * and these three describe what is on screen. Its own line is also what makes
+ * the row readable at a glance, which is the whole reason it is always drawn.
+ */
+.filter-bar {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: var(--space-8);
+  padding: var(--space-1) var(--gutter);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/*
+ * A facet's button, which says what is chosen and not merely that something is.
+ * Undressed until it has something to say: three outlined boxes over an
+ * unfiltered grid would read as three things that need attention.
+ */
+.filter-trigger {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.filter-trigger:hover,
+.filter-trigger[data-state="open"] {
+  border-color: var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Chosen. The same fill a current sidebar row carries, so "this is why you are
+   seeing what you are seeing" looks the same in both places. */
+.filter-trigger[data-on] {
+  border-color: var(--select-border);
+  background: var(--select-bg);
+  color: var(--select-text);
+}
+
+.filter-summary {
+  font-weight: 500;
+}
+
+.filter-caret {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+.filter-clear {
+  padding: 0 var(--space-2);
+  border: 0;
+  background: none;
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.filter-clear:hover {
+  background: none;
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* A query the chips cannot describe. Said out loud, because three chips reading
+   as off over a filtered grid is the one state this bar could lie about. */
+.filter-note {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+
+/* Long enough for a tag list to be legible, short enough not to cover the grid
+   it is filtering; taller than the menus in the toolbar, because a library has
+   more tags than it has views. */
+.filter-menu {
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.menu-heading {
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Right-aligned, so the numbers form a column the eye can compare down. */
+.menu-count {
+  margin-left: auto;
+  padding-left: var(--space-3);
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.filter-stars {
+  display: inline-flex;
+  gap: 1px;
+  color: var(--border);
+}
+
+.filter-stars > [data-on] {
+  color: var(--accent-hover);
+}
+
+/* The shape is for the eye; the row's name is what a reader hears. */
+.filter-stars-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

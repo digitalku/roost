@@ -183,6 +183,7 @@ export {
   type Sidebar,
   type SmartFolderEntry,
   type TagEntry,
+  type TypeEntry,
 } from "./sidebar.js";
 export {
   addSubtitles,

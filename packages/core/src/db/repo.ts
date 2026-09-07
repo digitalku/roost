@@ -470,6 +470,29 @@ export class Repo {
   }
 
   /**
+   * How many live assets there are of each extension, commonest first.
+   *
+   * The **Types** facet's vocabulary (ADR-0035). Scoped like `ratingCounts`,
+   * and for the same reason: these counts sit beside a query, so they have to
+   * count what that query would return — `ext:` excludes the trash and old
+   * versions, so this does too.
+   *
+   * An asset with no extension is one row with an empty name. It is a real
+   * answer to *what kinds are in here* and the facet draws it as `No extension`
+   * rather than dropping it, which would leave a library whose totals do not
+   * add up.
+   */
+  extCounts(): { ext: string; count: number }[] {
+    return this.#s(
+      `SELECT ext, count(*) AS count
+         FROM assets
+        WHERE trashed_at IS NULL AND superseded_by IS NULL
+        GROUP BY ext
+        ORDER BY count DESC, ext`,
+    ).all() as { ext: string; count: number }[];
+  }
+
+  /**
    * Every trashed asset.
    *
    * For "Empty trash", which turns each one into a `remove`. Ordered by hash

@@ -51,8 +51,21 @@ const sidebarExpression = `
           name: row.querySelector(".sidebar-label")?.textContent,
           count: row.querySelector(".sidebar-count")?.textContent ?? null,
         }));
-    return { folders: named("Folders"), tags: named("Tags") };
+    return { folders: named("Folders") };
   })()`;
+
+/**
+ * The tags, read from the filter bar's menu.
+ *
+ * They were sidebar rows until 2026-09-07 (ADR-0035). What the import has to
+ * produce is unchanged — a tag with a count — and where a person reads it is
+ * the only thing that moved.
+ */
+const tagsExpression = `
+  [...document.querySelectorAll('[role="menuitemcheckbox"]')].map((item) => ({
+    name: item.querySelector(".menu-label")?.textContent,
+    count: item.querySelector(".menu-count")?.textContent ?? null,
+  }))`;
 
 /** A request sent the way the window sends one: through the preload's surface. */
 const request = (payload) => `window.roost.invoke(${JSON.stringify(payload)})`;
@@ -154,7 +167,16 @@ try {
   );
 
   section("And the window says so");
-  const sidebar = await cdp.settle(sidebarExpression, (s) => s.folders.length > 0);
+  await cdp.settle(sidebarExpression, (s) => s.folders.length > 0);
+  // `Deep` is inside `majorette`, and a branch starts closed (ADR-0033) — so
+  // the arrow is pressed first, which is also the gesture a person makes. This
+  // check asked for `Deep` without opening its parent from the day collapsing
+  // landed until 2026-09-07, and failed silently in a script nobody re-ran.
+  const twisty = await cdp.box('button[aria-label="Expand majorette"]');
+  await cdp.mouse.click(twisty.x, twisty.y);
+  const sidebar = await cdp.settle(sidebarExpression, (s) =>
+    s.folders.some((row) => row.name === "Deep"),
+  );
   check(
     "the folders are in the sidebar",
     ["gym", "majorette", "Deep"].every((name) => sidebar.folders.some((row) => row.name === name)),
@@ -165,11 +187,23 @@ try {
     sidebar.folders.find((row) => row.name === "Deep")?.count === "1",
     sidebar.folders.map((row) => `${row.name}=${row.count}`).join(" · "),
   );
+
+  const tagsTrigger = await cdp.evaluate(`(() => {
+    const found = [...document.querySelectorAll(".filter-trigger")].find(
+      (button) => button.textContent.startsWith("Tags"),
+    );
+    if (found === undefined) return null;
+    const box = found.getBoundingClientRect();
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  })()`);
+  await cdp.mouse.click(tagsTrigger.x, tagsTrigger.y);
+  const tags = await cdp.settle(tagsExpression, (rows) => rows.length > 0);
   check(
     "Eagle's tags are the library's tags",
-    sidebar.tags.some((row) => row.name === "blue" && row.count === "2"),
-    sidebar.tags.map((row) => `${row.name}=${row.count}`).join(" · "),
+    tags.some((row) => row.name === "blue" && row.count === "2"),
+    tags.map((row) => `${row.name}=${row.count}`).join(" · "),
   );
+  await cdp.keyboard.press("Escape");
 
   const after = await cdp.evaluate(request({ type: "library:stats" }));
   check(

@@ -21,6 +21,13 @@ import type { Expansion } from "./expansion.js";
  *
  * Counts are the engine's too. `UI_SPEC.md` §4.1: the renderer never counts
  * anything it did not receive.
+ *
+ * **Rating and tags are not here** (ADR-0035). They moved to the filter bar
+ * over the grid on 2026-09-07, and the reason both should not exist is what a
+ * row does: a row here **replaces** the query, a facet up there **narrows** it.
+ * Two controls over one vocabulary would disagree about that before they
+ * disagreed about anything else. What is left is the three sections that answer
+ * *where am I looking*.
  */
 
 export interface SidebarProps {
@@ -66,13 +73,9 @@ export function Sidebar({
   onDropAssets,
   onMoveFolder,
 }: SidebarProps): React.JSX.Element {
-  // Tags are grouped, and the ungrouped ones come last (`UI_SPEC.md` §4.1).
-  const tagGroups = useMemo(() => groupTags(sidebar.tags), [sidebar.tags]);
-
   return (
     <nav className="sidebar" aria-label="Library">
       <Section title="Places" rows={sidebar.places} query={query} onPick={onPick} />
-      <Section title="Rating" rows={sidebar.ratings} query={query} onPick={onPick} />
       <Folders
         rows={sidebar.folders}
         query={query}
@@ -85,15 +88,6 @@ export function Sidebar({
         onMoveFolder={onMoveFolder}
       />
       <Section title="Smart folders" rows={sidebar.smartFolders} query={query} onPick={onPick} />
-      {tagGroups.map(([group, rows]) => (
-        <Section
-          key={group ?? "(ungrouped)"}
-          title={group === null ? "Tags" : `Tags · ${group}`}
-          rows={rows}
-          query={query}
-          onPick={onPick}
-        />
-      ))}
     </nav>
   );
 }
@@ -483,18 +477,3 @@ function Stars({ filled }: { readonly filled: number }): React.JSX.Element {
  * spacing token lives.
  */
 const MAX_INDENT = 8;
-
-/** Grouped tags first, in first-seen order; ungrouped last. */
-function groupTags(tags: readonly SidebarRow[]): [string | null, SidebarRow[]][] {
-  const groups = new Map<string | null, SidebarRow[]>();
-  for (const tag of tags) {
-    const existing = groups.get(tag.group);
-    if (existing === undefined) groups.set(tag.group, [tag]);
-    else existing.push(tag);
-  }
-  const ungrouped = groups.get(null);
-  groups.delete(null);
-  const ordered: [string | null, SidebarRow[]][] = [...groups];
-  if (ungrouped !== undefined) ordered.push([null, ungrouped]);
-  return ordered;
-}

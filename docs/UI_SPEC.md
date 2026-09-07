@@ -273,6 +273,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
 | `Transport` | content | position, loop | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, the comment marks, and what the native bar withholds — frame stepping, playback rate, an A-B loop; §7. ADR-0024 |
 | `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
+| `FilterBar` | content | — | Tags, rating and file type over the grid. A **view of the query**: read with `query:split`, written with `query:join`. §4.4. ADR-0035 |
 | `NameField` | inspector | draft | The panel's heading, and the only editable name. Holds the **stem**: the extension is not editable and is not shown here. **Wraps over as many lines as the name takes**; `Enter` commits and a name never holds one. §3.10 |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over the tags the library already has, creates on Enter. §3.7 |
@@ -800,27 +801,22 @@ PLACES
                                  makes it worth a row — an empty trash and one holding four
                                  hundred assets look identical without it
 
-RATING                           one row per star, then unrated — six, always
-  ★★★★★                    12    drawn as stars, five of them, `stars` filled
-  ★★★★☆                     0    drawn even at zero: a row that appears and vanishes with state
-  ★★★☆☆                     7    nothing on screen shows is a row people misread
-  ★★☆☆☆                     0
-  ★☆☆☆☆                     1
-  ☆☆☆☆☆                   316    unrated — `is:unrated`, and not a rating of zero
-
 FOLDERS                       +  the tree, depth-first; the `+` makes a top-level folder
   ▸ Clients                      closed: the count is the subtree's, so nothing is hidden by it
   ▾ Acme                         right-click any row for subfolder, rename, delete
       Logos              412
 SMART FOLDERS                    saved RQL
   Recent PNGs               1.2k
-TAGS                             grouped, groups collapsible
-  ▾ Materials
-      wood                   88
-      metal                  41
-  (ungrouped)
-      wip                    12
 ```
+
+**Three sections, and rating and tags are not among them** (ADR-0035). They were here until
+2026-09-07 and are now the filter bar's, one pane over (§4.4). What is left is what answers *where
+am I looking*; rating and tags answer *narrow this down*, which is a different gesture — a row here
+**replaces** the query and a facet up there **narrows** it, and one vocabulary offering both is two
+controls that will disagree about that before they disagree about anything else.
+
+The engine still sends both. The bar needs the same six rating counts and the same tag rows, and so
+does the inspector's tag field; what moved is where they are drawn, not what `readSidebar` answers.
 
 Counts are subtree counts for folders and match counts for smart folders, computed by the
 engine — the renderer never counts anything it did not receive.
@@ -858,25 +854,6 @@ journal batch — reversible, like every other `Delete` in Roost, so restoring b
 every other folder they were in. The number in both the checkbox and the sentence is the row's own
 count, so the dialog and the sidebar cannot disagree.
 
-**A rating row matches one rating, not "this many and up".** Five nested rows would have counts
-adding up to more than the library holds, and *how many five-star assets are there* is the question
-a sidebar can answer at a glance; `rating:>=4` is one term in the search field for the other
-question. All six counts come from one grouped statement, so the section costs the read no more
-than a single place does.
-
-**The rows are drawn as stars, and the engine sends a number rather than a glyph.** Each row
-carries `stars` — how many of the five to light — because what a row *is* belongs to the engine
-and what it *looks like* belongs to the window; the CLI prints `3 stars` from the same fact. Five
-are always drawn so the rows read as one scale, the unlit ones in the border colour, and the row's
-name stays in the accessible tree so a screen reader still hears "3 stars 7". The glyph is the one
-the inspector's rating control uses, coloured rather than swapped for a hollow character — two
-star characters from two fonts is how a row ends up a pixel taller than the one above it.
-
-**Unrated is the sixth row and it is not a rating of zero.** The schema has no zero: `NULL` is
-unrated (`DATA_MODEL.md`), so the row carries `is:unrated`. It sits last because the five above it
-are a scale and it is not on it — and it answers *what have I not sorted yet*, which is what a
-rating section gets opened for.
-
 **A count beside a query is the count *of* that query.** Folder and tag counts therefore exclude
 trashed assets, exactly as `folder:` and `tag:` do (ADR-0022) — a sidebar saying 3 while the grid
 shows 2 is the shape this goes wrong in. A tag every one of whose assets is in the trash stays
@@ -890,10 +867,20 @@ why the search field always shows what is actually being asked. This is carried 
 
 ### 4.2 Selection versus filtering
 
-Clicking a sidebar row **replaces** the query. Ctrl-clicking a second row **adds** its term
-with an implicit `AND`, and the search field shows the compound query. There is no separate
-filter state that the search field does not know about — one source of truth for "what is on
-screen", and it is a string the user can read and edit.
+**There is no separate filter state that the search field does not know about** — one source of
+truth for "what is on screen", and it is a string the user can read and edit. That is the rule; the
+filter bar of §4.4 is the first control large enough to test it, and it is a *view* of the query
+rather than a second copy of one.
+
+Clicking a sidebar row **replaces every conjunct the bar does not own, and leaves the ones it do**
+(ADR-0035 §6). So a folder becomes the new place and the tag, rating and type filters stand;
+**All assets** carries the empty query and therefore clears the place and nothing else. One rule for
+all three sections, and for the inspector's chips: a chip that names a tag becomes the tag filter,
+where a chip that names a folder becomes the place. Typed free text is not a filter, so a row still
+replaces it — which is what a row has always done.
+
+Ctrl-clicking a second row to `AND` its term is **not built**, and the bar is most of why it was
+wanted.
 
 ### 4.3 Dragging into a folder, and dragging a folder
 
@@ -951,6 +938,65 @@ it will land.
 overlay out of the way: `DropZone` appears for a drag carrying `Files`, which is what a drag from
 the desktop carries and what a drag inside this window never does. Neither has to know about the
 other.
+
+### 4.4 The filter bar
+
+One row under the toolbar, over the grid, always drawn (ADR-0035). Three facets — **Tags**,
+**Rating**, **Types** — each a button that opens a menu of checkboxes, and one **Clear filters**
+that appears only when there is something to clear.
+
+```
+Search…                                     8 matches    Icons ▾    + Add ▾
+Tags  wood +1 ▾    Rating  ★★★★★ ▾    Types  PNG ▾    Clear filters
+```
+
+**It is a view of the query.** Everything drawn here is read back out of the query string, and every
+click writes a new one into the search field. Nothing is remembered from the click itself: type
+`ext:png` by hand and the Types chip lights up; delete it and the chip goes out. That is §4.2's
+promise made visible, and it is the reason the bar can be trusted to say why the grid is short.
+
+**Within a facet the values are `OR`ed, across facets `AND`ed.** Two ratings `AND`ed match nothing,
+and so do two extensions — either is the only thing several values in one facet can mean. It is also
+the difference from a sidebar row, which replaces the query outright.
+
+**A facet's button says what is chosen**, not merely that something is: `wood +1`, `★★★★★`, `PNG`.
+Three chips that only light up make somebody open all three to find the one hiding their assets.
+
+**The counts are the ones the pane used to draw**, from the same read. A rating row matches one
+rating, not "this many and up" — five nested rows would have counts adding up to more than the
+library holds, and `rating:>=4` is one term in the search field for the other question. **Unrated is
+the sixth row and it is not a rating of zero**: the schema has no zero (`DATA_MODEL.md`), so the row
+carries `is:unrated` and sits last, because the five above it are a scale and it is not on it.
+
+**The rows are drawn as stars, and the engine sends a number rather than a glyph.** Each carries
+`stars` — how many of the five to light — because what a row *is* belongs to the engine and what it
+*looks like* belongs to the window; the CLI prints `3 stars` from the same fact. Five are always
+drawn so the rows read as one scale, the unlit ones in the border colour, and the row's name stays
+in the accessible tree so a screen reader still hears "3 stars 7".
+
+**Tags keep their groups.** A group arranges tags, so it is a heading in the menu rather than a
+submenu: burying eight tags one level down would make choosing two of them a four-gesture job.
+
+**Types are extensions**, most-used first, with counts — `ext:` as the grammar already has it, so
+this facet needed no new term. An asset with no extension is drawn as **No extension** rather than
+dropped, because a facet whose counts do not add up is worse than a plain-looking row. A coarse
+`kind:` — Image, Video, Audio, Document — reads better and does not exist: `kind` is derived from
+the extension and is not a column, so it would be an addition to a grammar frozen by compatibility.
+ADR-0035 §3.4 leaves the door open and nothing decided here would have to move.
+
+**A query it cannot describe is said out loud.** A top-level `OR`, or two terms of one facet —
+`tag:a tag:b` means both, where a facet can only mean either — and the bar draws every chip as off
+and prints *the search field holds a query these cannot show*. Three empty chips over a filtered
+grid is the one thing this control could lie about. Its menus still work: choosing a value **adds**
+to the query rather than claiming to own what is already there.
+
+**The menus are not modal.** The grid behind them is the thing being changed, and ticking a second
+tag while watching the count move is the ordinary way this is used.
+
+**The engine reads and writes the query.** Two requests, `query:split` and `query:join`, both pure
+functions of a string: the renderer sends the values it holds and puts back the query it is given.
+It never parses and never concatenates, which is §4.1's rule holding under the one feature that
+would most have tempted a renderer-side parser.
 
 ## 5. Search
 

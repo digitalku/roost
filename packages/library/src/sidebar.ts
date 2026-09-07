@@ -65,6 +65,20 @@ export interface TagEntry {
   readonly count: number;
 }
 
+/**
+ * One extension the library actually holds (ADR-0035).
+ *
+ * The **Types** facet's vocabulary. It carries no query, unlike every other
+ * entry here, and the difference is the point: a facet is `OR`ed with the other
+ * values chosen beside it, so what selects it depends on what else is ticked.
+ * The engine composes that from `ext` when the bar asks; nothing here can.
+ */
+export interface TypeEntry {
+  /** Lowercased and without a dot, as the schema stores it. `""` for none. */
+  readonly ext: string;
+  readonly count: number;
+}
+
 export interface SmartFolderEntry {
   readonly id: number;
   readonly parentId: number | null;
@@ -75,10 +89,19 @@ export interface SmartFolderEntry {
 
 export interface Sidebar {
   readonly places: PlaceEntry[];
-  /** One row per star, then unrated — six, always (`UI_SPEC.md` §4.1). */
+  /**
+   * One row per star, then unrated — six, always.
+   *
+   * The pane stopped drawing these on 2026-09-07 (ADR-0035) and they are still
+   * here, because the filter bar that replaced them needs the same six counts.
+   * What moved is where they are shown, not what the engine answers.
+   */
   readonly ratings: PlaceEntry[];
   readonly folders: FolderEntry[];
+  /** Every tag, for the bar's Tags facet and the inspector's suggestions. */
   readonly tags: TagEntry[];
+  /** Every extension the library holds, commonest first (ADR-0035). */
+  readonly types: TypeEntry[];
   readonly smartFolders: SmartFolderEntry[];
 }
 
@@ -116,6 +139,7 @@ export function readSidebar(library: Library): Sidebar {
     ratings: ratings(repo.ratingCounts()),
     folders,
     tags,
+    types: repo.extCounts(),
     smartFolders: repo.smartFolders(),
   };
 }

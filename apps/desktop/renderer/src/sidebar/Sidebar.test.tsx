@@ -45,6 +45,10 @@ const SIDEBAR: WireSidebar = {
     row({ id: "tag:metal", name: "metal", query: "tag:metal", count: 41, group: "Materials" }),
     row({ id: "tag:wip", name: "wip", query: "tag:wip", count: 12, group: null }),
   ],
+  types: [
+    { ext: "png", count: 412 },
+    { ext: "jpg", count: 188 },
+  ],
 };
 
 /**
@@ -130,60 +134,23 @@ describe("the navigation pane", () => {
     render(<Pane />);
     expect(screen.getAllByRole("heading").map((h) => h.textContent)).toEqual([
       "Places",
-      "Rating",
       // The `+` is part of the heading, which is where the only way to make a
       // folder lives (ADR-0033).
       "Folders+",
       "Smart folders",
-      "Tags · Materials",
-      "Tags",
     ]);
   });
 
-  it("counts a rating with none, rather than hiding the row", () => {
-    // A row that appears and vanishes with state nothing on screen shows is a
-    // row people misread, so every star is drawn and an empty one says `0`.
+  it("draws no rating and no tag rows, whatever it was sent", () => {
+    // They moved to the filter bar on 2026-09-07 (ADR-0035), and the sidebar
+    // still receives both — the bar needs the same counts and the inspector
+    // suggests from the same tags. What is under test is that the *pane* has
+    // stopped drawing them, not that the engine stopped sending them.
     render(<Pane />);
-    expect(screen.getByRole("button", { name: /5 stars/ }).textContent).toContain("3");
-    expect(screen.getByRole("button", { name: /4 stars/ }).textContent).toContain("0");
-  });
-
-  it("draws a rating as stars, and keeps its name for the accessible tree", () => {
-    // The eye gets a shape it can compare down a column; a screen reader gets
-    // the sentence the row used to read. Five are always drawn, so the rows
-    // line up as one scale rather than as a staircase.
-    render(<Pane />);
-
-    const lit = (name: RegExp): number =>
-      screen.getByRole("button", { name }).querySelectorAll(".sidebar-stars > [data-on]").length;
-    const drawn = (name: RegExp): number =>
-      screen.getByRole("button", { name }).querySelectorAll(".sidebar-stars > *").length;
-
-    expect(lit(/5 stars/)).toBe(5);
-    expect(lit(/4 stars/)).toBe(4);
-    // Unrated is the same shape with nothing lit — not a rating of zero, which
-    // the schema does not have.
-    expect(lit(/No stars/)).toBe(0);
-    expect(drawn(/No stars/)).toBe(5);
-  });
-
-  it("leaves every other row a name rather than a shape", () => {
-    render(<Pane />);
-    expect(
-      screen.getByRole("button", { name: /All assets/ }).querySelector(".sidebar-stars"),
-    ).toBeNull();
-  });
-
-  it("puts ungrouped tags last, whatever order they arrived in", () => {
-    // `UI_SPEC.md` §4.1. The ungrouped pile is the one that needs work, and it
-    // reads as a pile rather than as a group with no name.
-    const shuffled: WireSidebar = {
-      ...SIDEBAR,
-      tags: [SIDEBAR.tags[2] as SidebarRow, ...SIDEBAR.tags.slice(0, 2)],
-    };
-    render(<Pane sidebar={shuffled} />);
-    const headings = screen.getAllByRole("heading").map((h) => h.textContent);
-    expect(headings.indexOf("Tags")).toBeGreaterThan(headings.indexOf("Tags · Materials"));
+    expect(SIDEBAR.ratings.length).toBe(3);
+    expect(SIDEBAR.tags.length).toBe(3);
+    expect(screen.queryByRole("button", { name: /5 stars/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /wood/ })).toBeNull();
   });
 
   it("hands over the query it was given, never one it built", async () => {
@@ -197,10 +164,9 @@ describe("the navigation pane", () => {
     // pressed first, which is the gesture a person makes too.
     await user.click(screen.getByRole("button", { name: "Expand Design" }));
     await user.click(screen.getByRole("button", { name: /Icons/ }));
-    await user.click(screen.getByRole("button", { name: /wood/ }));
     await user.click(screen.getByRole("button", { name: /All assets/ }));
 
-    expect(picked).toEqual(['folder:"Design/Icons"', "tag:wood", ""]);
+    expect(picked).toEqual(['folder:"Design/Icons"', ""]);
   });
 
   it("shows only the counts it received", () => {
@@ -367,9 +333,13 @@ describe("the navigation pane", () => {
   });
 
   it("marks the row whose query is on screen", () => {
-    render(<Pane query="tag:wood" />);
-    expect(screen.getByRole("button", { name: /wood/ }).getAttribute("aria-current")).toBe("true");
-    expect(screen.getByRole("button", { name: /metal/ }).getAttribute("aria-current")).toBeNull();
+    render(<Pane query="" />);
+    expect(screen.getByRole("button", { name: /All assets/ }).getAttribute("aria-current")).toBe(
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "Recent PNGs" }).getAttribute("aria-current"),
+    ).toBeNull();
   });
 
   it("draws no heading for a section that is empty", () => {
@@ -377,7 +347,14 @@ describe("the navigation pane", () => {
     // explaining that.
     render(
       <Pane
-        sidebar={{ places: SIDEBAR.places, ratings: [], folders: [], smartFolders: [], tags: [] }}
+        sidebar={{
+          places: SIDEBAR.places,
+          ratings: [],
+          folders: [],
+          smartFolders: [],
+          tags: [],
+          types: [],
+        }}
       />,
     );
     // Folders is the exception, and its heading is why: the `+` in it is the

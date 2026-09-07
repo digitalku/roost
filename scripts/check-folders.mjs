@@ -371,10 +371,34 @@ try {
     await cdp.evaluate("document.querySelector('.search-input')?.value ?? null"),
   );
 
-  section("The folder chips in the inspector");
+  // ADR-0035 §6: a row replaces where the query looks and leaves the bar's
+  // filters standing. The tag just chosen is one of those filters, so opening a
+  // folder now asks for both — which is the whole reason the bar exists, and
+  // the one rule that decision changed.
+  section("A folder keeps the filter that is already on");
   await pressTwisty("Design");
   const alpha = await rowBox("Alpha");
   await cdp.mouse.click(alpha.x, alpha.y);
+  // Settled on the *query*, not on the row count: the tag filter already left
+  // one asset on screen, so a count of one was true before the click as well.
+  const composed = await cdp.settle(
+    "document.querySelector('.search-input')?.value ?? null",
+    (value) => value !== `tag:${TAG}`,
+  );
+  check(
+    "the folder became the place and the tag stayed a filter",
+    composed === `folder:Design/Alpha tag:${TAG}`,
+    composed,
+  );
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === 1);
+
+  // And off again, so what follows is about the folder alone.
+  await cdp.evaluate(`(() => {
+    const button = document.querySelector(".filter-clear");
+    if (button !== null) button.click();
+  })()`);
+
+  section("The folder chips in the inspector");
   await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === FILED);
   await clickFirstCell();
   const chips = await cdp.settle(chipsExpression, (state) => state?.chips.length > 0);

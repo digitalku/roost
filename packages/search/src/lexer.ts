@@ -9,8 +9,19 @@ import { queryError } from "./error.js";
  * quotes end a word.
  */
 
+/**
+ * Every token carries where it starts and where it ends.
+ *
+ * `at` is what a parse error points at. `end` is what lets a caller take a
+ * **slice of the source** rather than reprinting an expression — which the AST
+ * cannot do, because its values are already normalised (`facets.ts`).
+ */
 export type Token =
-  | { readonly type: "open" | "close" | "or" | "and" | "not"; readonly at: number }
+  | {
+      readonly type: "open" | "close" | "or" | "and" | "not";
+      readonly at: number;
+      readonly end: number;
+    }
   | {
       readonly type: "word";
       /** `field:value`, or a bare word or quoted phrase with no field. */
@@ -22,6 +33,7 @@ export type Token =
        */
       readonly quoted: boolean;
       readonly at: number;
+      readonly end: number;
     };
 
 const isSpace = (character: string): boolean => /\s/.test(character);
@@ -40,7 +52,7 @@ export function tokenize(input: string): Token[] {
     }
 
     if (character === "(" || character === ")") {
-      tokens.push({ type: character === "(" ? "open" : "close", at });
+      tokens.push({ type: character === "(" ? "open" : "close", at, end: at + 1 });
       at += 1;
       continue;
     }
@@ -49,7 +61,7 @@ export function tokenize(input: string): Token[] {
     // which filenames are full of — and mid-word is never seen here, because
     // `readWord` consumes to the end of the word in one step.
     if (character === "-" && at + 1 < input.length && !isSpace(input[at + 1] ?? "")) {
-      tokens.push({ type: "not", at });
+      tokens.push({ type: "not", at, end: at + 1 });
       at += 1;
       continue;
     }
@@ -66,7 +78,7 @@ export function tokenize(input: string): Token[] {
 function readWord(input: string, start: number): [Token, number] {
   if (input[start] === '"') {
     const [value, next] = readQuoted(input, start);
-    return [{ type: "word", field: undefined, value, quoted: true, at: start }, next];
+    return [{ type: "word", field: undefined, value, quoted: true, at: start, end: next }, next];
   }
 
   let at = start;
@@ -82,7 +94,7 @@ function readWord(input: string, start: number): [Token, number] {
 
       if (input[at] === '"') {
         const [value, next] = readQuoted(input, at);
-        return [{ type: "word", field, value, quoted: true, at: start }, next];
+        return [{ type: "word", field, value, quoted: true, at: start, end: next }, next];
       }
 
       const valueStart = at;
@@ -92,7 +104,14 @@ function readWord(input: string, start: number): [Token, number] {
         at += 1;
       }
       return [
-        { type: "word", field, value: input.slice(valueStart, at), quoted: false, at: start },
+        {
+          type: "word",
+          field,
+          value: input.slice(valueStart, at),
+          quoted: false,
+          at: start,
+          end: at,
+        },
         at,
       ];
     }
@@ -102,13 +121,16 @@ function readWord(input: string, start: number): [Token, number] {
   const raw = input.slice(start, at);
   switch (raw.toLowerCase()) {
     case "or":
-      return [{ type: "or", at: start }, at];
+      return [{ type: "or", at: start, end: at }, at];
     case "and":
-      return [{ type: "and", at: start }, at];
+      return [{ type: "and", at: start, end: at }, at];
     case "not":
-      return [{ type: "not", at: start }, at];
+      return [{ type: "not", at: start, end: at }, at];
     default:
-      return [{ type: "word", field: undefined, value: raw, quoted: false, at: start }, at];
+      return [
+        { type: "word", field: undefined, value: raw, quoted: false, at: start, end: at },
+        at,
+      ];
   }
 }
 

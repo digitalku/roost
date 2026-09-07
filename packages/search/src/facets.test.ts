@@ -1,0 +1,177 @@
+import { describe, expect, it } from "vitest";
+import { type Facets, joinQuery, NO_FACETS, splitQuery } from "./facets.js";
+import { parse } from "./parser.js";
+
+/**
+ * The bar over the grid is a view of the query (ADR-0035), so what is under
+ * test throughout is that reading and writing agree: a query the bar can
+ * represent must survive a round trip, and one it cannot must be left alone.
+ */
+
+const facets = (over: Partial<Facets> = {}): Facets => ({ ...NO_FACETS, ...over });
+
+describe("reading a query", () => {
+  it("finds nothing in an empty query", () => {
+    expect(splitQuery("")).toEqual({ place: "", facets: NO_FACETS, representable: true });
+    expect(splitQuery("   ")).toEqual({ place: "", facets: NO_FACETS, representable: true });
+  });
+
+  it("takes one tag, one rating, one extension", () => {
+    expect(splitQuery("tag:wood").facets.tags).toEqual(["wood"]);
+    expect(splitQuery("rating:4").facets.stars).toEqual([4]);
+    expect(splitQuery("is:unrated").facets.unrated).toBe(true);
+    expect(splitQuery("ext:png").facets.exts).toEqual(["png"]);
+  });
+
+  it("takes several of one facet out of an OR", () => {
+    const split = splitQuery("(tag:wood OR tag:metal)");
+    expect(split.facets.tags).toEqual(["wood", "metal"]);
+    expect(split.place).toBe("");
+    expect(split.representable).toBe(true);
+  });
+
+  it("reads unrated as part of the rating facet without making it a rating", () => {
+    const split = splitQuery("(rating:5 OR is:unrated)");
+    expect(split.facets.stars).toEqual([5]);
+    expect(split.facets.unrated).toBe(true);
+  });
+
+  it("keeps everything else in the place, spelled the way it was typed", () => {
+    // The reason the place is a slice of the source and not a reprinted tree:
+    // the AST holds 2mb as 2097152 and the date as two timestamps, so anything
+    // that printed the tree back would return a query nobody wrote.
+    const split = splitQuery('beach size:>2mb created:2024-03-01 folder:"Design/Icons" tag:wood');
+    expect(split.place).toBe('beach size:>2mb created:2024-03-01 folder:"Design/Icons"');
+    expect(split.facets.tags).toEqual(["wood"]);
+    expect(split.representable).toBe(true);
+  });
+
+  it("leaves a negated tag alone", () => {
+    // `-tag:wip` means "not this", and the bar has no way to draw that. It
+    // stays in the place, where somebody can read it.
+    const split = splitQuery("-tag:wip tag:wood");
+    expect(split.place).toBe("-tag:wip");
+    expect(split.facets.tags).toEqual(["wood"]);
+  });
+
+  it("leaves a rating range alone", () => {
+    // The bar's rows are one rating each, as the sidebar's were. `rating:>=4`
+    // is a different question and stays where it can be read.
+    const split = splitQuery("rating:>=4");
+    expect(split.place).toBe("rating:>=4");
+    expect(split.facets.stars).toEqual([]);
+  });
+
+  it("refuses two conjuncts of one facet rather than turning an AND into an OR", () => {
+    // `tag:a tag:b` means both. The bar can only mean either, so absorbing them
+    // would ask a different question — and it says so instead.
+    const split = splitQuery("tag:a tag:b");
+    expect(split.representable).toBe(false);
+    expect(split.facets.tags).toEqual([]);
+    expect(split.place).toBe("tag:a tag:b");
+  });
+
+  it("refuses a top-level OR", () => {
+    const split = splitQuery("tag:wood OR ext:png");
+    expect(split.representable).toBe(false);
+    expect(split.facets).toEqual(NO_FACETS);
+    expect(split.place).toBe("tag:wood OR ext:png");
+  });
+
+  it("refuses an OR that mixes two facets", () => {
+    const split = splitQuery("(tag:wood OR ext:png)");
+    expect(split.facets).toEqual(NO_FACETS);
+    expect(split.place).toBe("(tag:wood OR ext:png)");
+  });
+
+  it("treats a query that does not parse as all place, and raises nothing", () => {
+    // The grid is already saying the query is broken; a filter bar is not the
+    // control that should say it a second time.
+    expect(splitQuery('tag:"unclosed').representable).toBe(false);
+    expect(splitQuery("colour:red").facets).toEqual(NO_FACETS);
+    expect(splitQuery("colour:red").place).toBe("colour:red");
+  });
+});
+
+describe("writing a query", () => {
+  it("writes nothing for no facets and no place", () => {
+    expect(joinQuery("", NO_FACETS)).toBe("");
+  });
+
+  it("writes one term per facet, ORed within and ANDed across", () => {
+    expect(joinQuery("", facets({ tags: ["wood"] }))).toBe("tag:wood");
+    expect(joinQuery("", facets({ tags: ["wood", "metal"] }))).toBe("(tag:wood OR tag:metal)");
+    expect(joinQuery("", facets({ exts: ["png", "jpg"], stars: [5] }))).toBe(
+      "rating:5 (ext:png OR ext:jpg)",
+    );
+  });
+
+  it("quotes a value that needs it, and never by concatenating", () => {
+    expect(joinQuery("", facets({ tags: ["brand assets"] }))).toBe('tag:"brand assets"');
+  });
+
+  it("puts the stars in the order the rating rows were drawn in", () => {
+    expect(joinQuery("", facets({ stars: [3, 5, 1], unrated: true }))).toBe(
+      "(rating:5 OR rating:3 OR rating:1 OR is:unrated)",
+    );
+  });
+
+  it("keeps the place first and in its own words", () => {
+    expect(joinQuery("beach size:>2mb", facets({ tags: ["wood"] }))).toBe(
+      "beach size:>2mb tag:wood",
+    );
+  });
+
+  it("fences a place that ORs at the top level", () => {
+    // `a OR b tag:wood` parses as `a OR (b AND tag:wood)`. The OR the bar could
+    // not read is exactly the one that has to be fenced before anything is
+    // ANDed onto it.
+    const query = joinQuery("tag:a OR tag:b", facets({ exts: ["png"] }));
+    expect(query).toBe("(tag:a OR tag:b) ext:png");
+    expect(() => parse(query)).not.toThrow();
+  });
+
+  it("leaves a place alone when nothing is chosen", () => {
+    expect(joinQuery("tag:a OR tag:b", NO_FACETS)).toBe("tag:a OR tag:b");
+  });
+});
+
+describe("reading and writing agree", () => {
+  const roundTrips = [
+    "",
+    "tag:wood",
+    "(tag:wood OR tag:metal)",
+    "rating:5",
+    "(rating:5 OR rating:3 OR is:unrated)",
+    "ext:png",
+    "(ext:png OR ext:jpg)",
+    'beach size:>2mb folder:"Design/Icons" tag:wood',
+    "-tag:wip rating:2 ext:pdf",
+  ];
+
+  for (const query of roundTrips) {
+    it(`survives a round trip: ${query === "" ? "(empty)" : query}`, () => {
+      const split = splitQuery(query);
+      expect(split.representable).toBe(true);
+      expect(joinQuery(split.place, split.facets)).toBe(query);
+    });
+  }
+
+  it("returns the query it started from when a facet is turned off and on again", () => {
+    const start = "beach tag:wood rating:5 (ext:png OR ext:jpg)";
+    const split = splitQuery(start);
+    const off = joinQuery(split.place, { ...split.facets, stars: [] });
+    expect(off).toBe("beach tag:wood (ext:png OR ext:jpg)");
+    const back = splitQuery(off);
+    expect(joinQuery(back.place, { ...back.facets, stars: [5] })).toBe(start);
+  });
+
+  it("puts a place a sidebar row supplies in front of the facets it keeps", () => {
+    // ADR-0035 §6: a sidebar row replaces every conjunct the bar does not own
+    // and leaves the ones it does.
+    const split = splitQuery("beach ext:png rating:5");
+    expect(joinQuery('folder:"Design/Logos"', split.facets)).toBe(
+      'folder:"Design/Logos" rating:5 ext:png',
+    );
+  });
+});

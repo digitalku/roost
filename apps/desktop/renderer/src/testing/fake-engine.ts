@@ -24,6 +24,7 @@ import type {
   WireReclaimable,
   WireSelectionSummary,
   WireSidebar,
+  WireStars,
 } from "@roost/contract";
 import type { WindowBridge } from "../bridge.js";
 
@@ -226,6 +227,7 @@ const EMPTY_SIDEBAR: WireSidebar = {
   folders: [],
   smartFolders: [],
   tags: [],
+  types: [],
 };
 
 /**
@@ -920,6 +922,58 @@ export class FakeEngine {
           },
         );
 
+      /*
+       * A **deliberately small** stand-in for `@roost/search`'s own reading and
+       * writing of a query (ADR-0035). It handles a flat run of terms with
+       * quoted values, and nothing else — no parentheses, no `OR`, no negation.
+       *
+       * Quoting is here because it is the thing the tests are about: a renderer
+       * that spelled `tag:brand assets` itself would send two terms and get the
+       * wrong answer, so the fake has to be able to give the right one. What
+       * the real grammar does with everything this cannot read is tested where
+       * it lives, in `facets.test.ts`.
+       *
+       * Importing that would put the grammar in the renderer's dependencies,
+       * which is the one thing `UI_SPEC.md` §4.1 exists to prevent. A fake
+       * engine is allowed to be a fake.
+       */
+      case "query:split": {
+        const tags: string[] = [];
+        const stars: WireStars[] = [];
+        const exts: string[] = [];
+        let unrated = false;
+        const place: string[] = [];
+        for (const term of terms(request.query)) {
+          const named = /^(tag|ext|rating):(.*)$/s.exec(term);
+          const value = named?.[2] === undefined ? "" : unquote(named[2]);
+          if (named?.[1] === "tag") tags.push(value);
+          else if (named?.[1] === "ext") exts.push(value);
+          else if (named?.[1] === "rating" && /^[1-5]$/.test(value)) {
+            stars.push(Number(value) as WireStars);
+          } else if (term === "is:unrated") unrated = true;
+          else place.push(term);
+        }
+        return ok({
+          place: place.join(" "),
+          facets: { tags, stars, unrated, exts },
+          representable: true,
+        });
+      }
+
+      case "query:join": {
+        const or = (written: readonly string[]): readonly string[] =>
+          written.length <= 1 ? written : [`(${written.join(" OR ")})`];
+        const written = [
+          ...or(request.facets.tags.map((tag) => `tag:${quote(tag)}`)),
+          ...or([
+            ...[...request.facets.stars].sort((a, b) => b - a).map((n) => `rating:${n}`),
+            ...(request.facets.unrated ? ["is:unrated"] : []),
+          ]),
+          ...or(request.facets.exts.map((ext) => `ext:${quote(ext)}`)),
+        ];
+        return ok([request.place.trim(), ...written].filter((part) => part !== "").join(" "));
+      }
+
       case "query:check": {
         const bad = this.#options.invalid?.[request.query];
         return ok(
@@ -1034,4 +1088,20 @@ export function install(engine: FakeEngine): void {
     configurable: true,
     writable: true,
   });
+}
+
+/** Splits on whitespace, keeping a `"quoted value"` whole. */
+function terms(query: string): string[] {
+  return query.match(/(?:[^\s"]|"[^"]*")+/g) ?? [];
+}
+
+function unquote(value: string): string {
+  return value.startsWith('"') && value.endsWith('"') && value.length >= 2
+    ? value.slice(1, -1)
+    : value;
+}
+
+/** `quoteValue`'s rule, small enough to restate and only ever used by the fake. */
+function quote(value: string): string {
+  return value !== "" && !/[\s"():]/.test(value) ? value : `"${value.replaceAll('"', '""')}"`;
 }

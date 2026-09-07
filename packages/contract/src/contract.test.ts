@@ -86,6 +86,8 @@ describe("validating a request", () => {
       "assets:page",
       "assets:count",
       "query:check",
+      "query:split",
+      "query:join",
       "asset:detail",
       "asset:summary",
       "asset:rate",
