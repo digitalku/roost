@@ -386,6 +386,12 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   took sixteen stops to reach the grid, eleven of them sidebar rows. Found while checking something
   else, and left alone deliberately — it is a keyboard-navigation change with its own shape, not a
   detail of the ring above.
+- 🟢 **The comment rows carry the hover the chips just lost.** `.comment-actions button` and
+  `.comment-moment button` override the base button's border and background but not its
+  `--control-height` box or its `--space-4` padding, so each is a full control's worth of hover
+  around a glyph — the same defect the tag and folder chips were reported for on 2026-09-07 and
+  fixed. Left alone until somebody sees it, because the fix is one rule and the risk is guessing at
+  a size nobody has looked at.
 
 ### Handing a file to another application (ADR-0034, 2026-09-07)
 - ☑ ~~**Copy file(s) to the clipboard.**~~ `Copy file` / `Copy N files` in the asset menu, beside
