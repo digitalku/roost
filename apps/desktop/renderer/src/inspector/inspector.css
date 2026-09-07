@@ -112,20 +112,37 @@
   display: flex;
   gap: var(--space-1);
   align-items: center;
-  padding: 0 var(--space-1) 0 var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
   border-radius: var(--radius-full);
   background: var(--surface-raised);
   font-size: var(--text-xs);
   line-height: var(--leading-xs);
 }
 
+/* Sized here rather than inherited: the base button is a full `--control-height`
+   control with `--space-4` either side, which inside an 11px chip is a hit area
+   taller and far wider than the glyph it removes — and the base hover then
+   paints that whole rectangle. The chip's `×` is a round target the size of the
+   text beside it, so what lights up under the pointer is the `×` itself. */
 .tag button,
 .folder button {
+  display: grid;
+  place-items: center;
+  width: var(--leading-xs);
+  height: var(--leading-xs);
+  padding: 0;
   border: 0;
+  border-radius: var(--radius-full);
   background: none;
   color: var(--text-subtle);
   font: inherit;
   line-height: 1;
+}
+
+.tag button:hover,
+.folder button:hover {
+  background: var(--surface-overlay);
+  color: var(--text);
 }
 
 /* The menu's trigger, which is a button that reads as a field: it sits where
