@@ -117,6 +117,25 @@ const cellStyle = (index) => `
  * them.
  */
 /**
+ * The two places the keyboard's ring can be drawn, read together.
+ *
+ * Together rather than one at a time, because the claim is about how many of
+ * them are drawn at once and reading them apart would never see that.
+ */
+const ringExpression = `
+  (() => {
+    const grid = document.querySelector(".grid");
+    const style = getComputedStyle(grid);
+    return {
+      focused: document.activeElement === grid,
+      ring: grid.matches(":focus-visible"),
+      roving: grid.hasAttribute("data-roving"),
+      frame: style.outlineStyle === "none" ? "none" : style.outlineWidth + " " + style.outlineColor,
+      cells: document.querySelectorAll(".cell[data-focused]").length,
+    };
+  })()`;
+
+/**
  * What the scroller reserves, against what the token asks for.
  *
  * Measured off the element rather than read off a rule, because a scrollbar
@@ -169,6 +188,40 @@ async function clearSelection() {
   const grid = await cdp.box(".grid");
   await cdp.mouse.click(grid.left + 3, grid.top + 3);
   await cdp.settle(`${selectedHashes}.length`, (n) => n === 0);
+}
+
+/**
+ * Reads a cell's style until the pointer's effect has landed, or gives up.
+ *
+ * A `:hover` is painted on a frame after the move that caused it, and a fixed
+ * sleep is a guess at when that frame is: one run in a handful read the style
+ * back before Chromium had repainted and reported "hover does nothing" for a
+ * build where it does. It gives up rather than throwing, so a build where hover
+ * really is broken still reports a failed check instead of a stack trace.
+ */
+async function settledCell(index, changedFrom) {
+  let style = await cdp.evaluate(cellStyle(index));
+  for (let attempt = 0; attempt < 8 && style.background === changedFrom; attempt += 1) {
+    await sleep(100);
+    style = await cdp.evaluate(cellStyle(index));
+  }
+  return style;
+}
+
+/**
+ * Tab until the grid has the focus, however many stops are before it.
+ *
+ * Counted rather than fixed: the sidebar is a tab stop per row today, so the
+ * number depends on how many places the fixture library has.
+ */
+async function tabToGrid() {
+  for (let stop = 0; stop < 40; stop += 1) {
+    const state = await cdp.evaluate(ringExpression);
+    if (state.focused) return state;
+    await cdp.keyboard.press("Tab");
+    await sleep(80);
+  }
+  throw new Error("the grid never took the focus");
 }
 
 async function clickCell(index) {
@@ -262,6 +315,31 @@ try {
   }
   await cdp.evaluate('document.documentElement.dataset.density = "comfortable"');
 
+  section("One ring for the keyboard, not two (UI_SPEC.md §6)");
+  await setView("details");
+  const bare = await tabToGrid();
+  // With nothing inside it focused, the frame is the only answer to "where is
+  // the keyboard", and §10 requires there to be one.
+  check(
+    "Tab into the grid rings the frame",
+    bare.ring && bare.frame !== "none" && bare.cells === 0,
+    `frame=${bare.frame} cells=${bare.cells}`,
+  );
+
+  await cdp.keyboard.press("ArrowDown");
+  await sleep(200);
+  const roving = await cdp.evaluate(ringExpression);
+  // A rectangle around a cell and a rectangle around the whole grid, both
+  // saying the keyboard is here — and `:focus-visible` holds once an arrow key
+  // has been used, so the outer one stayed for as long as the keyboard did.
+  // Reported from a screenshot on 2026-09-07: "kotak hijau ini apa".
+  check(
+    "and an arrow key hands that ring to the cell",
+    roving.ring && roving.roving && roving.frame === "none" && roving.cells === 1,
+    `frame=${roving.frame} cells=${roving.cells}`,
+  );
+  await clearSelection();
+
   section("Two tokens, two roles");
   for (const theme of ["dark", "light"]) {
     await cdp.evaluate(`document.documentElement.dataset.theme = ${JSON.stringify(theme)}`);
@@ -321,8 +399,7 @@ try {
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
     })()`);
   await cdp.mouse.move(neighbourBox.x, neighbourBox.y);
-  await sleep(150);
-  const neighbourHovered = await cdp.evaluate(cellStyle(2));
+  const neighbourHovered = await settledCell(2, neighbour.background);
   check(
     "while an unselected one does raise under the pointer",
     neighbourHovered.background !== neighbour.background,

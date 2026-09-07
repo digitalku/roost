@@ -368,6 +368,25 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟢 **`--dry-run` opens no Roost library**, so it answers "what is in this Eagle library" before
   there is anywhere to put it. It is the only subcommand of `import` that does not need one.
 
+### Chrome the pictures have to live with (2026-09-07)
+- ☑ ~~**The scrollbar is drawn rather than inherited.**~~ `UI_SPEC.md` §2.5. Chromium's own was a
+  15px bar with a stepper at each end, and the one widget in the window that ignored `data-theme`.
+  A transparent track and a rounded pill inset by a transparent border, `--gray-7` at rest in both
+  themes because it is the one step that clears §2's 3:1 floor against both ends of the ramp.
+  Guarded indirectly — a scrollbar has no computed style to read, so `check-grid.mjs` asserts the
+  strip is the width `--scrollbar-size` asks for.
+- ☑ ~~**The grid's frame stopped drawing a second focus ring.**~~ Asked about from a screenshot:
+  *"kotak hijau ini apa ya kok sering muncul"*. It was `.grid:focus-visible` — correct, and
+  redundant the moment a cell carries the roving ring. `:focus-visible` holds once an arrow key has
+  been used and does not fall away on the next click inside the same element, so the box stayed for
+  as long as the keyboard was in the grid. `data-roving` is written beside `aria-activedescendant`,
+  so the frame draws its ring only while nothing inside it is focused.
+- 🟢 **The sidebar is a tab stop per row, not one per region.** `UI_SPEC.md` §10 asks for one tab
+  stop per region with roving focus inside; walking the tab order in a real window on 2026-09-07
+  took sixteen stops to reach the grid, eleven of them sidebar rows. Found while checking something
+  else, and left alone deliberately — it is a keyboard-navigation change with its own shape, not a
+  detail of the ring above.
+
 ### Handing a file to another application (ADR-0034, 2026-09-07)
 - ☑ ~~**Copy file(s) to the clipboard.**~~ `Copy file` / `Copy N files` in the asset menu, beside
   `Copy path` — which stays, because a path is what a terminal wants and a file manager ignores it.

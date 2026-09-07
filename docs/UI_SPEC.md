@@ -1047,6 +1047,16 @@ drag on the background marquee-selects; `Ctrl+A` selects the loaded set and says
 toggles selection; `Enter` opens the preview. Focus and selection are separate — moving focus
 with `Ctrl` held does not change the selection.
 
+**The frame's own ring draws only while nothing inside it is focused.** Tabbing into the grid
+rings the frame, because with no cell focused it is the only answer to "where is the keyboard";
+the first arrow key hands that ring to a cell and the frame stops drawing it. Two rectangles —
+one around a cell and one around the whole grid — say the same thing twice, and `:focus-visible`
+holds once a key has been used, so the outer one stayed on screen for as long as the keyboard
+stayed in the grid. It was the first thing a person asked about the window. This is §10's rule
+narrowed by *where* rather than *whether*: the ring is never removed, it is only ever drawn in
+one place at a time. The frame knows which case it is in from `data-roving`, written to the
+element beside `aria-activedescendant` rather than rendered, for the same reason.
+
 **The frame budget is an acceptance criterion, not a later optimisation.** A scroll benchmark
 mode drives the grid and prints frame percentiles, and refuses to print a number when the
 window was not being composited. `roost-old` measured no dropped frames at reading speed and

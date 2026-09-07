@@ -19,8 +19,35 @@
   scrollbar-gutter: stable;
 }
 
+/*
+ * The frame's own focus ring — and the one case it is the only one.
+ *
+ * Inset, because the frame is flush against the panels either side of it and an
+ * outset ring would be drawn over them.
+ */
 .grid:focus-visible {
   outline-offset: -2px;
+}
+
+/*
+ * With a cell under the roving ring, the frame draws nothing.
+ *
+ * Two rings for one keyboard: a rectangle around a cell saying where the arrow
+ * keys are, and a rectangle around the whole grid saying the same thing louder.
+ * It is the rule the cells already follow among themselves — the roving ring
+ * shares the selection's mark rather than adding a second one (`UI_SPEC.md` §6)
+ * — applied one level up, and it is what a person noticed first about the grid:
+ * a green box around everything, on screen for as long as the keyboard stayed
+ * in the grid, because `:focus-visible` holds once an arrow key has been used
+ * and does not fall away on the next click inside the same element.
+ *
+ * Focus is not being hidden. `data-roving` is set only while a cell carries the
+ * ring, so what §10 requires — that focus is always visible — is satisfied by
+ * the cell rather than by the frame. With nothing focused, the rule above is
+ * the only answer to "where is the keyboard", and it draws.
+ */
+.grid[data-roving]:focus-visible {
+  outline: none;
 }
 
 /*

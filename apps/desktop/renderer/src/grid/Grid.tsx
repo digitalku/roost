@@ -178,9 +178,15 @@ export function Grid({
       if (element === null) return;
       if (hash === undefined) {
         element.removeAttribute("aria-activedescendant");
+        element.removeAttribute("data-roving");
         return;
       }
       element.setAttribute("aria-activedescendant", cellId(hash));
+      // A cell is carrying the ring, so the frame gives up its own — the same
+      // rule the cells already follow among themselves (`UI_SPEC.md` §6). It is
+      // written here because it is the same fact as the line above, and for the
+      // same reason: one attribute rather than four hundred re-renders.
+      element.setAttribute("data-roving", "");
 
       // Not while a sweep is running: the selection changes every frame, focus
       // does not move with it, and scrolling an off-screen ring back into view
