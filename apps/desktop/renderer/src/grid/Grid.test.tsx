@@ -340,6 +340,54 @@ describe("the grid", () => {
     expect(image?.node.querySelector(".drag-ghost-count")?.textContent).toBe("3");
   });
 
+  it("keeps a multi-selection through a press, and collapses it on release", async () => {
+    // What every file manager defers, and for one reason: pressing one of five
+    // selected assets is how a drag of five begins. Found in a real window on
+    // 2026-09-07 — the drag carried one asset however many were selected.
+    const { user, assets } = show(12);
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    await user.keyboard("{Shift>}");
+    await user.click(screen.getAllByRole("option")[2] as HTMLElement);
+    await user.keyboard("{/Shift}");
+    expect(selection.size).toBe(3);
+
+    const middle = screen.getAllByRole("option")[1] as HTMLElement;
+    fireEvent.pointerDown(middle, { button: 0, pointerId: 1 });
+    expect(selection.size).toBe(3);
+
+    // A press that turns out to be a click still collapses, on release.
+    fireEvent.pointerUp(middle, { button: 0, pointerId: 1 });
+    expect(selection.selected()).toEqual([assets[1]?.hash]);
+  });
+
+  it("does not collapse the selection when the press becomes a drag", async () => {
+    const { user, assets } = show(12);
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    await user.keyboard("{Shift>}");
+    await user.click(screen.getAllByRole("option")[2] as HTMLElement);
+    await user.keyboard("{/Shift}");
+
+    const middle = screen.getAllByRole("option")[1] as HTMLElement;
+    fireEvent.pointerDown(middle, { button: 0, pointerId: 1 });
+
+    const set = new Map<string, string>();
+    const dataTransfer = {
+      types: [],
+      setData: (type: string, value: string) => set.set(type, value),
+      getData: (type: string) => set.get(type) ?? "",
+      setDragImage: () => {},
+      effectAllowed: "none",
+    } as unknown as DataTransfer;
+    fireEvent(middle, createEvent.dragStart(middle, { dataTransfer }));
+
+    expect(JSON.parse(set.get(ASSET_DRAG_TYPE) ?? "[]")).toEqual(
+      assets.slice(0, 3).map((asset) => asset.hash),
+    );
+    // And the release at the end of the drag must not collapse it either.
+    fireEvent.pointerUp(middle, { button: 0, pointerId: 1 });
+    expect(selection.size).toBe(3);
+  });
+
   it("points the listbox at the focused option rather than focusing it", async () => {
     // The ARIA listbox pattern: one tab stop, a roving ring. Four hundred
     // focusable cells would be four hundred tab stops.

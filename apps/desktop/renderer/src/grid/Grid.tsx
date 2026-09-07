@@ -313,6 +313,14 @@ export function Grid({
     [selection],
   );
 
+  /**
+   * A press on an already-selected cell, waiting to find out what it was.
+   *
+   * A ref rather than state: nothing renders differently while it is held, and
+   * it is written and read inside handlers in the same gesture.
+   */
+  const pendingClick = useRef<string | undefined>(undefined);
+
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const hash = hashAt(event.target);
@@ -335,9 +343,27 @@ export function Grid({
         if (event.button === PRIMARY) return beginSweep(event);
         return selection.clear();
       }
-      if (event.shiftKey) selection.extendTo(hash);
-      else if (event.ctrlKey || event.metaKey) selection.toggle(hash);
-      else selection.click(hash);
+      if (event.shiftKey) return selection.extendTo(hash);
+      if (event.ctrlKey || event.metaKey) return selection.toggle(hash);
+
+      /*
+       * A press on a cell that is **already selected** changes nothing yet.
+       *
+       * Collapsing the selection here is what every file manager defers, and
+       * for one reason: pressing one of five selected assets is how a drag of
+       * five begins, and a press that collapses first leaves one. Found by
+       * driving a real window on 2026-09-07 — the drag carried a single asset
+       * however many were selected, and every component test passed because
+       * `fireEvent.dragStart` fires no pointer event before it.
+       *
+       * So the click is remembered and settled on release, unless a drag has
+       * taken the press first.
+       */
+      if ((selection.stateOf(hash) & SELECTED) !== 0) {
+        pendingClick.current = hash;
+        return;
+      }
+      selection.click(hash);
     },
     [selection, beginSweep],
   );
@@ -369,6 +395,12 @@ export function Grid({
 
   const endSweep = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      // The press on an already-selected cell, settling now that it turns out
+      // not to have been a drag.
+      const pending = pendingClick.current;
+      pendingClick.current = undefined;
+      if (pending !== undefined) selection.click(pending);
+
       const sweep = sweeping.current;
       if (sweep === undefined || event.pointerId !== sweep.pointerId) return;
       sweeping.current = undefined;
@@ -419,6 +451,9 @@ export function Grid({
     (event: React.DragEvent<HTMLDivElement>) => {
       const hash = hashAt(event.target);
       if (hash === undefined) return;
+      // The press became a drag, so it was never a click: the selection stands
+      // as it was, which is the whole point of deferring it.
+      pendingClick.current = undefined;
       const dragged = selection.selected();
       const hashes = dragged.includes(hash) ? dragged : [hash];
       event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(hashes));

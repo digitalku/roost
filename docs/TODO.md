@@ -375,7 +375,7 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   stay in the library unfiled, ticked they go to the **trash** in the same journal batch.
   `ConfirmDialog` grew an optional `option` for it, and `roost folder delete --trash-contents` is
   the CLI's half.
-- ☑ ~~**Driven against a real window.**~~ `scripts/check-folders.mjs`, 40 claims, on the shared
+- ☑ ~~**Driven against a real window.**~~ `scripts/check-folders.mjs`, 43 claims, on the shared
   harness. It found two things nothing else could, both on its first run: **renaming a folder
   sprang its branch open**, because `onDone` revealed the folder it had just renamed; and
   **`Ctrl+Delete` left the asset on screen** — the status bar said it was gone, the count agreed,

@@ -803,6 +803,14 @@ Built 2026-09-07 (ADR-0033 §5). Two gestures, one drop target.
 `pointerdown` has already selected an unselected cell by the time a drag starts, exactly as a
 right-click does, so dragging one of twelve selected assets drags all twelve.
 
+**A press on an already-selected cell changes nothing until it is released.** This is the rule that
+makes dragging several possible at all: collapsing the selection on `pointerdown`, which is what the
+grid used to do, leaves one asset selected before the drag has begun — so a drag of five carried
+one, however many were highlighted. The click is remembered and settled on `pointerup`, and a drag
+cancels it. Found by driving a real window on 2026-09-07; every component test passed, because
+`fireEvent.dragStart` fires no pointer event before it. §6 records the same rule from the selection's
+side.
+
 **Whether it is a move is decided by what is on screen, not by the drop.** A folder is a collection
 rather than a location, so there is nothing to move *out of* unless a folder is being looked at:
 
@@ -980,6 +988,9 @@ nothing could see — two tokens for two roles are worth nothing while they reso
 pointer until the hover rule was told to skip selected rows — measured, not guessed. CSS has no
 warning for this, the same way it has none for an undefined token, and there is no test that can
 see it either: the guard is a real window (`TODO.md` §3).
+
+**A press on a cell that is already selected is settled on release, not on press** — otherwise a
+press collapses a multi-selection before a drag can carry it (§4.3).
 
 **Selection model.** Click selects; `Ctrl`-click toggles; `Shift`-click extends from the anchor;
 drag on the background marquee-selects; `Ctrl+A` selects the loaded set and says so, because

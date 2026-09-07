@@ -337,6 +337,7 @@ try {
       const el = document.querySelector(".drag-ghost");
       const box = el?.getBoundingClientRect();
       window.__ghost = box === undefined ? null : { w: Math.round(box.width), h: Math.round(box.height) };
+      window.__ghostCount = el?.querySelector(".drag-ghost-count")?.textContent ?? null;
     });`);
 
   const cell = await cdp.box(".cell[aria-selected='true']");
@@ -400,6 +401,55 @@ try {
     `folders=${JSON.stringify(filedIn)}`,
   );
 
+  // Several at once. The payload is the **selection**, not the cell the drag
+  // started on, so this is the same code path with a longer list — and the
+  // ghost has to say so, or a picture of one asset stands over a drag of two.
+  await cdp.evaluate(`
+    [...document.querySelectorAll(".sidebar-row")]
+      .find((row) => row.querySelector(".sidebar-label")?.textContent === "All assets")?.click()`);
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === ASSETS);
+  const cells = await cdp.evaluate(`
+    [...document.querySelectorAll(".cell")].slice(0, 2).map((cell) => {
+      const r = cell.getBoundingClientRect();
+      return { hash: cell.dataset.hash, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })`);
+  await cdp.mouse.click(cells[0].x, cells[0].y);
+  // A real Ctrl-click, so the selection is built the way a person builds one.
+  await cdp.mouse.click(cells[1].x, cells[1].y, { modifiers: 2 });
+  await cdp.settle(
+    "document.querySelectorAll('.cell[aria-selected=\"true\"]').length",
+    (n) => n === 2,
+  );
+
+  // Measured again rather than reused: clicking a cell moves the roving focus,
+  // and the grid scrolls to it — so a box taken before the clicks can point at
+  // the background by the time the drag starts, where a press begins a marquee
+  // instead of a drag.
+  const second = await cdp.evaluate(`
+    (() => {
+      const el = document.querySelector('.cell[data-hash="${cells[1].hash}"]');
+      if (el === null) return null;
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })()`);
+  await cdp.dragAndDrop(second, await rowBox("Logos"));
+  await cdp.settle(
+    "document.querySelector('.status-note')?.textContent ?? null",
+    (note) => note === "Added 2 assets to Logos",
+    { attempts: 40 },
+  );
+  check("a drag started on one selected cell carries all of them", true, "2 assets");
+  check(
+    "and the ghost says how many are coming",
+    (await cdp.evaluate("window.__ghostCount")) === "2",
+    `badge=${JSON.stringify(await cdp.evaluate("window.__ghostCount"))}`,
+  );
+  check(
+    "both arrive, and the folder's count says two",
+    (await folderCount("Logos")) === 2,
+    `Logos=${await folderCount("Logos")}`,
+  );
+
   section("Dragging a folder onto another");
   // `Design` is open from the section above, so its subtree is on screen and
   // the row that arrives can be seen without pressing anything.
@@ -444,7 +494,9 @@ try {
   );
 
   section("Deleting a folder, leaving its assets alone");
-  items = await folderMenu("Logos");
+  // `Aardvark` is the empty one by now — what it held was moved to `Design`
+  // above, and `Logos` has the two that were dropped on it.
+  items = await folderMenu("Aardvark");
   await cdp.evaluate(clickMenuItem("Delete folder…"));
   const empty = await cdp.settle(
     `(() => {
@@ -462,8 +514,8 @@ try {
   await cdp.evaluate(
     "[...document.querySelectorAll('[role=alertdialog] button')].find((b) => b.textContent === 'Delete folder')?.click()",
   );
-  await cdp.settle(treeExpression, (rows) => !rows.some((row) => row.name === "Logos"));
-  check("it goes", true, "Logos gone");
+  await cdp.settle(treeExpression, (rows) => !rows.some((row) => row.name === "Aardvark"));
+  check("it goes", true, "Aardvark gone");
 
   section("Deleting a folder and its contents");
   // Taken from the row rather than from a constant: the drags above changed
