@@ -48,16 +48,34 @@
   object-fit: contain;
 }
 
+/*
+ * The heading of the panel, and it wraps: a generated filename is longer than
+ * this column and reading it matters more than the field being one line tall.
+ * The height comes from the content, set inline by the component — a textarea
+ * sizes itself to its `rows` and nothing else — so there is none here beyond
+ * the minimum a one-line name keeps.
+ *
+ * `overflow-wrap: anywhere` because the names this is for have no spaces to
+ * break at: `Gemini_Generated_Image_lxhl6dlxhl6dlxhl.jpg` is one word to a
+ * line-breaker, and without this it lays out as a single line the box then
+ * clips.
+ */
 .inspector-name {
   width: 100%;
-  height: var(--control-height);
-  padding: 0 var(--space-2);
+  min-height: var(--control-height);
+  padding: var(--space-1) var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: none;
   color: var(--text);
   font: inherit;
   font-size: var(--text-md);
+  line-height: var(--leading-md);
+  /* Its size is the content's, and the scrollbar the measurement would
+     otherwise leave behind would change what fits on a line. */
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .inspector-name:hover,

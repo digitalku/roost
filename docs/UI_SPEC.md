@@ -273,6 +273,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
 | `Transport` | content | position, loop | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, the comment marks, and what the native bar withholds — frame stepping, playback rate, an A-B loop; §7. ADR-0024 |
 | `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
+| `NameField` | inspector | draft | The panel's heading, and the only editable name. **Wraps over as many lines as the name takes**; `Enter` commits and a name never holds one. §3.10 |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over the tags the library already has, creates on Enter. §3.7 |
 | `FolderEditor` | inspector | — | The folders the selection is in, with an `×` each, and a menu of the whole tree to add one. Creates nothing. §3.9 |
@@ -746,6 +747,27 @@ draws, but names are unique only among siblings, and one holding a `/` is still 
 library written before that was refused (`TODO.md`). The id is the folder. The tree arrives with the
 sidebar's own rows, which the window already re-reads on every change, so a folder made anywhere is
 offerable here the moment it exists and nothing asks the engine twice for one small table.
+
+### 3.10 The name
+
+The panel's heading is the name, and it is a field: the one place an asset is renamed, since the
+file on disk is called after its hash and always will be (invariant 3, `STORAGE_SPEC.md`).
+
+**It wraps, and it grows to fit what it holds.** The names this has to show are not chosen by
+anybody — `Gemini_Generated_Image_lxhl6dlxhl6dlxhlfefwefwefewfwef.png` came out of a generator, and
+it is longer than a 280px column three times over. A single-line field answers that by scrolling
+sideways, which makes the name something to be *operated* before it can be read and leaves the
+heading of the panel unable to say which asset is selected. So the whole of it is on screen, over as
+many lines as it takes, and the field is as tall as its name — one line for `shot-0.png` and four
+for the one above. Long runs break mid-word, because a generated name has no spaces to break at.
+
+**A name has no lines, though.** The control that wraps is a `textarea`, which is the first thing in
+this panel that could put a newline into a name at all: `Enter` therefore commits and returns focus
+as it did when this was one line, and a pasted newline arrives as a space. The engine trims the ends
+of a name and nothing more, so an interior newline that got past here would be written to the
+journal.
+
+**Over several assets there is no name field at all** (§3.2) — a name belongs to one asset.
 
 ## 4. Navigation
 

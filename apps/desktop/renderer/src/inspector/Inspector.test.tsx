@@ -213,7 +213,7 @@ describe("the inspector", () => {
   it("shows what the library knows", async () => {
     show({ name: "photo.png", size: 2048, width: 800, height: 600, tags: ["wood"] });
     expect(await screen.findByRole("complementary", { name: "Inspector" })).toBeDefined();
-    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("photo.png");
+    expect((screen.getByLabelText("Name") as HTMLTextAreaElement).value).toBe("photo.png");
     expect(screen.getByText("2.0 KiB")).toBeDefined();
     expect(screen.getByText("800 × 600")).toBeDefined();
     expect(screen.getByText("wood")).toBeDefined();
@@ -351,7 +351,7 @@ describe("the inspector", () => {
         { type: "asset:tagAdd", hashes: [HASH], tags: ["olahan-video"] },
       ]),
     );
-    expect((field as HTMLInputElement).value).toBe("");
+    expect((field as HTMLTextAreaElement).value).toBe("");
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
@@ -416,16 +416,37 @@ describe("the inspector", () => {
 
     // Trimmed by the engine. Displaying the draft would show two spaces that
     // the library does not hold.
-    await waitFor(() => expect((field as HTMLInputElement).value).toBe("two.png"));
+    await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe("two.png"));
   });
 
   it("puts the stored name back on Escape", async () => {
     const { user } = show({ name: "one.png" });
-    const field = (await screen.findByLabelText("Name")) as HTMLInputElement;
+    const field = (await screen.findByLabelText("Name")) as HTMLTextAreaElement;
     await user.clear(field);
     await user.type(field, "typo{Escape}");
     expect(field.value).toBe("one.png");
     expect(engine.seen.some((r) => r.type === "asset:rename")).toBe(false);
+  });
+
+  // The field wraps so that a long name can be read, which means it is a
+  // textarea, which means `Enter` and a pasted newline both have a way into a
+  // name for the first time. `cleanName` only trims the ends, so a newline that
+  // got this far would reach the journal.
+  it("keeps a name to one line", async () => {
+    const { user } = show({ name: "one.png" });
+    const field = (await screen.findByLabelText("Name")) as HTMLTextAreaElement;
+
+    await user.clear(field);
+    await user.paste("two\nlines.png");
+    expect(field.value).toBe("two lines.png");
+
+    await user.type(field, "{Enter}");
+    expect(field.value).toBe("two lines.png");
+    await waitFor(() =>
+      expect(engine.seen.find((request) => request.type === "asset:rename")).toMatchObject({
+        name: "two lines.png",
+      }),
+    );
   });
 
   it("saves a note on blur, and drops one that is only whitespace", async () => {
@@ -640,7 +661,7 @@ describe("what a re-read must and must not overwrite", () => {
     );
     const user = userEvent.setup();
 
-    const field = (await screen.findByLabelText("Name")) as HTMLInputElement;
+    const field = (await screen.findByLabelText("Name")) as HTMLTextAreaElement;
     await user.type(field, "  ");
     expect(field.value).toBe("one.png  ");
     await user.tab();

@@ -5,7 +5,7 @@ import type {
   WireSelectionSummary,
 } from "@roost/contract";
 import { ContextMenu } from "radix-ui";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { bytes } from "../format.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
@@ -201,7 +201,7 @@ export function Inspector({
         />
       </div>
 
-      <Name detail={detail} onSaved={read} />
+      <NameField detail={detail} onSaved={read} />
 
       <Rating value={detail.rating} mixed={false} hashes={hashes} onSaved={read} />
 
@@ -327,8 +327,26 @@ function Subtitles({
   );
 }
 
-/** The display name. The file on disk keeps its hash filename (invariant 3). */
-function Name({
+/**
+ * The display name, and the panel's heading (`UI_SPEC.md` §3.10). The file on
+ * disk keeps its hash filename (invariant 3).
+ *
+ * **It wraps, and it grows to fit.** A generated filename is routinely longer
+ * than a 280px column, and a single-line field answers that by scrolling
+ * sideways: the name is then something to be operated before it can be read,
+ * and the panel's heading no longer says which asset is selected. So the whole
+ * of it is shown, over as many lines as it takes.
+ *
+ * A `textarea` is the only control that wraps, but a name has no lines — so
+ * `Enter` commits as it did before rather than making a second one, and a
+ * pasted newline becomes a space on the way in. Nothing that reaches the engine
+ * has ever contained one, and this is where that stays true: `cleanName` trims
+ * the ends and would carry an interior newline straight into the journal.
+ *
+ * The height is set from the content because a `textarea` will not size itself
+ * to what it holds — reset to nothing first, or the box only ever grows.
+ */
+function NameField({
   detail,
   onSaved,
 }: {
@@ -338,6 +356,25 @@ function Name({
   const [draft, setDraft] = useState(detail.name);
   const saved = useRef(detail.name);
   useStoredValue(detail, detail.name, saved, setDraft);
+  const field = useRef<HTMLTextAreaElement>(null);
+
+  // Before paint: a box that is briefly one line high and then jumps is the
+  // panel's whole heading moving under the reader.
+  //
+  // `draft` is the trigger and nothing here reads it — what is being measured is
+  // the box the browser laid out for it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  useLayoutEffect(() => {
+    const node = field.current;
+    // happy-dom lays nothing out, so every measurement here is zero and the
+    // height would be pinned to it. A window has layout; the tests assert the
+    // value, not the size.
+    if (node === null || node.scrollHeight === 0) return;
+    node.style.height = "auto";
+    // `scrollHeight` is the padding box and the box is `border-box`, so the
+    // borders have to be added back or every name loses two pixels.
+    node.style.height = `${node.scrollHeight + node.offsetHeight - node.clientHeight}px`;
+  }, [draft]);
 
   const save = (): void => {
     if (draft.trim() === "" || draft === detail.name) {
@@ -349,15 +386,20 @@ function Name({
   };
 
   return (
-    <input
+    <textarea
+      ref={field}
       className="inspector-name"
       aria-label="Name"
       spellCheck={false}
+      rows={1}
       value={draft}
-      onChange={(changed) => setDraft(changed.target.value)}
+      onChange={(changed) => setDraft(changed.target.value.replace(/[\r\n]+/g, " "))}
       onBlur={save}
       onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
         if (event.key === "Escape") setDraft(detail.name);
       }}
     />
