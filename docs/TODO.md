@@ -766,9 +766,23 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   - A test also corrected a comment: there is no rated-zero to distinguish from unrated, because
     the schema is `rating BETWEEN 1 AND 5`. What makes `rated === count` necessary is that `min`
     and `max` skip NULLs, so two fours and an unrated asset would agree on 4.
-- 🟡 **The preview fits the pane and stops there.** `UI_SPEC.md` §7 also asks for click-to-toggle
-  1:1 and drag-to-pan on an image, which is the difference between looking at a photograph and
-  checking one. It needs a transform and a gesture, not a new request.
+- ☑ ~~**The preview fits the pane and stops there.**~~ It zooms from 2026-09-07, asked for as
+  *"jika view foto. tambahkan untuk zoom in atau zoom out"* and then *"terus bisa pakai scroll
+  untuk zoom in atau out nya"* — so it arrived as more than the 1:1 toggle §7 had been asking for:
+  the wheel about the pointer, `−`/`+` and a readout at the foot of the pane, `+`/`-` from the
+  keyboard, click to toggle 1:1, and a drag that pans and cannot take the picture off the pane.
+  A transform and a gesture, exactly as this line said, and no new request.
+  - **The fit is a state, not a number.** Held as `null` until somebody zooms, so a wider window
+    re-fits rather than keeping the size the old pane wanted.
+  - **The picture is transparent until it has been both loaded and measured.** The natural size and
+    the pane's size arrive independently, and a picture drawn between them is drawn against a box
+    of nothing — a flash of 1:1 before it settles to the fit, seen in a real window at 1600px in a
+    pane 736 wide.
+  - **React's `onWheel` is passive**, so `preventDefault` inside it does nothing. The listener is
+    subscribed by hand, once, and reads the latest state out of refs: re-subscribing on every zoom
+    would be swapping the listener in the middle of the gesture that is causing it.
+  - `scripts/check-preview.mjs` is the guard, because every number here comes from layout — the
+    fit, the point under the pointer, the clamp — and happy-dom computes none of it.
 - ☑ ~~**Video range requests are still unexercised by a `<video>`.**~~ Exercised 2026-09-02: a
   real clip played and seeked twice from the comment strip, over `roost://original`, in a window.
   The unit tests had both directions of the range parser; what they could not have is a decoder

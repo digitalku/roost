@@ -87,6 +87,77 @@
   object-fit: contain;
 }
 
+/*
+ * A photograph and the controls that size it (UI_SPEC.md §7).
+ *
+ * The picture gives way and the bar does not, which is the arrangement the
+ * pager and the transport already use: a control that moves with the aspect
+ * ratio of the file is a control the hand has to find again for every asset.
+ */
+.preview-photo {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: stretch;
+  /* The stage centres what it holds, which for a box that is *meant* to take
+     the whole pane means a height of nothing: a column of `flex: 1` children
+     inside an auto-height parent measures zero and the picture never appears.
+     Measured at 736×0 in a real window before this line. */
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The window onto the picture. Everything outside it is clipped, which is what
+   makes a zoom a zoom rather than a picture growing over the whole window. */
+.preview-photo-view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* The pointer's own gesture, so the browser does not also pan or select. */
+  touch-action: none;
+}
+
+.preview-photo-view[data-pannable] {
+  cursor: grab;
+}
+
+.preview-photo-view[data-pannable][data-panning] {
+  cursor: grabbing;
+}
+
+.preview-photo-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  user-select: none;
+  /* The picture is moved on the compositor rather than laid out again: a wheel
+     zoom is a stream of these, and a layout a frame would be a stutter with a
+     photograph's worth of pixels behind it. */
+  will-change: transform;
+}
+
+.preview-zoom {
+  display: flex;
+  flex: none;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-zoom button {
+  height: var(--bar-control-height);
+}
+
+/* Tabular, so the row does not shuffle as the number passes 100%. */
+.preview-zoom-level {
+  min-width: 5rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .preview-audio {
   width: 100%;
   max-width: 480px;

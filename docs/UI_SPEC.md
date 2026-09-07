@@ -1119,13 +1119,42 @@ list, and **stepping changes the selection**, so the inspector follows what is o
 
 | Kind | Renders as |
 | --- | --- |
-| Image | `<img src="roost://original/<hash>">`, fit to pane, click to toggle 1:1, drag to pan |
+| Image | `<img src="roost://original/<hash>">`, fit to pane, and zoomable: the wheel, two buttons and a readout, `+`/`-`, click to toggle 1:1, drag to pan |
 | SVG | Same, sandboxed — scripts in an SVG do not run |
 | Video / audio | `<video>` / `<audio>` over `roost://original/`, which answers range requests, under a transport of ours — `controls` is off |
 | PDF | Page-through: `PageUp` / `PageDown` and two buttons, each page an `<img>` over `roost://page/<hash>/<n>@1024`. Arrow keys keep stepping between assets, so a document does not trap the keyboard |
 | Font | The specimen sheet the derive pass drew, with the family and style under it |
 | Text | The file itself, monospace, wrapped, with the encoding named under it — `.txt`, `.md`, `.srt`, a log. **Edit** makes it a textarea in the same box |
 | Anything else | The thumbnail, the metadata, and **Open externally** |
+
+**A photograph can be looked at closely.** Asked for on 2026-09-07 — *"jika view foto. tambahkan
+untuk zoom in atau zoom out"*, and then *"terus bisa pakai scroll untuk zoom in atau out nya"* —
+and this table has asked for the click and the drag since it was written.
+
+- **Fit is the resting state, and it is a state rather than a number.** While nothing has been
+  zoomed the scale is computed from the pane, so widening the window re-fits the picture instead of
+  leaving it at the size the old pane wanted. The first zoom fixes a number and the number is then
+  what is drawn.
+- **Nothing is blown up at rest.** The fit is capped at 1:1, so a 64px icon opens at 64px rather
+  than as a wall of mush. Past that is a thing somebody asked for, which is different.
+- **The wheel zooms about the pointer.** The pixel under the cursor is the one being examined, so
+  it is the one that must not move. No modifier: the stage scrolls nothing, so the wheel has no
+  other job here — and a trackpad pinch arrives as a wheel event with `ctrlKey` set, which lands on
+  the same handler and means the same thing. The step is a proportion of what is on screen, never a
+  fixed addition, or the same notch is imperceptible at 8× and a leap at the fit.
+- **The floor is the fit and the ceiling is 16×.** Below the fit a picture only makes the pane
+  emptier, so the button is drawn dead there rather than shrinking a photograph into the middle of
+  an empty rectangle.
+- **The bar is the foot of the pane**, as the transport is and for the same reason: `−`, the scale,
+  `+`. The readout *is* the control — a percentage says where the picture is, and the one thing
+  somebody wants from it is the way back, so pressing it goes to 1:1 and back to the fit. Always
+  drawn, never revealed on hover: a control that appears only under the pointer is one a keyboard
+  cannot find.
+- **A drag pans, and cannot take the picture off the pane.** An axis smaller than the pane is
+  centred and not pannable; a larger one is clamped to its own edges. A press that does not move is
+  a click, which is the 1:1 toggle.
+- **The zoom belongs to the photograph, not to the pane.** Stepping to the next asset opens it
+  fitted. A scale carried across assets is a scale that was chosen for a different picture.
 
 **The transport is ours** (ADR-0024). The browser's control bar is a closed widget — nothing can be
 drawn on it, nothing added to it, and it cannot be styled — so `controls` is off and the bar under
@@ -1291,6 +1320,12 @@ becomes a preference in M6.
 | `Ctrl+Delete` | Take the selection out of the folder on screen. Nothing outside one — there would be no folder to name, and guessing at one is a removal nobody asked for. No confirmation: a folder is a collection, so nothing is lost (§3.9) |
 | `[` / `]` | Zoom cells down · up |
 | `Ctrl+K` | Command palette (**M6**) |
+
+In the preview, with a picture open (§7):
+
+| Key | Action |
+| --- | --- |
+| `+` / `-` | Zoom in · out, about the middle of the pane. Not a digit: `0`–`5` set the rating on the selection, and a preview does not take that away from the asset it is showing |
 
 In the preview, with a video or an audio file open (ADR-0024):
 

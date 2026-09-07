@@ -2,6 +2,7 @@ import type { WireAssetDetail, WireSubtitle } from "@roost/contract";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
+import { Picture, type PictureHandle } from "./Picture.js";
 import { playhead } from "./playhead.js";
 import { Transport } from "./Transport.js";
 
@@ -60,6 +61,9 @@ export interface PreviewPaneProps {
  * Answers whether anything took the key, so a preview with no player in it
  * leaves `Space` alone.
  */
+/** What `+` and `-` do to the scale, matching one press of the zoom buttons. */
+const KEY_ZOOM = 1.25;
+
 function mediaKey(key: string): boolean {
   switch (key) {
     case " ":
@@ -90,6 +94,14 @@ export function PreviewPane({
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [page, setPage] = useState(0);
   const pane = useRef<HTMLDivElement>(null);
+  /**
+   * The picture on screen, if what is on screen is one.
+   *
+   * The zoom belongs to the picture — it is the thing that knows its own pixels
+   * and its own box — but `+` and `-` arrive here, because the pane is what
+   * holds the focus. This ref is the whole of the line between the two.
+   */
+  const picture = useRef<PictureHandle>(null);
   /** Which asset the page number belongs to, so a re-read does not turn back. */
   const detailHash = useRef<string | undefined>(undefined);
 
@@ -161,6 +173,17 @@ export function PreviewPane({
           event.preventDefault();
           onStep(1);
         }
+        // Zoom, where there is something to zoom (`UI_SPEC.md` §7). `+` and
+        // `-` rather than a digit: `0`–`5` set the rating on the selection
+        // (§9), and a preview does not take that away from the asset it shows.
+        if ((event.key === "+" || event.key === "=") && picture.current !== null) {
+          event.preventDefault();
+          picture.current.zoomBy(KEY_ZOOM);
+        }
+        if (event.key === "-" && picture.current !== null) {
+          event.preventDefault();
+          picture.current.zoomBy(1 / KEY_ZOOM);
+        }
         // Page keys turn pages and arrow keys step assets, which is the one
         // split that keeps a document from trapping the keyboard.
         if (event.key === "PageDown" && pages > 0) {
@@ -206,7 +229,9 @@ export function PreviewPane({
         </button>
       </header>
       <div className="preview-stage">
-        {detail === undefined ? null : <Stage detail={detail} page={page} onTurn={turn} />}
+        {detail === undefined ? null : (
+          <Stage detail={detail} page={page} onTurn={turn} pictureRef={picture} />
+        )}
       </div>
     </div>
   );
@@ -224,17 +249,22 @@ function Stage({
   detail,
   page,
   onTurn,
+  pictureRef,
 }: {
   readonly detail: WireAssetDetail;
   readonly page: number;
   readonly onTurn: (delta: number) => void;
+  readonly pictureRef: React.RefObject<PictureHandle | null>;
 }): React.JSX.Element {
   const src = `roost://original/${detail.hash}`;
 
   if (detail.kind === "image") {
     // An SVG renders through the same `<img>`, which is what sandboxes it:
     // scripts in an image do not run, and neither do external references.
-    return <img key={detail.hash} className="preview-media" src={src} alt={detail.name} />;
+    // Keyed on the hash like every other kind here, which is also what puts the
+    // zoom back to the fit on the way to the next asset: a scale belongs to the
+    // photograph somebody is looking at, not to the pane.
+    return <Picture key={detail.hash} detail={detail} src={src} ref={pictureRef} />;
   }
 
   if (detail.kind === "video" || detail.kind === "audio") {

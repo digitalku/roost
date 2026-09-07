@@ -389,6 +389,27 @@ async function session(url) {
         await cdp.mouse.up(x, y, options);
       },
       /**
+       * A wheel notch at a point, in pixels of `deltaY`.
+       *
+       * Negative is away from the hand, which is the direction a page scrolls
+       * up and a picture zooms in. A page expression can dispatch a `WheelEvent`
+       * but not a *cancelable* one Chromium honours, and the handler under test
+       * is the one that calls `preventDefault` — so this has to come through
+       * the input pipeline like a real notch.
+       */
+      async wheel(x, y, deltaY, { deltaX = 0, modifiers = 0 } = {}) {
+        await cdp.mouse.move(x, y);
+        await send("Input.dispatchMouseEvent", {
+          type: "mouseWheel",
+          x,
+          y,
+          deltaX,
+          deltaY,
+          modifiers,
+          pointerType: "mouse",
+        });
+      },
+      /**
        * A press, a run of moves, and a release.
        *
        * The moves are steps rather than one jump because a gesture that reads

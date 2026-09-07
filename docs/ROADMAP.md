@@ -187,7 +187,8 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
   reading the record back rather than trusting what it sent. Proven through the window and then
   through a `roost rebuild`: every edit the GUI made survived deleting the index
 - ☑ Preview pane: image, video, audio, external fallback; arrow keys move selection with it.
-  Zoom-to-1:1 and drag-to-pan are in `TODO.md`; PDF page-through and font specimens are M4
+  A picture zooms — the wheel about the pointer, two buttons, `+`/`-`, click to 1:1, drag to
+  pan — from 2026-09-07; PDF page-through and font specimens are M4
 - ◐ Search field with RQL validation, autocomplete, and the positioned parse error — validation,
   the caret, the 250ms idle, and the match count are in; autocomplete, chips, and "save as smart
   folder" are in `TODO.md`
@@ -218,8 +219,9 @@ against a running window, verified by weakening three settings and watching four
 What M3 does **not** include is written down rather than left to be discovered: the list view,
 the zoom control, marquee selection, autocomplete, chips, sidebar collapsing and
 drag-to-reparent, the library switcher, and 1:1 zoom in the preview are all in `TODO.md` §M3
-with the reason each one waited. Three have since arrived: the list view and the zoom control
-with ADR-0018, and marquee selection on 2026-09-01.
+with the reason each one waited. Four have since arrived: the list view and the zoom control
+with ADR-0018, marquee selection on 2026-09-01, and the preview's own zoom on 2026-09-07 —
+which came back as more than 1:1, because what was asked for was the wheel.
 
 ## M4 — Format breadth ☑
 
