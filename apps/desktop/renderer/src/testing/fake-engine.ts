@@ -25,6 +25,7 @@ import type {
   WireSelectionSummary,
   WireSidebar,
   WireStars,
+  WireTagRule,
 } from "@roost/contract";
 import type { WindowBridge } from "../bridge.js";
 
@@ -942,20 +943,32 @@ export class FakeEngine {
         const stars: WireStars[] = [];
         const exts: string[] = [];
         let unrated = false;
+        let tagRule: WireTagRule = "any";
         const place: string[] = [];
-        for (const term of terms(request.query)) {
-          const named = /^(tag|ext|rating):(.*)$/s.exec(term);
-          const value = named?.[2] === undefined ? "" : unquote(named[2]);
-          if (named?.[1] === "tag") tags.push(value);
-          else if (named?.[1] === "ext") exts.push(value);
-          else if (named?.[1] === "rating" && /^[1-5]$/.test(value)) {
-            stars.push(Number(value) as WireStars);
-          } else if (term === "is:unrated") unrated = true;
-          else place.push(term);
+        for (const conjunct of terms(request.query)) {
+          // A parenthesised run is one facet's `OR`. Several bare `tag:` terms
+          // are the `all` rule (ADR-0035 §7) — the two shapes this has to tell
+          // apart to read back what its own `query:join` wrote.
+          const group = /^\((.*)\)$/s.exec(conjunct);
+          const parts = group?.[1] === undefined ? [conjunct] : terms(group[1]);
+          const read = parts.filter((part) => part !== "OR").map(named);
+          if (read.some((part) => part === undefined)) {
+            place.push(conjunct);
+            continue;
+          }
+          for (const part of read) {
+            if (part === undefined) continue;
+            if (part.field === "tag") {
+              if (group === null && tags.length > 0) tagRule = "all";
+              tags.push(part.value);
+            } else if (part.field === "ext") exts.push(part.value);
+            else if (part.field === "rating") stars.push(Number(part.value) as WireStars);
+            else unrated = true;
+          }
         }
         return ok({
           place: place.join(" "),
-          facets: { tags, stars, unrated, exts },
+          facets: { tags, tagRule, stars, unrated, exts },
           representable: true,
         });
       }
@@ -963,8 +976,9 @@ export class FakeEngine {
       case "query:join": {
         const or = (written: readonly string[]): readonly string[] =>
           written.length <= 1 ? written : [`(${written.join(" OR ")})`];
+        const tagged = request.facets.tags.map((tag) => `tag:${quote(tag)}`);
         const written = [
-          ...or(request.facets.tags.map((tag) => `tag:${quote(tag)}`)),
+          ...(request.facets.tagRule === "all" ? tagged : or(tagged)),
           ...or([
             ...[...request.facets.stars].sort((a, b) => b - a).map((n) => `rating:${n}`),
             ...(request.facets.unrated ? ["is:unrated"] : []),
@@ -1090,9 +1104,19 @@ export function install(engine: FakeEngine): void {
   });
 }
 
-/** Splits on whitespace, keeping a `"quoted value"` whole. */
+/** Splits on whitespace, keeping a `"quoted value"` and a `(group)` whole. */
 function terms(query: string): string[] {
-  return query.match(/(?:[^\s"]|"[^"]*")+/g) ?? [];
+  return query.match(/\([^)]*\)|(?:[^\s"]|"[^"]*")+/g) ?? [];
+}
+
+/** One `field:value` the fake understands, or `undefined` for anything else. */
+function named(term: string): { field: string; value: string } | undefined {
+  if (term === "is:unrated") return { field: "unrated", value: "" };
+  const match = /^(tag|ext|rating):(.*)$/s.exec(term);
+  if (match?.[1] === undefined || match[2] === undefined) return undefined;
+  const value = unquote(match[2]);
+  if (match[1] === "rating" && !/^[1-5]$/.test(value)) return undefined;
+  return { field: match[1], value };
 }
 
 function unquote(value: string): string {

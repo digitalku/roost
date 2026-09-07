@@ -24,16 +24,29 @@ import { launch } from "./lib/window.mjs";
 
 /** Every asset is a PNG, so the type facet selects all of them. */
 const ASSETS = 8;
-/** Tagged `olahraga`. */
+/** Tagged `olahraga`: the first five. */
 const TAGGED = 5;
 /** Rated three stars. Different from `TAGGED`, on purpose. */
 const RATED = 2;
 const TAG = "olahraga";
+const OTHER = "traveling";
 const STARS = 3;
+/**
+ * The two tags overlap on two assets and cover all eight between them.
+ *
+ * Which is what makes the rule visible: `any` is the whole library and `all` is
+ * two of it, so a check cannot pass with the two swapped (ADR-0035 §7).
+ */
+const BOTH = 2;
+
+/** Enough tags that the menu is searched rather than read (§7.3 wants > 8). */
+const FILLER = ["comedy", "school", "gym", "studio", "draft", "final", "print", "web"];
 
 const { dir, dispose } = await scratch("check-filters");
 const root = await imageLibrary(dir, { count: ASSETS });
 await tagsOnto(root, [TAG], TAGGED);
+await tagsOnto(root, [OTHER], ASSETS - TAGGED + BOTH, TAGGED - BOTH);
+await tagsOnto(root, FILLER, 1);
 await rateFirst(root, STARS, RATED);
 
 const window = await launch({ library: root });
@@ -52,15 +65,17 @@ const triggerAt = (label) =>
   })()`);
 
 /** Where a menu item is, by a fragment of its text. */
-const itemAt = (text) =>
-  cdp.evaluate(`(() => {
+const itemExpression = (text) => `
+  (() => {
     const found = [...document.querySelectorAll('[role="menuitemcheckbox"]')].find(
       (item) => item.textContent.includes(${JSON.stringify(text)}),
     );
     if (found === undefined) return null;
     const box = found.getBoundingClientRect();
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-  })()`);
+  })()`;
+
+const itemAt = (text) => cdp.evaluate(itemExpression(text));
 
 /** The search field's text, the grid's row count, and what each chip says. */
 const state = () =>
@@ -71,6 +86,17 @@ const state = () =>
     on: [...document.querySelectorAll(".filter-trigger[data-on]")].length,
     note: document.querySelector(".filter-note")?.textContent ?? null,
   }))()`);
+
+/** Puts `text` in the search field and applies it, the way a person would. */
+async function typeQuery(text) {
+  const at = await cdp.box(".search-input");
+  await cdp.mouse.click(at.x, at.y);
+  await cdp.keyboard.press("a", { ctrl: true });
+  await cdp.keyboard.press("Backspace");
+  for (const character of text) await cdp.keyboard.press(character);
+  await cdp.keyboard.press("Enter");
+  await sleep(400);
+}
 
 /** Ticks one value in one facet, and closes the menu again. */
 async function tick(facet, value) {
@@ -135,18 +161,7 @@ try {
 
   section("Typing in the field moves the chips, because the query is the truth");
   {
-    await cdp.evaluate(`(() => {
-      const field = document.querySelector(".search-input");
-      const box = field.getBoundingClientRect();
-      window.__at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    })()`);
-    const at = await cdp.evaluate(`window.__at`);
-    await cdp.mouse.click(at.x, at.y);
-    await cdp.keyboard.press("a", { ctrl: true });
-    for (const character of "ext:png") await cdp.keyboard.press(character);
-    await cdp.keyboard.press("Enter");
-    await sleep(400);
-
+    await typeQuery("ext:png");
     const seen = await state();
     check("the tag chip let go", seen.chips[0]?.includes(TAG) === false, seen.chips[0]);
     check("the type chip took it up", seen.chips[2]?.includes("PNG") === true, seen.chips[2]);
@@ -155,13 +170,7 @@ try {
 
   section("A query the chips cannot describe says so");
   {
-    const at = await cdp.evaluate(`window.__at`);
-    await cdp.mouse.click(at.x, at.y);
-    await cdp.keyboard.press("a", { ctrl: true });
-    for (const character of `tag:${TAG} OR ext:png`) await cdp.keyboard.press(character);
-    await cdp.keyboard.press("Enter");
-    await sleep(400);
-
+    await typeQuery(`tag:${TAG} OR ext:png`);
     const seen = await state();
     check("no chip claims to be on", seen.on === 0, `on=${seen.on}`);
     check("and it is said out loud", seen.note !== null, seen.note ?? "no note");
@@ -169,13 +178,7 @@ try {
 
   section("Clear takes the filters off and leaves the words alone");
   {
-    const at = await cdp.evaluate(`window.__at`);
-    await cdp.mouse.click(at.x, at.y);
-    await cdp.keyboard.press("a", { ctrl: true });
-    for (const character of `shot tag:${TAG}`) await cdp.keyboard.press(character);
-    await cdp.keyboard.press("Enter");
-    await sleep(400);
-
+    await typeQuery(`shot tag:${TAG}`);
     const clear = await cdp.evaluate(`(() => {
       const button = document.querySelector(".filter-clear");
       if (button === null) return null;
@@ -190,6 +193,116 @@ try {
       check("the typed words survive", seen.query === "shot", seen.query);
       check("and nothing is chosen", seen.on === 0, `on=${seen.on}`);
     }
+  }
+  section("Several values in one visit");
+  {
+    // The regression this script exists for. `onSelect`'s `preventDefault` is
+    // the documented way to keep a menu open and it held for the **first** tick
+    // and not the second, so choosing two tags shut the menu on the second.
+    // Every component test passed: happy-dom dispatches the sequence
+    // differently, and only a browser decides this.
+    await typeQuery("");
+    const trigger = await triggerAt("Tags");
+    await cdp.mouse.click(trigger.x, trigger.y);
+    await cdp.settle(`document.querySelectorAll('[role="menuitemcheckbox"]').length`, (n) => n > 0);
+
+    for (const value of [TAG, OTHER]) {
+      const item = await cdp.settle(itemExpression(value), (found) => found !== null);
+      await cdp.mouse.click(item.x, item.y);
+      await sleep(300);
+    }
+    const items = await cdp.evaluate(
+      `document.querySelectorAll('[role="menuitemcheckbox"]').length`,
+    );
+    check("the menu is still open after the second tick", items > 0, `${items} items`);
+    const both = await state();
+    check("and both were taken", both.query === `(tag:${TAG} OR tag:${OTHER})`, both.query);
+
+    // And it still closes when a person closes it.
+    await cdp.keyboard.press("Escape");
+    await sleep(250);
+    const gone = await cdp.evaluate(
+      `document.querySelectorAll('[role="menuitemcheckbox"]').length`,
+    );
+    check("Escape still closes it", gone === 0, `${gone} items`);
+  }
+
+  section("Any and All");
+  {
+    const any = await state();
+    check("two tags are ORed by default", any.query === `(tag:${TAG} OR tag:${OTHER})`, any.query);
+    check("and the grid shows either", any.cells === ASSETS, `${any.cells} cells`);
+
+    const trigger = await triggerAt("Tags");
+    await cdp.mouse.click(trigger.x, trigger.y);
+    const rule = await cdp.settle(
+      `(() => {
+        const found = [...document.querySelectorAll(".filter-rule-button")].find(
+          (button) => button.textContent === "All",
+        );
+        if (found === undefined) return null;
+        const box = found.getBoundingClientRect();
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      })()`,
+      (at) => at !== null,
+    );
+    await cdp.mouse.click(rule.x, rule.y);
+    await sleep(300);
+    // The menu is still open: choosing a rule and then a third tag is one visit.
+    const stillOpen = await cdp.evaluate(
+      `document.querySelectorAll('[role="menuitemcheckbox"]').length > 0`,
+    );
+    check("choosing a rule does not close the menu", stillOpen === true);
+    await cdp.keyboard.press("Escape");
+    await sleep(300);
+
+    const all = await state();
+    check("All writes a term each", all.query === `tag:${TAG} tag:${OTHER}`, all.query);
+    check("and the grid shows only both", all.cells === BOTH, `${all.cells} cells`);
+  }
+
+  section("The rule is remembered where the query cannot hold it");
+  {
+    // §7.2, and the shape the user chose: `tag:olahraga` is the same string
+    // under either rule, so dropping to one tag must not quietly undo `All`.
+    await tick("Tags", OTHER);
+    const one = await state();
+    check("one tag spells the same query either way", one.query === `tag:${TAG}`, one.query);
+
+    await tick("Tags", OTHER);
+    const back = await state();
+    check(
+      "and the second tag comes back ANDed, not ORed",
+      back.query === `tag:${TAG} tag:${OTHER}`,
+      back.query,
+    );
+  }
+
+  section("A long facet is searched");
+  {
+    const trigger = await triggerAt("Tags");
+    await cdp.mouse.click(trigger.x, trigger.y);
+    const field = await cdp.settle(
+      `document.querySelector(".filter-search-input") === null ? null : true`,
+      (found) => found === true,
+    );
+    check("a field appears once the list is longer than a glance", field === true);
+
+    // Typed through the input pipeline: a `radix-ui` menu binds printable keys
+    // to jump between its items, and this is the check that the field takes
+    // them instead.
+    for (const character of "olah") await cdp.keyboard.press(character);
+    await sleep(250);
+    const shown = await cdp.evaluate(
+      `[...document.querySelectorAll('[role="menuitemcheckbox"]')].map((item) =>
+         item.querySelector(".menu-label")?.textContent)`,
+    );
+    check("and it filters the list rather than ticking a value", shown.length === 1, shown.join());
+    check("to what was typed", shown[0] === TAG, shown.join());
+    await cdp.keyboard.press("Escape");
+    await sleep(200);
+    const after = await state();
+    check("nothing was chosen by typing", after.query === `tag:${TAG} tag:${OTHER}`, after.query);
   }
 } finally {
   report();

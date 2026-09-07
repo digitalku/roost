@@ -265,7 +265,10 @@ is listed here, so the order stays visible instead of becoming folklore.
   of the query** — `query:split` and `query:join` in `@roost/search`, the parts the bar does not own
   carried as source slices because the AST's values are normalised and cannot be printed back — so
   `UI_SPEC.md` §4.2's promise that the search field knows every filter survives the first control
-  big enough to break it. `scripts/check-filters.mjs` holds it to §4.4 in a real window, 19 checks
+  big enough to break it. **Amended 2026-09-08** (§7), at the user's word: a search field in a long
+  facet's menu, and Eagle's Any/All rule on the tags — which needed nothing added to the grammar,
+  because the two shapes the splitter already told apart are the two rules.
+  `scripts/check-filters.mjs` holds it to §4.4 in a real window, 33 checks
 - ☑ **Trash** — 2026-09-01, ADR-0022. Also listed under M6, which is where the Trash place was
   first promised
 - ☑ **Marquee selection** — 2026-09-01, the last of `UI_SPEC.md` §6's grid gestures
@@ -340,8 +343,16 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-07.** **ADR-0035 — a filter bar over the grid** was accepted that
-evening, proposed the same hour, from the user asking for Eagle's filter row with three facets
+**Nothing open, as of 2026-09-08.** **ADR-0035 was amended** that day (§7), from the user asking
+for a search field in the tag menu and Eagle's **Any / All** rule. The amendment turns §2's refusal
+into a meaning: `tag:a tag:b` is *all* and `(tag:a OR tag:b)` is *any*, so the rule needs no new
+grammar. Only tags carry one — an asset has one extension and one rating, so *all* on either would
+be a button whose only outcome is an empty grid — and below two tags, where the query cannot express
+the rule at all, **the window remembers it**; that was the user's choice over a toggle that snaps
+back. It also caught the kind of defect the window checks exist for: `preventDefault` on a menu
+select keeps the menu open for the first tick of a visit and not the second.
+
+**ADR-0035 — a filter bar over the grid** was accepted on 2026-09-07, proposed the same hour, from the user asking for Eagle's filter row with three facets
 named: tags, rating, file type. It decides one thing and the rest follows — the bar is a *view of
 the query*, so the engine reads and writes the query and the renderer sends values. Three answers
 came from the user, all as recommended: **types are extensions** (`ext:` needs no grammar change,

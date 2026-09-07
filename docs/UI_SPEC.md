@@ -273,7 +273,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
 | `Transport` | content | position, loop | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, the comment marks, and what the native bar withholds — frame stepping, playback rate, an A-B loop; §7. ADR-0024 |
 | `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
-| `FilterBar` | content | — | Tags, rating and file type over the grid. A **view of the query**: read with `query:split`, written with `query:join`. §4.4. ADR-0035 |
+| `FilterBar` | content | menu open, search draft | Tags, rating and file type over the grid. A **view of the query**: read with `query:split`, written with `query:join`. Tags carry an Any/All rule, which the window remembers only where the query cannot hold it. §4.4. ADR-0035 |
 | `NameField` | inspector | draft | The panel's heading, and the only editable name. Holds the **stem**: the extension is not editable and is not shown here. **Wraps over as many lines as the name takes**; `Enter` commits and a name never holds one. §3.10 |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over the tags the library already has, creates on Enter. §3.7 |
@@ -948,6 +948,13 @@ that appears only when there is something to clear.
 ```
 Search…                                     8 matches    Icons ▾    + Add ▾
 Tags  wood +1 ▾    Rating  ★★★★★ ▾    Types  PNG ▾    Clear filters
+      ┌──────────────────────────┐
+      │ Rule            [Any] All│    tags only
+      │ [ Search tags…         ] │    only past eight values
+      │ MATERIALS                │
+      │ ✓ wood                88 │
+      │   metal               41 │
+      └──────────────────────────┘
 ```
 
 **It is a view of the query.** Everything drawn here is read back out of the query string, and every
@@ -955,9 +962,36 @@ click writes a new one into the search field. Nothing is remembered from the cli
 `ext:png` by hand and the Types chip lights up; delete it and the chip goes out. That is §4.2's
 promise made visible, and it is the reason the bar can be trusted to say why the grid is short.
 
-**Within a facet the values are `OR`ed, across facets `AND`ed.** Two ratings `AND`ed match nothing,
-and so do two extensions — either is the only thing several values in one facet can mean. It is also
-the difference from a sidebar row, which replaces the query outright.
+**Within a facet the values are `OR`ed, across facets `AND`ed** — except tags, which carry a rule
+(below). Two ratings `AND`ed match nothing, and so do two extensions. It is also the difference from
+a sidebar row, which replaces the query outright.
+
+**The tags have a rule: Any or All** (ADR-0035 §7). *Any* is `(tag:wood OR tag:metal)` and matches
+an asset carrying either; *All* is `tag:wood tag:metal` and matches only one carrying both. Two
+shapes the query already had, so the rule reads straight out of it and needs nothing added to the
+grammar.
+
+**Only tags have one, and the data decides that.** An asset has one extension and one rating, so
+*All* on either would be a button whose only outcome is an empty grid.
+
+**Below two tags the window remembers the rule**, because `tag:wood` is the same query under either
+and there is nothing to read back. It is the one thing in the bar not derived from the query, and
+deliberately the one thing the query cannot express — the same standing the view mode and the zoom
+have. The moment a second tag makes it expressible, the string wins: typing `tag:a tag:b` by hand
+moves the toggle to *All*.
+
+**Clearing the filters does not touch the rule.** It is how the *next* two tags will be joined, and
+clearing has said nothing about that.
+
+**A facet's menu is searched past eight values**, with a field at its head that filters the list as
+it is typed. A field over five tags costs a row and saves nothing. The rule is generic, so a library
+with thirty extensions gets one on Types without anybody deciding twice.
+
+**Several values are chosen in one visit.** The menu stays open through a tick — and both halves of
+that are needed, because `preventDefault` on the select holds for the first tick of a visit and not
+the second. Found by driving a real window on 2026-09-08, where choosing two tags shut the menu on
+the second while every component test passed; `scripts/check-filters.mjs` is where that claim now
+lives.
 
 **A facet's button says what is chosen**, not merely that something is: `wood +1`, `★★★★★`, `PNG`.
 Three chips that only light up make somebody open all three to find the one hiding their assets.

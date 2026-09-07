@@ -746,6 +746,10 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   carries both — the CLI has had `--mode` and `--tag` since M1 — and what is missing is where to
   put them: the mode belongs in a preference (the application config that window state is also
   waiting for) and the tags in an import dialog that does not exist yet.
+- 🟢 **The tag facet has no Untagged row.** Eagle's has one, `is:untagged` is in the grammar, and it
+  would sit beside the tags exactly as unrated sits beside the stars (ADR-0035 §7). The pane still
+  carries **Untagged** as a place, so nothing is unreachable; what would change is that it could be
+  combined with a rating or a type. Not asked for.
 - 🟢 **`kind:` is not in the grammar.** The filter bar's Types facet offers extensions, which is
   what the user chose when asked (ADR-0035 §3.4 and §6): `ext:` exists, and Image / Video / Audio /
   Document would be a new term in a grammar frozen by compatibility. Nothing decided in ADR-0035

@@ -12,6 +12,7 @@ import type {
   WireRecentLibrary,
   WireSidebar,
   WireSplitQuery,
+  WireTagRule,
 } from "@roost/contract";
 import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -52,9 +53,19 @@ import { Sidebar } from "./sidebar/Sidebar.js";
  */
 const NO_SPLIT: WireSplitQuery = {
   place: "",
-  facets: { tags: [], stars: [], unrated: false, exts: [] },
+  facets: { tags: [], tagRule: "any", stars: [], unrated: false, exts: [] },
   representable: true,
 };
+
+/**
+ * Whether the query itself says how the tags are joined (ADR-0035 §7.2).
+ *
+ * Below two tags it does not — `tag:olahraga` is the same string under either
+ * rule — and the window's own memory is what fills in.
+ */
+function ruleIsInTheQuery(facets: WireFacets): boolean {
+  return facets.tags.length >= 2;
+}
 
 /**
  * The facets a picked row implies, over the ones already on.
@@ -68,6 +79,9 @@ function merge(held: WireFacets, picked: WireFacets): WireFacets {
   const rating = picked.stars.length > 0 || picked.unrated;
   return {
     tags: picked.tags.length > 0 ? picked.tags : held.tags,
+    // A row that names one tag says nothing about the rule, so the one on
+    // screen stands. A row that names two does say, and then it wins.
+    tagRule: ruleIsInTheQuery(picked) ? picked.tagRule : held.tagRule,
     stars: rating ? picked.stars : held.stars,
     unrated: rating ? picked.unrated : held.unrated,
     exts: picked.exts.length > 0 ? picked.exts : held.exts,
@@ -621,6 +635,18 @@ function LibraryView({
    * nothing chosen: the honest state for a query nobody has read yet.
    */
   const [split, setSplit] = useState<WireSplitQuery>(NO_SPLIT);
+  /**
+   * How the tag facet joins its values, when the query does not say
+   * (ADR-0035 §7.2).
+   *
+   * The one part of the bar that is not read back out of the query, and
+   * deliberately the one part the query cannot express: with fewer than two
+   * tags both rules spell the same string. It has the standing the view mode
+   * and the zoom have (ADR-0018) — window state, because nothing in the query
+   * describes it — and the moment a second tag makes it expressible the string
+   * wins, below.
+   */
+  const [tagRule, setTagRule] = useState<WireTagRule>("any");
   const [sidebar, setSidebar] = useState<WireSidebar | undefined>();
   const [matches, setMatches] = useState<number | undefined>();
   // One store for the life of the view. A new one per render would drop the
@@ -679,6 +705,19 @@ function LibraryView({
     };
   }, [query]);
 
+  // The query wins whenever it can speak. Typing `tag:a tag:b` by hand moves the
+  // toggle, which is what makes the bar a view of the query rather than a thing
+  // beside it.
+  useEffect(() => {
+    if (ruleIsInTheQuery(split.facets)) setTagRule(split.facets.tagRule);
+  }, [split]);
+
+  /** What the bar draws and what a join is built from: the query, then memory. */
+  const facets = useMemo(
+    () => (ruleIsInTheQuery(split.facets) ? split.facets : { ...split.facets, tagRule }),
+    [split.facets, tagRule],
+  );
+
   const applyQuery = useCallback(
     (picked: string) => {
       // The selection goes with the query: what was selected is no longer on
@@ -698,12 +737,22 @@ function LibraryView({
    */
   const held = useRef(NO_SPLIT);
   held.current = split;
+  const heldFacets = useRef<WireFacets>(NO_SPLIT.facets);
+  heldFacets.current = facets;
 
   /** A facet was ticked: the place stands, the facets are the new ones. */
   const applyFacets = useCallback(
-    (facets: WireFacets) => {
+    (chosen: WireFacets) => {
+      // Remembered even when the query is about to say it: the query's answer
+      // arrives one round trip later, and a toggle that waited for it would
+      // flick back for a frame.
+      setTagRule(chosen.tagRule);
       void (async () => {
-        const outcome = await invoke({ type: "query:join", place: held.current.place, facets });
+        const outcome = await invoke({
+          type: "query:join",
+          place: held.current.place,
+          facets: chosen,
+        });
         if (outcome.ok) applyQuery(outcome.value);
       })();
     },
@@ -728,8 +777,13 @@ function LibraryView({
       void (async () => {
         const read = await invoke({ type: "query:split", query: picked });
         if (!read.ok) return applyQuery(picked);
-        const facets = merge(held.current.facets, read.value.facets);
-        const joined = await invoke({ type: "query:join", place: read.value.place, facets });
+        const merged = merge(heldFacets.current, read.value.facets);
+        setTagRule(merged.tagRule);
+        const joined = await invoke({
+          type: "query:join",
+          place: read.value.place,
+          facets: merged,
+        });
         applyQuery(joined.ok ? joined.value : picked);
       })();
     },
@@ -1345,7 +1399,7 @@ function LibraryView({
                 §3.6): with the pane's rating and tag sections gone, this is the
                 only thing on screen that can say a filter is on. */}
               <FilterBar
-                facets={split.facets}
+                facets={facets}
                 representable={split.representable}
                 tags={sidebar?.tags ?? NO_TAGS}
                 ratings={sidebar?.ratings ?? NO_TAGS}

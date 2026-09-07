@@ -1007,6 +1007,85 @@ describe("the navigation pane, in the window", () => {
     );
   });
 
+  it("remembers the tag rule the query cannot hold, and lets the query overrule it", async () => {
+    // ADR-0035 §7.2, and the decision the user made on 2026-09-08. With one tag
+    // chosen, `tag:a` is the same string under either rule — so the window
+    // remembers, and the moment a second tag makes the rule expressible the
+    // query wins.
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      byQuery: {
+        "tag:olahraga": [fakeAsset(0), fakeAsset(1), fakeAsset(2)],
+        "tag:olahraga tag:traveling": [fakeAsset(0)],
+        "(tag:olahraga OR tag:traveling)": [fakeAsset(0), fakeAsset(1), fakeAsset(2), fakeAsset(3)],
+      },
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [],
+        smartFolders: [],
+        tags: [
+          {
+            id: "tag:olahraga",
+            name: "olahraga",
+            query: "tag:olahraga",
+            count: 3,
+            depth: 0,
+            group: null,
+            stars: null,
+          },
+          {
+            id: "tag:traveling",
+            name: "traveling",
+            query: "tag:traveling",
+            count: 2,
+            depth: 0,
+            group: null,
+            stars: null,
+          },
+        ],
+        types: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(9));
+
+    await user.click(screen.getByRole("button", { name: /^Tags/ }));
+    await user.click(await screen.findByRole("menuitemcheckbox", { name: /olahraga/ }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(3));
+
+    // All, while only one tag is chosen: the query cannot say so and does not
+    // change. Nothing on screen may forget it either.
+    await user.click(screen.getByRole("button", { name: "Rule: All" }));
+    await user.click(await screen.findByRole("menuitemcheckbox", { name: /traveling/ }));
+
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(1));
+    const pages = engine.seen.filter((request) => request.type === "assets:page");
+    expect(pages.at(-1)).toMatchObject({ query: "tag:olahraga tag:traveling" });
+
+    // And the query overrules the memory: typing the OR by hand moves the
+    // toggle back, because the bar is a view of the query.
+    await user.keyboard("{Escape}");
+    const field = screen.getByRole("searchbox", { name: "Search" });
+    await user.clear(field);
+    await user.type(field, "(tag:olahraga OR tag:traveling){Enter}");
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(4));
+
+    await user.click(screen.getByRole("button", { name: /^Tags/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Rule: Any" }).getAttribute("aria-pressed")).toBe(
+        "true",
+      ),
+    );
+  });
+
   it("keeps the filters standing when a folder is picked", async () => {
     // ADR-0035 §6, the one rule this changed: a row replaces every conjunct the
     // bar does not own and leaves the ones it does. Before the bar, a row

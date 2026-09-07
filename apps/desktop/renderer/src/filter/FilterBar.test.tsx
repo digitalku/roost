@@ -12,7 +12,7 @@ import { FilterBar } from "./FilterBar.js";
  * what those values spell is tested in `@roost/search`'s `facets.test.ts`.
  */
 
-const NONE: WireFacets = { tags: [], stars: [], unrated: false, exts: [] };
+const NONE: WireFacets = { tags: [], tagRule: "any", stars: [], unrated: false, exts: [] };
 
 function row(over: Partial<SidebarRow>): SidebarRow {
   return {
@@ -95,7 +95,7 @@ describe("the filter bar", () => {
     const { user, sent } = show();
     await open(user, /^Tags/);
     await user.click(await screen.findByRole("menuitemcheckbox", { name: /wood/ }));
-    expect(sent).toEqual([{ tags: ["wood"], stars: [], unrated: false, exts: [] }]);
+    expect(sent).toEqual([{ ...NONE, tags: ["wood"] }]);
   });
 
   it("stays open so a second value can be chosen", async () => {
@@ -121,7 +121,7 @@ describe("the filter bar", () => {
     const { user, sent } = show();
     await open(user, /^Rating/);
     await user.click(await screen.findByRole("menuitemcheckbox", { name: /No stars/ }));
-    expect(sent).toEqual([{ tags: [], stars: [], unrated: true, exts: [] }]);
+    expect(sent).toEqual([{ ...NONE, unrated: true }]);
   });
 
   it("draws a rating as stars and keeps its name for a reader", async () => {
@@ -144,7 +144,7 @@ describe("the filter bar", () => {
   it("says what is chosen, not merely that something is", async () => {
     // Three chips that only light up make somebody open all three to find out
     // which one is hiding their assets.
-    show({ tags: ["wood", "metal"], stars: [5], unrated: false, exts: [] });
+    show({ ...NONE, tags: ["wood", "metal"], stars: [5] });
     expect(screen.getByRole("button", { name: /^Tags/ }).textContent).toContain("wood +1");
     expect(screen.getByRole("button", { name: /^Rating/ }).textContent).toContain("★★★★★");
   });
@@ -172,7 +172,98 @@ describe("the filter bar", () => {
     // what is already there.
     await open(user, /^Types/);
     await user.click(await screen.findByRole("menuitemcheckbox", { name: /PNG/ }));
-    expect(sent.at(-1)).toEqual({ tags: [], stars: [], unrated: false, exts: ["png"] });
+    expect(sent.at(-1)).toEqual({ ...NONE, exts: ["png"] });
+  });
+
+  it("offers the tag rule, and no other facet has one", async () => {
+    // ADR-0035 §7.1: an asset has one extension and one rating, so `all` on
+    // either would be a button whose only outcome is an empty grid.
+    const { user } = show();
+    await open(user, /^Tags/);
+    expect(await screen.findByRole("button", { name: "Rule: All" })).toBeDefined();
+    await user.keyboard("{Escape}");
+
+    await open(user, /^Rating/);
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Rule:/ })).toBeNull());
+  });
+
+  it("sends the rule with the values, and does not close the menu to do it", async () => {
+    const { user, sent } = show({ ...NONE, tags: ["wood", "metal"] });
+    await open(user, /^Tags/);
+    await user.click(await screen.findByRole("button", { name: "Rule: All" }));
+
+    expect(sent.at(-1)).toEqual({ ...NONE, tags: ["wood", "metal"], tagRule: "all" });
+    // Choosing a rule and then a third tag is one visit to the menu.
+    expect(screen.getByRole("menu")).toBeDefined();
+  });
+
+  it("shows which rule is on", async () => {
+    const { user } = show({ ...NONE, tags: ["wood", "metal"], tagRule: "all" });
+    await open(user, /^Tags/);
+    const all = await screen.findByRole("button", { name: "Rule: All" });
+    expect(all.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Rule: Any" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
+  });
+
+  it("keeps the rule when the filters are cleared", async () => {
+    // The rule is not a filter: it is how the *next* two tags will be joined,
+    // and clearing has said nothing about that.
+    const { user, sent } = show({ ...NONE, tags: ["wood"], tagRule: "all" });
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(sent).toEqual([{ ...NONE, tagRule: "all" }]);
+  });
+
+  it("searches a long list, and leaves a short one alone", async () => {
+    // ADR-0035 §7.3. A field over five tags costs a row and saves nothing.
+    const { user } = show();
+    await open(user, /^Tags/);
+    expect(screen.queryByRole("searchbox", { name: "Search tags" })).toBeNull();
+    await user.keyboard("{Escape}");
+
+    const many = Array.from({ length: 12 }, (_, i) =>
+      row({ id: `tag:${i}`, name: i === 4 ? "olahraga" : `tag-${i}`, count: i }),
+    );
+    render(
+      <FilterBar
+        facets={NONE}
+        representable
+        tags={many}
+        ratings={RATINGS}
+        types={TYPES}
+        onChange={() => {}}
+      />,
+    );
+    const triggers = screen.getAllByRole("button", { name: /^Tags/ });
+    await user.click(triggers[triggers.length - 1] as HTMLElement);
+
+    const field = await screen.findByRole("searchbox", { name: "Search tags" });
+    await user.type(field, "olah");
+    await waitFor(() =>
+      expect(screen.getAllByRole("menuitemcheckbox").map((item) => item.textContent)).toHaveLength(
+        1,
+      ),
+    );
+    expect(screen.getByRole("menuitemcheckbox").textContent).toContain("olahraga");
+  });
+
+  it("says when a search matches nothing, rather than opening onto a blank", async () => {
+    const many = Array.from({ length: 12 }, (_, i) => row({ id: `tag:${i}`, name: `tag-${i}` }));
+    render(
+      <FilterBar
+        facets={NONE}
+        representable
+        tags={many}
+        ratings={RATINGS}
+        types={TYPES}
+        onChange={() => {}}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^Tags/ }));
+    await user.type(await screen.findByRole("searchbox", { name: "Search tags" }), "zzz");
+    await waitFor(() => expect(screen.getByText("Nothing matches")).toBeDefined());
   });
 
   it("says a facet is empty rather than opening onto nothing", async () => {

@@ -39,8 +39,9 @@ import type {
   WireSplitQuery,
   WireStars,
   WireSubtitlesAdded,
+  WireTagRule,
 } from "./dto.js";
-import { IMPORT_SUBJECTS, type ImportSubject, STARS, STORAGE_MODES } from "./dto.js";
+import { IMPORT_SUBJECTS, type ImportSubject, STARS, STORAGE_MODES, TAG_RULES } from "./dto.js";
 
 /**
  * Every request the renderer can make, and what each one answers with.
@@ -1085,6 +1086,8 @@ function readFacets(value: unknown): Checked<WireFacets> {
   if (!exts.ok) return exts;
   const unrated = readBoolean(value, "unrated");
   if (!unrated.ok) return unrated;
+  const tagRule = readOneOf(value, "tagRule", TAG_RULES);
+  if (!tagRule.ok) return tagRule;
 
   const stars = value["stars"];
   if (!Array.isArray(stars)) return bad("facets.stars: expected an array");
@@ -1096,7 +1099,13 @@ function readFacets(value: unknown): Checked<WireFacets> {
     checked.push(star as WireStars);
   }
 
-  return ok({ tags: tags.value, stars: checked, unrated: unrated.value, exts: exts.value });
+  return ok({
+    tags: tags.value,
+    tagRule: tagRule.value as WireTagRule,
+    stars: checked,
+    unrated: unrated.value,
+    exts: exts.value,
+  });
 }
 
 function readCursor(value: unknown): Checked<WireCursor | null> {

@@ -62,13 +62,49 @@ describe("reading a query", () => {
     expect(split.facets.stars).toEqual([]);
   });
 
-  it("refuses two conjuncts of one facet rather than turning an AND into an OR", () => {
-    // `tag:a tag:b` means both. The bar can only mean either, so absorbing them
-    // would ask a different question — and it says so instead.
+  it("reads two tag terms as the all rule", () => {
+    // ADR-0035 §7. `tag:a tag:b` asks for both, and until 2026-09-08 the bar
+    // refused it rather than turn the AND into an OR. The refusal is now the
+    // feature: the two shapes the splitter already told apart are the two rules.
     const split = splitQuery("tag:a tag:b");
+    expect(split.representable).toBe(true);
+    expect(split.facets.tags).toEqual(["a", "b"]);
+    expect(split.facets.tagRule).toBe("all");
+    expect(split.place).toBe("");
+  });
+
+  it("reads one OR of tags as the any rule", () => {
+    const split = splitQuery("(tag:a OR tag:b)");
+    expect(split.facets.tagRule).toBe("any");
+    expect(split.facets.tags).toEqual(["a", "b"]);
+  });
+
+  it("says any for a single tag, which is the same query either way", () => {
+    // Nothing in `tag:a` distinguishes the rules, so the window remembers the
+    // choice and this reports the one that spells it (ADR-0035 §7.2).
+    expect(splitQuery("tag:a").facets.tagRule).toBe("any");
+    expect(splitQuery("").facets.tagRule).toBe("any");
+  });
+
+  it("refuses a tag facet that is half an OR and half an AND", () => {
+    // `(tag:a OR tag:b) tag:c` is neither rule, and picking one would ask a
+    // different question than the one that was typed.
+    const split = splitQuery("(tag:a OR tag:b) tag:c");
     expect(split.representable).toBe(false);
     expect(split.facets.tags).toEqual([]);
-    expect(split.place).toBe("tag:a tag:b");
+    expect(split.place).toBe("(tag:a OR tag:b) tag:c");
+  });
+
+  it("still refuses two ratings and two extensions", () => {
+    // An asset has one of each, so both match nothing — and a bar drawing them
+    // as chosen would describe an empty grid as a filter (ADR-0035 §7.1).
+    const ratings = splitQuery("rating:5 rating:3");
+    expect(ratings.representable).toBe(false);
+    expect(ratings.place).toBe("rating:5 rating:3");
+
+    const exts = splitQuery("ext:png ext:jpg");
+    expect(exts.representable).toBe(false);
+    expect(exts.place).toBe("ext:png ext:jpg");
   });
 
   it("refuses a top-level OR", () => {
@@ -104,6 +140,16 @@ describe("writing a query", () => {
     expect(joinQuery("", facets({ exts: ["png", "jpg"], stars: [5] }))).toBe(
       "rating:5 (ext:png OR ext:jpg)",
     );
+  });
+
+  it("writes the all rule as a term each", () => {
+    expect(joinQuery("", facets({ tags: ["wood", "metal"], tagRule: "all" }))).toBe(
+      "tag:wood tag:metal",
+    );
+    // One tag spells the same query under either rule, which is exactly why the
+    // rule cannot be read back from it.
+    expect(joinQuery("", facets({ tags: ["wood"], tagRule: "all" }))).toBe("tag:wood");
+    expect(joinQuery("", facets({ tags: [], tagRule: "all" }))).toBe("");
   });
 
   it("quotes a value that needs it, and never by concatenating", () => {
@@ -147,6 +193,8 @@ describe("reading and writing agree", () => {
     "(ext:png OR ext:jpg)",
     'beach size:>2mb folder:"Design/Icons" tag:wood',
     "-tag:wip rating:2 ext:pdf",
+    "tag:wood tag:metal",
+    "beach tag:wood tag:metal rating:5",
   ];
 
   for (const query of roundTrips) {

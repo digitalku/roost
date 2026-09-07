@@ -47,6 +47,7 @@ export {
   STARS,
   STORAGE_MODES,
   type StorageMode,
+  TAG_RULES,
   type WireAssetDetail,
   type WireCapability,
   type WireComment,
@@ -74,6 +75,7 @@ export {
   type WireStars,
   type WireSubtitle,
   type WireSubtitlesAdded,
+  type WireTagRule,
 } from "./dto.js";
 export {
   checkEventEnvelope,

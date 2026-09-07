@@ -87,12 +87,12 @@ export async function foldersInto(root, tree) {
  * selects first is the one it just tagged, and a check does not have to hunt
  * for the chip it means to press.
  */
-export async function tagsOnto(root, tags, count = 1) {
+export async function tagsOnto(root, tags, count = 1, from = 0) {
   const library = await Library.open(root);
   try {
     const hashes = pageOf(library, "", { limit: 100 })
       .map((hit) => hit.hash)
-      .slice(0, count);
+      .slice(from, from + count);
     await tagAdd(library, hashes, tags);
     return hashes;
   } finally {

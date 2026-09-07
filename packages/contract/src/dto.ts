@@ -351,6 +351,18 @@ export const STARS = [1, 2, 3, 4, 5] as const;
 export type WireStars = (typeof STARS)[number];
 
 /**
+ * How several tags in the filter bar are joined (ADR-0035 §7).
+ *
+ * `any` matches an asset carrying one of them, `all` an asset carrying every
+ * one. Tags are the only facet with a rule: an asset has one extension and one
+ * rating, so `all` on either would be a button whose only outcome is an empty
+ * grid.
+ */
+export const TAG_RULES = ["any", "all"] as const;
+
+export type WireTagRule = (typeof TAG_RULES)[number];
+
+/**
  * What the filter bar has narrowed the query to (ADR-0035).
  *
  * Structured, never a query string: the renderer holds this, changes one field
@@ -360,6 +372,15 @@ export type WireStars = (typeof STARS)[number];
  */
 export interface WireFacets {
   readonly tags: readonly string[];
+  /**
+   * Whether the tags are `OR`ed or `AND`ed.
+   *
+   * Below two tags both rules spell the same query, so the window remembers the
+   * choice and a split reports `any` (ADR-0035 §7.2). It is the one thing in
+   * the bar not read back out of the query, and deliberately the one thing the
+   * query cannot express.
+   */
+  readonly tagRule: WireTagRule;
   readonly stars: readonly WireStars[];
   /** `is:unrated`, which sits in the rating facet without being a rating. */
   readonly unrated: boolean;

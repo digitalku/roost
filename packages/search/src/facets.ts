@@ -25,6 +25,19 @@ import { quoteValue } from "./quote.js";
 export type Stars = 1 | 2 | 3 | 4 | 5;
 
 /**
+ * How several values in the tag facet are joined (ADR-0035 §7).
+ *
+ * `any` is `(tag:a OR tag:b)` and `all` is `tag:a tag:b` — two shapes the
+ * splitter already had to tell apart, which is why the rule needs nothing added
+ * to the grammar.
+ *
+ * **Only tags have one, and the data decides that.** An asset has one extension
+ * and one rating, so `all` on those two facets would be a button whose only
+ * outcome is an empty grid.
+ */
+export type TagRule = "any" | "all";
+
+/**
  * What the bar selects, as data rather than as a query.
  *
  * Within a facet the values are `OR`ed and across facets they are `AND`ed,
@@ -34,6 +47,13 @@ export type Stars = 1 | 2 | 3 | 4 | 5;
 export interface Facets {
   /** Tag names, as the library spells them. */
   readonly tags: readonly string[];
+  /**
+   * Whether the tags are `OR`ed or `AND`ed.
+   *
+   * Meaningless below two tags, where both rules spell the same query — the
+   * window remembers the choice there, and this says `any` (ADR-0035 §7.2).
+   */
+  readonly tagRule: TagRule;
   /** Star counts. Unrated is **not** a rating of zero; see {@link unrated}. */
   readonly stars: readonly Stars[];
   /** `is:unrated`, which sits in the rating facet without being a rating. */
@@ -42,7 +62,13 @@ export interface Facets {
   readonly exts: readonly string[];
 }
 
-export const NO_FACETS: Facets = { tags: [], stars: [], unrated: false, exts: [] };
+export const NO_FACETS: Facets = {
+  tags: [],
+  tagRule: "any",
+  stars: [],
+  unrated: false,
+  exts: [],
+};
 
 /** A query, read as somewhere to look plus what the bar has narrowed it to. */
 export interface SplitQuery {
@@ -55,10 +81,14 @@ export interface SplitQuery {
   /**
    * Whether the bar can show this query honestly.
    *
-   * False for a query whose facets it cannot represent — a top-level `OR`, or
-   * two separate tag terms, which mean `AND` where the bar can only mean `OR`.
-   * Nothing is absorbed then: the whole query is the place, every chip is off,
-   * and choosing one **adds** to the query rather than claiming to own it.
+   * False for a query whose facets it cannot represent — a top-level `OR`, two
+   * ratings, two extensions, or a tag facet that is partly an `OR` and partly
+   * an `AND`. Nothing is absorbed then: the whole query is the place, every
+   * chip is off, and choosing one **adds** to the query rather than claiming to
+   * own it.
+   *
+   * Two plain tag terms are **not** among them since 2026-09-08: `tag:a tag:b`
+   * is what the `all` rule spells (ADR-0035 §7).
    */
   readonly representable: boolean;
 }
@@ -80,29 +110,50 @@ export function splitQuery(input: string): SplitQuery {
 
   const claimed = conjuncts.map((slice) => ({ slice, claim: facetOf(slice) }));
 
-  // A second conjunct for one facet is an `AND` where the bar can only say
-  // `OR`. Absorbing both would ask a different question, so a doubled facet is
-  // absorbed nowhere — counted first, so the decision is the same for the
-  // conjunct that came before the clash and the one that caused it.
-  const claims = new Map<FacetKind, number>();
+  const claims = new Map<FacetKind, { readonly values: Values }[]>();
   for (const { claim } of claimed) {
-    if (claim !== undefined) claims.set(claim.kind, (claims.get(claim.kind) ?? 0) + 1);
+    if (claim === undefined) continue;
+    const held = claims.get(claim.kind);
+    if (held === undefined) claims.set(claim.kind, [claim]);
+    else held.push(claim);
   }
-  const doubled = [...claims].some(([, count]) => count > 1);
 
-  const owned = new Map<FacetKind, Values>();
+  /*
+   * Several conjuncts of one facet.
+   *
+   * For tags that is the `all` rule and the whole of ADR-0035 §7: `tag:a tag:b`
+   * asks for both, which is a thing the bar can now say. It has to be plain
+   * terms all the way down, though — `(tag:a OR tag:b) tag:c` mixes the two
+   * rules and belongs to neither.
+   *
+   * For ratings and extensions it stays what §2 made it: an asset has one of
+   * each, so two conjuncts match nothing, and a bar that drew them as chosen
+   * would be describing an empty grid as a filter.
+   */
+  const tagClaims = claims.get("tags") ?? [];
+  const tagRule: TagRule = tagClaims.length > 1 ? "all" : "any";
+  const tagsAreAll = tagClaims.every((claim) => claim.values.tags.length === 1);
+  const refused = new Set<FacetKind>();
+  for (const [kind, held] of claims) {
+    if (held.length < 2) continue;
+    if (kind !== "tags" || !tagsAreAll) refused.add(kind);
+  }
+
+  const owned = new Map<FacetKind, Values[]>();
   const place: string[] = [];
   for (const { slice, claim } of claimed) {
-    if (claim === undefined || (claims.get(claim.kind) ?? 0) > 1) {
+    if (claim === undefined || refused.has(claim.kind)) {
       place.push(slice);
       continue;
     }
-    owned.set(claim.kind, claim.values);
+    const held = owned.get(claim.kind);
+    if (held === undefined) owned.set(claim.kind, [claim.values]);
+    else held.push(claim.values);
   }
 
-  const tags = owned.get("tags")?.tags ?? [];
-  const rating = owned.get("rating");
-  const exts = owned.get("exts")?.exts ?? [];
+  const tags = (owned.get("tags") ?? []).flatMap((values) => values.tags);
+  const rating = owned.get("rating")?.[0];
+  const exts = owned.get("exts")?.[0]?.exts ?? [];
 
   return {
     // The kept slices in the order they were written; a conjunct the bar
@@ -110,11 +161,12 @@ export function splitQuery(input: string): SplitQuery {
     place: place.join(" "),
     facets: {
       tags,
+      tagRule,
       stars: rating?.stars ?? [],
       unrated: rating?.unrated ?? false,
       exts,
     },
-    representable: !doubled,
+    representable: refused.size === 0,
   };
 }
 
@@ -126,7 +178,7 @@ export function splitQuery(input: string): SplitQuery {
  * than the same terms in a new arrangement.
  */
 export function joinQuery(place: string, facets: Facets): string {
-  const terms = [tagTerm(facets), ratingTerm(facets), extTerm(facets)].filter(
+  const terms = [...tagTerms(facets), ratingTerm(facets), extTerm(facets)].filter(
     (term): term is string => term !== undefined,
   );
   const trimmed = place.trim();
@@ -263,9 +315,16 @@ function isStars(value: number): value is Stars {
   return Number.isInteger(value) && value >= 1 && value <= 5;
 }
 
-/** `tag:wood`, or `(tag:wood OR tag:metal)`, or nothing at all. */
-function tagTerm(facets: Facets): string | undefined {
-  return orOf(facets.tags.map((tag) => `tag:${quoteValue(tag)}`));
+/**
+ * The tag facet, as one term or as several.
+ *
+ * `any` is one term — `tag:wood`, or `(tag:wood OR tag:metal)`. `all` is a term
+ * each, which is what an `AND` between them looks like written down, and what
+ * `splitQuery` reads back as the rule.
+ */
+function tagTerms(facets: Facets): readonly (string | undefined)[] {
+  const written = facets.tags.map((tag) => `tag:${quoteValue(tag)}`);
+  return facets.tagRule === "all" ? written : [orOf(written)];
 }
 
 function extTerm(facets: Facets): string | undefined {

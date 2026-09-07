@@ -127,3 +127,68 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/*
+ * Any or All, in the head of the tag menu (ADR-0035 §7).
+ *
+ * A row of the menu rather than an item of it: choosing one must not close a
+ * menu somebody is halfway through, which is the same reason the view menu's
+ * zoom row is drawn this way.
+ */
+.filter-rule {
+  gap: var(--space-3);
+  justify-content: space-between;
+}
+
+.filter-rule-choices {
+  display: flex;
+  gap: 1px;
+  padding: 1px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-overlay);
+}
+
+.filter-rule-button {
+  height: var(--space-5);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: calc(var(--radius-sm) - 1px);
+  background: none;
+  color: var(--text-subtle);
+  font: inherit;
+  font-size: var(--text-xs);
+}
+
+.filter-rule-button:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+/* The chosen half carries the fill a chosen chip does, so "this is on" is one
+   look everywhere in the bar. */
+.filter-rule-button[data-on] {
+  background: var(--select-bg);
+  color: var(--select-text);
+}
+
+/* Only drawn past a listful of values, so it costs a row where it earns one. */
+.filter-search {
+  padding: var(--space-1) var(--space-2);
+}
+
+.filter-search-input {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+/* Chromium draws its own clear button in a `search` input, in a colour that
+   answers to nothing in the token file. */
+.filter-search-input::-webkit-search-cancel-button {
+  display: none;
+}

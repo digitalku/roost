@@ -1,6 +1,13 @@
-import type { SidebarRow, SidebarTypeRow, WireFacets, WireStars } from "@roost/contract";
+import type {
+  SidebarRow,
+  SidebarTypeRow,
+  WireFacets,
+  WireStars,
+  WireTagRule,
+} from "@roost/contract";
 import { STARS } from "@roost/contract";
 import { DropdownMenu } from "radix-ui";
+import { useCallback, useRef, useState } from "react";
 
 /**
  * The three filters over the grid: tags, rating, file type (ADR-0035).
@@ -14,20 +21,24 @@ import { DropdownMenu } from "radix-ui";
  * It replaced the sidebar's Rating and Tags sections on the user's word, and the
  * difference between the two controls is the reason both should not exist: a
  * sidebar row **replaces** the query and a facet **narrows** it. Within a facet
- * the values are `OR`ed, because two ratings `AND`ed match nothing.
+ * the values are `OR`ed — except tags, which carry a rule (§7).
  *
  * The counts are the ones the pane used to draw, from the same read — what moved
  * is where they are shown, not what the engine answers.
  */
+
+/** Past this many values, a facet's menu is searched rather than read (§7.3). */
+const SEARCHABLE_FROM = 8;
 
 export interface FilterBarProps {
   readonly facets: WireFacets;
   /**
    * Whether the query is one the chips can describe.
    *
-   * False for a top-level `OR`, or two terms of one facet. Nothing is drawn as
-   * on then, and the bar says so rather than lying by omission — a chip that is
-   * off next to a query that filters is worse than no chip.
+   * False for a top-level `OR`, two ratings, two extensions, or a tag facet
+   * that is half an `OR`. Nothing is drawn as on then, and the bar says so
+   * rather than lying by omission — a chip that is off next to a query that
+   * filters is worse than no chip.
    */
   readonly representable: boolean;
   /** Every tag in the library, with its count, in the pane's own order. */
@@ -38,6 +49,19 @@ export interface FilterBarProps {
   readonly onChange: (facets: WireFacets) => void;
 }
 
+/** One value in a facet's menu, before the menu decides how to draw it. */
+interface Value {
+  readonly key: string;
+  readonly label: string;
+  /** Filled stars, for a rating; `null` for a value that is not one. */
+  readonly stars: number | null;
+  readonly count: number | null;
+  /** The heading this value sits under, or `null`. Tags use it for groups. */
+  readonly group: string | null;
+  readonly on: boolean;
+  readonly toggle: (on: boolean) => void;
+}
+
 export function FilterBar({
   facets,
   representable,
@@ -46,9 +70,47 @@ export function FilterBar({
   types,
   onChange,
 }: FilterBarProps): React.JSX.Element {
-  const chosen = representable ? facets : EMPTY;
+  const chosen = representable ? facets : { ...EMPTY, tagRule: facets.tagRule };
   const anything =
     chosen.tags.length > 0 || chosen.stars.length > 0 || chosen.unrated || chosen.exts.length > 0;
+
+  const tagValues: readonly Value[] = tags.map((tag) => ({
+    key: tag.id,
+    label: tag.name,
+    stars: null,
+    count: tag.count,
+    group: tag.group,
+    on: chosen.tags.includes(tag.name),
+    toggle: (on) => onChange({ ...chosen, tags: toggle(chosen.tags, tag.name, on) }),
+  }));
+
+  const ratingValues: readonly Value[] = ratings.map((row) => ({
+    key: row.id,
+    label: row.name,
+    // `stars` is `0` on the unrated row, which is not a rating of zero
+    // (`DATA_MODEL.md`) — so it toggles its own field rather than joining the
+    // list of stars. Drawn as five unlit stars all the same.
+    stars: row.stars,
+    count: row.count,
+    group: null,
+    on: row.stars === 0 ? chosen.unrated : isStars(row.stars) && chosen.stars.includes(row.stars),
+    toggle: (on) => {
+      if (row.stars === 0) onChange({ ...chosen, unrated: on });
+      else if (isStars(row.stars)) {
+        onChange({ ...chosen, stars: toggle(chosen.stars, row.stars, on) });
+      }
+    },
+  }));
+
+  const typeValues: readonly Value[] = types.map((type) => ({
+    key: type.ext === "" ? "(none)" : type.ext,
+    label: spellExt(type.ext),
+    stars: null,
+    count: type.count,
+    group: null,
+    on: chosen.exts.includes(type.ext),
+    toggle: (on) => onChange({ ...chosen, exts: toggle(chosen.exts, type.ext, on) }),
+  }));
 
   return (
     <div className="filter-bar" role="toolbar" aria-label="Filters">
@@ -57,88 +119,47 @@ export function FilterBar({
         summary={summarise(chosen.tags)}
         count={chosen.tags.length}
         empty="No tags yet"
-      >
-        {/* Grouped, as the pane grouped them: a group is how somebody arranged
-            their tags, and a flat list of ninety would not be usable. */}
-        {groupTags(tags).map(([group, rows]) => (
-          <Group key={group ?? "(ungrouped)"} name={group}>
-            {rows.map((tag) => (
-              <Choice
-                key={tag.id}
-                label={tag.name}
-                count={tag.count}
-                on={chosen.tags.includes(tag.name)}
-                onToggle={(on) => onChange({ ...chosen, tags: toggle(chosen.tags, tag.name, on) })}
-              />
-            ))}
-          </Group>
-        ))}
-      </Facet>
-
+        values={tagValues}
+        searchLabel="Search tags"
+        rule={chosen.tagRule}
+        onRule={(next) => onChange({ ...chosen, tagRule: next })}
+      />
       <Facet
         label="Rating"
         summary={ratingSummary(chosen)}
         count={chosen.stars.length + (chosen.unrated ? 1 : 0)}
         empty="No ratings"
-      >
-        {ratings.map((row) =>
-          // `stars` is `0` on the unrated row, which is not a rating of zero
-          // (`DATA_MODEL.md`) — so it toggles its own field rather than joining
-          // the list of stars.
-          row.stars === 0 ? (
-            <Choice
-              key={row.id}
-              label={row.name}
-              count={row.count}
-              on={chosen.unrated}
-              onToggle={(on) => onChange({ ...chosen, unrated: on })}
-            />
-          ) : (
-            <Choice
-              key={row.id}
-              label={row.name}
-              stars={row.stars}
-              count={row.count}
-              on={isStars(row.stars) && chosen.stars.includes(row.stars)}
-              onToggle={(on) =>
-                isStars(row.stars) &&
-                onChange({ ...chosen, stars: toggle(chosen.stars, row.stars, on) })
-              }
-            />
-          ),
-        )}
-      </Facet>
-
+        values={ratingValues}
+        searchLabel="Search ratings"
+      />
       <Facet
         label="Types"
         summary={summarise(chosen.exts.map(spellExt))}
         count={chosen.exts.length}
         empty="Nothing imported yet"
-      >
-        {types.map((type) => (
-          <Choice
-            key={type.ext === "" ? "(none)" : type.ext}
-            label={spellExt(type.ext)}
-            count={type.count}
-            on={chosen.exts.includes(type.ext)}
-            onToggle={(on) => onChange({ ...chosen, exts: toggle(chosen.exts, type.ext, on) })}
-          />
-        ))}
-      </Facet>
+        values={typeValues}
+        searchLabel="Search types"
+      />
 
       {/* Only when there is something to clear: a permanently visible Clear is
-          a control that does nothing most of the time (`UI_SPEC.md` §8). */}
+          a control that does nothing most of the time (`UI_SPEC.md` §8). The
+          rule is not a filter and survives — it is how the *next* two tags will
+          be joined, and clearing has not said anything about that. */}
       {anything && (
-        <button type="button" className="filter-clear" onClick={() => onChange(EMPTY)}>
+        <button
+          type="button"
+          className="filter-clear"
+          onClick={() => onChange({ ...EMPTY, tagRule: chosen.tagRule })}
+        >
           Clear filters
         </button>
       )}
 
       {/*
         Said out loud rather than shown by absence. A query with a top-level
-        `OR` in it filters the grid while every chip here reads as off, and
-        somebody looking at three empty chips over two hundred assets would
-        reasonably conclude nothing is filtering.
+        `OR` in it filters the grid while every chip reads as off, and somebody
+        looking at three empty chips over two hundred assets would reasonably
+        conclude nothing is filtering.
       */}
       {!representable && (
         <span className="filter-note">The search field holds a query these cannot show</span>
@@ -147,7 +168,7 @@ export function FilterBar({
   );
 }
 
-const EMPTY: WireFacets = { tags: [], stars: [], unrated: false, exts: [] };
+const EMPTY: WireFacets = { tags: [], tagRule: "any", stars: [], unrated: false, exts: [] };
 
 /** One facet's button and menu. */
 function Facet({
@@ -155,15 +176,63 @@ function Facet({
   summary,
   count,
   empty,
-  children,
+  values,
+  searchLabel,
+  rule,
+  onRule,
 }: {
   readonly label: string;
   readonly summary: string | undefined;
   readonly count: number;
   readonly empty: string;
-  readonly children: React.ReactNode;
+  readonly values: readonly Value[];
+  readonly searchLabel: string;
+  /** Only the tag facet has one; an asset has one rating and one extension. */
+  readonly rule?: WireTagRule;
+  readonly onRule?: (rule: WireTagRule) => void;
 }): React.JSX.Element {
-  const items = Array.isArray(children) ? children : [children];
+  const [needle, setNeedle] = useState("");
+  const [open, setOpen] = useState(false);
+  /**
+   * A tick has just happened, so a close that arrives now is not the reader's.
+   *
+   * `onSelect`'s `preventDefault` is the documented way to keep a menu open,
+   * and it holds for the **first** tick of a visit and not the second — found
+   * by driving a real window on 2026-09-08, where choosing two tags in one
+   * visit shut the menu on the second. Every component test passed: happy-dom
+   * dispatches the sequence differently.
+   *
+   * So the open state is controlled here and a close that lands during a tick
+   * is refused. Cleared in a microtask, which runs after the synchronous
+   * decision Radix is making and before anything a person could do next — an
+   * `Escape` or a click outside still closes the menu, because neither is
+   * inside a tick.
+   */
+  const ticking = useRef(false);
+  const tick = useCallback(() => {
+    ticking.current = true;
+    queueMicrotask(() => {
+      ticking.current = false;
+    });
+  }, []);
+  // A field over five tags costs a row and saves nothing (§7.3).
+  const searchable = values.length > SEARCHABLE_FROM;
+  const matching = searchable ? values.filter((value) => matches(value, needle)) : values;
+
+  /*
+   * The caret belongs in the field the moment the menu opens, or the first
+   * letter typed ticks a value instead of searching for it.
+   *
+   * On mount and a frame late, because a `radix-ui` menu focuses itself when it
+   * opens and would take the caret straight back. `ArrowDown` still walks into
+   * the list: the field is inside the content, so the key reaches the menu's own
+   * handler by bubbling.
+   */
+  const takeCaret = useCallback((node: HTMLInputElement | null) => {
+    if (node === null) return;
+    requestAnimationFrame(() => node.focus());
+  }, []);
+
   return (
     /*
      * Not modal. A modal menu marks the rest of the window `aria-hidden` and
@@ -171,7 +240,15 @@ function Facet({
      * changed** — ticking a second tag while watching the count move is the
      * ordinary way this control is used.
      */
-    <DropdownMenu.Root modal={false}>
+    <DropdownMenu.Root
+      modal={false}
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && ticking.current) return;
+        setOpen(next);
+        if (next) setNeedle("");
+      }}
+    >
       <DropdownMenu.Trigger asChild>
         {/*
           The button says what is chosen, not merely that something is. A bar
@@ -193,13 +270,50 @@ function Facet({
           align="start"
           collisionPadding={8}
         >
-          {items.flat().length === 0 ? (
+          {rule !== undefined && onRule !== undefined && <Rule rule={rule} onRule={onRule} />}
+
+          {searchable && (
+            <div className="filter-search">
+              <input
+                ref={takeCaret}
+                type="search"
+                className="filter-search-input"
+                aria-label={searchLabel}
+                placeholder={searchLabel}
+                spellCheck={false}
+                value={needle}
+                onChange={(changed) => setNeedle(changed.target.value)}
+                // A `radix-ui` menu binds printable keys to jump between its
+                // items, so `w` would select `wood` rather than reach the
+                // field. Only those are taken: the arrows, `Escape` and `Tab`
+                // are the menu's and go on working.
+                onKeyDown={(event) => {
+                  if (event.key.length === 1) event.stopPropagation();
+                }}
+              />
+            </div>
+          )}
+
+          {matching.length === 0 ? (
             <div className="menu-item" data-disabled="">
               <span className="menu-mark" />
-              <span className="menu-label">{empty}</span>
+              <span className="menu-label">{values.length === 0 ? empty : "Nothing matches"}</span>
             </div>
           ) : (
-            children
+            grouped(matching).map(([group, rows]) => (
+              <DropdownMenu.Group key={group ?? "(ungrouped)"}>
+                {/* A label rather than a submenu: a group arranges tags, it does
+                    not contain assets (`DATA_MODEL.md` §3), and burying eight of
+                    them one level down would make choosing two a four-gesture
+                    job. */}
+                {group !== null && (
+                  <DropdownMenu.Label className="menu-heading">{group}</DropdownMenu.Label>
+                )}
+                {rows.map((value) => (
+                  <Choice key={value.key} value={value} onTick={tick} />
+                ))}
+              </DropdownMenu.Group>
+            ))
           )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -208,55 +322,77 @@ function Facet({
 }
 
 /**
- * One tag group's heading and its tags.
+ * Any or All, for the tag facet (ADR-0035 §7).
  *
- * A label rather than a submenu: a group arranges tags, it does not contain
- * assets (`DATA_MODEL.md` §3), and burying eight tags one level down would make
- * choosing two of them a four-gesture job.
+ * Two buttons rather than menu items, so choosing one does not close the menu
+ * somebody is halfway through using — the same arrangement the view menu's zoom
+ * row has. `aria-pressed` rather than a radio group: this is a toggle over what
+ * is already on screen, not a value being submitted.
  */
-function Group({
-  name,
-  children,
+function Rule({
+  rule,
+  onRule,
 }: {
-  readonly name: string | null;
-  readonly children: React.ReactNode;
+  readonly rule: WireTagRule;
+  readonly onRule: (rule: WireTagRule) => void;
 }): React.JSX.Element {
   return (
-    <DropdownMenu.Group>
-      {name !== null && <DropdownMenu.Label className="menu-heading">{name}</DropdownMenu.Label>}
-      {children}
-    </DropdownMenu.Group>
+    <div className="menu-item filter-rule">
+      <span className="menu-label">Rule</span>
+      <div className="filter-rule-choices">
+        {(["any", "all"] as const).map((candidate) => {
+          const label = candidate === "any" ? "Any" : "All";
+          return (
+            <button
+              key={candidate}
+              type="button"
+              className="filter-rule-button"
+              // The word beside the buttons said again on each of them: the
+              // heading is a `span` rather than a labelled group, so "Any" on
+              // its own would reach a reader with nothing to be any *of*. The
+              // visible word is inside the spoken one, which is what keeps the
+              // button operable by voice.
+              aria-label={`Rule: ${label}`}
+              aria-pressed={rule === candidate}
+              data-on={rule === candidate ? "" : undefined}
+              onClick={() => onRule(candidate)}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
 /** One value in a facet's menu. The menu stays open, because several may be chosen. */
 function Choice({
-  label,
-  stars,
-  count,
-  on,
-  onToggle,
+  value,
+  onTick,
 }: {
-  readonly label: string;
-  readonly stars?: number | null;
-  readonly count: number | null;
-  readonly on: boolean;
-  readonly onToggle: (on: boolean) => void;
+  readonly value: Value;
+  readonly onTick: () => void;
 }): React.JSX.Element {
   return (
     <DropdownMenu.CheckboxItem
       className="menu-item"
-      checked={on}
+      checked={value.on}
       // Choosing a second value is the ordinary case here, and a menu that
-      // closed on the first would make it three gestures instead of one.
-      onSelect={(event) => event.preventDefault()}
-      onCheckedChange={onToggle}
+      // closed on the first would make it three gestures instead of one. Both
+      // halves are needed: `preventDefault` is what Radix documents, and it
+      // holds for one tick a visit — see `ticking` above.
+      onSelect={(event) => {
+        onTick();
+        event.preventDefault();
+      }}
+      onCheckedChange={value.toggle}
     >
-      <span className="menu-mark">{on ? "✓" : ""}</span>
+      <span className="menu-mark">{value.on ? "✓" : ""}</span>
       <span className="menu-label">
-        {stars === undefined || stars === null ? label : <Stars filled={stars} label={label} />}
+        {value.stars === null ? value.label : <Stars filled={value.stars} label={value.label} />}
       </span>
-      {count !== null && <span className="menu-count">{count.toLocaleString()}</span>}
+      {value.count !== null && <span className="menu-count">{value.count.toLocaleString()}</span>}
     </DropdownMenu.CheckboxItem>
   );
 }
@@ -265,8 +401,7 @@ function Choice({
  * Five stars, `filled` of them lit.
  *
  * The same fact the sidebar drew: the engine says how many, the window decides
- * what that looks like. The row's own name stays in the accessible tree, so a
- * screen reader still hears "3 stars".
+ * what that looks like.
  */
 function Stars({ filled, label }: { readonly filled: number; readonly label: string }) {
   return (
@@ -284,6 +419,11 @@ function Stars({ filled, label }: { readonly filled: number; readonly label: str
       <span className="filter-stars-name">{label}</span>
     </>
   );
+}
+
+function matches(value: Value, needle: string): boolean {
+  const wanted = needle.trim().toLowerCase();
+  return wanted === "" || value.label.toLowerCase().includes(wanted);
 }
 
 function isStars(value: number | null): value is WireStars {
@@ -311,17 +451,17 @@ function ratingSummary(facets: WireFacets): string | undefined {
   return summarise(names);
 }
 
-/** Grouped tags first, in first-seen order; ungrouped last (`UI_SPEC.md` §4.1). */
-function groupTags(tags: readonly SidebarRow[]): [string | null, SidebarRow[]][] {
-  const groups = new Map<string | null, SidebarRow[]>();
-  for (const tag of tags) {
-    const existing = groups.get(tag.group);
-    if (existing === undefined) groups.set(tag.group, [tag]);
-    else existing.push(tag);
+/** Grouped values first, in first-seen order; ungrouped last (`UI_SPEC.md` §4.1). */
+function grouped(values: readonly Value[]): [string | null, Value[]][] {
+  const groups = new Map<string | null, Value[]>();
+  for (const value of values) {
+    const existing = groups.get(value.group);
+    if (existing === undefined) groups.set(value.group, [value]);
+    else existing.push(value);
   }
   const ungrouped = groups.get(null);
   groups.delete(null);
-  const ordered: [string | null, SidebarRow[]][] = [...groups];
+  const ordered: [string | null, Value[]][] = [...groups];
   if (ungrouped !== undefined) ordered.push([null, ungrouped]);
   return ordered;
 }
