@@ -102,6 +102,15 @@ export function PreviewPane({
    * holds the focus. This ref is the whole of the line between the two.
    */
   const picture = useRef<PictureHandle>(null);
+  /**
+   * The slot at the head of the pane, for whatever is on screen to draw into.
+   *
+   * State rather than a ref, because what fills it is rendered from the node:
+   * a ref would be `null` on the render that needs it. It is a real element in
+   * the head's own row rather than a shuffled order, so what the eye reads
+   * left to right is what the Tab key walks through.
+   */
+  const [tools, setTools] = useState<HTMLElement | null>(null);
   /** Which asset the page number belongs to, so a re-read does not turn back. */
   const detailHash = useRef<string | undefined>(undefined);
 
@@ -204,6 +213,9 @@ export function PreviewPane({
         Removed at the user's request on 2026-09-06.
       */}
       <header className="preview-bar">
+        {/* First in the row and first in the tab order; empty for a kind with
+            nothing to put here, and then it takes no room at all. */}
+        <div className="preview-bar-tools" ref={setTools} />
         <button
           type="button"
           className="preview-step"
@@ -230,7 +242,7 @@ export function PreviewPane({
       </header>
       <div className="preview-stage">
         {detail === undefined ? null : (
-          <Stage detail={detail} page={page} onTurn={turn} pictureRef={picture} />
+          <Stage detail={detail} page={page} onTurn={turn} pictureRef={picture} tools={tools} />
         )}
       </div>
     </div>
@@ -250,11 +262,14 @@ function Stage({
   page,
   onTurn,
   pictureRef,
+  tools,
 }: {
   readonly detail: WireAssetDetail;
   readonly page: number;
   readonly onTurn: (delta: number) => void;
   readonly pictureRef: React.RefObject<PictureHandle | null>;
+  /** The head's slot, which the picture draws its zoom controls into. */
+  readonly tools: HTMLElement | null;
 }): React.JSX.Element {
   const src = `roost://original/${detail.hash}`;
 
@@ -264,7 +279,9 @@ function Stage({
     // Keyed on the hash like every other kind here, which is also what puts the
     // zoom back to the fit on the way to the next asset: a scale belongs to the
     // photograph somebody is looking at, not to the pane.
-    return <Picture key={detail.hash} detail={detail} src={src} ref={pictureRef} />;
+    return (
+      <Picture key={detail.hash} detail={detail} src={src} controls={tools} ref={pictureRef} />
+    );
   }
 
   if (detail.kind === "video" || detail.kind === "audio") {

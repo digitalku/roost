@@ -94,26 +94,16 @@
  * pager and the transport already use: a control that moves with the aspect
  * ratio of the file is a control the hand has to find again for every asset.
  */
-.preview-photo {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--space-3);
-  align-items: stretch;
-  /* The stage centres what it holds, which for a box that is *meant* to take
-     the whole pane means a height of nothing: a column of `flex: 1` children
-     inside an auto-height parent measures zero and the picture never appears.
-     Measured at 736×0 in a real window before this line. */
-  align-self: stretch;
-  min-width: 0;
-  min-height: 0;
-}
-
 /* The window onto the picture. Everything outside it is clipped, which is what
-   makes a zoom a zoom rather than a picture growing over the whole window. */
+   makes a zoom a zoom rather than a picture growing over the whole window.
+   `align-self` because the stage centres what it holds, and a box that is meant
+   to take the whole pane measures zero against that: 736×0 in a real window,
+   before this line. */
 .preview-photo-view {
   position: relative;
   flex: 1;
+  align-self: stretch;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   /* The pointer's own gesture, so the browser does not also pan or select. */
@@ -140,12 +130,26 @@
   will-change: transform;
 }
 
+/* The head's own slot, at the start of the row. It pushes the arrows and Close
+   to the end, and disappears entirely for a kind with nothing to put in it —
+   an empty flex item still takes the row's gap. */
+.preview-bar-tools {
+  display: flex;
+  align-items: center;
+  margin-right: auto;
+}
+
+.preview-bar-tools:empty {
+  display: none;
+}
+
+/* The zoom controls, at the head of the pane rather than at its foot (2026-09-07,
+   at the user's word). The picture gets the strip they were standing on back,
+   and the pane's controls are all in one row. */
 .preview-zoom {
   display: flex;
-  flex: none;
   gap: var(--space-2);
   align-items: center;
-  justify-content: center;
 }
 
 .preview-zoom button {

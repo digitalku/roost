@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { fakeDetail } from "../testing/fake-engine.js";
 import { fitScale, Picture, percent, placeOffset, zoomAbout } from "./Picture.js";
@@ -14,6 +15,23 @@ import { fitScale, Picture, percent, placeOffset, zoomAbout } from "./Picture.js
  */
 
 const DETAIL = fakeDetail(1, { name: "one.png", kind: "image" });
+
+/**
+ * The picture and the slot its controls are drawn into.
+ *
+ * The same arrangement the pane has: the zoom bar belongs to the picture and is
+ * drawn in the head, a portal away from it (`UI_SPEC.md` §7). A test that
+ * rendered the component alone would be testing something with no controls.
+ */
+function Harness(): React.JSX.Element {
+  const [tools, setTools] = useState<HTMLElement | null>(null);
+  return (
+    <>
+      <div ref={setTools} />
+      <Picture detail={DETAIL} src="roost://original/one" controls={tools} />
+    </>
+  );
+}
 
 /** Loads the picture with a natural size, which no browserless DOM will do. */
 function loads(width: number, height: number): void {
@@ -78,7 +96,7 @@ describe("zooming about a point", () => {
 
 describe("the zoom control", () => {
   it("says the scale, and starts at the fit", async () => {
-    render(<Picture detail={DETAIL} src="roost://original/one" />);
+    render(<Harness />);
     loads(1600, 1200);
     expect(level()).toBe("100%");
     // Nothing to zoom out to: the fit is the floor, and this picture is at it.
@@ -89,7 +107,7 @@ describe("the zoom control", () => {
 
   it("steps up and down again from the buttons", async () => {
     const user = userEvent.setup();
-    render(<Picture detail={DETAIL} src="roost://original/one" />);
+    render(<Harness />);
     loads(1600, 1200);
 
     await user.click(screen.getByRole("button", { name: "Zoom in" }));
@@ -103,7 +121,7 @@ describe("the zoom control", () => {
 
   it("goes back to the fit from the readout, and not below it", async () => {
     const user = userEvent.setup();
-    render(<Picture detail={DETAIL} src="roost://original/one" />);
+    render(<Harness />);
     loads(1600, 1200);
 
     await user.click(screen.getByRole("button", { name: "Zoom in" }));
@@ -116,7 +134,7 @@ describe("the zoom control", () => {
   });
 
   it("zooms on the wheel, in both directions", () => {
-    render(<Picture detail={DETAIL} src="roost://original/one" />);
+    render(<Harness />);
     loads(1600, 1200);
     const viewport = screen.getByRole("img", { name: "one.png" }).parentElement;
     if (viewport === null) throw new Error("the picture has no viewport");

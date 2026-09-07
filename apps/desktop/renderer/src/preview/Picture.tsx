@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * A picture, at whatever size somebody wants to look at it (`UI_SPEC.md` §7).
@@ -119,10 +120,22 @@ export interface PictureHandle {
 export function Picture({
   detail,
   src,
+  controls,
   ref,
 }: {
   readonly detail: WireAssetDetail;
   readonly src: string;
+  /**
+   * Where the zoom controls are drawn: the slot at the head of the pane.
+   *
+   * They belong to the picture — the scale is its state and nothing else has
+   * it — and they are drawn a pane away from it, so they go through a portal
+   * rather than through a second copy of the state held one component up. The
+   * head is the pane's own row of controls (`UI_SPEC.md` §7) and putting them
+   * there gives the picture back the strip they were standing on, which is
+   * what was asked for on 2026-09-07. `null` while the pane is mounting.
+   */
+  readonly controls: HTMLElement | null;
   readonly ref?: React.Ref<PictureHandle>;
 }): React.JSX.Element {
   const viewport = useRef<HTMLDivElement>(null);
@@ -246,8 +259,48 @@ export function Picture({
   /** Where a press started, so a drag can be told from a click on release. */
   const press = useRef<{ from: Point; origin: Point; moved: boolean } | null>(null);
 
+  const bar = (
+    /*
+      Always drawn, never revealed on hover: a control that appears only under
+      the pointer is one a keyboard cannot find, which is the rule the comment
+      rows already follow (`UI_SPEC.md` §3.8).
+    */
+    <div className="preview-zoom">
+      <button
+        type="button"
+        aria-label="Zoom out"
+        title="Zoom out"
+        disabled={current <= fit}
+        onClick={() => apply(current / STEP, null)}
+      >
+        −
+      </button>
+      {/* The readout is the control: a percentage says where the picture is,
+          and the one thing somebody wants from it is the way back. */}
+      <button
+        type="button"
+        className="preview-zoom-level"
+        aria-label={current > fit ? "Fit to the pane" : "Zoom to actual size"}
+        title={current > fit ? "Fit to the pane" : "Zoom to actual size"}
+        disabled={natural === null || (fit >= 1 && current === 1)}
+        onClick={() => toggle(null)}
+      >
+        {percent(current)}
+      </button>
+      <button
+        type="button"
+        aria-label="Zoom in"
+        title="Zoom in"
+        disabled={current >= MAX_SCALE}
+        onClick={() => apply(current * STEP, null)}
+      >
+        +
+      </button>
+    </div>
+  );
+
   return (
-    <div className="preview-photo">
+    <>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the picture is drawn for the pointer; the same two actions are a button and a key below and on the pane */}
       <div
         className="preview-photo-view"
@@ -320,44 +373,8 @@ export function Picture({
         />
       </div>
 
-      {/*
-        Always drawn, never revealed on hover: a control that appears only under
-        the pointer is one a keyboard cannot find, which is the rule the comment
-        rows already follow (`UI_SPEC.md` §3.8).
-      */}
-      <div className="preview-zoom">
-        <button
-          type="button"
-          aria-label="Zoom out"
-          title="Zoom out"
-          disabled={current <= fit}
-          onClick={() => apply(current / STEP, null)}
-        >
-          −
-        </button>
-        {/* The readout is the control: a percentage says where the picture is,
-            and the one thing somebody wants from it is the way back. */}
-        <button
-          type="button"
-          className="preview-zoom-level"
-          aria-label={current > fit ? "Fit to the pane" : "Zoom to actual size"}
-          title={current > fit ? "Fit to the pane" : "Zoom to actual size"}
-          disabled={natural === null || (fit >= 1 && current === 1)}
-          onClick={() => toggle(null)}
-        >
-          {percent(current)}
-        </button>
-        <button
-          type="button"
-          aria-label="Zoom in"
-          title="Zoom in"
-          disabled={current >= MAX_SCALE}
-          onClick={() => apply(current * STEP, null)}
-        >
-          +
-        </button>
-      </div>
-    </div>
+      {controls === null ? null : createPortal(bar, controls)}
+    </>
   );
 }
 

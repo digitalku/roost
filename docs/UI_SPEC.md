@@ -1102,9 +1102,14 @@ backend for still opens here, even while its thumbnail is still being derived.
 
 **The content column's head goes with the grid.** Every control in it is the grid's — the search
 field, the view menu, Add — so while a file is open the bar is not drawn at all, and the pane's
-own head takes its place: **two arrows and the way out**, all of it at the end of the row. The
-sidebar and the inspector stay, because both are still about the thing on screen. The field is
-unmounted rather than emptied: the query it was showing comes back when the preview closes.
+own head takes its place: **two arrows and the way out** at the end of the row, and **a slot at
+the start of it** for whatever is on screen to draw its own controls into. Today that is the
+picture's zoom. The two ends say two different things — one changes what is being looked at, the
+other how — and the slot is a real element first in the row rather than a shuffled order, so what
+the eye reads left to right is what the Tab key walks through. It takes no room at all when it is
+empty. The sidebar and the inspector stay, because both are still about the thing on screen. The
+field is unmounted rather than emptied: the query it was showing comes back when the preview
+closes.
 
 **The head carries no filename.** It did until 2026-09-06, while the inspector three inches to the
 right carried the same name in an editable field — and the pane cannot be open with nothing
@@ -1145,11 +1150,15 @@ and this table has asked for the click and the drag since it was written.
 - **The floor is the fit and the ceiling is 16×.** Below the fit a picture only makes the pane
   emptier, so the button is drawn dead there rather than shrinking a photograph into the middle of
   an empty rectangle.
-- **The bar is the foot of the pane**, as the transport is and for the same reason: `−`, the scale,
-  `+`. The readout *is* the control — a percentage says where the picture is, and the one thing
-  somebody wants from it is the way back, so pressing it goes to 1:1 and back to the fit. Always
-  drawn, never revealed on hover: a control that appears only under the pointer is one a keyboard
-  cannot find.
+- **The controls are at the head of the pane**: `−`, the scale, `+`, at the start of the row the
+  arrows and Close end. They stood at the foot for a few hours on 2026-09-07 — the arrangement the
+  transport uses — and the user moved them, which gives the picture back the strip they were
+  standing on and puts every control the pane has in one row. They belong to the picture even so:
+  the scale is its state and nothing else has it, so they are **drawn through a portal** rather
+  than by lifting that state a component up and holding it twice. The readout *is* the control — a
+  percentage says where the picture is, and the one thing somebody wants from it is the way back,
+  so pressing it goes to 1:1 and back to the fit. Always drawn, never revealed on hover: a control
+  that appears only under the pointer is one a keyboard cannot find.
 - **A drag pans, and cannot take the picture off the pane.** An axis smaller than the pane is
   centred and not pannable; a larger one is clamped to its own edges. A press that does not move is
   a click, which is the 1:1 toggle.
