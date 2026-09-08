@@ -108,16 +108,16 @@ describe("the search field", () => {
 
   const LONG = 'folder:"SMA NUSANTARA INDAH SINTANG/IG smanusantaraindah_sintang/post"';
 
-  it("selects the whole query, from its head, when the field is first clicked", async () => {
+  it("puts the caret at the head of the query when the field is first clicked", async () => {
     const user = show(LONG);
     const field = screen.getByRole("searchbox") as HTMLInputElement;
     await user.click(field);
 
+    // A caret rather than a selection, and offset 0 is what makes a browser
+    // scroll to the part of the path that names the place rather than to
+    // `/post"`.
     expect(field.selectionStart).toBe(0);
-    expect(field.selectionEnd).toBe(LONG.length);
-    // Backward, so the selection's focus end is offset 0 and the view scrolls
-    // to the part of the path that names the place rather than to `/post"`.
-    expect(field.selectionDirection).toBe("backward");
+    expect(field.selectionEnd).toBe(0);
   });
 
   it("leaves the caret where a second click puts it", async () => {
@@ -139,7 +139,7 @@ describe("the search field", () => {
     await user.keyboard("{Control>}f{/Control}");
 
     expect(document.activeElement).toBe(field);
-    expect(field.selectionEnd).toBe(LONG.length);
+    expect(field.selectionEnd).toBe(0);
   });
 
   it("takes the caret on a bare slash, unless a slash is what is being typed", async () => {

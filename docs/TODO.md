@@ -763,7 +763,7 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   - **Smart-folder match counts** (§4.1). Every read would run every saved query; the count
     arrives with the search field's count, which is the thing that makes it cheap enough.
 - 🟡 **The search field validates but does not suggest.** It became *legible* on 2026-09-08 — it
-  rests at the head of the query and taking the focus selects the whole of it (`UI_SPEC.md` §5),
+  rests at the head of the query and taking the focus puts the caret there (`UI_SPEC.md` §5),
   from the user asking how to reach the end of a long folder path without typing it. That answers
   reading a long query, not writing one; the list below is still what would answer writing one.
   What `UI_SPEC.md` §5 still describes:

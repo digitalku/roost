@@ -448,23 +448,21 @@ try {
     return {
       start: input.selectionStart,
       end: input.selectionEnd,
-      direction: input.selectionDirection,
       scroll: input.scrollLeft,
       length: input.value.length,
     };
   })()`);
   check(
-    "the click that focuses it selects the whole query",
-    clicked.start === 0 && clicked.end === clicked.length,
+    "the click that focuses it puts the caret at the head of the query",
+    clicked.start === 0 && clicked.end === 0,
     `${clicked.start}-${clicked.end} of ${clicked.length}`,
   );
-  // The point of the backward direction: a browser scrolls to the selection's
-  // focus end, so the field shows the folder the query names rather than the
-  // last twenty characters of a path.
+  // A browser scrolls a field to its caret, so offset 0 is what shows the
+  // folder the query names rather than the last twenty characters of a path.
   check(
     "and shows its head rather than the tail it was scrolled to",
-    clicked.direction === "backward" && clicked.scroll === 0,
-    `${clicked.direction}, scrollLeft=${clicked.scroll}`,
+    clicked.scroll === 0,
+    `scrollLeft=${clicked.scroll}`,
   );
 
   // The two shortcuts, dispatched as real keys: `Ctrl+F` is a chord the window

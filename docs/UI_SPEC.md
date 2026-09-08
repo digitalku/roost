@@ -1160,11 +1160,13 @@ while empty bar sat beside it.
   while the half saying *which place* sits off the left edge. So the scroll is pinned to the
   start whenever nobody is typing in it, which is the state it spends its life in: a sidebar
   click writes a query and then nothing touches it.
-- **Taking the focus selects the whole query, from its head.** The first click selects, a
-  second one puts the caret where it landed, and `Ctrl+F` / `/` do the same from anywhere —
-  the address bar's own gesture, because arriving somewhere and then typing means replacing
-  the query rather than prefixing it. The selection is made *backward*, so the view scrolls to
-  offset 0 and the field shows `folder:"SMA NUSANTARA…` rather than the tail. It is not a
+- **Taking the focus puts the caret at the head of the query.** The click that *arrives* goes
+  to offset 0, which is what scrolls the view there; a second click puts the caret where it
+  landed, because a click carries a position and a query is edited a term at a time. `Ctrl+F` /
+  `/` do the same from anywhere. **A caret and not a selection** — it was built as a select-all
+  first, the address bar's gesture, and the user rejected it on sight on 2026-09-08: selecting
+  text nobody asked to select is what a click then looks like. So typing prefixes the query,
+  and `Ctrl+A` is one keystroke away for anyone who wants the other thing. It is not a
   substitute for autocomplete above; it is what makes a query too long to fit still legible.
 - **Autocomplete** for field names, then for values once a field is typed: `tag:` offers tags,
   `folder:` offers folders, `ext:` offers the extensions actually present in this library.
