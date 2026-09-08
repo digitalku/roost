@@ -3,8 +3,9 @@ import { createEvent, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ASSET_DRAG_TYPE, FOLDER_DRAG_TYPE } from "../dnd.js";
+import { found } from "../folders.js";
 import { useExpansion } from "./expansion.js";
-import { elideName, found, MAX_NAME, Sidebar, type SidebarProps } from "./Sidebar.js";
+import { elideName, MAX_NAME, Sidebar, type SidebarProps } from "./Sidebar.js";
 
 function row(over: Partial<SidebarRow> & { name: string; query: string }): SidebarRow {
   return { id: over.id ?? over.name, count: null, depth: 0, group: null, stars: null, ...over };

@@ -488,6 +488,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   in a different place: the first version measured the *branch's* left edge to prove indentation,
   which never moves — the indent is padding, so what moves is the name. It passed against a pane
   with no indentation at all.
+- 🟡 **`check-folders.mjs` cannot run to the end here.** Its `Dragging assets onto a folder`
+  section fails at `no drag was intercepted; nothing started a drag` — on `main` too, so it is the
+  harness or the platform and not the pane. Everything after it therefore goes unchecked on this
+  machine, which is why the folder-menu section added on 2026-09-09 was run by trimming the drag
+  sections out of a copy. Worth looking at next to ADR-0034 §4, which is about a drag as well.
 - 🟡 **A filtered grid still does not drop an asset that stops matching**, except for
   `Ctrl+Delete`, which now drops the rows itself (`paging.drop`). The general case is the note on
   `revision` in `App.tsx`: the grid re-pages only when the library's counts move, so removing a tag

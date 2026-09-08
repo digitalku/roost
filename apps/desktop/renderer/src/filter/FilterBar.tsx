@@ -248,19 +248,7 @@ function Facet({
   const searchable = values.length > SEARCHABLE_FROM;
   const matching = searchable ? values.filter((value) => matches(value, needle)) : values;
 
-  /*
-   * The caret belongs in the field the moment the menu opens, or the first
-   * letter typed ticks a value instead of searching for it.
-   *
-   * On mount and a frame late, because a `radix-ui` menu focuses itself when it
-   * opens and would take the caret straight back. `ArrowDown` still walks into
-   * the list: the field is inside the content, so the key reaches the menu's own
-   * handler by bubbling.
-   */
-  const takeCaret = useCallback((node: HTMLInputElement | null) => {
-    if (node === null) return;
-    requestAnimationFrame(() => node.focus());
-  }, []);
+  const field = useRef<HTMLInputElement>(null);
 
   return (
     /*
@@ -298,15 +286,32 @@ function Facet({
           sideOffset={4}
           align="start"
           collisionPadding={8}
+          /*
+           * The caret belongs in the field the moment the menu opens, or the
+           * first letter typed ticks a value instead of searching for it.
+           *
+           * Handed on rather than raced for: a `radix-ui` menu focuses its own
+           * content when it opens, and asking for the caret a frame later loses
+           * in a real window — found in the folder menu on 2026-09-09, which
+           * draws the same field for the same reason. Only the content's own
+           * focus is taken: a focus that reaches an item is somebody walking
+           * the list with the arrows, and `ArrowDown` still gets there, because
+           * the field is inside the content and the key reaches the menu's own
+           * handler by bubbling.
+           */
+          onFocus={(event) => {
+            if (event.target !== event.currentTarget) return;
+            field.current?.focus();
+          }}
         >
           {rule !== undefined && onRule !== undefined && <Rule rule={rule} onRule={onRule} />}
 
           {searchable && (
-            <div className="filter-search">
+            <div className="menu-search">
               <input
-                ref={takeCaret}
+                ref={field}
                 type="search"
-                className="filter-search-input"
+                className="menu-search-input"
                 aria-label={searchLabel}
                 placeholder={searchLabel}
                 spellCheck={false}

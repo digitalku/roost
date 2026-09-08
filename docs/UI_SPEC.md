@@ -283,7 +283,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `NameField` | inspector | draft | The panel's heading, and the only editable name. Holds the **stem**: the extension is not editable and is not shown here. **Wraps over as many lines as the name takes**; `Enter` commits and a name never holds one. §3.10 |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over the tags the library already has, creates on Enter. §3.7 |
-| `FolderEditor` | inspector | — | The folders the selection is in, with an `×` each, and a menu of the whole tree to add one. Creates nothing. §3.9 |
+| `FolderEditor` | inspector | — | The folders the selection is in, with an `×` each, and a menu of the whole tree to add one — capped to the room there is for it, and searched past eight folders. Creates nothing. §3.9 |
 | `NoteField` | inspector | draft | Autosaves on blur and after 1s idle |
 | `SourceField` | inspector | draft | Where the file came from. One line, saves on blur, idle, and `Enter`; offers to open only an `http(s)` value. §3.6. ADR-0030 |
 | `Comments` | inspector | drafts | Several comments where the note is one; each may carry a moment. §3.5 |
@@ -735,6 +735,18 @@ sidebar uses — the paths repeat, and three folders called `Icons` are three ro
 until the shape tells them apart. Each row carries its full path as a title, and a folder the
 selection is already in is **disabled rather than absent**, so the tree does not change shape
 between two openings.
+
+**The menu is as tall as there is room for, and then it scrolls, and past a listful of folders it
+is searched.** Both from a screenshot on 2026-09-09: twenty folders opened from a control two
+thirds of the way down the panel, drawn at their natural height, with the first rows off the top of
+the screen. A fraction of the window is not the cap either — 60vh is more than the room above that
+trigger — so the cap is the room `radix-ui` measures between the trigger and the edge of the
+window. The field is the **filter bar's rule** rather than the pane's magnifier (§4.4, ADR-0033
+§6): a menu is only on screen while it is being used, so a row spent on a field costs nothing when
+it is not. It searches by the **pane's rule** — a match where it sits, the folders holding it up
+along as context, a match's own subtree left out — because the indentation is what tells two
+folders of one name apart, and a match without its ancestors is a row reading `post` and nothing
+else. The needle is forgotten between two openings, and the caret starts in the field.
 
 **A chip says the path, not the name**, for the same reason: it is what somebody reads before
 pressing the `×` beside it.

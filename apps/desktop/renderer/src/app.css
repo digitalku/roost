@@ -707,6 +707,33 @@ button:disabled {
   padding-left: var(--space-6);
 }
 
+/*
+ * A search field in the head of a menu, drawn only past a listful of rows so it
+ * costs a row where it earns one: the filter bar's facets (ADR-0035 §7) and the
+ * inspector's folder menu (`UI_SPEC.md` §3.9). It sits with `.menu` rather than
+ * with either of them because both draw the same field for the same reason.
+ */
+.menu-search {
+  padding: var(--space-1) var(--space-2);
+}
+
+.menu-search-input {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+/* Chromium draws its own clear button in a `search` input, in a colour that
+   answers to nothing in the token file. */
+.menu-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
 .menu-separator {
   height: 1px;
   margin: var(--space-1) var(--space-2);

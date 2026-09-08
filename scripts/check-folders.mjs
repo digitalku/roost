@@ -140,6 +140,56 @@ const clickMenuItem = (label) => `
   [...document.querySelectorAll("[role=menuitem]")]
     .find((item) => item.textContent === ${JSON.stringify(label)})?.click()`;
 
+/**
+ * The inspector's **Add to folder** menu, as the window draws it (§3.9).
+ *
+ * The box is read as well as the rows: the defect this section exists for was a
+ * menu whose rows were all in the document and half of them off the top of the
+ * screen, which is a state only a window is in.
+ */
+const folderMenuExpression = `
+  (() => {
+    const menu = document.querySelector(".folder-menu");
+    if (menu === null) return null;
+    const box = menu.getBoundingClientRect();
+    return {
+      items: [...menu.querySelectorAll(".folder-item")].map((item) => {
+        const r = item.getBoundingClientRect();
+        return {
+          name: item.querySelector(".menu-label")?.textContent ?? null,
+          depth: item.getAttribute("data-depth") ?? "0",
+          top: Math.round(r.top),
+          height: Math.round(r.height),
+        };
+      }),
+      searchable: menu.querySelector(".menu-search-input") !== null,
+      // The row drawn instead of the tree, which is not an item: there is
+      // nothing to choose, so the keyboard must not stop on it.
+      empty: menu.querySelector(".menu-item:not(.folder-item) .menu-label")?.textContent ?? null,
+      top: Math.round(box.top),
+      bottom: Math.round(box.bottom),
+      scrolls: menu.scrollHeight > menu.clientHeight,
+      viewport: window.innerHeight,
+    };
+  })()`;
+
+/** Opens that menu from the panel and answers with what it is drawing. */
+async function openFolderMenu() {
+  const trigger = await cdp.box(".folder-trigger");
+  await cdp.mouse.click(trigger.x, trigger.y);
+  return cdp.settle(folderMenuExpression, (menu) => (menu?.items.length ?? 0) > 0);
+}
+
+/** A folder made the way somebody makes one: the pane's `+`, and a name typed. */
+async function makeFolder(name) {
+  const plus = await cdp.box('.sidebar-add[aria-label="New folder"]');
+  await cdp.mouse.click(plus.x, plus.y);
+  await cdp.settle("document.querySelector('[role=dialog]') !== null", (there) => there === true);
+  await typeInto(name);
+  await cdp.keyboard.press("Enter");
+  await cdp.settle("document.querySelector('[role=dialog]') === null", (gone) => gone === true);
+}
+
 async function clickFirstCell() {
   const cell = await cdp.box(".cell");
   await cdp.mouse.click(cell.x, cell.y);
@@ -896,6 +946,97 @@ try {
     "and it is still what the row is called",
     long.spoken === LONG,
     JSON.stringify(long.spoken),
+  );
+
+  section("Add to folder, with more folders than the window is tall");
+  /*
+   * A `radix-ui` menu is placed inside the viewport and then left at its natural
+   * height, so a tree of twenty folders opened from a control low in the panel
+   * ran off the top of the screen with its first rows unreachable — reported
+   * from a real window on 2026-09-09. Every component test passed while it did,
+   * because the rows were all in the document; a box is the only thing that can
+   * tell the difference.
+   */
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n > 0);
+  await clickFirstCell();
+
+  // A parent and a child, so the search can be asked for a shape rather than
+  // only for a row: a match is drawn where it sits, and the folder holding it
+  // up comes along as context (`UI_SPEC.md` §4.1, the pane's own rule).
+  await makeFolder("Akun");
+  await folderMenu("Akun");
+  await cdp.evaluate(clickMenuItem("New subfolder…"));
+  await cdp.settle("document.querySelector('[role=dialog]') !== null", (there) => there === true);
+  await typeInto("sorotan");
+  await cdp.keyboard.press("Enter");
+  await cdp.settle("document.querySelector('[role=dialog]') === null", (gone) => gone === true);
+
+  // Enough folders that the natural height cannot fit, derived from the window
+  // and the row rather than guessed: the cap is a fraction of the viewport, so
+  // a guess would stop asserting anything on a taller screen.
+  const before = await openFolderMenu();
+  const rowHeight = before.items[0]?.height ?? 28;
+  const wanted = Math.ceil((before.viewport * 0.6) / rowHeight) + 2;
+  await cdp.keyboard.press("Escape");
+  await cdp.settle("document.querySelector('.folder-menu') === null", (gone) => gone === true);
+  for (let made = before.items.length; made < wanted; made += 1) {
+    await makeFolder(`Bucket ${String(made).padStart(2, "0")}`);
+  }
+
+  const menu = await openFolderMenu();
+  check(
+    "the whole tree is offered, however long it is",
+    menu.items.length >= wanted,
+    `${menu.items.length} rows, wanted ${wanted}`,
+  );
+  check(
+    "the menu is drawn inside the window rather than off the top of it",
+    menu.top >= 0 && menu.bottom <= menu.viewport,
+    `top=${menu.top} bottom=${menu.bottom} viewport=${menu.viewport}`,
+  );
+  check("so it scrolls rather than growing past the window", menu.scrolls === true);
+  check(
+    "and its first row is one the pointer can reach",
+    (menu.items[0]?.top ?? -1) >= menu.top,
+    `first=${menu.items[0]?.top} menu=${menu.top}`,
+  );
+
+  check("past a listful of folders it is searched rather than read", menu.searchable === true);
+  await cdp.settle(
+    "document.activeElement?.classList.contains('menu-search-input') === true",
+    (there) => there === true,
+  );
+  check("the caret starts in the field", true);
+
+  await typeInto("sorotan");
+  const narrowed = await cdp.settle(folderMenuExpression, (drawn) => drawn?.items.length === 2);
+  check(
+    "a match is drawn under the folder that holds it up, and nothing else is",
+    narrowed.items.map((item) => `${item.depth}:${item.name}`).join(" ") === "0:Akun 1:sorotan",
+    narrowed.items.map((item) => `${item.depth}:${item.name}`).join(" "),
+  );
+
+  await typeInto("!");
+  const unmatched = await cdp.settle(folderMenuExpression, (drawn) => drawn?.items.length === 0);
+  check(
+    "a needle that finds nothing says so, in a row nothing can choose",
+    unmatched.empty === "Nothing matches",
+    JSON.stringify(unmatched.empty),
+  );
+
+  await cdp.keyboard.press("Backspace");
+  await cdp.settle(folderMenuExpression, (drawn) => drawn?.items.length === 2);
+  await cdp.evaluate(`
+    [...document.querySelectorAll(".folder-item")]
+      .find((item) => item.textContent.trim() === "sorotan")?.click()`);
+  const filed = await cdp.settle(
+    chipsExpression,
+    (state) => state?.chips.some((chip) => chip.path === "Akun/sorotan") === true,
+  );
+  check(
+    "and choosing a folder the search found files the asset in it",
+    filed.chips.some((chip) => chip.path === "Akun/sorotan"),
+    `chips=${JSON.stringify(filed.chips.map((chip) => chip.path))}`,
   );
 
   report();

@@ -316,10 +316,20 @@ try {
     const trigger = await triggerAt("Tags");
     await cdp.mouse.click(trigger.x, trigger.y);
     const field = await cdp.settle(
-      `document.querySelector(".filter-search-input") === null ? null : true`,
+      `document.querySelector(".menu-search-input") === null ? null : true`,
       (found) => found === true,
     );
     check("a field appears once the list is longer than a glance", field === true);
+    // The menu focuses its own content when it opens and the field takes the
+    // caret from it (`FilterBar.tsx`). Asserted here because the mechanism
+    // changed on 2026-09-09, and a caret that stays on the menu is a field
+    // somebody has to click before they can type into it.
+    check(
+      "and the caret is already in it",
+      (await cdp.evaluate(
+        "document.activeElement?.classList.contains('menu-search-input') === true",
+      )) === true,
+    );
 
     // Typed through the input pipeline: a `radix-ui` menu binds printable keys
     // to jump between its items, and this is the check that the field takes

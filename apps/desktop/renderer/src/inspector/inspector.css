@@ -205,6 +205,38 @@
 }
 
 /*
+ * The menu is as tall as there is room for, and then it scrolls.
+ *
+ * A `radix-ui` menu is placed inside the window and then left at its natural
+ * height, so a tree of twenty folders opened from a control low in the panel
+ * ran off the top of the screen with its first rows unreachable — a screenshot
+ * on 2026-09-09. A fraction of the window is not the answer either: 60vh is
+ * more than the room above a trigger two thirds of the way down, and the menu
+ * was still cut. The room is what `radix-ui` measures, and it writes the number
+ * into this property on the element itself.
+ *
+ * The declaration is therefore a **fallback for a value that arrives inline** —
+ * an inline custom property wins over this one — and it is also what lets
+ * `check:css` see a token nothing in this repository declares.
+ */
+.folder-menu {
+  --radix-dropdown-menu-content-available-height: 60vh;
+
+  max-width: 320px;
+  max-height: var(--radix-dropdown-menu-content-available-height);
+  overflow-y: auto;
+}
+
+/* A name too long for that width is cut rather than wrapped: the rows are a
+   tree, and one row twice the height of its neighbours breaks the column the
+   indentation makes. The whole path is on the row's `title` either way. */
+.folder-item .menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
  * The folder menu's own indentation, the same eight steps the sidebar draws its
  * tree with (`sidebar.css`) and for the same reason: the paths repeat, and the
  * shape is what tells two folders of the same name apart. In CSS so that the
