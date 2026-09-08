@@ -61,15 +61,42 @@ because the prebuilt binary bundles its own GLib and segfaults inside Electron o
 failures. `ffmpeg` is optional — without it video and audio are still indexed, just not
 thumbnailed, and `roost thumb --retry-blocked` picks that work up once it arrives (ADR-0017).
 
-Then, to put Roost in the application menu and to update it later:
+### Put it in the application menu
 
 ```bash
-node scripts/install-launcher.mjs    # a desktop entry pointing at this checkout
-pnpm refresh                         # pull, install, build
+node scripts/install-launcher.mjs
 ```
 
-[docs/SETUP.md](docs/SETUP.md) §4 covers both, including what an update does to a library that is
-already open — migrations run forward, and the previous build will not open it again.
+That writes `~/.local/share/applications/roost.desktop` — an entry pointing at this checkout,
+carrying the name and the icon. Deleting that file is how it is removed. It launches the build
+rather than producing one, so `pnpm start` has to have run at least once; the script refuses to
+write an entry that would point at nothing.
+
+**If the checkout is inside a container** — a distrobox, say — the entry lands in the container's
+own menu, which no desktop draws. Export it once, from inside the container:
+
+```bash
+distrobox-export --app roost         # --delete takes it back out
+```
+
+Some desktops cache the menu. If Roost does not appear, `update-desktop-database
+~/.local/share/applications` or a fresh session picks it up.
+
+### Update it
+
+```bash
+pnpm refresh
+```
+
+`git pull --ff-only`, then install and build — `--ff-only` so a machine that only consumes this
+repository stops rather than quietly acquiring a merge commit. Launch as usual afterwards.
+
+**An update migrates the library forward and there is no way back.** The newer build applies its
+migrations to `index.db`; the older one then refuses that library rather than migrating it down. No
+data is at risk — the journal is the source of truth and `roost rebuild` reconstructs the index —
+but recovering from a bad build means going forward to a fixed one, not back to yesterday's commit.
+
+[docs/SETUP.md](docs/SETUP.md) §4 has the reasoning behind each of these.
 
 ## Documentation
 
