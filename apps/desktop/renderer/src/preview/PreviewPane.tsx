@@ -513,14 +513,31 @@ function Player({
           // The tracks below are the captions, and there are as many as the
           // asset has — often none, and never a literal the rule can see.
           // biome-ignore lint/a11y/useMediaCaption: see above
-          <audio ref={setElement} className="preview-audio" src={src} autoPlay>
+          <audio
+            ref={setElement}
+            className="preview-audio"
+            src={src}
+            crossOrigin="anonymous"
+            autoPlay
+          >
             {tracks.map((track) => (
               <Caption key={track.hash} track={track} />
             ))}
           </audio>
         ) : (
           // biome-ignore lint/a11y/useMediaCaption: see above
-          <video ref={setElement} className="preview-media" src={src} autoPlay>
+          <video
+            ref={setElement}
+            className="preview-media"
+            src={src}
+            /* Not decoration and not caution: a caption track is fetched with
+               CORS or not at all, so without this the `<track>` below ends at
+               `readyState 3` with no cues and nothing said anywhere (ADR-0025).
+               The media's own load becomes a CORS request too, which is why
+               every `roost://` response carries `access-control-allow-origin`. */
+            crossOrigin="anonymous"
+            autoPlay
+          >
             {tracks.map((track) => (
               <Caption key={track.hash} track={track} />
             ))}

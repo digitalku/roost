@@ -198,6 +198,34 @@ describe("serving bytes over roost://", () => {
     expect(text).toContain("Hello, world");
   });
 
+  it("lets the page read a track, which is the whole of why it loads", async () => {
+    /*
+     * A `<track>` is fetched with CORS or not at all: its cues are read by the
+     * page, unlike a picture or a film, which are drawn and played. This scheme
+     * is `standard`, so its origin is its host — `roost://subtitle/…` is
+     * cross-origin to the window however the window was loaded, and to
+     * `roost://original/…` as well. Without the header the track ends at
+     * `readyState 3` with no cues and nothing said anywhere, which is how it
+     * was reported on 2026-09-08.
+     */
+    const allowed = "*";
+    expect(
+      (await get(`roost://subtitle/${TRACK}`)).headers.get("access-control-allow-origin"),
+    ).toBe(allowed);
+    // On every response, not only that one: the media element carries
+    // `crossorigin`, so its own bytes are a CORS request too — and an error is
+    // as much an answer as a body.
+    for (const url of [
+      `roost://original/${MANAGED}`,
+      `roost://thumb/${MANAGED}@256`,
+      `roost://subtitle/${ASS}`,
+      `roost://original/${ABSENT}`,
+      "roost://export/nonsense",
+    ]) {
+      expect((await get(url)).headers.get("access-control-allow-origin")).toBe(allowed);
+    }
+  });
+
   it("says it cannot serve a track that needs an external tool", async () => {
     // ASS needs ffmpeg, which is a capability and may be absent. Answering
     // with the bytes under a `text/vtt` type would be an empty track and no

@@ -54,10 +54,21 @@ export const ROOST_SCHEME = "roost";
  * file — without it, ADR-0008's reason for streaming originals does not apply.
  * `secure` keeps the renderer from treating asset bytes as mixed content.
  *
- * `supportFetchAPI` and `corsEnabled` stay **off**. The CSP lists `roost:` in
- * `img-src` and `media-src` and nowhere else, so a page fetching asset bytes as
- * data is a feature nobody asked for; leaving these off means the two documents
- * agree rather than merely not contradicting each other.
+ * `supportFetchAPI` stays **off**. The CSP lists `roost:` in `img-src` and
+ * `media-src` and nowhere else, so a page fetching asset bytes as data is a
+ * feature nobody asked for; leaving it off means the two documents agree rather
+ * than merely not contradicting each other.
+ *
+ * `corsEnabled` is **on**, and it is on for one reason: a `<track>` is fetched
+ * with CORS or not at all (ADR-0025). Every other consumer of this scheme is a
+ * no-cors load, but a caption track's cues are read by the page, so the media
+ * element carries `crossorigin` and the response carries
+ * `access-control-allow-origin` — and a scheme that is not CORS-enabled fails
+ * that check before the header is ever looked at. It was off until 2026-09-08,
+ * when a chosen `.srt` turned out never to reach the element: the track ends at
+ * `readyState 3` with no cues and no error anywhere. Same-origin was never an
+ * option — the window is `file://` packaged and `http://localhost` in dev, and
+ * this scheme's origin is its host.
  */
 export interface SchemePrivileges {
   readonly standard: boolean;
@@ -74,7 +85,7 @@ export const ROOST_SCHEME_PRIVILEGES: SchemePrivileges = {
   secure: true,
   stream: true,
   supportFetchAPI: false,
-  corsEnabled: false,
+  corsEnabled: true,
   bypassCSP: false,
   allowServiceWorkers: false,
 };

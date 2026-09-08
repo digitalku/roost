@@ -117,18 +117,21 @@ describe("navigation", () => {
 });
 
 describe("how roost: is registered", () => {
-  it("is standard, secure, and streamed, and nothing more", () => {
+  it("is standard, secure, streamed and CORS-enabled, and nothing more", () => {
     // `stream` is the one that carries ADR-0008's argument: without it a
     // `<video>` asks for the whole file and the streaming is wasted. `standard`
     // is what makes `thumb` and `original` parse as hosts and what CSP's
-    // `roost:` source matches.
+    // `roost:` source matches. `corsEnabled` is what lets a `<track>` load at
+    // all (ADR-0025): a caption track is fetched with CORS or not at all, and
+    // this scheme's origin is its host, so a subtitle is cross-origin to the
+    // window however the window was loaded.
     expect(ROOST_SCHEME).toBe("roost");
     expect(ROOST_SCHEME_PRIVILEGES).toEqual({
       standard: true,
       secure: true,
       stream: true,
       supportFetchAPI: false,
-      corsEnabled: false,
+      corsEnabled: true,
       bypassCSP: false,
       allowServiceWorkers: false,
     });

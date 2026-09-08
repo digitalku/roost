@@ -13,10 +13,17 @@
  *
  *     node scripts/check-transport.mjs
  */
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { addComment, generateMissing, importInto, Library, pageOf } from "@roost/library";
+import {
+  addComment,
+  addSubtitles,
+  generateMissing,
+  importInto,
+  Library,
+  pageOf,
+} from "@roost/library";
 import { ledger } from "./lib/checks.mjs";
 import { scratch, videoClip } from "./lib/fixtures.mjs";
 import { launch } from "./lib/window.mjs";
@@ -41,6 +48,15 @@ try {
   await addComment(library, hash, 5000, "the cut lands early");
   await addComment(library, hash, 15_000, "hold two frames");
   await addComment(library, hash, null, "the export is 8-bit");
+  // A caption track on the clip the grid opens on. Written here rather than
+  // taken from a fixture file so the words under test are in one place.
+  const srt = join(dir, "clip.srt");
+  await writeFile(
+    srt,
+    "1\n00:00:01,000 --> 00:00:08,000\nthe first line, with a comma\n\n2\n00:00:09,000 --> 00:00:18,000\nthe second line\n",
+    "utf8",
+  );
+  await addSubtitles(library, hash, [srt]);
 } finally {
   await library.close();
 }
@@ -418,6 +434,97 @@ try {
     (t) => Math.abs(t - 5) < 0.5,
   );
   check("a comment in the inspector still seeks the player", true, `t=${fromList}`);
+
+  section("Subtitles (ADR-0025)");
+
+  /*
+   * Reported on 2026-09-08: a chosen `.srt` never appeared. Nothing above this
+   * line could have caught it — the conversion is unit-tested, the menu is
+   * component-tested, and the failure was in neither. A `<track>` is fetched
+   * with CORS or not at all, and `roost:` was not a CORS-enabled scheme, so the
+   * element ended at `readyState 3` with no cues, no event and no console
+   * message. Which is why what is asserted here is the *cues*, in a window,
+   * through the menu somebody actually presses.
+   */
+  // Radix opens on `pointerdown` rather than on `click`, as the speed menu
+  // above already had to learn.
+  const openCC = () =>
+    cdp.evaluate(`
+      (() => {
+        const trigger = document.querySelector('.transport-button[aria-label="Subtitles"]');
+        trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+        trigger.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+      })()`);
+
+  await cdp.evaluate('document.querySelector("video").pause()');
+  await openCC();
+  await cdp.settle('[...document.querySelectorAll("[role=menuitemradio]")].length', (n) => n > 1);
+  const listed = await cdp.evaluate(
+    '[...document.querySelectorAll("[role=menuitemradio]")].map((item) => item.textContent)',
+  );
+  check(
+    "the CC menu lists Off first and then the attached track",
+    listed[0]?.includes("Off") === true && listed[1]?.includes("clip.srt") === true,
+    listed.join(" · "),
+  );
+
+  await cdp.evaluate(
+    `[...document.querySelectorAll("[role=menuitemradio]")]
+      .find((item) => item.textContent.includes("clip.srt"))
+      .click()`,
+  );
+  const shown = await cdp.settle(
+    `(() => {
+      const video = document.querySelector("video");
+      const element = document.querySelector("video track");
+      const text = video.textTracks[0];
+      return {
+        mode: text?.mode ?? null,
+        cues: text?.cues?.length ?? 0,
+        // 2 is LOADED and 3 is ERROR — the state the bug left it in.
+        state: element?.readyState ?? null,
+        crossOrigin: video.crossOrigin,
+      };
+    })()`,
+    (t) => t.mode === "showing" && t.cues > 0,
+    { attempts: 40 },
+  );
+  check(
+    "choosing it loads the track rather than failing silently",
+    shown.state === 2 && shown.cues === 2,
+    `readyState=${shown.state} cues=${shown.cues}`,
+  );
+  check(
+    "and the element asks for it with CORS, which is the only way a track loads",
+    shown.crossOrigin === "anonymous",
+    String(shown.crossOrigin),
+  );
+
+  await cdp.evaluate('document.querySelector("video").currentTime = 3');
+  const active = await cdp.settle(
+    `[...(document.querySelector("video").textTracks[0]?.activeCues ?? [])].map((c) => c.text)`,
+    (cues) => cues.length > 0,
+    { attempts: 40 },
+  );
+  check(
+    "and the words at that moment are the words in the file",
+    active[0] === "the first line, with a comma",
+    JSON.stringify(active),
+  );
+
+  // Off again, so the rest of the run sees the pane it expects.
+  await openCC();
+  await cdp.settle('[...document.querySelectorAll("[role=menuitemradio]")].length', (n) => n > 1);
+  await cdp.evaluate(
+    `[...document.querySelectorAll("[role=menuitemradio]")]
+      .find((item) => item.textContent.includes("Off"))
+      .click()`,
+  );
+  const off = await cdp.settle(
+    'document.querySelector("video").textTracks[0]?.mode ?? null',
+    (mode) => mode === "disabled",
+  );
+  check("Off turns it back off", off === "disabled", String(off));
 
   section("Fit to window (ADR-0024 §8)");
 

@@ -133,6 +133,10 @@ export class AssetServer {
   }
 
   async handle(request: Request): Promise<Response> {
+    return allowCrossOrigin(await this.#route(request));
+  }
+
+  async #route(request: Request): Promise<Response> {
     if (request.method !== "GET" && request.method !== "HEAD") {
       return new Response(null, { status: 405, headers: { allow: "GET, HEAD" } });
     }
@@ -329,6 +333,34 @@ export class AssetServer {
       headers,
     });
   }
+}
+
+/**
+ * The one header a caption track cannot do without (ADR-0025).
+ *
+ * **A `<track>` is fetched with CORS or not at all.** Every other consumer here
+ * is a no-cors load — an `<img>` draws a cross-origin picture and a `<video>`
+ * plays a cross-origin file without asking anyone — but a text track's cues are
+ * *read* by the page, so the HTML specification requires the media element to
+ * carry `crossorigin` and the response to allow the origin. Without it the
+ * track ends at `readyState 3` with no cues, no console message and no event:
+ * the subtitle simply never appears, which is how this was reported on
+ * 2026-09-08.
+ *
+ * Same-origin was never available. The window is `file://` in a packaged build
+ * and `http://localhost` under `pnpm dev`, and `roost:` is a `standard` scheme
+ * whose origin is the *host* — so `roost://subtitle/…` is cross-origin to the
+ * document, and to `roost://original/…` as well.
+ *
+ * `*` rather than an origin, and on every response: the alternative is a header
+ * that varies with how the window was loaded, which is the kind of difference
+ * that works in `pnpm dev` and fails once packaged. It grants nothing new —
+ * `supportFetchAPI` stays off, so no script can read these bytes as data, and
+ * the CSP still lists `roost:` in `img-src` and `media-src` only.
+ */
+function allowCrossOrigin(response: Response): Response {
+  response.headers.set("access-control-allow-origin", "*");
+  return response;
 }
 
 interface OpenLibrary {
