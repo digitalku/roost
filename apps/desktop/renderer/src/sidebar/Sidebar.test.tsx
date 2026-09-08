@@ -113,6 +113,7 @@ function Pane({
   onDeleteFolder = () => {},
   onDropAssets = () => {},
   onMoveFolder = () => {},
+  onEmptyTrash = () => {},
 }: Partial<Omit<SidebarProps, "expansion">>): React.JSX.Element {
   const expansion = useExpansion();
   return (
@@ -126,6 +127,7 @@ function Pane({
       onDeleteFolder={onDeleteFolder}
       onDropAssets={onDropAssets}
       onMoveFolder={onMoveFolder}
+      onEmptyTrash={onEmptyTrash}
     />
   );
 }
@@ -331,6 +333,64 @@ describe("the navigation pane", () => {
     await user.click(screen.getByRole("menuitem", { name: "Delete folder…" }));
     expect(deleted).toEqual(["Design"]);
     expect(renamed).toEqual([]);
+  });
+
+  it("offers Empty trash from the Trash row, and runs nothing itself", async () => {
+    // Asked for 2026-09-08, with a screenshot of the row: the command was in
+    // the grid's menu only, which means reaching it required standing in the
+    // Trash place first. The pane raises it and owns no dialog, exactly as the
+    // three folder commands do.
+    let asked = 0;
+    render(
+      <Pane
+        sidebar={{
+          ...SIDEBAR,
+          places: [
+            row({ name: "All assets", query: "" }),
+            row({ id: "trash", name: "Trash", query: "is:trashed", count: 2 }),
+          ],
+        }}
+        onEmptyTrash={() => {
+          asked += 1;
+        }}
+      />,
+    );
+    const user = userEvent.setup();
+
+    const trash = screen.getByRole("button", { name: "Trash 2" });
+    trash.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await screen.findByRole("menu");
+
+    await user.click(screen.getByRole("menuitem", { name: "Empty trash" }));
+    expect(asked).toBe(1);
+  });
+
+  it("draws Empty trash dead while the trash is empty", async () => {
+    render(
+      <Pane
+        sidebar={{
+          ...SIDEBAR,
+          places: [row({ id: "trash", name: "Trash", query: "is:trashed", count: 0 })],
+        }}
+      />,
+    );
+
+    const trash = screen.getByRole("button", { name: "Trash 0" });
+    trash.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await screen.findByRole("menu");
+    // Dead rather than absent: a menu whose one item comes and goes is one
+    // nobody learns.
+    expect(
+      screen.getByRole("menuitem", { name: "Empty trash" }).getAttribute("aria-disabled"),
+    ).toBe("true");
+  });
+
+  it("gives the other places no menu at all", async () => {
+    render(<Pane />);
+    const all = screen.getByRole("button", { name: /All assets/ });
+    all.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("marks the row whose query is on screen", () => {

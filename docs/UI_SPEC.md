@@ -436,7 +436,7 @@ the **engine** sent for the Trash row — the renderer assembles no RQL (§4.1),
 | --- | --- |
 | **Restore** | takes the selection back out of the trash. Asks nothing: it is the undo |
 | **Delete permanently** | confirms, then removes the selection from the library **and deletes the files it owns** (ADR-0031). A referenced original is never touched |
-| **Empty trash** | confirms, then removes everything the trash holds — which is not the selection, so the count comes back from the engine |
+| **Empty trash** | confirms, then removes everything the trash holds — which is not the selection, so the count comes back from the engine. **The sidebar's Trash row carries this one too** (§4.1), because reaching it here means standing in the Trash place first |
 
 Both say what came back as well as what went: `Deleted 3 assets, freeing 3.0 MiB`. The freed bytes
 are the half a person deleting to make room came for, and **zero is said too** — a selection of
@@ -851,7 +851,8 @@ PLACES
   Untagged                       the pile that needs work — the reason this is here
   Trash                     3    ADR-0022. The only place with a count, and the count is what
                                  makes it worth a row — an empty trash and one holding four
-                                 hundred assets look identical without it
+                                 hundred assets look identical without it. Right-click it for
+                                 Empty trash
 
 FOLDERS                    🔍 +  the tree, depth-first; the `+` makes a top-level folder,
   ▸ Clients                      the 🔍 reveals a field that searches it
@@ -869,6 +870,14 @@ controls that will disagree about that before they disagree about anything else.
 
 The engine still sends both. The bar needs the same six rating counts and the same tag rows, and so
 does the inspector's tag field; what moved is where they are drawn, not what `readSidebar` answers.
+
+**The Trash row is the one place with a menu of its own**, and it holds the one command: **Empty
+trash**, the same item the grid's menu carries (§3.3) and the same confirmation. Asked for on
+2026-09-08. Until then the command lived in the grid's menu alone, which meant standing *in* the
+Trash place to reach it — and the row that carries the number is where somebody looks for it. It is
+drawn dead while the count is zero rather than coming and going: a menu with one item that is
+sometimes no items is one nobody learns. The pane raises it and owns no dialog, exactly as the three
+folder commands do.
 
 **A folder's count is the count of its own row's query**, so it follows *Show subfolder contents*
 (§4.4, ADR-0036): the subtree when they are shown, the folder alone when they are not. Smart folders

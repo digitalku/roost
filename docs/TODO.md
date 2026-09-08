@@ -799,6 +799,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   true. `reset()` is now the store's second gesture — the selection, the anchor **and** the ring —
   and `applyQuery` calls it and closes the preview. The stale ring was the same bug seen from the
   grid's side: `Enter` opened an asset that was not in the result. 3 more tests.
+- ☑ ~~**Empty trash from the sidebar's Trash row.**~~ **Built 2026-09-08**, at the user's request
+  with a screenshot: the command existed since ADR-0022 and lived in the grid's context menu only,
+  so reaching it meant standing in the Trash place first. It is now on the row that carries the
+  count, as the same item with the same confirmation. Drawn dead while the count is zero rather than
+  coming and going. 4 more tests.
 - 🟢 **The preview says `aria-modal="true"` and is not modal.** `UI_SPEC.md` §7 keeps the sidebar and
   the inspector live while a file is open, deliberately — both are still about the thing on screen —
   and a click in either now reaches the window (the item above). But `aria-modal` tells a screen

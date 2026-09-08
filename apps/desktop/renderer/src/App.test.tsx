@@ -818,6 +818,66 @@ describe("the navigation pane, in the window", () => {
     expect(screen.queryByRole("button", { name: /Design/ })).toBeNull();
   });
 
+  it("empties the trash from the sidebar row, once the dialog is answered", async () => {
+    // Asked for 2026-09-08. The command was in the grid's menu only, so
+    // reaching it meant standing in the Trash place first — and the row that
+    // carries the count is where somebody looks for it.
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      trashSize: 2,
+      freedBytes: 3 * 1024 * 1024,
+      sidebar: {
+        ratings: [],
+        places: [
+          {
+            id: "all",
+            name: "All assets",
+            query: "",
+            count: null,
+            depth: 0,
+            group: null,
+            stars: null,
+          },
+          {
+            id: "trash",
+            name: "Trash",
+            query: "is:trashed",
+            count: 2,
+            depth: 0,
+            group: null,
+            stars: null,
+          },
+        ],
+        folders: [],
+        smartFolders: [],
+        tags: [],
+        types: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+
+    const row = await screen.findByRole("button", { name: "Trash 2" });
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await user.click(await screen.findByRole("menuitem", { name: "Empty trash" }));
+
+    // The dialog is the gate, not a notice beside a request that already went.
+    await screen.findByRole("alertdialog");
+    expect(engine.seen.some((request) => request.type === "assets:emptyTrash")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Empty trash" }));
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "assets:emptyTrash")).toBe(true),
+    );
+    // The freed bytes are the half a person empties the trash for (ADR-0031).
+    expect(await screen.findByText("Deleted 2 assets, freeing 3.0 MiB")).toBeDefined();
+  });
+
   it("moves assets when they are dragged out of a folder, and adds when they are not", async () => {
     // `UI_SPEC.md` §4.3. The pane reports the drop; the window decides whether
     // it is a move, because a folder is a collection and there is nothing to

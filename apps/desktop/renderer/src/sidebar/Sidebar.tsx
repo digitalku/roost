@@ -60,6 +60,13 @@ export interface SidebarProps {
   ) => void;
   /** A folder was dropped on another, or on the heading. `null` is the top level. */
   readonly onMoveFolder: (folder: number, parent: number | null) => void;
+  /**
+   * The Trash row's one command (ADR-0022).
+   *
+   * Raised like the folder commands and owned like them: it confirms, and the
+   * window owns the one dialog it has at a time.
+   */
+  readonly onEmptyTrash: () => void;
 }
 
 export function Sidebar({
@@ -72,10 +79,17 @@ export function Sidebar({
   onDeleteFolder,
   onDropAssets,
   onMoveFolder,
+  onEmptyTrash,
 }: SidebarProps): React.JSX.Element {
   return (
     <nav className="sidebar" aria-label="Library">
-      <Section title="Places" rows={sidebar.places} query={query} onPick={onPick} />
+      <Section
+        title="Places"
+        rows={sidebar.places}
+        query={query}
+        onPick={onPick}
+        onEmptyTrash={onEmptyTrash}
+      />
       <Folders
         rows={sidebar.folders}
         query={query}
@@ -539,16 +553,28 @@ export function found(rows: readonly SidebarFolderRow[], needle: string): DrawnR
   }));
 }
 
+/**
+ * The id the engine gives the Trash place (`@roost/library`'s `sidebar.ts`).
+ *
+ * Matched on rather than on the name or the query: the name is a UI string and
+ * the query is `is:trashed`, which is grammar this file is not allowed to write
+ * (§4.1). `App.tsx` finds the same row the same way.
+ */
+const TRASH = "trash";
+
 function Section({
   title,
   rows,
   query,
   onPick,
+  onEmptyTrash,
 }: {
   readonly title: string;
   readonly rows: readonly SidebarRow[];
   readonly query: string;
   readonly onPick: (query: string) => void;
+  /** Given to Places only: it is the one section with a row that has a command. */
+  readonly onEmptyTrash?: (() => void) | undefined;
 }): React.JSX.Element | null {
   // An empty section is not drawn: a library with no smart folders should not
   // have to look at a heading explaining that.
@@ -558,8 +584,8 @@ function Section({
     <section className="sidebar-section">
       <h2 className="sidebar-heading">{title}</h2>
       <ul className="sidebar-list">
-        {rows.map((row) => (
-          <li key={row.id}>
+        {rows.map((row) => {
+          const drawn = (
             <Row
               name={row.name}
               query={row.query}
@@ -569,8 +595,46 @@ function Section({
               isCurrent={row.query === query}
               onPick={onPick}
             />
-          </li>
-        ))}
+          );
+          if (row.id !== TRASH || onEmptyTrash === undefined) return <li key={row.id}>{drawn}</li>;
+          return (
+            <li key={row.id}>
+              <ContextMenu.Root>
+                {/*
+                  A wrapper because `Row` is a button and the trigger needs a
+                  node it can hand a ref to. It draws nothing of its own: the
+                  row is still what fills the width.
+                */}
+                <ContextMenu.Trigger asChild>
+                  <div className="sidebar-place">{drawn}</div>
+                </ContextMenu.Trigger>
+                <ContextMenu.Portal>
+                  <ContextMenu.Content className="menu" collisionPadding={8}>
+                    {/*
+                      Dead rather than absent when the trash is empty, for the
+                      reason the preview's arrows are (`UI_SPEC.md` §3.5): an
+                      end is a fact worth showing, and a menu whose one item
+                      comes and goes is a menu people stop trusting.
+
+                      No ellipsis, and the same wording as the asset menu's
+                      row: the dialog that follows asks nothing, it confirms
+                      (`UI_SPEC.md` §3.4). `Delete folder…` has one because its
+                      dialog carries a question.
+                    */}
+                    <ContextMenu.Item
+                      className="menu-item"
+                      disabled={row.count === 0}
+                      onSelect={onEmptyTrash}
+                    >
+                      <span className="menu-mark" />
+                      <span className="menu-label">Empty trash</span>
+                    </ContextMenu.Item>
+                  </ContextMenu.Content>
+                </ContextMenu.Portal>
+              </ContextMenu.Root>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

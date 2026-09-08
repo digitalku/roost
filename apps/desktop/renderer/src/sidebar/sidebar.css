@@ -298,3 +298,9 @@
 .sidebar-row[data-current] .sidebar-count {
   color: var(--select-text);
 }
+
+/* The wrapper the Trash row's context menu triggers from. It exists for the
+   ref, not for the layout, so it takes the row's full width and nothing else. */
+.sidebar-place {
+  display: flex;
+}

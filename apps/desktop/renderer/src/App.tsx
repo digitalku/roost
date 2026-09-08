@@ -1442,6 +1442,7 @@ function LibraryView({
               onDeleteFolder={deleteFolder}
               onDropAssets={dropOnFolder}
               onMoveFolder={moveFolder}
+              onEmptyTrash={trashing.emptyTrash}
             />
           )}
         </div>
