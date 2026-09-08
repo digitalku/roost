@@ -278,7 +278,7 @@
 }
 
 /* The row's name, kept for the accessible tree and off the screen. */
-.sidebar-stars-name {
+.sidebar-spoken-name {
   position: absolute;
   width: 1px;
   height: 1px;

@@ -663,6 +663,9 @@ const Row = memo(function Row({
   readonly isCurrent: boolean;
   readonly onPick: (query: string) => void;
 }): React.JSX.Element {
+  const shown = elideName(name);
+  const cut = shown !== name;
+
   return (
     <button
       type="button"
@@ -670,17 +673,30 @@ const Row = memo(function Row({
       data-current={isCurrent || undefined}
       aria-current={isCurrent ? "true" : undefined}
       data-depth={depth === 0 ? undefined : Math.min(depth, MAX_INDENT)}
+      // Only where something was actually taken away. A tooltip repeating a
+      // name already on screen is one that goes off while somebody is reading
+      // the row it covers.
+      title={cut ? name : undefined}
       onClick={() => onPick(query)}
     >
       {stars === null ? (
-        <span className="sidebar-label">{name}</span>
+        <>
+          {/* The label holds the cut and nothing else, so anything reading the
+              row's text reads what is on screen. The whole name follows it,
+              off screen and in the accessible tree — a cut name read aloud is
+              the half that does not say which folder. */}
+          <span className="sidebar-label" aria-hidden={cut || undefined}>
+            {shown}
+          </span>
+          {cut && <span className="sidebar-spoken-name">{name}</span>}
+        </>
       ) : (
         <span className="sidebar-label">
           <Stars filled={stars} />
           {/* The name is still the accessible one. A screen reader reads "3
               stars 0", the same sentence the row used to read, while the eye
               gets the shape — and the tests keep asking for the row by name. */}
-          <span className="sidebar-stars-name">{name}</span>
+          <span className="sidebar-spoken-name">{name}</span>
         </span>
       )}
       {count !== null && <span className="sidebar-count">{count.toLocaleString()}</span>}
@@ -718,3 +734,37 @@ function Stars({ filled }: { readonly filled: number }): React.JSX.Element {
  * spacing token lives.
  */
 const MAX_INDENT = 8;
+
+/**
+ * The longest name the pane draws, in characters (`UI_SPEC.md` §4.1).
+ *
+ * Asked for on 2026-09-08, from a pane of long folder names: the ellipsis the
+ * label has always had is a *width*, so what was cut moved with the pane and a
+ * name could take the whole column and still say nothing the next one did not.
+ * A count of characters is the one rule that reads the same at every width.
+ *
+ * The rule is the row's rather than the folder tree's — a smart folder is named
+ * by hand too, and one section cutting while the one under it does not is a
+ * difference nobody could explain. Places are ours and are nowhere near it.
+ */
+export const MAX_NAME = 35;
+
+/**
+ * `name`, cut to {@link MAX_NAME} characters with an ellipsis as the last one.
+ *
+ * The ellipsis is inside the budget rather than added to it — 35 is what is
+ * drawn, not 36 — and the trailing space of a name cut mid-phrase goes with it,
+ * because "Brand assets …" reads as a word nobody wrote.
+ *
+ * Counted in code points rather than in `string.length`: an emoji in a folder
+ * name is one character to the person who typed it and two to UTF-16, and
+ * slicing between the halves of a surrogate pair draws a replacement glyph.
+ */
+export function elideName(name: string): string {
+  const characters = [...name];
+  if (characters.length <= MAX_NAME) return name;
+  return `${characters
+    .slice(0, MAX_NAME - 1)
+    .join("")
+    .trimEnd()}…`;
+}

@@ -851,6 +851,53 @@ try {
     ),
   );
 
+  section("A name too long for the pane");
+  /*
+   * The cap is a count of characters (`UI_SPEC.md` §4.1), so a unit test can
+   * assert the arithmetic — but only a window can say that what is *drawn* is
+   * the cut and that the whole name is still what the row is called. The
+   * tooltip itself is Chromium's own, drawn outside the page: `title` is the
+   * whole of what the window can be asked about it.
+   */
+  const LONG = "Dokumentasi kegiatan SMA Nusantara Indah Sintang 2026";
+  const plusForLong = await cdp.box('.sidebar-add[aria-label="New folder"]');
+  await cdp.mouse.click(plusForLong.x, plusForLong.y);
+  await cdp.settle("document.querySelector('[role=dialog]') !== null", (there) => there === true);
+  await typeInto(LONG);
+  await cdp.keyboard.press("Enter");
+  await cdp.settle(treeExpression, (rows) =>
+    rows.some((row) => row.name.startsWith("Dokumentasi")),
+  );
+
+  const long = await cdp.evaluate(`
+    (() => {
+      const row = [...document.querySelectorAll(".sidebar-branch .sidebar-row")]
+        .find((el) => (el.getAttribute("title") ?? "").startsWith("Dokumentasi"));
+      if (row === undefined) return null;
+      const label = row.querySelector(".sidebar-label");
+      return {
+        drawn: label?.textContent ?? null,
+        title: row.getAttribute("title"),
+        spoken: row.querySelector(".sidebar-spoken-name")?.textContent ?? null,
+        overflowing: label !== null && label.scrollWidth > label.clientWidth + 1,
+      };
+    })()`);
+  check(
+    "a long name is drawn cut to the cap, ending in an ellipsis",
+    [...long.drawn].length === 35 && long.drawn.endsWith("…"),
+    `${JSON.stringify(long.drawn)} (${[...long.drawn].length})`,
+  );
+  check(
+    "and what is drawn fits the column rather than being ellipsised again by it",
+    long.overflowing === false,
+  );
+  check("the whole name is the tooltip", long.title === LONG, JSON.stringify(long.title));
+  check(
+    "and it is still what the row is called",
+    long.spoken === LONG,
+    JSON.stringify(long.spoken),
+  );
+
   report();
 } catch (error) {
   console.error(error);

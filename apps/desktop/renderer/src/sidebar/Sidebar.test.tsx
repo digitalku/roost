@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ASSET_DRAG_TYPE, FOLDER_DRAG_TYPE } from "../dnd.js";
 import { useExpansion } from "./expansion.js";
-import { found, Sidebar, type SidebarProps } from "./Sidebar.js";
+import { elideName, found, MAX_NAME, Sidebar, type SidebarProps } from "./Sidebar.js";
 
 function row(over: Partial<SidebarRow> & { name: string; query: string }): SidebarRow {
   return { id: over.id ?? over.name, count: null, depth: 0, group: null, stars: null, ...over };
@@ -579,5 +579,95 @@ describe("found", () => {
 
   it("finds nothing where nothing matches", () => {
     expect(found(DEEP, "nowhere")).toEqual([]);
+  });
+});
+
+/**
+ * A long folder name is cut, and the whole one is a hover away (`UI_SPEC.md`
+ * §4.1).
+ *
+ * Asked for on 2026-09-08. The label has always ellipsised at the *width* of
+ * the pane, which is a different rule: it moves with the pane, and it cannot be
+ * asserted at all in happy-dom, which lays nothing out.
+ */
+describe("a folder name too long for the pane", () => {
+  const LONG = "SMA NUSANTARA INDAH SINTANG - dokumentasi kegiatan 2026";
+
+  const withFolder = (name: string): void => {
+    render(
+      <Pane
+        sidebar={{
+          ...SIDEBAR,
+          folders: [folderRow({ id: "folder:9", folder: 9, name, path: name, count: 3 })],
+        }}
+      />,
+    );
+  };
+
+  it("draws no more than the cap, ending in an ellipsis", () => {
+    withFolder(LONG);
+    const drawn = document.querySelector(".sidebar-branch .sidebar-label");
+    expect([...(drawn?.textContent ?? "")]).toHaveLength(MAX_NAME);
+    expect(drawn?.textContent?.endsWith("…")).toBe(true);
+  });
+
+  it("keeps the whole name for the hover and for the accessible tree", () => {
+    withFolder(LONG);
+    // The row is still asked for by its real name — a cut name read aloud is
+    // the half that does not say which folder.
+    const folder = screen.getByRole("button", { name: `${LONG} 3` });
+    expect(folder.getAttribute("title")).toBe(LONG);
+  });
+
+  it("leaves a name that fits alone, tooltip included", () => {
+    withFolder("Design");
+    const folder = screen.getByRole("button", { name: "Design 3" });
+    // A tooltip repeating what is already on screen is one that covers the row
+    // below while somebody reads it.
+    expect(folder.getAttribute("title")).toBeNull();
+    expect(folder.querySelector(".sidebar-spoken-name")).toBeNull();
+  });
+
+  it("holds for a smart folder too, which is named by hand just as a folder is", () => {
+    render(
+      <Pane
+        sidebar={{
+          ...SIDEBAR,
+          smartFolders: [row({ id: "smart:9", name: LONG, query: "ext:png" })],
+        }}
+      />,
+    );
+    const smart = screen.getByRole("button", { name: LONG });
+    expect(smart.getAttribute("title")).toBe(LONG);
+    expect([...(smart.querySelector(".sidebar-label")?.textContent ?? "")]).toHaveLength(MAX_NAME);
+  });
+});
+
+describe("cutting a name to the cap", () => {
+  it("counts the ellipsis inside the budget rather than after it", () => {
+    const name = "x".repeat(MAX_NAME + 10);
+    expect([...elideName(name)]).toHaveLength(MAX_NAME);
+    expect(elideName(name)).toBe(`${"x".repeat(MAX_NAME - 1)}…`);
+  });
+
+  it("leaves a name of exactly the cap alone", () => {
+    const name = "x".repeat(MAX_NAME);
+    expect(elideName(name)).toBe(name);
+  });
+
+  it("does not leave the space of the word it cut", () => {
+    // "Brand assets …" reads as a word nobody wrote.
+    const name = `${"x".repeat(MAX_NAME - 2)} folder`;
+    expect(elideName(name)).toBe(`${"x".repeat(MAX_NAME - 2)}…`);
+  });
+
+  it("counts characters rather than UTF-16 units", () => {
+    // An emoji is one character to the person who typed it and two to
+    // `string.length`; slicing between the halves draws a replacement glyph.
+    const name = "🎬".repeat(MAX_NAME + 1);
+    expect(elideName(name)).toBe(`${"🎬".repeat(MAX_NAME - 1)}…`);
+    // And a name of exactly the cap is 70 UTF-16 units, which a length check
+    // would have cut in half.
+    expect(elideName("🎬".repeat(MAX_NAME))).toBe("🎬".repeat(MAX_NAME));
   });
 });

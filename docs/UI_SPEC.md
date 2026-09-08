@@ -1021,6 +1021,21 @@ shows 2 is the shape this goes wrong in. A tag every one of whose assets is in t
 listed at zero: the tag has not been deleted, and a row vanishing says something different from a
 count falling.
 
+**A name is cut at 35 characters, and the whole one is a hover away.** Asked for on 2026-09-08,
+from a pane of folder names long enough that several of them said the same thing for the first
+inch. The label has ellipsised since the pane was built, but on **width** — so what was cut moved
+with the pane, and at a comfortable width nothing was cut at all while one row still took the whole
+column. A count of characters is the one rule that reads the same at every width; the width
+ellipsis stays underneath it as a backstop for a narrow pane or a deep indent. The ellipsis is
+inside the budget rather than added to it — 35 characters are drawn, not 36 — and the space of a
+word cut in half goes with it. It is counted in **code points**, so an emoji in a name is one
+character rather than two halves of one. The rule is the row's rather than the tree's: a smart
+folder is named by hand as well, and one section cutting while the one under it does not is a
+difference nobody could explain. **The tooltip is only drawn where something was taken away** — a
+tooltip repeating a name already on screen is one that covers the row below while somebody reads
+it — and the **whole name stays the row's accessible name**, off screen beside the cut one, because
+a cut name read aloud is the half that does not say which folder.
+
 **Every row carries the RQL that selects it**, built in `@roost/library`. The renderer never
 assembles a query string; clicking `Logos` sends the row's query to the search field, which is
 why the search field always shows what is actually being asked. This is carried over from
