@@ -15,11 +15,14 @@ import { isTyping } from "../keyboard.js";
  * 250ms idle or immediately on Enter, and the grid sees only queries the engine
  * has already agreed to.
  *
- * **Taking the focus puts the caret at the end of the query.** A query naming a
- * folder is usually being *continued* — a subfolder typed onto a path already
- * there — and a click that dropped the caret in the middle of a long path made
- * somebody reach its end by hand. At rest, with nobody typing in it, the field
- * is pinned back to the head: `…/post/testing"` names nothing, and
+ * **Taking the focus puts the caret one space past the query.** A query naming a
+ * folder is usually being *continued* — a term added, a subfolder typed onto a
+ * path already there — and a click that dropped the caret in the middle of a
+ * long path made somebody reach its end by hand. The space is a real character
+ * and RQL's own separator, so the next term can be typed straight away; the
+ * room to the right of the caret is padding rather than characters, or every
+ * click would grow the query. At rest, with nobody typing in it, the field is
+ * pinned back to the head: `…/post/testing"` names nothing, and
  * `folder:"SMA NUSANTARA…` is the half that says which place is being asked
  * about.
  */
@@ -48,14 +51,19 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
    */
   const arriving = useRef(false);
 
+  /** Set when the caret has to land at the end once React has written `text`. */
+  const wantEnd = useRef(false);
+
   /**
-   * Puts the caret past the last character, which scrolls the view there.
+   * Puts the caret one space past the query, and the view with it.
    *
-   * A browser scrolls a field to its caret, so this is what shows the end of a
-   * path long enough to overflow — and the end is where a folder query gets
-   * *continued*, a subfolder typed onto a path already in the field. Reaching
-   * it by hand is the complaint this answers: a click drops the caret where the
-   * pointer landed, which for a long path is the middle of a folder name.
+   * The end is where a folder query gets *continued* — a subfolder typed onto a
+   * path already in the field — and reaching it by hand is the complaint this
+   * answers: a click drops the caret where the pointer landed, which for a long
+   * path is the middle of a folder name. The trailing space is RQL's separator,
+   * so what follows the caret is the next term rather than a syntax error, and
+   * it is added only when there is not one already: a click is not an edit, and
+   * a field that grew a space per click would be one.
    *
    * **A caret and not a selection**, at the user's word on 2026-09-08: it was
    * built as a select-all first — the address bar's own gesture, where arriving
@@ -76,12 +84,13 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
   const caretToEnd = useCallback(() => {
     const input = field.current;
     if (input === null || input.value === "") return;
-    input.setSelectionRange(input.value.length, input.value.length);
-    // The scroll is set rather than left to follow the caret: Chromium moves a
-    // field's view for a caret the *user* moved and not for one set from
-    // script, so the end of an overflowing path would sit past the right edge
-    // with the caret invisible behind it.
-    input.scrollLeft = input.scrollWidth;
+    if (input.value.endsWith(" ")) {
+      placeAtEnd(input);
+      return;
+    }
+    // The space is state, so the caret waits for the render that carries it.
+    wantEnd.current = true;
+    setText(`${input.value} `);
   }, []);
 
   // A sidebar click replaces the query, and the field shows what is actually
@@ -102,7 +111,12 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
   const attempt = useRef(0);
 
   const apply = useCallback(
-    async (candidate: string) => {
+    async (draft: string) => {
+      // The space this field adds for the next term is the field's, not the
+      // query's: `App.tsx` recognises the folder on screen by comparing the
+      // running query against the sidebar's rows, and one that ends in a space
+      // matches nothing.
+      const candidate = draft.trimEnd();
       attempt.current += 1;
       const mine = attempt.current;
       const checked = await invoke({ type: "query:check", query: candidate });
@@ -132,9 +146,14 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
   useLayoutEffect(() => {
     const input = field.current;
     // `input.value !== text` is React not having written this render's value in
-    // yet; scrolling a node still holding the previous query would put the
-    // wrong string's head on screen.
-    if (input === null || input.value !== text || document.activeElement === input) return;
+    // yet; either half of this would then act on the wrong string.
+    if (input === null || input.value !== text) return;
+    if (wantEnd.current) {
+      wantEnd.current = false;
+      placeAtEnd(input);
+      return;
+    }
+    if (document.activeElement === input) return;
     input.scrollLeft = 0;
   }, [text]);
 
@@ -166,7 +185,9 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
   // Applied on an idle rather than on every keystroke: every character would be
   // a round trip, and a query is not finished until the typing stops.
   useEffect(() => {
-    if (text === query) return;
+    // Trailing space and all: adding one is a click, not a new question to ask
+    // the engine.
+    if (text.trimEnd() === query) return;
     const timer = setTimeout(() => void apply(text), IDLE_MS);
     return () => clearTimeout(timer);
   }, [text, query, apply]);
@@ -226,6 +247,20 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
       )}
     </div>
   );
+}
+
+/**
+ * The caret past the last character, and the view moved to meet it.
+ *
+ * The scroll is set rather than left to follow the caret: Chromium moves a
+ * field's view for a caret the *user* moved and not for one set from script, so
+ * the end of an overflowing query would sit past the right edge with the caret
+ * invisible behind it. `.search-input`'s right padding is what keeps the caret
+ * clear of that edge once it is there.
+ */
+function placeAtEnd(input: HTMLInputElement): void {
+  input.setSelectionRange(input.value.length, input.value.length);
+  input.scrollLeft = input.scrollWidth;
 }
 
 /**

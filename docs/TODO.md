@@ -784,6 +784,12 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   carries both — the CLI has had `--mode` and `--tag` since M1 — and what is missing is where to
   put them: the mode belongs in a preference (the application config that window state is also
   waiting for) and the tags in an import dialog that does not exist yet.
+- 🟢 **`check-filters.mjs`'s facet-menu section is flaky.** Twice in nine runs on 2026-09-08 it
+  failed to find a value in an open Tags menu — *"Tags has no olahraga"* once, *"never settled"* on
+  `traveling` once — and passed on the next run with nothing changed. Both were in the sections that
+  open a facet whose list is long enough to carry a search field. It is a defect in the check or a
+  race in the menu, and until it is known which, a red run there means run it again before believing
+  it.
 - 🟢 **A folder is reached by typing its whole path, or by clicking it.** Two ideas were put to the
   user on 2026-09-08 beside the one that was built, and neither was taken up yet. **A breadcrumb
   over the grid**, with the last crumb offering the folder's children, is the file manager's answer

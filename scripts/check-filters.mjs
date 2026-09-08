@@ -450,12 +450,16 @@ try {
       end: input.selectionEnd,
       scroll: input.scrollLeft,
       length: input.value.length,
+      space: input.value.endsWith(" "),
+      // The room after the caret is padding, so it is the box that has to have
+      // it: a caret against the right edge is one nobody can see.
+      room: getComputedStyle(input).paddingRight,
     };
   })()`);
   check(
-    "the click that focuses it puts the caret at the end of the query",
-    clicked.start === clicked.length && clicked.end === clicked.length,
-    `${clicked.start}-${clicked.end} of ${clicked.length}`,
+    "the click that focuses it puts the caret one space past the query",
+    clicked.start === clicked.length && clicked.end === clicked.length && clicked.space,
+    `${clicked.start}-${clicked.end} of ${clicked.length}, space=${clicked.space}`,
   );
   // And the end has to be *on screen*, which is a second claim: a caret past
   // the last character of a path the field cannot hold is no use behind its
@@ -464,6 +468,11 @@ try {
     "and scrolls to the tail, where a folder path is continued",
     clicked.scroll > 0,
     `scrollLeft=${clicked.scroll}`,
+  );
+  check(
+    "with eight characters of room left after it",
+    Number.parseFloat(clicked.room) > 8 * 6,
+    `padding-right=${clicked.room}`,
   );
 
   // The two shortcuts, dispatched as real keys: `Ctrl+F` is a chord the window

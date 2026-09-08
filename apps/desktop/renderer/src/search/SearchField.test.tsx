@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { FakeEngine, install } from "../testing/fake-engine.js";
-import { SearchField } from "./SearchField.js";
+import { IDLE_MS, SearchField } from "./SearchField.js";
 
 /**
  * The field validates before it applies (`UI_SPEC.md` §5), so what is asserted
@@ -114,16 +114,34 @@ describe("the search field", () => {
     await user.click(field);
 
     // A caret rather than a selection, and past the last character rather than
-    // before the first: a folder query is continued, not prefixed.
-    expect(field.selectionStart).toBe(LONG.length);
-    expect(field.selectionEnd).toBe(LONG.length);
+    // before the first: a folder query is continued, not prefixed. The space is
+    // RQL's separator, so what follows the caret is the next term.
+    expect(field.value).toBe(`${LONG} `);
+    expect(field.selectionStart).toBe(LONG.length + 1);
+    expect(field.selectionEnd).toBe(LONG.length + 1);
+  });
+
+  it("adds that space once, and never sends it to the engine", async () => {
+    const user = show(LONG);
+    const field = screen.getByRole("searchbox") as HTMLInputElement;
+    await user.click(field);
+    field.blur();
+    await user.click(field);
+
+    // A click is not an edit: a field that grew a space per click would be one,
+    // and `App.tsx` recognises the folder on screen by comparing the running
+    // query against the sidebar's rows, which a trailing space would defeat.
+    expect(field.value).toBe(`${LONG} `);
+    await new Promise((settle) => setTimeout(settle, IDLE_MS * 2));
+    expect(applied).toEqual([]);
+    expect(engine.seen.filter((r) => r.type === "query:check")).toHaveLength(0);
   });
 
   it("leaves the caret where a second click puts it", async () => {
     const user = show(LONG);
     const field = screen.getByRole("searchbox") as HTMLInputElement;
     await user.click(field);
-    expect(field.selectionStart).toBe(LONG.length);
+    expect(field.selectionStart).toBe(LONG.length + 1);
     await user.pointer({ target: field, offset: 9, keys: "[MouseLeft]" });
 
     // A click carries a position, and the field is already focused: the rule is
@@ -138,7 +156,7 @@ describe("the search field", () => {
     await user.keyboard("{Control>}f{/Control}");
 
     expect(document.activeElement).toBe(field);
-    expect(field.selectionEnd).toBe(LONG.length);
+    expect(field.selectionEnd).toBe(LONG.length + 1);
   });
 
   it("takes the caret on a bare slash, unless a slash is what is being typed", async () => {
