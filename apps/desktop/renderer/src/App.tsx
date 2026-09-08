@@ -18,11 +18,13 @@ import type {
 import { LIBRARY_SUFFIX } from "@roost/contract";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import wordmark from "../../../../assets/brand/roost-logo-dark.svg";
+import { AboutDialog } from "./AboutDialog.js";
 import { AddMenu } from "./AddMenu.js";
 import { AppMenu } from "./AppMenu.js";
 import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
+import { Credit } from "./Credit.js";
 import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
 import { FilterBar } from "./filter/FilterBar.js";
 import { AssetContextMenu } from "./grid/AssetContextMenu.js";
@@ -413,6 +415,7 @@ function Frame({
   return (
     <div className="app">
       {children}
+      <Credit />
       <footer className="status">
         <span>{summary === undefined ? "No library open" : `schema ${summary.schemaVersion}`}</span>
         <span className="path">{summary?.root ?? ""}</span>
@@ -1080,6 +1083,9 @@ function LibraryView({
   /** The folder being named, if one is (ADR-0033). */
   const [naming, setNaming] = useState<FolderDialogProps["what"] | undefined>();
 
+  /** Whether About is on screen (ADR-0038 §5.1). */
+  const [about, setAbout] = useState(false);
+
   const newFolder = useCallback((parent: SidebarFolderRow | null) => {
     setNaming({
       kind: "create",
@@ -1421,6 +1427,7 @@ function LibraryView({
             <AppMenu
               onCloseLibrary={onClose}
               onReclaim={reclaim}
+              onAbout={() => setAbout(true)}
               onQuit={() => {
                 void invoke({ type: "app:quit" });
               }}
@@ -1674,6 +1681,10 @@ function LibraryView({
           }}
         />
       )}
+      {/* Mounted only while it is open: it asks main which build this is, and
+          that question is worth asking again rather than caching for a window
+          that may outlive an update. */}
+      {about && <AboutDialog onClose={() => setAbout(false)} />}
       {/*
         The question a finished import raises (ADR-0037 §3). It names the folder
         the window is showing *now* rather than the one the run was given: the

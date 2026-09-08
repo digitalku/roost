@@ -921,3 +921,127 @@ button:disabled {
 .button-danger:hover:not(:disabled) {
   background: var(--danger-hover);
 }
+
+/* About, and the credit under the picker (`UI_SPEC.md` §3.12, ADR-0038 §5).
+   ------------------------------------------------------------------------- */
+
+/* A button that reads as a link. It is a button because nothing here navigates:
+   the renderer may not leave its own origin (invariant 11), so a URL is a
+   request that hands the address to the desktop's browser. */
+.link {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  cursor: pointer;
+}
+
+.link:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+
+.about {
+  gap: var(--space-3);
+}
+
+.about-mark {
+  margin: 0;
+}
+
+.about-mark img {
+  display: block;
+  width: auto;
+  height: 2.5rem;
+}
+
+.about-tagline {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.about-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Selectable, because its whole purpose is to be pasted into a support email
+   along with the address below it. */
+.about-build {
+  margin: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  user-select: text;
+  /* An empty line while the answer is in flight, rather than a jump when it
+     lands: the dialog opens at the height it will keep. */
+  min-height: var(--leading-xs);
+}
+
+.about-rights {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.about-contact {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  align-items: baseline;
+}
+
+.about-contact dt {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.about-contact dd {
+  margin: 0;
+}
+
+.about-email {
+  user-select: text;
+}
+
+/* The notices are long and are read rather than skimmed, so this scrolls inside
+   the dialog instead of growing it past the window. */
+.about-notices {
+  overflow: auto;
+  max-height: min(24rem, 50vh);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.about-notices pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+/* One quiet line under the picker. It sits in the frame rather than in the
+   panel so it stays put while the panel swaps between opening a library and
+   making one. */
+.credit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 var(--gutter) var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}

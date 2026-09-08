@@ -330,7 +330,10 @@ is listed here, so the order stays visible instead of becoming folklore.
 - ☐ Undo for destructive actions other than deletion
 - ☐ Export/backup a selection with metadata
 - ☐ Packaging: AppImage, Flatpak, .rpm, .deb, with native modules bundled;
-  `.desktop` and MIME registration
+  `.desktop` and MIME registration. Carries the licensing obligations ADR-0038 §4 lists:
+  `THIRD-PARTY-NOTICES.md` and the generated full licence texts in every artifact, libvips
+  bundled as a shared object, `appId: com.digitalku.roost`, and a version that is not `0.0.0`
+- ☑ ~~**About Roost…** in the `☰` and a credit line under the picker~~ — ADR-0038 §5.1–5.2, built 2026-09-08 ahead of this milestone, because a proprietary build owes its licences and its build identity to the window rather than to the repository
 - ☐ First-run onboarding and a sample library
 - ☐ Documentation: user guide, and the library format spec published for other implementers
 
@@ -346,7 +349,19 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-08.** **ADR-0032 was amended** that day (§8), from the user asking what
+**Nothing open, as of 2026-09-08.** **ADR-0038 — Roost is proprietary, and the format stays open**
+was proposed and accepted that day, from the user giving the product its landing page
+(`roost.digitalku.com`) and support address and saying it will be distributed closed source. The
+licence had been an assumption since M0 — MIT because `roost-old` was MIT — and it is now a
+decision: `LICENSE` is a licence to use, the manifests say `UNLICENSED`, and the documentation
+stops calling Roost open. What it keeps calling open is the **format**, which is the promise that
+was ever about the user's data. Two things fall out of it for later milestones: M6 must bundle
+`THIRD-PARTY-NOTICES.md` and the full licence texts in every artifact — and must ship libvips as a
+shared object, since bundling it puts LGPL-3.0's relinking obligation on the package — and the
+credit itself is an **About Roost…** in the `☰` plus a line under the picker, both built the same
+day (`UI_SPEC.md` §3.12).
+
+Before it that day, **ADR-0032 was amended** (§8), from the user asking what
 an Eagle import does to files the library already holds. Its answer had been *last-write-wins*, which
 is right for re-running one import and wrong for a library somebody has been using: a rating and a
 note written here were replaced silently. **Eagle now fills only what is empty**, at the user's

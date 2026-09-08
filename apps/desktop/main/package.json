@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Electron main: the window, the menus, the roost:// protocol, and the route to the engine.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "main": "./dist/main.js",
   "dependencies": {
     "@roost/contract": "workspace:*",

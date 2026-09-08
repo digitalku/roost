@@ -432,9 +432,11 @@ export class EngineHost {
       case "dialog:openLibrary":
       case "dialog:chooseLocation":
       case "app:quit":
+      case "app:about":
         // A dialog belongs to a window and this process has none, the clipboard
-        // and the browser belong to the desktop, and quitting is the
-        // application's business rather than the library's. Main answers these
+        // and the browser belong to the desktop, quitting is the application's
+        // business rather than the library's, and which build this is belongs
+        // to the shell that was launched. Main answers these
         // before forwarding; one
         // arriving here is a routing bug, and it fails loudly rather than
         // returning a plausible null.

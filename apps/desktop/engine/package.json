@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "The utilityProcess that hosts one Library and answers the contract's requests (ADR-0006).",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "main": "./dist/engine.js",
   "dependencies": {
     "@roost/contract": "workspace:*",

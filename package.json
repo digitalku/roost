@@ -4,7 +4,16 @@
   "private": true,
   "type": "module",
   "description": "A local-first digital asset manager",
-  "license": "MIT",
+  "license": "UNLICENSED",
+  "author": "Digitalku",
+  "homepage": "https://roost.digitalku.com",
+  "bugs": {
+    "email": "roostsupport@digitalku.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/digitalku/roost.git"
+  },
   "engines": {
     "node": ">=22.11"
   },

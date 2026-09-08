@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "The `roost` binary. A first-class frontend over the same services the desktop app uses.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

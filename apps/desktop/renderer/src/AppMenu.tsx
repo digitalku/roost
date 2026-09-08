@@ -25,10 +25,23 @@ export interface AppMenuProps {
    * the wreckage of interrupted work and of libraries older than that rule.
    */
   readonly onReclaim: () => void;
+  /**
+   * Who made this, which build it is, and how to reach support (ADR-0038 §5.1).
+   *
+   * The clearest case of this menu's own rule: an About box is read once, is
+   * not about the selection, and has nowhere else to be. It is last but for
+   * Quit, because it is the least often wanted thing in here.
+   */
+  readonly onAbout: () => void;
   readonly onQuit: () => void;
 }
 
-export function AppMenu({ onCloseLibrary, onReclaim, onQuit }: AppMenuProps): React.JSX.Element {
+export function AppMenu({
+  onCloseLibrary,
+  onReclaim,
+  onAbout,
+  onQuit,
+}: AppMenuProps): React.JSX.Element {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -59,6 +72,11 @@ export function AppMenu({ onCloseLibrary, onReclaim, onQuit }: AppMenuProps): Re
           </DropdownMenu.Item>
 
           <DropdownMenu.Separator className="menu-separator" />
+
+          <DropdownMenu.Item className="menu-item" onSelect={onAbout}>
+            <span className="menu-mark" />
+            <span className="menu-label">About Roost…</span>
+          </DropdownMenu.Item>
 
           {/*
             The accelerator is real and is bound in the shell, not here: a menu

@@ -81,6 +81,7 @@ describe("validating a request", () => {
       "recent:pin",
       "library:close",
       "app:quit",
+      "app:about",
       "library:stats",
       "library:sidebar",
       "assets:page",

@@ -853,3 +853,30 @@ export interface WireExportReport {
   readonly missing: number;
   readonly failed: number;
 }
+
+/**
+ * What the About dialog says about the build it is running in (ADR-0038 §5.1).
+ *
+ * Answered by **main**, because everything here is the shell's own knowledge:
+ * the renderer has no `process` and no `app`, and inventing these in the
+ * renderer would mean maintaining a second version number that drifts.
+ *
+ * **Both identifiers are nullable, and for the same reason**: a build says what
+ * it knows and nothing more. Seen in a real window on 2026-09-08 — an
+ * unpackaged Electron reports *Electron's own* version from `app.getVersion()`,
+ * so the dialog claimed to be Roost 43.4.1. A build that is not packaged has no
+ * version, and saying so is the only answer that cannot mislead a support
+ * email.
+ *
+ * `commit` is null in a build that was not told which one it is. `ROOST_COMMIT`
+ * is set by `scripts/dev.mjs` from `git rev-parse` and by packaging; a bare
+ * `electron .` run has no way to know. Between the two, one of them is
+ * populated in every build anybody can report a bug from.
+ */
+export interface WireAbout {
+  /** `null` in an unpackaged build, which has no version of its own. */
+  readonly version: string | null;
+  readonly commit: string | null;
+  readonly electron: string;
+  readonly chromium: string;
+}

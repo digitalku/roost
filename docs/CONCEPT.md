@@ -1,9 +1,9 @@
 # Roost — Concept
 
-> A local-first digital asset manager. An open alternative to Eagle.cool,
-> built in TypeScript on Electron.
+> A local-first digital asset manager. A Linux-first alternative to Eagle.cool,
+> built in TypeScript on Electron. Proprietary software with an open format (ADR-0038).
 
-Status: **Draft v2** · Last updated: 2026-08-24
+Status: **Draft v2** · Last updated: 2026-09-08
 
 ---
 
@@ -17,8 +17,13 @@ assets without stutter.**
 
 Eagle.cool is the reference product for "visual asset manager": designers, artists, and
 researchers use it to hoard references, screenshots, mockups, textures, fonts, and video
-clips, then find them again months later. It is excellent — and it does not ship for Linux, is
-closed source, and locks your metadata into a format you do not control.
+clips, then find them again months later. It is excellent — and it does not ship for Linux, and it
+locks your metadata into a format you do not control.
+
+Roost is proprietary too (ADR-0038), so the complaint is deliberately the second one and not the
+first. Source availability is not what decides whether you can leave: a documented format, a plain
+JSONL journal, and originals nothing ever rewrites are. Those are promises this product keeps
+whether or not its own code is published.
 
 Linux users today fall back to a pile of compromises:
 
@@ -154,6 +159,8 @@ Legend: **M** = must have (v1.0) · **S** = should have · **C** = could have ·
 - Not a file manager replacement. A library holds what was imported into it; Roost does not
   browse arbitrary filesystems. Accepting any file is not the same as replacing the thing that
   browses every file.
+- Not open source. Roost is proprietary and distributed as a binary (ADR-0038). What is open is
+  the format: the journal, the layout, and the specification that documents them.
 - No telemetry, no crash reporting phone-home, no auto-update that talks to us silently.
 - Not a web app. The renderer runs against a local engine over a private protocol; it is not
   going to be hosted, and no code should be written to keep that door open.
@@ -176,7 +183,9 @@ These are the differentiators worth building, not just parity items:
 6. **Honest performance.** Virtualized everything, thumbnails on a worker pool, incremental
    indexing, no "loading 40k items" spinner.
 7. **Open format, documented.** The library layout is a spec in this repo, not a reverse
-   engineering project — and two independent implementations already read it.
+   engineering project — and two independent implementations already read it. The application
+   is proprietary; the format is not, and M6 publishes the spec for other implementers
+   (ADR-0038).
 
 ## 7. Success criteria for v1.0
 

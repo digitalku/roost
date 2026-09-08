@@ -89,7 +89,7 @@ changed it for these reasons.
 Window — and it carried a Reload that throws away the query and the selection, a devtools toggle,
 and a Paste meaning something other than Roost's (§3.3). It is removed on Linux and Windows, and
 the commands that belong to the application live in the toolbar's `☰` instead: **Reclaim space…**,
-**Close library** and **Quit**, and nothing that already has a home. Reclaiming is there because it
+**Close library**, **About Roost…** and **Quit**, and nothing that already has a home. Reclaiming is there because it
 acts on the whole library rather than on anything selected (ADR-0031); it is not in the Trash
 place, because a permanent delete takes its own bytes with it and the trash is therefore not where
 an orphaned object comes from. It shows three different things: nothing to reclaim, a refusal with
@@ -167,8 +167,14 @@ review failure; it references `--surface-raised`.
 --select-bg           --select-border        --select-text
 --marquee-bg          --marquee-border
 --accent              --accent-hover         --accent-text
+--link
 --shadow-1            --shadow-2
 ```
+
+`--link` is separate from `--accent` because the two are used differently: `--accent` fills a
+button and carries `--accent-text` on top of it, while `--link` *is* text on the surface behind
+it, which needs the contrast a fill does not. One step along the ramp, in whichever direction the
+theme reads as brighter.
 
 Theme is applied as `data-theme="dark" | "light"` on the root, defaulting to the system
 preference and overridable in preferences. **No component may hard-code a colour**, including
@@ -287,6 +293,8 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `ContextMenu` | overlay | — | One implementation, driven by a descriptor |
 | `Dialog` | overlay | — | Focus trap, Escape, one at a time |
 | `ConfirmDialog` | overlay | — | An alert dialog, not a panel: no close button, no dismiss on an outside click, focus starts on Cancel. Irreversible actions only; §3.4 |
+| `AboutDialog` | overlay | which panel | Which build this is, who owns it, how to reach support, and the third-party licences the binary ships with. §3.12. ADR-0038 |
+| `Credit` | picker | — | One line under the picker, because the `☰` is not drawn until a library is open. §3.12 |
 | `Toast` | overlay | — | Non-blocking results and failures; never for progress |
 | `EmptyState` | any | — | Heading, one sentence, at most one action; §8 |
 
@@ -837,6 +845,61 @@ something says otherwise.
 dialog, with the rest counted — re-importing a large directory is the ordinary way to produce a
 hundred thousand duplicates. The hashes never reach the window: the engine keeps the list the run
 reported, and the button acts on all of it.
+
+### 3.12 About, and the credit under the picker
+
+Roost is proprietary software (ADR-0038), which puts two things on the interface that an open
+build could leave to the repository: **which build this is**, and **the licences of the code it
+ships**. Both live in one dialog, opened from **About Roost…** in the `☰`.
+
+```
+┌──────────────────────────────────────────────┐
+│  [roost]                                     │
+│  A local-first digital asset manager.        │
+│                                              │
+│  Version 0.0.0 · 9f2c1ab · Electron 43.4.1…  │
+│                                              │
+│  © 2026 Digitalku. Proprietary software,     │
+│  licensed for use rather than for            │
+│  redistribution. Your files stay yours…      │
+│                                              │
+│  Home     roost.digitalku.com                │
+│  Support  roostsupport@digitalku.com         │
+│                                              │
+│         [ Third-party licences ]  [ Close ]  │
+└──────────────────────────────────────────────┘
+```
+
+**The wordmark is the title**, with the name in its `alt` — the same trade §3.1 makes, and for the
+same reason: drawing the word above a picture of the word says it twice.
+
+**The build line is one line, and it is selectable.** Version, commit, Electron, Chromium, written
+to be pasted into a support email. **Both identifiers may be missing, and the line then says what
+is left rather than guessing.** An unpackaged build has no version of its own — asked for one
+anyway, Electron answers with *its* version, which is how this line first read "Version 43.4.1" —
+so it is drawn as **Development build**; a build nobody handed a commit to (`ROOST_COMMIT`, set by
+`pnpm dev` and by packaging) leaves that half out. A request that fails draws an empty line rather
+than an error: somebody who came here for an address should still find it.
+
+**Third-party licences** swaps the body for the notices, scrolling inside the dialog, and the
+button becomes **Back**. The text is `THIRD-PARTY-NOTICES.md` compiled into the bundle: invariant 7
+forbids fetching it and the renderer has no filesystem, so shipping it *in* the window is the only
+way it can be present — and it is the way that cannot disagree with the file in the repository. It
+is drawn as preformatted text rather than rendered markdown, because a legal notice's exact wording
+is the point and a renderer that reflows it is a second thing that can be wrong about it.
+
+**The homepage is a button and the address is text.** Nothing in this window navigates: a link
+hands its URL to the desktop's browser through the same path a source URL uses (§3.6, ADR-0030 §5),
+and that path takes `http(s)` only. The rule is not bent for our own `mailto:`, and an address that
+can be selected and copied is what an email client wants anyway.
+
+**One line sits under the picker** (§3.1): `© 2026 Digitalku · roost.digitalku.com ·
+roostsupport@digitalku.com`, at the status bar's type scale. It is there because the `☰` is drawn
+beside a library's name — without this line there is a state of the application, the one a first
+run is in and the one a library that will not open leaves you in, where the support address cannot
+be reached at all. It sits in the picker's frame rather than in its panel, so it stays put while
+the panel swaps between opening a library and making one. Quiet on purpose: a credit that competes
+with **Open library…** is an advert.
 
 ## 4. Navigation
 

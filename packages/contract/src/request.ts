@@ -20,6 +20,7 @@ import type {
   LibrarySummary,
   QueryCheck,
   StorageMode,
+  WireAbout,
   WireAssetDetail,
   WireCreated,
   WireCursor,
@@ -90,6 +91,14 @@ export type Request =
    * process is on its way out.
    */
   | { readonly type: "app:quit" }
+  /**
+   * What this build is, for the About dialog (ADR-0038 §5.1).
+   *
+   * Answered by **main**: the version belongs to the application rather than to
+   * any library, and it is readable from a window with no library open — which
+   * is where somebody looking for the support address most often is.
+   */
+  | { readonly type: "app:about" }
   /** The counts behind the library view. */
   | { readonly type: "library:stats" }
   /** The navigation pane: places, folders, smart folders, tags. */
@@ -614,6 +623,7 @@ export interface Responses {
   "recent:pin": readonly WireRecentLibrary[];
   "library:close": null;
   "app:quit": null;
+  "app:about": WireAbout;
   "library:stats": LibraryStats;
   "library:sidebar": WireSidebar;
   "assets:page": AssetPage;
@@ -736,6 +746,7 @@ export const REQUEST_VALIDATORS: {
   },
   "library:close": () => ok({ type: "library:close" }),
   "app:quit": () => ok({ type: "app:quit" }),
+  "app:about": () => ok({ type: "app:about" }),
   "library:stats": () => ok({ type: "library:stats" }),
   "library:sidebar": () => ok({ type: "library:sidebar" }),
 

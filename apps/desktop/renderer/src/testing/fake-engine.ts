@@ -10,6 +10,7 @@ import type {
   RequestType,
   ResponseOf,
   SidebarFolderRow,
+  WireAbout,
   WireAssetDetail,
   WireComment,
   WireDeriveStatus,
@@ -133,6 +134,13 @@ export interface FakeEngineOptions {
   readonly eagleReport?: Partial<WireEagleReport>;
   /** What `derive:status` and `derive:retry` answer with. */
   readonly deriveStatus?: WireDeriveStatus;
+  /**
+   * What `app:about` answers with, over a packaged build's answer.
+   *
+   * Present so the *unpackaged* case is reachable: main sends no version at all
+   * there, and that is the state every developer and every CI run is in.
+   */
+  readonly about?: Partial<WireAbout>;
   /**
    * Requests whose reply waits on a promise the test resolves.
    *
@@ -555,6 +563,18 @@ export class FakeEngine {
       // test asserts that the menu asked to quit, not that a process ended.
       case "app:quit":
         return ok(null);
+
+      // A packaged build with a commit — the case with the most to draw, so a
+      // dialog that dropped a part of the line fails here. The unpackaged one,
+      // where main answers with no version at all, is `describe`'s own test.
+      case "app:about":
+        return ok({
+          version: "1.0.0",
+          commit: "abc1234",
+          electron: "43.4.1",
+          chromium: "150.0.7871.224",
+          ...this.#options.about,
+        });
 
       case "library:sidebar":
         if (this.#open === undefined) {

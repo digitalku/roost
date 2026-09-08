@@ -3,7 +3,7 @@
   <img src="assets/brand/roost-logo.svg" alt="Roost" height="64">
 </picture>
 
-A local-first digital asset manager — an open alternative to Eagle.cool.
+A local-first digital asset manager — a Linux-first alternative to Eagle.cool.
 Electron shell, TypeScript engine, React interface. Your files stay yours.
 
 > **Status: M0 through M4 are done; it runs from source and is not packaged yet.** The engine, the
@@ -26,7 +26,8 @@ Electron shell, TypeScript engine, React interface. Your files stay yours.
 
 Eagle.cool is the reference product for visual asset management, and it does not ship for Linux.
 Roost aims at the same job — collect, organize, and re-find tens of thousands of images, videos,
-fonts, and design files — while being offline-first, open, and honest about performance.
+fonts, and design files — while being offline-first, honest about performance, and open about the
+format your metadata is kept in.
 
 ## Principles
 
@@ -55,11 +56,20 @@ fonts, and design files — while being offline-first, open, and honest about pe
 | [Session log](docs/SESSION_LOG.md) | What each working session did, decided, and deferred |
 | [Decisions](docs/adr/) | Architecture decision records |
 
-## License
+## Licence
 
-MIT — see [LICENSE](LICENSE). You may use, modify, and redistribute Roost, including
-commercially; the copyright notice and licence text must travel with every copy or substantial
-portion of the software.
+**Proprietary — see [LICENSE](LICENSE).** Roost is licensed for use, not for redistribution: it
+may not be copied, published, modified, or resold, and this repository is not open source
+(ADR-0038).
 
-Copyright © 2026 Digitalku · [www.digitalku.com](https://www.digitalku.com) ·
-[appsupport@digitalku.com](mailto:appsupport@digitalku.com)
+**The format is open, and that is the part that protects you.** Your files are never modified in
+place, every change is appended to a plain JSONL journal you can read in any text editor, and the
+layout is a published specification ([STORAGE_SPEC.md](docs/STORAGE_SPEC.md)). Roost's source
+being closed does not close your data — you can walk away with all of it, and the licence says so
+in section 4.
+
+Third-party components, and what their licences oblige, are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+Copyright © 2026 Digitalku · [roost.digitalku.com](https://roost.digitalku.com) ·
+[roostsupport@digitalku.com](mailto:roostsupport@digitalku.com)

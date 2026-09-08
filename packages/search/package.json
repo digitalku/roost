@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "The Roost Query Language: grammar, parser, and its compiler to a bound SQL fragment.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

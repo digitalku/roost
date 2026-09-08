@@ -48,6 +48,7 @@ export {
   STORAGE_MODES,
   type StorageMode,
   TAG_RULES,
+  type WireAbout,
   type WireAssetDetail,
   type WireCapability,
   type WireComment,

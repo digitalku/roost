@@ -8,6 +8,7 @@ import type {
   Request,
   RequestType,
   StorageMode,
+  WireAbout,
   WireImportReport,
   WirePasted,
 } from "@roost/contract";
@@ -219,18 +220,20 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   // The window has no menu bar on Linux or Windows (ADR-0028), so Quit arrives
   // as a request like everything else the renderer can ask for.
   "app:quit",
+  "app:about",
 ]);
 
 async function answerHere(
   engine: Engine,
   request: Request,
-): Promise<string | number | boolean | readonly string[] | WirePasted | null> {
+): Promise<string | number | boolean | readonly string[] | WirePasted | WireAbout | null> {
   if (request.type === "asset:openExternally") return openExternally(request.hash);
   if (request.type === "asset:reveal") return reveal(request.hash);
   if (request.type === "asset:copyPath") return copyPaths(request.hashes);
   if (request.type === "asset:copyFiles") return copyFiles(request.hashes);
   if (request.type === "clipboard:paste") return paste(engine, request.mode);
   if (request.type === "link:open") return openLink(request.url);
+  if (request.type === "app:about") return about();
   if (request.type === "app:quit") {
     // `quit` rather than `exit`: it closes the window, and closing the window is
     // what stops the engine, flushes the journal, and releases the lock.
@@ -413,6 +416,33 @@ async function openLink(url: string): Promise<boolean> {
   }
   await shell.openExternal(url);
   return true;
+}
+
+/**
+ * What build this is (ADR-0038 §5.1).
+ *
+ * All four values are the shell's own: the two runtime versions come from
+ * `process.versions`, which exists in main and deliberately does not in a
+ * sandboxed renderer.
+ *
+ * **`isPackaged` guards the version, and it is not a nicety.** Run unpackaged,
+ * `app.getVersion()` falls back to *Electron's* version — so the dialog said
+ * "Version 43.4.1" the first time it was opened in a real window. An unpackaged
+ * build has no version, and reporting none is what keeps a support email from
+ * naming a release that was never cut.
+ *
+ * **The commit is only as good as what set it.** `ROOST_COMMIT` is handed in by
+ * `scripts/dev.mjs` and by packaging; `electron .` by hand sets nothing, and a
+ * made-up commit identifies the wrong build.
+ */
+function about(): WireAbout {
+  const commit = process.env.ROOST_COMMIT?.trim();
+  return {
+    version: app.isPackaged ? app.getVersion() : null,
+    commit: commit === undefined || commit === "" ? null : commit,
+    electron: process.versions.electron,
+    chromium: process.versions.chrome,
+  };
 }
 
 /**

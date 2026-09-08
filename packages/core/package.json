@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Domain model, SQLite index, content-addressed storage, the journal, and platform access. Everything docs/STORAGE_SPEC.md governs.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

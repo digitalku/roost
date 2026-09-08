@@ -270,8 +270,23 @@ Still open, and none of it blocks M0:
   The binding layout in `STORAGE_SPEC.md` gained its fifth entry with the user's approval — the
   only change this repository has made to it.
 
-- 🟢 **Licence and copyright.** `roost-old` is MIT, copyright Digitalku. Assumed the same here
-  and written into `LICENSE`; say if this repository should differ.
+- ☑ ~~**Licence and copyright.**~~ Answered 2026-09-08 by ADR-0038, and it did differ: MIT was
+  inherited from `roost-old` and never chosen. Roost is **proprietary, © Digitalku**, distributed
+  as a binary — so `LICENSE` is a licence to use, the eleven manifests say `UNLICENSED`, and
+  `THIRD-PARTY-NOTICES.md` exists because a reader can no longer find the dependencies for
+  themselves. **Two things are still owed**: the repository has to actually be private (outside
+  this working copy — the one item here that cannot be verified from it), and the credit the user
+  asked for has no home in the window yet.
+
+- ☑ ~~**An About dialog, and the picker's credit line.**~~ Built 2026-09-08 with ADR-0038,
+  `UI_SPEC.md` §3.12. **About Roost…** in the `☰`, the notices compiled into the bundle rather
+  than fetched, the homepage through `link:open` and the address as selectable text, and one quiet
+  line under the picker for the state that has no `☰`. `app:about` is the request main answers.
+  **What is still owed is a real version.** An unpackaged build has none — `app.getVersion()`
+  answers with Electron's, which is what the dialog said the first time it was opened in a real
+  window — so it draws **Development build** and leans on `ROOST_COMMIT`, set by `pnpm dev` and,
+  when M6 arrives, by packaging. `scripts/check-about.mjs` holds all of it to §3.12 in a window,
+  17 checks.
 
 - 🟢 **What happens to `../roost-old`.** It stays as the reference implementation and the source
   of the cross-implementation test fixture. If it is meant to be archived instead, the fixture
