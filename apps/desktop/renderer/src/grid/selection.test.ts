@@ -69,6 +69,28 @@ describe("selecting in the grid", () => {
     expect(store.focused).toBe("d");
   });
 
+  it("keeps the ring on a clear and drops it on a reset", () => {
+    // Two gestures, two meanings. Clicking the grid's background empties the
+    // selection and the cell is still there; a new query takes the cell away,
+    // and a ring pointing at it opens an asset that is not in the result.
+    const store = stored();
+    store.click("b");
+    store.clear();
+    expect(store.selected()).toEqual([]);
+    expect(store.focused).toBe("b");
+
+    store.reset();
+    expect(store.focused).toBeUndefined();
+  });
+
+  it("wakes the cell that was carrying the ring when it is reset", () => {
+    const store = stored();
+    store.click("b");
+    const woken = watch(store);
+    store.reset();
+    expect(woken()).toBe(1);
+  });
+
   it("selects what is loaded, which is all it can honestly promise", () => {
     const store = stored();
     store.selectLoaded();

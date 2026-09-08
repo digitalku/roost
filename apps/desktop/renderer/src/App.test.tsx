@@ -1479,6 +1479,62 @@ describe("the preview, in the window", () => {
     // key means anywhere else.
     expect(await screen.findByRole("img", { name: "asset-0.png" })).toBeDefined();
   });
+
+  it("closes when a sidebar row asks to look somewhere else", async () => {
+    // Reported 2026-09-08. The pane stayed open over the folder that had just
+    // been clicked, drawing an asset that is not in it — and the only way back
+    // to the grid was Escape, because the preview's head replaces the grid's.
+    const assets = Array.from({ length: 6 }, (_, i) => fakeAsset(i));
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: assets.length },
+      assets,
+      details: assets.map((_, i) => fakeDetail(i, { name: `asset-${i}.png` })),
+      byQuery: { 'folder:"Design"': assets },
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [
+          {
+            id: "folder:7",
+            name: "Design",
+            query: 'folder:"Design"',
+            count: 2,
+            descendants: 2,
+            depth: 0,
+            group: null,
+            stars: null,
+            folder: 7,
+            path: "Design",
+          },
+        ],
+        smartFolders: [],
+        tags: [],
+        types: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(6));
+
+    await user.click(screen.getAllByRole("option")[2] as HTMLElement);
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog");
+
+    await user.click(screen.getByRole("button", { name: /Design/ }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // The grid's head is back with it, and the field shows where the click went.
+    expect(await screen.findByRole("searchbox")).toHaveProperty("value", 'folder:"Design"');
+    // And the focus went with the query: a single click in the new result
+    // selects, as it always does, rather than re-opening the pane that closed.
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(6));
+    await user.click(screen.getAllByRole("option")[1] as HTMLElement);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });
 
 /**

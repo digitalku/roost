@@ -667,6 +667,10 @@ function LibraryView({
   // One store for the life of the view. A new one per render would drop the
   // selection on every keystroke, and every cell's subscription with it.
   const selection = useMemo(() => new SelectionStore(), []);
+  // Declared here rather than beside the rest of the pane's state, because
+  // `applyQuery` closes the preview and a `useState` below it would be read
+  // before it exists.
+  const [previewing, setPreviewing] = useState(false);
   const paging = useAssetPages(query, generation);
   const dropRows = paging.drop;
   const derives = useDeriveStatus(revision);
@@ -735,9 +739,14 @@ function LibraryView({
 
   const applyQuery = useCallback(
     (picked: string) => {
-      // The selection goes with the query: what was selected is no longer on
-      // screen (`UI_SPEC.md` §4.2).
-      selection.clear();
+      // The selection *and the focus* go with the query: what was selected is
+      // no longer on screen (`UI_SPEC.md` §4.2).
+      selection.reset();
+      // And so does the file that was open. A sidebar row is a request to look
+      // somewhere else, and a preview left standing over the result draws an
+      // asset that is not in it — behind a head with no way back to the grid
+      // but Escape (`UI_SPEC.md` §7).
+      setPreviewing(false);
       setQuery(picked);
     },
     [selection],
@@ -888,7 +897,6 @@ function LibraryView({
    */
   // biome-ignore lint/correctness/useExhaustiveDependencies: the revision is the trigger
   const selected = useMemo(() => selection.selected(), [selection, selectionRevision]);
-  const [previewing, setPreviewing] = useState(false);
   /**
    * The one confirmation dialog in the window, and what it is asking about.
    *

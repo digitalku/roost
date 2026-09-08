@@ -968,6 +968,14 @@ all three sections, and for the inspector's chips: a chip that names a tag becom
 where a chip that names a folder becomes the place. Typed free text is not a filter, so a row still
 replaces it — which is what a row has always done.
 
+**A new query takes the selection, the focus and the open file with it.** What was selected is not
+on screen any more, and neither is the cell the ring was on — a ring left behind opens an asset the
+result does not hold when `Enter` is pressed. The preview goes the same way: a row is a request to
+look somewhere else, and a pane left standing over the answer draws a file that is not in it, behind
+a head that has replaced the grid's own (§7). So a sidebar row, an inspector chip, a filter and
+typed text all land the same way — on the grid, showing where the click went. It stayed open until
+2026-09-08, when the user reported it.
+
 Ctrl-clicking a second row to `AND` its term is **not built**, and the bar is most of why it was
 wanted.
 
@@ -1366,6 +1374,10 @@ grid's, so it ends where the loaded page does.
 Arrow keys step through the loaded
 list, and **stepping changes the selection**, so the inspector follows what is on screen — in
 `roost-old` it did not, and a note could be written onto the wrong asset.
+
+**It closes on `Escape`, on the head's Close — and on a new query** (§4.2). The sidebar and the
+inspector are still live while a file is open, and a click in either is a click on something the
+pane is not showing.
 
 | Kind | Renders as |
 | --- | --- |

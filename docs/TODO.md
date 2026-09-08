@@ -790,6 +790,26 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   open a facet whose list is long enough to carry a search field. It is a defect in the check or a
   race in the menu, and until it is known which, a red run there means run it again before believing
   it.
+- ☑ ~~**A sidebar click left the preview open over the answer.**~~ **Fixed 2026-09-08**, reported by
+  the user: with a picture or a film open, clicking a folder in the pane changed the query behind it
+  and left the pane standing, drawing an asset the new result does not hold — and with the grid's
+  head replaced by the preview's, `Escape` was the only way back. The cause was one line older than
+  the preview: `applyQuery` cleared the *selection* and `SelectionStore.clear()` deliberately leaves
+  the focus alone, so `focused` survived the query and `previewing && focused !== undefined` stayed
+  true. `reset()` is now the store's second gesture — the selection, the anchor **and** the ring —
+  and `applyQuery` calls it and closes the preview. The stale ring was the same bug seen from the
+  grid's side: `Enter` opened an asset that was not in the result. 3 more tests.
+- 🟢 **The preview says `aria-modal="true"` and is not modal.** `UI_SPEC.md` §7 keeps the sidebar and
+  the inspector live while a file is open, deliberately — both are still about the thing on screen —
+  and a click in either now reaches the window (the item above). But `aria-modal` tells a screen
+  reader that everything outside the pane is inert, which is then a lie: the two panes it hides are
+  the two that still work. Noticed 2026-09-08 while fixing that. It is either the attribute that
+  goes or the pane that becomes a real dialog, and the first is the smaller claim.
+- 🟢 **Trashing the file that is open leaves the pane drawing it.** The same family as the fix
+  above, and left alone deliberately: `onGone` clears the selection, the ring survives, and the pane
+  goes on serving a trashed asset over `roost://original/`. Unlike a query, a trash has two
+  defensible answers — close the pane, or step to the next asset the way the arrows do — so it is a
+  decision rather than a patch. Noticed 2026-09-08.
 - 🟢 **A folder is reached by typing its whole path, or by clicking it.** Two ideas were put to the
   user on 2026-09-08 beside the one that was built, and neither was taken up yet. **A breadcrumb
   over the grid**, with the last crumb offering the folder's children, is the file manager's answer

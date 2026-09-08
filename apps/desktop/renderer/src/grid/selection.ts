@@ -164,6 +164,24 @@ export class SelectionStore {
     });
   }
 
+  /**
+   * What `clear` is, plus the focus: the rows themselves are gone.
+   *
+   * The two are separate gestures. Clicking the grid's background clears a
+   * selection and leaves the ring where it was, because the cell it names is
+   * still on screen and the arrow keys carry on from there. A new query takes
+   * the cell away — and a ring left pointing at it is a focus nothing can see:
+   * `Enter` opens an asset that is not in the result, and the preview goes on
+   * drawing one.
+   */
+  reset(): void {
+    this.#change(() => {
+      this.#selected = new Set();
+      this.#anchor = undefined;
+      this.#focused = undefined;
+    });
+  }
+
   /** Moves focus without touching the selection — they are separate. */
   focus(hash: string): void {
     this.#change(() => {
