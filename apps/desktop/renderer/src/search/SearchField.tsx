@@ -15,11 +15,13 @@ import { isTyping } from "../keyboard.js";
  * 250ms idle or immediately on Enter, and the grid sees only queries the engine
  * has already agreed to.
  *
- * **It rests showing the head of the query, not the tail.** A field scrolled to
- * wherever the caret last was shows `…/post/testing"` of a folder path, which
- * is the half that names nothing; the half that says which place is being asked
- * about is off the left edge. So the scroll is pinned to 0 whenever nobody is
- * typing in it, and taking the focus puts the caret at the head of the query.
+ * **Taking the focus puts the caret at the end of the query.** A query naming a
+ * folder is usually being *continued* — a subfolder typed onto a path already
+ * there — and a click that dropped the caret in the middle of a long path made
+ * somebody reach its end by hand. At rest, with nobody typing in it, the field
+ * is pinned back to the head: `…/post/testing"` names nothing, and
+ * `folder:"SMA NUSANTARA…` is the half that says which place is being asked
+ * about.
  */
 
 /** How long the typing has to stop before the query is checked. */
@@ -39,40 +41,47 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
   const field = useRef<HTMLInputElement>(null);
 
   /**
-   * Puts the caret at the head of the query, which scrolls the view there.
-   *
-   * A browser scrolls a field to its caret, so offset 0 is what shows
-   * `folder:"SMA NUSANTARA…` rather than the tail the field was left scrolled
-   * to. **A caret and not a selection**, at the user's word on 2026-09-08: it
-   * was built as a select-all first — the address bar's own gesture, where
-   * arriving somewhere and typing means replacing the query — and selecting
-   * text nobody asked to select is what they saw when they clicked. Typing
-   * therefore prefixes the query; `Ctrl+A` is still one keystroke away for
-   * anyone who wants the other thing.
-   *
-   * **Only for the click that arrives.** A second click, with the field already
-   * focused, puts the caret where it landed: a click carries a position, and
-   * overriding it every time would fight anyone editing one term of a query.
-   *
-   * It runs twice for one click, on `focus` and again on `click`, and both are
-   * load-bearing: Chromium places its own caret where the pointer landed
-   * *after* the focus event, so the focus call is what scrolls the view to the
-   * head and the click call is what the caret ends up at.
-   * `scripts/check-filters.mjs` is what holds this — jsdom dispatches the
-   * sequence without any of the default actions that make it true.
-   */
-  /**
    * Whether this click is the one that focused the field.
    *
-   * The first click goes to the head; a second one, with the field already
-   * focused, puts the caret where it landed.
+   * The click that *arrives* goes to the end of the query; a second one, with
+   * the field already focused, puts the caret where it landed.
    */
   const arriving = useRef(false);
 
-  const caretToHead = useCallback(() => {
+  /**
+   * Puts the caret past the last character, which scrolls the view there.
+   *
+   * A browser scrolls a field to its caret, so this is what shows the end of a
+   * path long enough to overflow — and the end is where a folder query gets
+   * *continued*, a subfolder typed onto a path already in the field. Reaching
+   * it by hand is the complaint this answers: a click drops the caret where the
+   * pointer landed, which for a long path is the middle of a folder name.
+   *
+   * **A caret and not a selection**, at the user's word on 2026-09-08: it was
+   * built as a select-all first — the address bar's own gesture, where arriving
+   * somewhere and typing means replacing the query — and selecting text nobody
+   * asked to select is what they saw when they clicked.
+   *
+   * **Only for the click that arrives.** A second click carries a position of
+   * its own, and overriding it every time would fight anyone editing one term
+   * of a query.
+   *
+   * It runs twice for one click, on `focus` and again on `click`, and both are
+   * load-bearing: Chromium places its own caret where the pointer landed
+   * *after* the focus event, so the focus call is what moves the view and the
+   * click call is where the caret ends up. `scripts/check-filters.mjs` is what
+   * holds this — jsdom dispatches the sequence without any of the default
+   * actions that make it true.
+   */
+  const caretToEnd = useCallback(() => {
     const input = field.current;
     if (input === null || input.value === "") return;
-    input.setSelectionRange(0, 0);
+    input.setSelectionRange(input.value.length, input.value.length);
+    // The scroll is set rather than left to follow the caret: Chromium moves a
+    // field's view for a caret the *user* moved and not for one set from
+    // script, so the end of an overflowing path would sit past the right edge
+    // with the caret invisible behind it.
+    input.scrollLeft = input.scrollWidth;
   }, []);
 
   // A sidebar click replaces the query, and the field shows what is actually
@@ -136,8 +145,7 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
    * caret, and the field owns its own input. `/` is a character somebody may be
    * typing into a tag name, so it is refused while a field has the focus;
    * `Ctrl+F` is not a character and works from anywhere, including from inside
-   * this field, where it takes the caret back to the head rather than doing
-   * nothing.
+   * this field, where it takes the caret to the end rather than doing nothing.
    */
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -149,11 +157,11 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
       if (slash && target instanceof HTMLElement && isTyping(target)) return;
       event.preventDefault();
       field.current?.focus();
-      caretToHead();
+      caretToEnd();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [caretToHead]);
+  }, [caretToEnd]);
 
   // Applied on an idle rather than on every keystroke: every character would be
   // a round trip, and a query is not finished until the typing stops.
@@ -188,9 +196,9 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
           // A drag chose its own text and keeps it; this rule is for the plain
           // click that arrives.
           if (input === null || input.selectionStart !== input.selectionEnd) return;
-          caretToHead();
+          caretToEnd();
         }}
-        onFocus={caretToHead}
+        onFocus={caretToEnd}
         onBlur={() => {
           arriving.current = false;
           if (field.current !== null) field.current.scrollLeft = 0;

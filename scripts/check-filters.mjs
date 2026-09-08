@@ -453,15 +453,16 @@ try {
     };
   })()`);
   check(
-    "the click that focuses it puts the caret at the head of the query",
-    clicked.start === 0 && clicked.end === 0,
+    "the click that focuses it puts the caret at the end of the query",
+    clicked.start === clicked.length && clicked.end === clicked.length,
     `${clicked.start}-${clicked.end} of ${clicked.length}`,
   );
-  // A browser scrolls a field to its caret, so offset 0 is what shows the
-  // folder the query names rather than the last twenty characters of a path.
+  // And the end has to be *on screen*, which is a second claim: a caret past
+  // the last character of a path the field cannot hold is no use behind its
+  // right edge.
   check(
-    "and shows its head rather than the tail it was scrolled to",
-    clicked.scroll === 0,
+    "and scrolls to the tail, where a folder path is continued",
+    clicked.scroll > 0,
     `scrollLeft=${clicked.scroll}`,
   );
 
