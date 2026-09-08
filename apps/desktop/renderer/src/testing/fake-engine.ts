@@ -328,7 +328,7 @@ export class FakeEngine {
   constructor(options: FakeEngineOptions = {}) {
     this.#options = options;
     this.folders = options.sidebar?.folders ?? [];
-    this.settings = options.settings ?? { showSubfolderContents: false };
+    this.settings = options.settings ?? { showSubfolderContents: false, fitVideoToWindow: false };
     this.#nextFolderId = Math.max(0, ...this.folders.map((row) => row.folder)) + 1;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);
     for (const detail of options.details ?? []) {
@@ -1034,8 +1034,14 @@ export class FakeEngine {
         return ok(this.settings);
 
       case "settings:write": {
+        if (request.fitVideoToWindow !== undefined) {
+          this.settings = { ...this.settings, fitVideoToWindow: request.fitVideoToWindow };
+        }
         if (request.showSubfolderContents !== undefined) {
-          this.settings = { showSubfolderContents: request.showSubfolderContents };
+          this.settings = {
+            ...this.settings,
+            showSubfolderContents: request.showSubfolderContents,
+          };
           // The real engine rewrites every folder row's query when this
           // changes, and the window re-reads the pane because of it.
           this.folders = this.folders.map((row) => ({

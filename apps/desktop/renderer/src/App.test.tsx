@@ -1383,7 +1383,7 @@ describe("Show subfolder contents, in the window (ADR-0036)", () => {
         "folder:Design",
       ),
     );
-    expect(engine.settings).toEqual({ showSubfolderContents: true });
+    expect(engine.settings).toEqual({ showSubfolderContents: true, fitVideoToWindow: false });
   });
 
   it("reflects the query rather than the setting once a folder is on screen", async () => {

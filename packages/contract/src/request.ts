@@ -172,7 +172,11 @@ export type Request =
    * the disk — a library on read-only media keeps the setting for the session
    * (ADR-0019) — and the window should draw what the engine actually holds.
    */
-  | { readonly type: "settings:write"; readonly showSubfolderContents?: boolean }
+  | {
+      readonly type: "settings:write";
+      readonly showSubfolderContents?: boolean;
+      readonly fitVideoToWindow?: boolean;
+    }
   /**
    * Everything the inspector shows about one asset.
    *
@@ -807,11 +811,17 @@ export const REQUEST_VALIDATORS: {
 
   "settings:write": (source) => {
     // Every field is optional and absent means "leave it alone", so a build
-    // that learns a second setting does not have to send the first one back.
-    const held = source["showSubfolderContents"];
-    if (held === undefined) return ok({ type: "settings:write" });
-    const on = readBoolean(source, "showSubfolderContents");
-    return on.ok ? ok({ type: "settings:write", showSubfolderContents: on.value }) : on;
+    // that learns another setting does not have to send the first one back.
+    // A key that is present is still validated: "absent" and "not a boolean"
+    // are different answers, and only the first of them is a request.
+    const patch: { showSubfolderContents?: boolean; fitVideoToWindow?: boolean } = {};
+    for (const key of ["showSubfolderContents", "fitVideoToWindow"] as const) {
+      if (source[key] === undefined) continue;
+      const on = readBoolean(source, key);
+      if (!on.ok) return on;
+      patch[key] = on.value;
+    }
+    return ok({ type: "settings:write", ...patch });
   },
 
   "asset:detail": (source) => {

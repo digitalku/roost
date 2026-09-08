@@ -37,9 +37,15 @@ describe("reading settings", () => {
     expect(DEFAULT_SETTINGS.showSubfolderContents).toBe(false);
   });
 
+  it("keeps a video at its own pixels until somebody says otherwise", async () => {
+    // The user's choice on 2026-09-08 (ADR-0024 §8): a low-resolution video is
+    // fitted to the pane but never blown up, and Fit is what changes that.
+    expect(DEFAULT_SETTINGS.fitVideoToWindow).toBe(false);
+  });
+
   it("takes what the file says", async () => {
     await write('{ "showSubfolderContents": true }');
-    expect(await readSettings(dir)).toEqual({ showSubfolderContents: true });
+    expect(await readSettings(dir)).toEqual({ ...DEFAULT_SETTINGS, showSubfolderContents: true });
   });
 
   it("falls back per key rather than discarding the file", async () => {
@@ -61,7 +67,18 @@ describe("reading settings", () => {
 describe("writing settings", () => {
   it("writes what was asked and reads it back", async () => {
     expect(await writeSettings(dir, { showSubfolderContents: true })).toBe(true);
-    expect(await readSettings(dir)).toEqual({ showSubfolderContents: true });
+    expect(await readSettings(dir)).toEqual({ ...DEFAULT_SETTINGS, showSubfolderContents: true });
+  });
+
+  it("writes one setting without disturbing the other", async () => {
+    // A patch, not a document: the preview writes `fitVideoToWindow` and knows
+    // nothing about what the filter bar last wrote.
+    await writeSettings(dir, { showSubfolderContents: true });
+    await writeSettings(dir, { fitVideoToWindow: true });
+    expect(await readSettings(dir)).toEqual({
+      showSubfolderContents: true,
+      fitVideoToWindow: true,
+    });
   });
 
   it("keeps a key this build has never heard of", async () => {

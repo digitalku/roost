@@ -13,6 +13,7 @@
  *
  *     node scripts/check-transport.mjs
  */
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { addComment, generateMissing, importInto, Library, pageOf } from "@roost/library";
@@ -417,6 +418,94 @@ try {
     (t) => Math.abs(t - 5) < 0.5,
   );
   check("a comment in the inspector still seeks the player", true, `t=${fromList}`);
+
+  section("Fit to window (ADR-0024 §8)");
+
+  /*
+   * The clip is 320×240 and the pane is several times that, so this is the
+   * shape the user asked about on 2026-09-08: a low-resolution video adrift in
+   * a big window. Only a window can answer it — the size a video is drawn at is
+   * layout, and happy-dom has none.
+   */
+  const sizeExpression = `
+    (() => {
+      const video = document.querySelector("video");
+      const picture = document.querySelector(".preview-picture");
+      const button = [...document.querySelectorAll(".preview-fit button")][0] ?? null;
+      if (video === null || picture === null) return null;
+      const v = video.getBoundingClientRect();
+      const p = picture.getBoundingClientRect();
+      // What is actually on screen. \`object-fit: contain\` letterboxes inside
+      // the element, so the element's own box is the room it was given and the
+      // frame in it is the smaller of the two axes — which is the number a
+      // person means by "how big is the video".
+      const scale = video.videoWidth === 0
+        ? 0
+        : Math.min(v.width / video.videoWidth, v.height / video.videoHeight);
+      return {
+        video: { width: Math.round(v.width), height: Math.round(v.height) },
+        picture: { width: Math.round(p.width), height: Math.round(p.height) },
+        natural: { width: video.videoWidth, height: video.videoHeight },
+        painted: {
+          width: Math.round(video.videoWidth * scale),
+          height: Math.round(video.videoHeight * scale),
+        },
+        pressed: button?.getAttribute("aria-pressed") ?? null,
+      };
+    })()`;
+
+  const fitButton = '[...document.querySelectorAll(".preview-fit button")][0].click()';
+  const settings = async () =>
+    JSON.parse(await readFile(join(root, "settings.json"), "utf8").catch(() => "{}"));
+
+  const own = await cdp.settle(sizeExpression, (s) => s !== null && s.natural.width > 0);
+  check(
+    "a video smaller than the pane is drawn at its own pixels, and the button is unpressed",
+    own.painted.width === own.natural.width &&
+      own.painted.height === own.natural.height &&
+      own.pressed === "false",
+    `${own.painted.width}×${own.painted.height} of ${own.picture.width}×${own.picture.height}`,
+  );
+
+  await cdp.evaluate(fitButton);
+  const fitted = await cdp.settle(sizeExpression, (s) => s !== null && s.pressed === "true");
+  // One axis meets the pane and the other is whatever the shape says: 4:3 in a
+  // pane taller than it is wide by that ratio is bounded by the width.
+  const ratio = own.natural.width / own.natural.height;
+  check(
+    "pressing Fit scales it up to the pane",
+    (fitted.painted.width >= fitted.picture.width - 1 ||
+      fitted.painted.height >= fitted.picture.height - 1) &&
+      fitted.painted.width > own.painted.width,
+    `${fitted.painted.width}×${fitted.painted.height} of ${fitted.picture.width}×${fitted.picture.height}`,
+  );
+  check(
+    "keeping its shape, and inside the pane rather than over it",
+    Math.abs(fitted.painted.width - fitted.painted.height * ratio) <= 2 &&
+      fitted.painted.width <= fitted.picture.width + 1 &&
+      fitted.painted.height <= fitted.picture.height + 1,
+    `${fitted.painted.width}×${fitted.painted.height}, ratio=${ratio.toFixed(2)}`,
+  );
+
+  // In the library rather than in the window (ADR-0019): the answer is about a
+  // screen, so it outlives the asset and the session.
+  const remembered = await settings();
+  check(
+    "and remembers it in the library's own settings.json",
+    remembered.fitVideoToWindow === true,
+    JSON.stringify(remembered),
+  );
+
+  await cdp.evaluate(fitButton);
+  const unfitted = await cdp.settle(sizeExpression, (s) => s !== null && s.pressed === "false");
+  check(
+    "pressing it again gives the video back its own pixels",
+    unfitted.painted.width === unfitted.natural.width &&
+      unfitted.painted.height === unfitted.natural.height,
+    `${unfitted.painted.width}×${unfitted.painted.height}`,
+  );
+  const cleared = await settings();
+  check("and that is remembered too", cleared.fitVideoToWindow === false, JSON.stringify(cleared));
 
   section("Setting this frame as the thumbnail (stage 4)");
   const cellExpression = `

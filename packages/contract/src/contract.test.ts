@@ -194,6 +194,43 @@ describe("validating a page of the grid", () => {
   });
 });
 
+describe("validating a change of preferences", () => {
+  /**
+   * Every field is optional and absent means "leave it alone" (ADR-0019), so
+   * the patch has to survive a build that knows one setting talking to one that
+   * knows two — in both directions.
+   */
+  it("takes one setting, both, or neither", () => {
+    expect(checkRequest({ type: "settings:write" })).toEqual({
+      ok: true,
+      value: { type: "settings:write" },
+    });
+    expect(checkRequest({ type: "settings:write", fitVideoToWindow: true })).toEqual({
+      ok: true,
+      value: { type: "settings:write", fitVideoToWindow: true },
+    });
+    expect(
+      checkRequest({
+        type: "settings:write",
+        showSubfolderContents: true,
+        fitVideoToWindow: false,
+      }),
+    ).toEqual({
+      ok: true,
+      value: { type: "settings:write", showSubfolderContents: true, fitVideoToWindow: false },
+    });
+  });
+
+  it("still checks a key that is there", () => {
+    // "Absent" and "not a boolean" are different answers, and only the first of
+    // them is a request.
+    expect(checkRequest({ type: "settings:write", fitVideoToWindow: "yes" })).toEqual({
+      ok: false,
+      reason: "settings:write: fitVideoToWindow: expected a boolean",
+    });
+  });
+});
+
 describe("validating a thumbnail moment", () => {
   const HASH = "a".repeat(64);
 

@@ -57,7 +57,7 @@ import { Sidebar } from "./sidebar/Sidebar.js";
  * and a ref's, and a fresh one per render would be a fresh dependency too.
  */
 /** What a library has before anything has been changed in it (ADR-0019). */
-const DEFAULT_SETTINGS: WireSettings = { showSubfolderContents: false };
+const DEFAULT_SETTINGS: WireSettings = { showSubfolderContents: false, fitVideoToWindow: false };
 
 const NO_SPLIT: WireSplitQuery = {
   place: "",
@@ -828,6 +828,22 @@ function LibraryView({
     [applyQuery],
   );
 
+  /**
+   * *Fit* was pressed in the preview (ADR-0024 §8).
+   *
+   * One setting and nothing else: unlike *Show subfolder contents* this asks no
+   * new question of the library, so there is no query to rewrite and no pane to
+   * re-read. Held locally first for the same reason — the engine's answer is a
+   * round trip away, and a video that waited for it would be redrawn twice.
+   */
+  const applyFitVideo = useCallback((on: boolean) => {
+    setSettings((held) => ({ ...held, fitVideoToWindow: on }));
+    void (async () => {
+      const written = await invoke({ type: "settings:write", fitVideoToWindow: on });
+      if (written.ok) setSettings(written.value);
+    })();
+  }, []);
+
   /** A facet was ticked: the place stands, the facets are the new ones. */
   const applyFacets = useCallback(
     (chosen: WireFacets) => {
@@ -1527,6 +1543,8 @@ function LibraryView({
                 hasNext={stepAt >= 0 && stepAt + 1 < paging.assets.length}
                 onClose={() => setPreviewing(false)}
                 onStep={step}
+                fitVideo={settings.fitVideoToWindow}
+                onFitVideo={applyFitVideo}
               />
             </AssetContextMenu>
           ) : paging.assets.length === 0 && paging.done ? (

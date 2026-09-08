@@ -1,5 +1,6 @@
 import type { WireAssetDetail, WireSubtitle } from "@roost/contract";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "../bridge.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { Picture, type PictureHandle } from "./Picture.js";
@@ -45,6 +46,14 @@ export interface PreviewPaneProps {
   readonly onClose: () => void;
   /** Moves to the previous or next loaded asset, changing the selection. */
   readonly onStep: (delta: -1 | 1) => void;
+  /**
+   * Whether a video is scaled up to the pane (ADR-0024 §8).
+   *
+   * The library's, not the pane's: it is remembered in `settings.json` and is
+   * therefore the caller's to hold, exactly as *Show subfolder contents* is.
+   */
+  readonly fitVideo: boolean;
+  readonly onFitVideo: (on: boolean) => void;
 }
 
 /**
@@ -90,6 +99,8 @@ export function PreviewPane({
   hasNext,
   onClose,
   onStep,
+  fitVideo,
+  onFitVideo,
 }: PreviewPaneProps): React.JSX.Element {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [page, setPage] = useState(0);
@@ -242,7 +253,15 @@ export function PreviewPane({
       </header>
       <div className="preview-stage">
         {detail === undefined ? null : (
-          <Stage detail={detail} page={page} onTurn={turn} pictureRef={picture} tools={tools} />
+          <Stage
+            detail={detail}
+            page={page}
+            onTurn={turn}
+            pictureRef={picture}
+            tools={tools}
+            fitVideo={fitVideo}
+            onFitVideo={onFitVideo}
+          />
         )}
       </div>
     </div>
@@ -263,13 +282,17 @@ function Stage({
   onTurn,
   pictureRef,
   tools,
+  fitVideo,
+  onFitVideo,
 }: {
   readonly detail: WireAssetDetail;
   readonly page: number;
   readonly onTurn: (delta: number) => void;
   readonly pictureRef: React.RefObject<PictureHandle | null>;
-  /** The head's slot, which the picture draws its zoom controls into. */
+  /** The head's slot, which the picture and the player draw their size controls into. */
   readonly tools: HTMLElement | null;
+  readonly fitVideo: boolean;
+  readonly onFitVideo: (on: boolean) => void;
 }): React.JSX.Element {
   const src = `roost://original/${detail.hash}`;
 
@@ -285,7 +308,16 @@ function Stage({
   }
 
   if (detail.kind === "video" || detail.kind === "audio") {
-    return <Player key={detail.hash} detail={detail} src={src} />;
+    return (
+      <Player
+        key={detail.hash}
+        detail={detail}
+        src={src}
+        tools={tools}
+        fit={fitVideo}
+        onFit={onFitVideo}
+      />
+    );
   }
 
   // A document with pages to turn. `pageCount` is null until the derive pass
@@ -383,13 +415,29 @@ function Pages({
  *
  * The element is held in state rather than a ref because the transport is
  * drawn from it, and a ref does not tell React that it has arrived.
+ *
+ * **Fit to window is a mode, not an action** (ADR-0024 §8). Asked for on
+ * 2026-09-08: *"apakah memungkinkan di beirkan tombol fit to window? supaya
+ * videonya gak kekecilan jika memutar resolusi rendah"*. A video too big for
+ * the pane is fitted to it either way — that is what `max-*` has always done —
+ * so what the button decides is whether a video **smaller** than the pane is
+ * scaled up to it, which is why it is drawn pressed rather than as something
+ * that happens once. The choice is the library's and outlives the asset: it is
+ * an answer about a screen, not about one file.
  */
 function Player({
   detail,
   src,
+  tools,
+  fit,
+  onFit,
 }: {
   readonly detail: WireAssetDetail;
   readonly src: string;
+  /** The head's slot. `null` while the pane is mounting. */
+  readonly tools: HTMLElement | null;
+  readonly fit: boolean;
+  readonly onFit: (on: boolean) => void;
 }): React.JSX.Element {
   const [element, setElement] = useState<HTMLVideoElement | HTMLAudioElement | null>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -427,8 +475,36 @@ function Player({
     })();
   };
 
+  /*
+    Audio has no picture, so it has nothing to fit. Drawn through a portal for
+    the picture's reason: the control belongs to what is on screen and the head
+    is where the pane keeps its controls, which is also what leaves the video
+    the whole strip it was standing on.
+  */
+  const fitControl =
+    detail.kind === "audio" || tools === null
+      ? null
+      : createPortal(
+          <div className="preview-fit">
+            <button
+              type="button"
+              aria-pressed={fit}
+              title={fit ? "Show the video at its own size" : "Scale the video to the window"}
+              onClick={() => onFit(!fit)}
+            >
+              Fit
+            </button>
+          </div>,
+          tools,
+        );
+
   return (
-    <div className="preview-player" data-kind={detail.kind} ref={stage}>
+    <div
+      className="preview-player"
+      data-kind={detail.kind}
+      data-fit={fit ? "" : undefined}
+      ref={stage}
+    >
       {/* The picture takes whatever is left above the bar, which is what keeps
           the bar at the foot of the pane rather than wherever the file's aspect
           ratio happens to end. */}
@@ -460,6 +536,7 @@ function Player({
         subtitles={tracks}
         onAddSubtitle={addSubtitle}
       />
+      {fitControl}
     </div>
   );
 }

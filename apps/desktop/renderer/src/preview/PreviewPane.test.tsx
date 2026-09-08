@@ -33,6 +33,8 @@ describe("the preview pane", () => {
           closed += 1;
         }}
         onStep={(delta) => steps.push(delta)}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     return userEvent.setup();
@@ -202,6 +204,8 @@ describe("the preview pane", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
@@ -216,6 +220,8 @@ describe("the preview pane", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     await waitFor(() =>
@@ -247,6 +253,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     return { engine, user: userEvent.setup() };
@@ -351,6 +359,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     await player();
@@ -367,6 +377,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
 
@@ -389,6 +401,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     await player();
@@ -405,6 +419,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
 
@@ -426,6 +442,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     const playing = await player();
@@ -438,6 +456,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     await waitFor(() =>
@@ -476,6 +496,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={(delta) => steps.push(delta)}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     const user = userEvent.setup();
@@ -527,6 +549,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={(delta) => steps.push(delta)}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     const user = userEvent.setup();
@@ -554,6 +578,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={(delta) => stepped.push(delta)}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     await screen.findByRole("button", { name: "Next asset" });
@@ -578,6 +604,8 @@ describe("the transport", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     await screen.findByRole("button", { name: "Close" });
@@ -672,6 +700,8 @@ describe("what the native bar withholds", () => {
         hasNext
         onClose={vi.fn()}
         onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     return { engine, user: userEvent.setup() };
@@ -859,6 +889,8 @@ describe("a document with pages to turn", () => {
         hasNext
         onClose={() => undefined}
         onStep={() => undefined}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
     return userEvent.setup();
@@ -918,6 +950,8 @@ describe("a font", () => {
         hasNext
         onClose={() => undefined}
         onStep={() => undefined}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
       />,
     );
 
@@ -928,5 +962,79 @@ describe("a font", () => {
     // loads a font to show one (ADR-0015).
     expect(specimen.getAttribute("src")).toBe(`roost://thumb/${HASH}@512`);
     expect(screen.getByText("Timber Sans · Italic")).toBeDefined();
+  });
+});
+
+/**
+ * Fit to window (ADR-0024 §8).
+ *
+ * Whether a video that is *smaller* than the pane is scaled up to it. What the
+ * size actually becomes is layout, which happy-dom has none of — that half is
+ * `scripts/check-transport.mjs`. What can be asserted here is the mode: which
+ * kinds get the button, what it reports, and that pressing it hands the answer
+ * to the library rather than keeping it.
+ */
+describe("fitting a video to the window", () => {
+  const showKind = (kind: AssetKind, ext: string, fit: boolean, onFit = vi.fn()) => {
+    const engine = new FakeEngine({ details: [fakeDetail(1, { kind, ext, name: `one.${ext}` })] });
+    install(engine);
+    render(
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+        fitVideo={fit}
+        onFitVideo={onFit}
+      />,
+    );
+    return userEvent.setup();
+  };
+
+  it("draws the button in the head, unpressed, and leaves the video at its own size", async () => {
+    showKind("video", "mp4", false);
+    const fit = await screen.findByRole("button", { name: "Fit" });
+    expect(fit.getAttribute("aria-pressed")).toBe("false");
+    // The attribute is the whole of what the CSS reads, so it is the claim.
+    expect(document.querySelector(".preview-player")?.hasAttribute("data-fit")).toBe(false);
+  });
+
+  it("hands the answer to the library rather than keeping it", async () => {
+    const onFit = vi.fn();
+    const user = showKind("video", "mp4", false, onFit);
+    await user.click(await screen.findByRole("button", { name: "Fit" }));
+
+    // Remembered in `settings.json` for every video, at the user's choosing on
+    // 2026-09-08 — so the pane asks the caller and does not hold a mode of its
+    // own, which is also what makes it survive stepping to the next asset.
+    expect(onFit.mock.calls).toEqual([[true]]);
+  });
+
+  it("draws it pressed when the library says so, and marks the player", async () => {
+    showKind("video", "mp4", true);
+    const fit = await screen.findByRole("button", { name: "Fit" });
+    expect(fit.getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelector(".preview-player")?.hasAttribute("data-fit")).toBe(true);
+  });
+
+  it("offers the way back once it is pressed", async () => {
+    const onFit = vi.fn();
+    const user = showKind("video", "mp4", true, onFit);
+    await user.click(await screen.findByRole("button", { name: "Fit" }));
+    expect(onFit.mock.calls).toEqual([[false]]);
+  });
+
+  it("is not drawn for audio, which has no picture to fit", async () => {
+    showKind("audio", "mp3", false);
+    await waitFor(() => expect(document.querySelector(".preview-player")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Fit" })).toBeNull();
+  });
+
+  it("is not drawn for a picture, which has the zoom controls instead", async () => {
+    showKind("image", "png", false);
+    await screen.findByRole("img", { name: "one.png" });
+    expect(screen.queryByRole("button", { name: "Fit" })).toBeNull();
   });
 });

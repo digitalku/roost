@@ -202,6 +202,12 @@ export class EngineHost {
           // query, so it would quietly stop being marked as current.
           this.onChanged?.();
         }
+        if (request.fitVideoToWindow !== undefined) {
+          // Nothing is announced for this one: it changes how big a video is
+          // drawn and nothing about what any query answers, and the pane that
+          // sent it is already showing the new size (ADR-0024 §8).
+          await library.updateSettings({ fitVideoToWindow: request.fitVideoToWindow });
+        }
         return library.settings;
       }
 

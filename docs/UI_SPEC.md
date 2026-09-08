@@ -1449,7 +1449,7 @@ pane is not showing.
 | --- | --- |
 | Image | `<img src="roost://original/<hash>">`, fit to pane, and zoomable: the wheel, two buttons and a readout, `+`/`-`, click to toggle 1:1, drag to pan |
 | SVG | Same, sandboxed — scripts in an SVG do not run |
-| Video / audio | `<video>` / `<audio>` over `roost://original/`, which answers range requests, under a transport of ours — `controls` is off |
+| Video / audio | `<video>` / `<audio>` over `roost://original/`, which answers range requests, under a transport of ours — `controls` is off. **Fit** in the head scales a small video up to the pane |
 | PDF | Page-through: `PageUp` / `PageDown` and two buttons, each page an `<img>` over `roost://page/<hash>/<n>@1024`. Arrow keys keep stepping between assets, so a document does not trap the keyboard |
 | Font | The specimen sheet the derive pass drew, with the family and style under it |
 | Text | The file itself, monospace, wrapped, with the encoding named under it — `.txt`, `.md`, `.srt`, a log. **Edit** makes it a textarea in the same box |
@@ -1510,7 +1510,8 @@ did.
 | A-B loop | One button and three states — set the start, set the end, clear — plus `I` and `O`. The region is drawn along the track, and a start with no end is a mark rather than a band, because the loop is not running yet |
 
 **The transport is the foot of the pane, and it spans it.** The picture takes whatever is left
-above it, centred and fitted rather than filled, so a small video keeps its own pixels. Until
+above it, centred and fitted rather than filled, so a small video keeps its own pixels — unless
+**Fit** says otherwise, which is the paragraph after this one. Until
 2026-09-05 the player shrink-wrapped the media and the bar was a caption under it, which put the
 controls wherever the file's aspect ratio happened to end — a different place for every asset — and
 gave a portrait video a timeline a few hundred pixels long. A bar that stands still is a bar the
@@ -1518,6 +1519,19 @@ hand can find without looking, and the longest timeline the pane can give is the
 somebody scrubbing can aim with. `<audio>` is the exception, and for the reason that proves the
 rule: with no picture above it there is nothing for the bar to be the foot of, so it stays in the
 middle of the pane.
+
+**Fit to window is a mode, and it is off by default** (ADR-0024 §8). Asked for on 2026-09-08 —
+*"ketika memutar video apakah memungkinkan di beirkan tombol fit to window? supaya videonya gak
+kekecilan jika memutar resolusi rendah"*. The rule above fits in one direction only: `max-*` brings
+a video **larger** than the pane down to it and leaves a smaller one exactly where it is, so a
+320×240 clip sat in the middle of a pane ten times its area. **Fit** is a button in the head of the
+pane, beside where a picture's zoom controls stand, and it scales a video up to the room it has —
+`object-fit: contain`, so what it gains is size and never a crop. It is drawn **pressed** rather
+than as something that happens once, because the question is standing: a video too big for the pane
+looks the same either way, and the next video wants the same answer as this one. That is why the
+answer is remembered in the library's `settings.json` (ADR-0019) rather than forgotten per asset the
+way the picture's zoom deliberately is — a scale chosen for one photograph is not a fact about the
+next, and eyesight is. Audio has no picture and therefore no button.
 
 **Every control in the bar is a target before it is a drawing.** The transport is pressed while
 something is playing, often in a hurry and sometimes at the edge of a window, so nothing here is

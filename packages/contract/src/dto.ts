@@ -399,12 +399,19 @@ export interface WireFacets {
 /**
  * This library's preferences (ADR-0019).
  *
- * One field so far. It lives in `settings.json` inside the library, so it
- * travels with the folder and both frontends read the same one.
+ * They live in `settings.json` inside the library, so they travel with the
+ * folder and both frontends read the same ones.
  */
 export interface WireSettings {
   /** Whether opening a folder shows what is in its subfolders (ADR-0036). */
   readonly showSubfolderContents: boolean;
+  /**
+   * Whether the preview scales a video up to the pane (ADR-0024 §8).
+   *
+   * Off is the state the pane has always had: a video is fitted but never
+   * blown up, so a 320×240 clip is 320×240 in a pane ten times its size.
+   */
+  readonly fitVideoToWindow: boolean;
 }
 
 /** A query read as somewhere to look plus what the bar narrowed it to. */

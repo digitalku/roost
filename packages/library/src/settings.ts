@@ -45,10 +45,20 @@ export interface Settings {
    * own contents, as a file manager's does.
    */
   readonly showSubfolderContents: boolean;
+  /**
+   * Whether the preview scales a video up to the pane (ADR-0024 §8).
+   *
+   * Off by default, at the user's choosing on 2026-09-08: a video is fitted to
+   * the pane but never blown up, so a low-resolution clip keeps its own pixels
+   * until somebody says otherwise. Remembered here rather than per asset
+   * because it is an answer about eyesight and screens, not about one file.
+   */
+  readonly fitVideoToWindow: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   showSubfolderContents: false,
+  fitVideoToWindow: false,
 };
 
 /**
@@ -65,6 +75,7 @@ export async function readSettings(root: string): Promise<Settings> {
       raw["showSubfolderContents"],
       DEFAULT_SETTINGS.showSubfolderContents,
     ),
+    fitVideoToWindow: boolish(raw["fitVideoToWindow"], DEFAULT_SETTINGS.fitVideoToWindow),
   };
 }
 
