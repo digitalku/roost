@@ -15,14 +15,10 @@ import { isTyping } from "../keyboard.js";
  * 250ms idle or immediately on Enter, and the grid sees only queries the engine
  * has already agreed to.
  *
- * **Taking the focus puts the caret one space past the query.** A query naming a
- * folder is usually being *continued* — a term added, a subfolder typed onto a
- * path already there — and a click that dropped the caret in the middle of a
- * long path made somebody reach its end by hand. The space is a real character
- * and RQL's own separator, so the next term can be typed straight away; the
- * room to the right of the caret is padding rather than characters, or every
- * click would grow the query. At rest, with nobody typing in it, the field is
- * pinned back to the head: `…/post/testing"` names nothing, and
+ * **Nothing moves the caret.** A click lands where the pointer landed, as it
+ * does in any text field; the field neither selects the query nor runs to its
+ * end, at the user's word on 2026-09-08. At rest, with nobody typing in it, the
+ * view is pinned back to the head: `…/post/testing"` names nothing, and
  * `folder:"SMA NUSANTARA…` is the half that says which place is being asked
  * about.
  */
@@ -43,56 +39,6 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
   const [problem, setProblem] = useState<{ message: string; at: number | null } | undefined>();
   const field = useRef<HTMLInputElement>(null);
 
-  /**
-   * Whether this click is the one that focused the field.
-   *
-   * The click that *arrives* goes to the end of the query; a second one, with
-   * the field already focused, puts the caret where it landed.
-   */
-  const arriving = useRef(false);
-
-  /** Set when the caret has to land at the end once React has written `text`. */
-  const wantEnd = useRef(false);
-
-  /**
-   * Puts the caret one space past the query, and the view with it.
-   *
-   * The end is where a folder query gets *continued* — a subfolder typed onto a
-   * path already in the field — and reaching it by hand is the complaint this
-   * answers: a click drops the caret where the pointer landed, which for a long
-   * path is the middle of a folder name. The trailing space is RQL's separator,
-   * so what follows the caret is the next term rather than a syntax error, and
-   * it is added only when there is not one already: a click is not an edit, and
-   * a field that grew a space per click would be one.
-   *
-   * **A caret and not a selection**, at the user's word on 2026-09-08: it was
-   * built as a select-all first — the address bar's own gesture, where arriving
-   * somewhere and typing means replacing the query — and selecting text nobody
-   * asked to select is what they saw when they clicked.
-   *
-   * **Only for the click that arrives.** A second click carries a position of
-   * its own, and overriding it every time would fight anyone editing one term
-   * of a query.
-   *
-   * It runs twice for one click, on `focus` and again on `click`, and both are
-   * load-bearing: Chromium places its own caret where the pointer landed
-   * *after* the focus event, so the focus call is what moves the view and the
-   * click call is where the caret ends up. `scripts/check-filters.mjs` is what
-   * holds this — jsdom dispatches the sequence without any of the default
-   * actions that make it true.
-   */
-  const caretToEnd = useCallback(() => {
-    const input = field.current;
-    if (input === null || input.value === "") return;
-    if (input.value.endsWith(" ")) {
-      placeAtEnd(input);
-      return;
-    }
-    // The space is state, so the caret waits for the render that carries it.
-    wantEnd.current = true;
-    setText(`${input.value} `);
-  }, []);
-
   // A sidebar click replaces the query, and the field shows what is actually
   // being asked (`UI_SPEC.md` §4.1) — so it follows the applied query rather
   // than holding whatever was last typed.
@@ -112,10 +58,9 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
 
   const apply = useCallback(
     async (draft: string) => {
-      // The space this field adds for the next term is the field's, not the
-      // query's: `App.tsx` recognises the folder on screen by comparing the
-      // running query against the sidebar's rows, and one that ends in a space
-      // matches nothing.
+      // A trailing space is a separator somebody typed, not a term: `App.tsx`
+      // recognises the folder on screen by comparing the running query against
+      // the sidebar's rows, and one that ends in a space matches nothing.
       const candidate = draft.trimEnd();
       attempt.current += 1;
       const mine = attempt.current;
@@ -146,13 +91,8 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
   useLayoutEffect(() => {
     const input = field.current;
     // `input.value !== text` is React not having written this render's value in
-    // yet; either half of this would then act on the wrong string.
+    // yet; the scroll would then act on the wrong string.
     if (input === null || input.value !== text) return;
-    if (wantEnd.current) {
-      wantEnd.current = false;
-      placeAtEnd(input);
-      return;
-    }
     if (document.activeElement === input) return;
     input.scrollLeft = 0;
   }, [text]);
@@ -161,10 +101,10 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
    * `Ctrl+F` and `/` (`UI_SPEC.md` §9).
    *
    * Here rather than in `App.tsx` because what it does is take *this* field's
-   * caret, and the field owns its own input. `/` is a character somebody may be
+   * focus, and the field owns its own input. `/` is a character somebody may be
    * typing into a tag name, so it is refused while a field has the focus;
-   * `Ctrl+F` is not a character and works from anywhere, including from inside
-   * this field, where it takes the caret to the end rather than doing nothing.
+   * `Ctrl+F` is not a character and works from anywhere. Neither moves the
+   * caret: taking the focus is the whole of what they do.
    */
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -176,17 +116,15 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
       if (slash && target instanceof HTMLElement && isTyping(target)) return;
       event.preventDefault();
       field.current?.focus();
-      caretToEnd();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [caretToEnd]);
+  }, []);
 
   // Applied on an idle rather than on every keystroke: every character would be
   // a round trip, and a query is not finished until the typing stops.
   useEffect(() => {
-    // Trailing space and all: adding one is a click, not a new question to ask
-    // the engine.
+    // A space typed after a finished query asks the engine nothing new.
     if (text.trimEnd() === query) return;
     const timer = setTimeout(() => void apply(text), IDLE_MS);
     return () => clearTimeout(timer);
@@ -207,21 +145,7 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
         autoComplete="off"
         value={text}
         onChange={(changed) => setText(changed.target.value)}
-        onMouseDown={() => {
-          arriving.current = document.activeElement !== field.current;
-        }}
-        onClick={() => {
-          if (!arriving.current) return;
-          arriving.current = false;
-          const input = field.current;
-          // A drag chose its own text and keeps it; this rule is for the plain
-          // click that arrives.
-          if (input === null || input.selectionStart !== input.selectionEnd) return;
-          caretToEnd();
-        }}
-        onFocus={caretToEnd}
         onBlur={() => {
-          arriving.current = false;
           if (field.current !== null) field.current.scrollLeft = 0;
         }}
         onKeyDown={(event) => {
@@ -247,20 +171,6 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
       )}
     </div>
   );
-}
-
-/**
- * The caret past the last character, and the view moved to meet it.
- *
- * The scroll is set rather than left to follow the caret: Chromium moves a
- * field's view for a caret the *user* moved and not for one set from script, so
- * the end of an overflowing query would sit past the right edge with the caret
- * invisible behind it. `.search-input`'s right padding is what keeps the caret
- * clear of that edge once it is there.
- */
-function placeAtEnd(input: HTMLInputElement): void {
-  input.setSelectionRange(input.value.length, input.value.length);
-  input.scrollLeft = input.scrollWidth;
 }
 
 /**

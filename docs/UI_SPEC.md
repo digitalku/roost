@@ -1240,22 +1240,16 @@ while empty bar sat beside it.
   while the half saying *which place* sits off the left edge. So the scroll is pinned to the
   start whenever nobody is typing in it, which is the state it spends its life in: a sidebar
   click writes a query and then nothing touches it.
-- **Taking the focus puts the caret one space past the query**, with the field scrolled there
-  and eight characters of room left to the right of it. A folder query is *continued* — a term
-  added, a subfolder typed onto a path already in the field — so the end is where the work
-  happens, and reaching it by hand in a path too long to fit is what this answers. The space is
-  a real character and RQL's separator, added only when there is not one already, and it is
-  trimmed off before the query reaches the engine: a click is not an edit. The room after the
-  caret is the input's right **padding**, not characters — spaces there would be part of the
-  query and would grow with every click. The click that *arrives* goes to the end; a second
-  click puts the caret where it landed, because a click carries a position and a query is also
-  edited a term at a time. `Ctrl+F` / `/` do the same from anywhere. **A caret and not a
-  selection**: it was built as a select-all first, the address bar's gesture, and the user
-  rejected it on sight on 2026-09-08 — selecting text nobody asked to select is what a click
-  then looks like. Together with the rule above, the two ends divide the field's life: at rest
-  it shows the head, which says *which* folder; touched, it shows the end, which is where the
-  next character goes. Neither is a substitute for autocomplete above; they are what make a
-  query too long to fit workable.
+- **Nothing moves the caret.** A click lands where the pointer landed, `Ctrl+F` / `/` take the
+  focus and stop there, and the query is never selected. It was built the other way first — a
+  select-all, the address bar's own gesture, then a caret one space past the query, with the
+  field scrolled to the end because that is where a folder path is *continued*. The user
+  rejected both, the second on 2026-09-08: a field that rearranges itself under the pointer is
+  one you have to undo before you can edit a term in the middle of a query, and reaching the end
+  of a long one is what `End` is for. So the rule above is the only one the field has — at rest
+  it shows the head, which says *which* folder; touched, it behaves like any text field. Neither
+  is a substitute for the autocomplete below; the head is what makes a query too long to fit
+  readable.
 - **Autocomplete** for field names, then for values once a field is typed: `tag:` offers tags,
   `folder:` offers folders, `ext:` offers the extensions actually present in this library.
 - **Chips, optionally.** A toggle renders the parsed query as removable chips above the grid

@@ -440,39 +440,33 @@ try {
   const atRest = await cdp.evaluate('document.querySelector(".search-input").scrollLeft');
   check("and it goes back to the head as soon as the caret leaves", atRest === 0, `${atRest}`);
 
+  // Clicking into it changes nothing but the focus. The field ran the caret to
+  // the end of the query until the user asked for that gone on 2026-09-08, and
+  // the head it rests at is what makes the claim visible here: a jump to the
+  // tail would scroll the view with it.
   const fieldAt = await cdp.box(".search-input");
   await cdp.mouse.click(fieldAt.x, fieldAt.y);
   await sleep(200);
   const clicked = await cdp.evaluate(`(() => {
     const input = document.querySelector(".search-input");
     return {
-      start: input.selectionStart,
-      end: input.selectionEnd,
+      focused: document.activeElement === input,
       scroll: input.scrollLeft,
-      length: input.value.length,
+      selected: input.selectionEnd - input.selectionStart,
+      end: input.selectionStart === input.value.length,
       space: input.value.endsWith(" "),
-      // The room after the caret is padding, so it is the box that has to have
-      // it: a caret against the right edge is one nobody can see.
-      room: getComputedStyle(input).paddingRight,
     };
   })()`);
+  check("clicking it takes the focus", clicked.focused === true);
   check(
-    "the click that focuses it puts the caret one space past the query",
-    clicked.start === clicked.length && clicked.end === clicked.length && clicked.space,
-    `${clicked.start}-${clicked.end} of ${clicked.length}, space=${clicked.space}`,
-  );
-  // And the end has to be *on screen*, which is a second claim: a caret past
-  // the last character of a path the field cannot hold is no use behind its
-  // right edge.
-  check(
-    "and scrolls to the tail, where a folder path is continued",
-    clicked.scroll > 0,
+    "and leaves the view on the head of the query",
+    clicked.scroll === 0,
     `scrollLeft=${clicked.scroll}`,
   );
   check(
-    "with eight characters of room left after it",
-    Number.parseFloat(clicked.room) > 8 * 6,
-    `padding-right=${clicked.room}`,
+    "with nothing selected and the caret short of the end",
+    clicked.selected === 0 && clicked.end === false && clicked.space === false,
+    `selected=${clicked.selected}, atEnd=${clicked.end}, space=${clicked.space}`,
   );
 
   // The two shortcuts, dispatched as real keys: `Ctrl+F` is a chord the window

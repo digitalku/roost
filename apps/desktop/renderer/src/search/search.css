@@ -26,11 +26,11 @@
   width: 100%;
   height: var(--bar-control-height);
   /*
-   * Eight characters of room on the right, and they are padding rather than
-   * spaces in the query: clicking the field puts the caret past the last
-   * character (§5), and a caret hard against the edge of the box is one nobody
-   * can see they are typing at. `ch` is a character in this field's own
-   * monospace stack, so the room is exactly eight of them at any font size.
+   * Eight characters of room on the right: the match count is drawn over that
+   * corner of the field (`.search-matches`), and a query long enough to reach
+   * it would otherwise be typed underneath it. `ch` is a character in this
+   * field's own monospace stack, so the room is exactly eight of them at any
+   * font size.
    */
   padding: 0 calc(var(--space-2) + 8ch) 0 var(--space-2);
   border: 1px solid var(--border);

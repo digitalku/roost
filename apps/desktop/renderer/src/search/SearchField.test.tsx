@@ -108,58 +108,43 @@ describe("the search field", () => {
 
   const LONG = 'folder:"SMA NUSANTARA INDAH SINTANG/IG smanusantaraindah_sintang/post"';
 
-  it("puts the caret at the end of the query when the field is first clicked", async () => {
+  it("leaves the caret where the click put it", async () => {
     const user = show(LONG);
     const field = screen.getByRole("searchbox") as HTMLInputElement;
-    await user.click(field);
+    await user.pointer({ target: field, offset: 9, keys: "[MouseLeft]" });
 
-    // A caret rather than a selection, and past the last character rather than
-    // before the first: a folder query is continued, not prefixed. The space is
-    // RQL's separator, so what follows the caret is the next term.
-    expect(field.value).toBe(`${LONG} `);
-    expect(field.selectionStart).toBe(LONG.length + 1);
-    expect(field.selectionEnd).toBe(LONG.length + 1);
+    // The field used to run the caret to the end of the query when it was
+    // first clicked, and the user asked for that gone on 2026-09-08: a text
+    // field puts the caret where the pointer landed, and this one is no
+    // different.
+    expect(field.selectionStart).toBe(9);
+    expect(field.selectionEnd).toBe(9);
   });
 
-  it("adds that space once, and never sends it to the engine", async () => {
+  it("does not touch the query when it is clicked", async () => {
     const user = show(LONG);
     const field = screen.getByRole("searchbox") as HTMLInputElement;
     await user.click(field);
-    field.blur();
-    await user.click(field);
 
-    // A click is not an edit: a field that grew a space per click would be one,
-    // and `App.tsx` recognises the folder on screen by comparing the running
-    // query against the sidebar's rows, which a trailing space would defeat.
-    expect(field.value).toBe(`${LONG} `);
+    // No trailing space, and so nothing to ask the engine about: a click is
+    // not an edit.
+    expect(field.value).toBe(LONG);
     await new Promise((settle) => setTimeout(settle, IDLE_MS * 2));
     expect(applied).toEqual([]);
     expect(engine.seen.filter((r) => r.type === "query:check")).toHaveLength(0);
   });
 
-  it("leaves the caret where a second click puts it", async () => {
-    const user = show(LONG);
-    const field = screen.getByRole("searchbox") as HTMLInputElement;
-    await user.click(field);
-    expect(field.selectionStart).toBe(LONG.length + 1);
-    await user.pointer({ target: field, offset: 9, keys: "[MouseLeft]" });
-
-    // A click carries a position, and the field is already focused: the rule is
-    // for arriving, not for editing one term of a query that is already here.
-    expect(field.selectionStart).toBe(9);
-    expect(field.selectionEnd).toBe(9);
-  });
-
-  it("takes the caret on Ctrl+F from anywhere in the window", async () => {
+  it("takes the focus on Ctrl+F from anywhere in the window", async () => {
     const user = show(LONG);
     const field = screen.getByRole("searchbox") as HTMLInputElement;
     await user.keyboard("{Control>}f{/Control}");
 
+    // The focus and nothing else — no selection, and no caret moved.
     expect(document.activeElement).toBe(field);
-    expect(field.selectionEnd).toBe(LONG.length + 1);
+    expect(field.value).toBe(LONG);
   });
 
-  it("takes the caret on a bare slash, unless a slash is what is being typed", async () => {
+  it("takes the focus on a bare slash, unless a slash is what is being typed", async () => {
     render(
       <>
         <input aria-label="Elsewhere" />
