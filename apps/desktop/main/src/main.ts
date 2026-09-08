@@ -533,7 +533,15 @@ async function importVia(
   paths: readonly string[],
   mode: StorageMode,
 ): Promise<WirePasted> {
-  const report = await engine.request({ type: "import:paths", paths, mode, tags: [] });
+  // No folder: a paste is ADR-0026's gesture rather than ADR-0037's, and half
+  // of what it can carry — text, a URL — is not a file at all.
+  const report = await engine.request({
+    type: "import:paths",
+    paths,
+    mode,
+    tags: [],
+    folder: null,
+  });
   return { kind: "imported", report: report as WireImportReport };
 }
 

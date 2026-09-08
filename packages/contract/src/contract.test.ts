@@ -88,6 +88,9 @@ describe("validating a request", () => {
       "query:check",
       "query:split",
       "query:join",
+      "query:subfolders",
+      "settings:read",
+      "settings:write",
       "asset:detail",
       "asset:summary",
       "asset:rate",
@@ -123,6 +126,7 @@ describe("validating a request", () => {
       "library:reclaim",
       "assets:export",
       "import:paths",
+      "import:fileDuplicates",
       "eagle:survey",
       "eagle:import",
       "derive:status",
@@ -236,6 +240,50 @@ describe("validating the import chooser", () => {
     expect(checkRequest({ type: "dialog:chooseImport", what: "both" })).toMatchObject({
       ok: false,
     });
+  });
+});
+
+describe("validating an import's destination", () => {
+  const paths = ["/pictures"];
+
+  it("takes a folder, and an explicit null for no folder at all", () => {
+    // ADR-0037: an import made outside a folder files nothing, which is an
+    // answer rather than a missing field.
+    expect(
+      checkRequest({ type: "import:paths", paths, mode: "managed", tags: [], folder: 3 }),
+    ).toEqual({
+      ok: true,
+      value: { type: "import:paths", paths, mode: "managed", tags: [], folder: 3 },
+    });
+    expect(
+      checkRequest({ type: "import:paths", paths, mode: "managed", tags: [], folder: null }),
+    ).toMatchObject({ ok: true, value: { folder: null } });
+  });
+
+  it("refuses a missing destination, and one that is not a folder id", () => {
+    // Missing rather than null is a renderer that has not been rebuilt, and it
+    // must fail here rather than fall through to "no folder".
+    expect(checkRequest({ type: "import:paths", paths, mode: "managed", tags: [] })).toMatchObject({
+      ok: false,
+    });
+    for (const folder of [0, -1, 1.5, "3"]) {
+      expect(
+        checkRequest({ type: "import:paths", paths, mode: "managed", tags: [], folder }),
+      ).toMatchObject({ ok: false });
+    }
+  });
+
+  it("needs a real folder to file the last run's duplicates into", () => {
+    // No null here, unlike the import itself: the request exists to name
+    // somewhere, and there is nothing to do without one.
+    expect(checkRequest({ type: "import:fileDuplicates", folder: 7 })).toEqual({
+      ok: true,
+      value: { type: "import:fileDuplicates", folder: 7 },
+    });
+    expect(checkRequest({ type: "import:fileDuplicates", folder: null })).toMatchObject({
+      ok: false,
+    });
+    expect(checkRequest({ type: "import:fileDuplicates" })).toMatchObject({ ok: false });
   });
 });
 

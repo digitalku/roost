@@ -192,3 +192,34 @@
 .filter-search-input::-webkit-search-cancel-button {
   display: none;
 }
+
+/*
+ * Show subfolder contents (ADR-0036).
+ *
+ * A checkbox rather than a chip, and the difference is what it says: the three
+ * chips to its left narrow what is on screen, where this says how deep the
+ * place reaches. Drawn with a real `input` so it takes the platform's own
+ * focus ring and its keyboard behaviour for nothing.
+ */
+.filter-check {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.filter-check:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.filter-check > input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}

@@ -16,6 +16,7 @@ import { parse } from "@roost/search";
 import {
   AmbiguousFolderNameError,
   AmbiguousHashError,
+  DuplicateFolderNameError,
   EditTooLargeError,
   EmptyCommentError,
   EmptyNameError,
@@ -133,6 +134,36 @@ function cleanFolderName(name: string): string {
   const clean = cleanName(name, "folder");
   if (clean.includes("/")) throw new AmbiguousFolderNameError(clean);
   return clean;
+}
+
+/**
+ * Refuses a name a sibling already has.
+ *
+ * See {@link DuplicateFolderNameError}: two folders of one name under one
+ * parent compile to the same `folder:` query, and `findFolderByPath` takes the
+ * first row each segment matches — so one of them is unreachable. `except` is
+ * the folder being renamed or moved, which is not its own sibling.
+ *
+ * Compared in memory rather than in SQL. `COLLATE NOCASE` folds ASCII only,
+ * where the rule this follows is the Eagle importer's lowercased key; and the
+ * repository returns the whole tree in one statement precisely so a caller can
+ * walk it, the tree being small enough that a folder command can afford to.
+ */
+function requireUnusedName(
+  library: Library,
+  parent: number | null,
+  name: string,
+  except: number | null,
+): void {
+  const wanted = name.toLowerCase();
+  for (const folder of library.db.repo.folders()) {
+    if (folder.parentId !== parent || folder.id === except) continue;
+    if (folder.name.toLowerCase() !== wanted) continue;
+    throw new DuplicateFolderNameError(
+      name,
+      parent === null ? null : (library.db.repo.folder(parent)?.name ?? String(parent)),
+    );
+  }
 }
 
 function cleanNames(names: readonly string[], what: string): string[] {
@@ -558,6 +589,7 @@ export async function createFolder(
 ): Promise<number> {
   const clean = cleanFolderName(name);
   if (parent !== null) requireFolder(library, parent);
+  requireUnusedName(library, parent, clean, null);
   const id = library.db.repo.nextFolderId();
   await apply(library, [{ op: "folder_create", id, parent, name: clean }]);
   return id;
@@ -565,7 +597,11 @@ export async function createFolder(
 
 export async function renameFolder(library: Library, id: number, name: string): Promise<void> {
   requireFolder(library, id);
-  return apply(library, [{ op: "folder_rename", id, name: cleanFolderName(name) }]);
+  const clean = cleanFolderName(name);
+  // Against its own siblings, and it is not one of them: renaming a folder to
+  // the case it already has has to stay a thing that works.
+  requireUnusedName(library, library.db.repo.folder(id)?.parentId ?? null, clean, id);
+  return apply(library, [{ op: "folder_rename", id, name: clean }]);
 }
 
 /** Moves a folder under `parent`, or to the top level when `parent` is `null`. */
@@ -588,6 +624,10 @@ export async function moveFolder(
       );
     }
   }
+  // A move carries the name into a place that may already hold it. Refused
+  // here rather than silently renamed: the destination is the user's choice
+  // and so is the name, and a move that quietly changes one is not a move.
+  requireUnusedName(library, parent, library.db.repo.folder(id)?.name ?? "", id);
   return apply(library, [{ op: "folder_move", id, parent }]);
 }
 

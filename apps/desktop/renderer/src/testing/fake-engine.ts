@@ -16,6 +16,7 @@ import type {
   WireEagleReport,
   WireEagleSurvey,
   WireExportReport,
+  WireFiled,
   WireFolderRef,
   WireImportReport,
   WirePasted,
@@ -23,6 +24,7 @@ import type {
   WireRecentLibrary,
   WireReclaimable,
   WireSelectionSummary,
+  WireSettings,
   WireSidebar,
   WireStars,
   WireTagRule,
@@ -49,6 +51,8 @@ export interface FakeLibrary {
 }
 
 export interface FakeEngineOptions {
+  /** This library's preferences. Defaults to what a new library has. */
+  readonly settings?: WireSettings;
   /**
    * What `clipboard:paste` finds. Defaults to an empty clipboard.
    *
@@ -118,6 +122,8 @@ export interface FakeEngineOptions {
   readonly importReport?: Partial<WireImportReport>;
   /** Rows an import adds to what the empty query answers with. */
   readonly importAdds?: readonly AssetCard[];
+  /** What `import:fileDuplicates` answers with (ADR-0037 §3). */
+  readonly filed?: WireFiled;
   readonly importProgress?: readonly ImportProgress[];
   /** What `dialog:chooseEagle` answers with. `null` is a cancelled dialog. */
   readonly eagleDialog?: string | null;
@@ -187,6 +193,7 @@ const EMPTY_REPORT: WireImportReport = {
   thumbnails: 0,
   elapsedMs: 0,
   failed: [],
+  duplicateNames: [],
 };
 
 /** A detail with everything filled in, so a test spells out only what it means. */
@@ -302,6 +309,8 @@ export class FakeEngine {
    * would let a component pass while showing a folder that is gone.
    */
   folders: readonly SidebarFolderRow[];
+  /** This library's preferences, as the engine would hold them (ADR-0019). */
+  settings: WireSettings;
   #nextFolderId: number;
   #open: LibrarySummary | undefined;
   #recent: readonly WireRecentLibrary[];
@@ -310,6 +319,7 @@ export class FakeEngine {
   constructor(options: FakeEngineOptions = {}) {
     this.#options = options;
     this.folders = options.sidebar?.folders ?? [];
+    this.settings = options.settings ?? { showSubfolderContents: false };
     this.#nextFolderId = Math.max(0, ...this.folders.map((row) => row.folder)) + 1;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);
     for (const detail of options.details ?? []) {
@@ -725,6 +735,7 @@ export class FakeEngine {
             stars: null,
             folder,
             path,
+            descendants: 0,
           },
         ];
         this.emit({ type: "library:changed" });
@@ -908,6 +919,14 @@ export class FakeEngine {
         });
       }
 
+      case "import:fileDuplicates": {
+        if (this.#open === undefined) return problem("remote", "No library is open", {});
+        // The engine keeps the last run's list; the fake keeps whatever a test
+        // said it should answer with.
+        this.emit({ type: "library:changed" });
+        return ok(this.#options.filed ?? { filed: 0, expired: false });
+      }
+
       case "derive:status":
       case "derive:retry":
         // A fake queue with nothing in it, unless a test taught it otherwise:
@@ -966,11 +985,45 @@ export class FakeEngine {
             else unrated = true;
           }
         }
+        // The depth the query names, read off the place the same way the real
+        // splitter does (ADR-0036).
+        const depths = place.map(folderDepth).filter((depth) => depth !== undefined);
+        const [depth] = depths;
         return ok({
           place: place.join(" "),
           facets: { tags, tagRule, stars, unrated, exts },
+          subfolders: depths.length === 1 && depth !== undefined ? depth === "folder" : null,
           representable: true,
         });
+      }
+
+      case "query:subfolders": {
+        const wanted = request.on ? "folder" : "infolder";
+        let changed = false;
+        const rewritten = terms(request.query).map((conjunct) => {
+          const held = folderDepth(conjunct);
+          if (held === undefined || held === wanted) return conjunct;
+          changed = true;
+          return `${wanted}:${conjunct.slice(conjunct.indexOf(":") + 1)}`;
+        });
+        return ok(changed ? rewritten.join(" ") : request.query);
+      }
+
+      case "settings:read":
+        return ok(this.settings);
+
+      case "settings:write": {
+        if (request.showSubfolderContents !== undefined) {
+          this.settings = { showSubfolderContents: request.showSubfolderContents };
+          // The real engine rewrites every folder row's query when this
+          // changes, and the window re-reads the pane because of it.
+          this.folders = this.folders.map((row) => ({
+            ...row,
+            query: `${request.showSubfolderContents ? "folder" : "infolder"}:"${row.path}"`,
+          }));
+          this.emit({ type: "library:changed" });
+        }
+        return ok(this.settings);
       }
 
       case "query:join": {
@@ -1110,6 +1163,12 @@ function terms(query: string): string[] {
 }
 
 /** One `field:value` the fake understands, or `undefined` for anything else. */
+/** Whether a conjunct is a plain folder term, and at which depth (ADR-0036). */
+function folderDepth(term: string): "folder" | "infolder" | undefined {
+  const match = /^(in)?folder:/.exec(term);
+  return match === null ? undefined : match[1] === undefined ? "folder" : "infolder";
+}
+
 function named(term: string): { field: string; value: string } | undefined {
   if (term === "is:unrated") return { field: "unrated", value: "" };
   const match = /^(tag|ext|rating):(.*)$/s.exec(term);

@@ -113,6 +113,33 @@ describe("the organize commands", () => {
     expect(await ok("query", "folder:Design", "--count")).toEqual(["0"]);
   });
 
+  it("imports into a folder by path, and leaves a duplicate out of it", async () => {
+    // ADR-0037. The CLI's half of the window's rule: `--folder` resolves the
+    // same path `folder:` does, and a file already in the library does not
+    // join it — there is no dialog here to offer it one.
+    await ok("folder", "create", "Design");
+    await ok("folder", "create", "Icons", "--parent", "Design");
+    const more = join(dir, "more");
+    await mkdir(more, { recursive: true });
+    await writeFile(join(more, "delta.png"), "roost test payload 3");
+
+    await ok("import", more, "--folder", "Design/Icons");
+    expect(await ok("query", "infolder:Design/Icons", "--count")).toEqual(["1"]);
+
+    // The same file again: still one, and nothing new was filed.
+    await ok("import", more, "--folder", "Design");
+    expect(await ok("query", "infolder:Design", "--count")).toEqual(["0"]);
+  });
+
+  it("refuses a folder that is not there, before it imports anything", async () => {
+    const { streams, warn } = capture();
+    const code = await run(["import", dir, "--folder", "Nowhere", "-L", root], streams);
+
+    expect(code).not.toBe(EXIT.ok);
+    expect(warn.join("\n")).toContain("Nowhere");
+    expect(await ok("query", "", "--count")).toEqual([String(hashes.length)]);
+  });
+
   it("deletes a folder without touching the assets, and with, when asked", async () => {
     await ok("folder", "create", "Keep");
     await ok("folder", "create", "Inner", "--parent", "Keep");

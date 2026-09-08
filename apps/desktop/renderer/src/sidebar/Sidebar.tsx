@@ -1,6 +1,6 @@
 import type { SidebarFolderRow, SidebarRow, WireSidebar } from "@roost/contract";
 import { ContextMenu } from "radix-ui";
-import { memo, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
   carriesAssets,
   carriesFolder,
@@ -130,7 +130,42 @@ function Folders({
   ) => void;
   readonly onMoveFolder: (folder: number, parent: number | null) => void;
 }): React.JSX.Element {
-  const visible = useMemo(() => drawn(rows, expansion.open), [rows, expansion.open]);
+  /**
+   * Searching the tree (`UI_SPEC.md` §4.1).
+   *
+   * Two pieces of state rather than one, because an open field holding nothing
+   * is a real state: it is what the magnifier leaves behind, and what a folder
+   * command returns the pane to.
+   */
+  const [searching, setSearching] = useState(false);
+  const [needle, setNeedle] = useState("");
+  const wanted = searching ? needle.trim() : "";
+  const visible = useMemo(
+    () => (wanted === "" ? drawn(rows, expansion.open) : found(rows, wanted)),
+    [rows, expansion.open, wanted],
+  );
+
+  /**
+   * The caret belongs in the field the moment it appears — a field that has to
+   * be clicked before it can be typed into is two gestures for one intention,
+   * and the magnifier was the first of them.
+   */
+  const takeCaret = useCallback((node: HTMLInputElement | null) => node?.focus(), []);
+
+  /**
+   * A folder command clears the needle, keeping the field.
+   *
+   * All four end in a dialog that changes the tree, and three of them change
+   * what the tree holds: a new subfolder whose name does not match the needle
+   * would be made and then not drawn, which reads as the command having failed.
+   * Clearing costs a word somebody had finished with; hiding the result costs
+   * the trust that the pane shows what is there.
+   */
+  const command = (raise: () => void) => () => {
+    setNeedle("");
+    raise();
+  };
+
   /**
    * The row a drag is over, or `"top"` for the heading.
    *
@@ -178,18 +213,81 @@ function Folders({
         }}
       >
         Folders
-        <button
-          type="button"
-          className="sidebar-add"
-          title="New folder"
-          aria-label="New folder"
-          onClick={() => onNewFolder(null)}
-        >
-          +
-        </button>
+        <span className="sidebar-heading-actions">
+          {/*
+            Drawn only where there is something to search. A magnifier over an
+            empty section is a control whose only outcome is "nothing matches",
+            and the heading is drawn on an empty section solely so `+` has
+            somewhere to live.
+          */}
+          {rows.length > 0 && (
+            <button
+              type="button"
+              className="sidebar-add"
+              title="Search folders"
+              aria-label="Search folders"
+              aria-expanded={searching}
+              onClick={() => {
+                setSearching((on) => !on);
+                setNeedle("");
+              }}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <circle
+                  cx="7"
+                  cy="7"
+                  r="4.25"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M10.25 10.25 13.5 13.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          )}
+          <button
+            type="button"
+            className="sidebar-add"
+            title="New folder"
+            aria-label="New folder"
+            onClick={command(() => onNewFolder(null))}
+          >
+            +
+          </button>
+        </span>
       </h2>
+      {searching && (
+        <div className="sidebar-search">
+          <input
+            ref={takeCaret}
+            type="search"
+            className="sidebar-search-input"
+            aria-label="Search folders"
+            placeholder="Search folders…"
+            spellCheck={false}
+            value={needle}
+            onChange={(changed) => setNeedle(changed.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Escape") return;
+              // There is always something to close here, unlike the tag field's
+              // Escape: the field itself. So it is taken rather than left to
+              // the window.
+              event.preventDefault();
+              event.stopPropagation();
+              setSearching(false);
+              setNeedle("");
+            }}
+          />
+        </div>
+      )}
       <ul className="sidebar-list">
-        {visible.map(({ row, hasChildren }) => (
+        {visible.map(({ row, hasChildren, isContext }) => (
           <li key={row.id}>
             <ContextMenu.Root>
               <ContextMenu.Trigger asChild>
@@ -205,6 +303,7 @@ function Folders({
                 <div
                   className="sidebar-branch"
                   data-depth={depthOf(row)}
+                  data-context={isContext || undefined}
                   data-over={over === row.folder || undefined}
                   // The branch is the drag source as well as a target: a folder
                   // travels as its id, and the row's own `draggable` would take
@@ -242,7 +341,19 @@ function Folders({
                     names in one column, which is what makes the indentation
                     readable at all.
                   */}
-                  {hasChildren ? (
+                  {hasChildren && wanted !== "" ? (
+                    /*
+                      While a needle is typed the disclosure is a mark rather
+                      than a control. A branch is drawn only because something
+                      under it matched, so the one thing closing it could do is
+                      hide the reason it is there — and the expansion the pane
+                      returns to when the field is cleared is the one it had
+                      before, untouched by anything done in here.
+                    */
+                    <span className="sidebar-twisty" data-open="" aria-hidden="true">
+                      <Chevron />
+                    </span>
+                  ) : hasChildren ? (
                     <button
                       type="button"
                       className="sidebar-twisty"
@@ -250,21 +361,7 @@ function Folders({
                       aria-label={`${expansion.open.has(row.folder) ? "Collapse" : "Expand"} ${row.name}`}
                       onClick={() => expansion.toggle(row.folder)}
                     >
-                      {/* Drawn rather than typed: `▸` is a glyph the font
-                          decides the weight and the size of, and at the size
-                          this control wants it arrived as a speck the pointer
-                          had to hunt for. A path is the same shape at every
-                          density and turns cleanly. */}
-                      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                        <path
-                          d="M6 3.5 10.5 8 6 12.5"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.75"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
+                      <Chevron />
                     </button>
                   ) : (
                     <span className="sidebar-twisty" aria-hidden="true" />
@@ -283,11 +380,14 @@ function Folders({
 
               <ContextMenu.Portal>
                 <ContextMenu.Content className="menu" collisionPadding={8}>
-                  <ContextMenu.Item className="menu-item" onSelect={() => onNewFolder(row)}>
+                  <ContextMenu.Item
+                    className="menu-item"
+                    onSelect={command(() => onNewFolder(row))}
+                  >
                     <span className="menu-mark" />
                     <span className="menu-label">New subfolder…</span>
                   </ContextMenu.Item>
-                  <ContextMenu.Item className="menu-item" onSelect={() => onRename(row)}>
+                  <ContextMenu.Item className="menu-item" onSelect={command(() => onRename(row))}>
                     <span className="menu-mark" />
                     <span className="menu-label">Rename…</span>
                   </ContextMenu.Item>
@@ -315,7 +415,7 @@ function Folders({
                     dialog comes next, and the dialog is where the choice about
                     the contents is made (ADR-0033).
                   */}
-                  <ContextMenu.Item className="menu-item" onSelect={() => onDelete(row)}>
+                  <ContextMenu.Item className="menu-item" onSelect={command(() => onDelete(row))}>
                     <span className="menu-mark" />
                     <span className="menu-label">Delete folder…</span>
                   </ContextMenu.Item>
@@ -325,7 +425,35 @@ function Folders({
           </li>
         ))}
       </ul>
+      {/*
+        A heading over nothing reads as a pane that has broken rather than as
+        an answer. The wording is the filter menu's, because it is the same
+        sentence about the same gesture (`UI_SPEC.md` §4.4).
+      */}
+      {wanted !== "" && visible.length === 0 && <p className="sidebar-empty">Nothing matches</p>}
     </section>
+  );
+}
+
+/**
+ * The disclosure arrow, drawn rather than typed.
+ *
+ * `▸` is a glyph whose weight and size the font decides, and at the size this
+ * control wants it arrived as a speck the pointer had to hunt for (reported
+ * 2026-09-07). A path is the same shape at every density and turns cleanly.
+ */
+function Chevron(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path
+        d="M6 3.5 10.5 8 6 12.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -342,11 +470,8 @@ function depthOf(row: SidebarFolderRow): number | undefined {
  * *next* row's depth is what says whether a folder has children at all, so no
  * row needs to know its parent.
  */
-export function drawn(
-  rows: readonly SidebarFolderRow[],
-  open: ReadonlySet<number>,
-): { row: SidebarFolderRow; hasChildren: boolean }[] {
-  const visible: { row: SidebarFolderRow; hasChildren: boolean }[] = [];
+export function drawn(rows: readonly SidebarFolderRow[], open: ReadonlySet<number>): DrawnRow[] {
+  const visible: DrawnRow[] = [];
   /** The depth of the closed folder currently hiding rows, if one is. */
   let hiding: number | null = null;
 
@@ -356,10 +481,62 @@ export function drawn(
       hiding = null;
     }
     const hasChildren = (rows[at + 1]?.depth ?? 0) > row.depth;
-    visible.push({ row, hasChildren });
+    visible.push({ row, hasChildren, isContext: false });
     if (hasChildren && !open.has(row.folder)) hiding = row.depth;
   }
   return visible;
+}
+
+/** One folder row as the pane draws it. */
+export interface DrawnRow {
+  readonly row: SidebarFolderRow;
+  /** Whether a row deeper than this one is drawn under it. */
+  readonly hasChildren: boolean;
+  /**
+   * Drawn only because something under it matched the needle.
+   *
+   * Always `false` outside a search: every row of an unsearched tree is there
+   * on its own account.
+   */
+  readonly isContext: boolean;
+}
+
+/**
+ * The rows a needle finds, and the ones that hold them up (`UI_SPEC.md` §4.1).
+ *
+ * The tree keeps its shape: a match is drawn where it sits, every folder on the
+ * path down to it comes along as context, and the expansion state is not
+ * consulted — a branch is open here because it leads somewhere. What does *not*
+ * come along is a match's own subtree, which is what stops a needle matching a
+ * folder near the root from redrawing the whole pane.
+ *
+ * Two passes rather than one, because whether a row is kept can only be decided
+ * by rows that come after it. The second pass is over the original list, so the
+ * result is in the same depth-first order and the indentation stays contiguous.
+ */
+export function found(rows: readonly SidebarFolderRow[], needle: string): DrawnRow[] {
+  const wanted = needle.trim().toLowerCase();
+  /** Rows matching the needle, by index. */
+  const hits = new Set<number>();
+  /** Those, and every ancestor holding one of them up. */
+  const keep = new Set<number>();
+  /** The ancestors of the row being read, by depth — the list is depth-first. */
+  const path: number[] = [];
+
+  for (const [at, row] of rows.entries()) {
+    path.length = row.depth;
+    path[row.depth] = at;
+    if (!row.name.toLowerCase().includes(wanted)) continue;
+    hits.add(at);
+    for (const ancestor of path) keep.add(ancestor);
+  }
+
+  const kept = [...rows.entries()].filter(([at]) => keep.has(at));
+  return kept.map(([at, row], drawnAt) => ({
+    row,
+    hasChildren: (kept[drawnAt + 1]?.[1].depth ?? 0) > row.depth,
+    isContext: !hits.has(at),
+  }));
 }
 
 function Section({

@@ -58,6 +58,8 @@ const treeExpression = `
     count: branch.querySelector(".sidebar-count")?.textContent ?? null,
     depth: branch.getAttribute("data-depth") ?? "0",
     twisty: branch.querySelector("button.sidebar-twisty")?.getAttribute("aria-expanded") ?? null,
+    // Drawn only because something under it matched a needle (§4.1).
+    context: branch.hasAttribute("data-context"),
     // Where the *name* starts, not where the row does. The indent is padding on
     // the branch, so the branch's own left edge never moves — measuring that
     // asserts nothing, and passed for a pane with no indentation at all.
@@ -82,10 +84,20 @@ const chipsExpression = `
 
 const names = (rows) => rows.map((row) => `${row.depth}:${row.name}`).join(" ");
 
+/** The same, with a context row in brackets — what a search draws. */
+const shape = (rows) => rows.map((row) => (row.context ? `(${row.name})` : row.name)).join(" ");
+
+/** Types into whatever has the caret, a letter at a time. */
+async function typeInto(text) {
+  for (const letter of text) await cdp.keyboard.press(letter);
+}
+
 /** The window's own phrasing, so an expectation cannot be plural where it is not. */
 const assetsPhrase = (count) => (count === 1 ? "1 asset" : `${count} assets`);
 
 const tree = () => cdp.evaluate(treeExpression);
+
+const rowNamed = (rows, name) => rows.find((row) => row.name === name);
 
 /** The row for a folder, by name, as a box the pointer can be aimed at. */
 async function rowBox(name) {
@@ -150,6 +162,14 @@ const folderCount = async (name) => {
   return rows.find((row) => row.name === name)?.count ?? -1;
 };
 
+/** Every live asset in a folder and beneath it, which is what a delete asks about. */
+const folderDescendants = async (name) => {
+  const rows = await cdp.evaluate(
+    'window.roost.invoke({ type: "library:sidebar" }).then((o) => o.value.folders)',
+  );
+  return rows.find((row) => row.name === name)?.descendants ?? -1;
+};
+
 const liveCount = () =>
   cdp.evaluate('window.roost.invoke({ type: "assets:count", query: "" }).then((o) => o.value)');
 
@@ -172,10 +192,18 @@ try {
     names(initial) === "0:Design 0:Zebra",
     names(initial),
   );
+  // A count is the count of the row's own query (ADR-0036), and *Show subfolder
+  // contents* starts off — so `Design` says what is directly in it, which is
+  // nothing: its two assets are in `Alpha`.
   check(
-    "a closed branch still says how much is under it",
-    initial.find((row) => row.name === "Design")?.count === String(FILED),
+    "a row says what its own query matches",
+    initial.find((row) => row.name === "Design")?.count === "0",
     `Design=${initial.find((row) => row.name === "Design")?.count}`,
+  );
+  check(
+    "and the engine still knows the subtree, for the question a delete asks",
+    (await folderDescendants("Design")) === FILED,
+    `Design descendants=${await folderDescendants("Design")}`,
   );
   check(
     "a folder with children has an arrow, and it reads closed",
@@ -239,8 +267,74 @@ try {
     `glyph=${arrow.glyph}px`,
   );
 
+  section("Searching the tree");
+  // Nothing to search until the magnifier is pressed, and the caret has to
+  // arrive in the field with it — a field that must be clicked before it can
+  // be typed into is two gestures for one intention.
+  check(
+    "the field is shut until it is asked for",
+    (await cdp.evaluate("document.querySelector('.sidebar-search-input') === null")) === true,
+  );
+  const magnifier = await cdp.box('.sidebar-add[aria-label="Search folders"]');
+  await cdp.mouse.click(magnifier.x, magnifier.y);
+  await cdp.settle("document.querySelector('.sidebar-search-input') !== null", (t) => t === true);
+  check(
+    "the caret starts in it",
+    (await cdp.evaluate(
+      "document.activeElement?.classList.contains('sidebar-search-input') === true",
+    )) === true,
+  );
+
+  await typeInto("alpha");
+  const searched = await cdp.settle(treeExpression, (rows) => rows.length === 2);
+  // The tree keeps its shape: `Alpha` is drawn where it sits, `Design` comes
+  // along to hold it up, and `Zebra` — which matches nothing — goes.
+  check(
+    "a match is drawn with the folders that hold it up, and nothing else",
+    shape(searched) === "(Design) Alpha",
+    shape(searched),
+  );
+  check(
+    "and it is still indented under its parent",
+    (searched[1]?.left ?? 0) > (searched[0]?.left ?? 0),
+    `Design=${searched[0]?.left}px Alpha=${searched[1]?.left}px`,
+  );
+  // A branch is drawn here only because something under it matched, so the one
+  // thing closing it could do is hide the reason it is there.
+  // Settled rather than read once: the needle is typed a letter at a time, and
+  // `alpha` narrows to two rows at `al` — so a single read can land on a paint
+  // the last three keystrokes have not reached yet.
+  const marks = await cdp
+    .settle("document.querySelectorAll('.sidebar-twisty[data-open]').length", (n) => n === 1, {
+      attempts: 30,
+    })
+    .catch(() => -1);
+  check(
+    "the disclosure is a mark rather than a control",
+    searched[0]?.twisty === null && marks === 1,
+    `marks=${marks}`,
+  );
+
+  await typeInto("!");
+  const nothing = await cdp.settle(treeExpression, (rows) => rows.length === 0);
+  check("a needle that finds nothing says so", shape(nothing) === "");
+  check(
+    "rather than leaving a heading over an empty pane",
+    (await cdp.evaluate("document.querySelector('.sidebar-empty')?.textContent ?? null")) ===
+      "Nothing matches",
+  );
+
+  await cdp.keyboard.press("Escape");
+  const unsearched = await cdp.settle(treeExpression, (rows) => rows.length === 2);
+  check(
+    "Escape closes the field and gives the tree back",
+    (await cdp.evaluate("document.querySelector('.sidebar-search-input') === null")) === true &&
+      names(unsearched) === "0:Design 0:Zebra",
+    names(unsearched),
+  );
+
   section("Making a folder from the pane");
-  const plus = await cdp.box(".sidebar-add");
+  const plus = await cdp.box('.sidebar-add[aria-label="New folder"]');
   await cdp.mouse.click(plus.x, plus.y);
   await cdp.settle(
     "document.querySelector('[role=dialog] .dialog-title')?.textContent ?? null",
@@ -268,13 +362,13 @@ try {
   );
   await cdp.evaluate(clickMenuItem("New subfolder…"));
   await cdp.settle("document.querySelector('[role=dialog]') !== null", (there) => there === true);
-  const inside = await cdp.evaluate(
+  const body = await cdp.evaluate(
     "document.querySelector('[role=dialog] .dialog-body')?.textContent ?? null",
   );
   check(
     "the dialog says which folder it is inside",
-    inside === "Inside Logos.",
-    `body=${JSON.stringify(inside)}`,
+    body === "Inside Logos.",
+    `body=${JSON.stringify(body)}`,
   );
 
   // A `/` is refused by `@roost/library`, and the window has no copy of that
@@ -293,6 +387,59 @@ try {
   );
   await cdp.keyboard.press("Escape");
   await cdp.settle("document.querySelector('[role=dialog]') === null", (gone) => gone === true);
+
+  section("A name a sibling already has");
+  // Reported from a real pane on 2026-09-08: the same subfolder made twice
+  // under one folder, and the tree drew both. The second was unreachable by
+  // `folder:` from the moment it existed.
+  const plusAgain = await cdp.box('.sidebar-add[aria-label="New folder"]');
+  await cdp.mouse.click(plusAgain.x, plusAgain.y);
+  await cdp.settle("document.querySelector('[role=dialog]') !== null", (there) => there === true);
+  await typeInto("Zebra");
+  await cdp.keyboard.press("Enter");
+  const topLevel = await cdp.settle(
+    "document.querySelector('.dialog-problem')?.textContent ?? null",
+    (text) => typeof text === "string" && text.length > 0,
+    { attempts: 30 },
+  );
+  check(
+    "a second folder of one name at the top level is refused, in the top level's own words",
+    topLevel.includes("already at the top level"),
+    topLevel,
+  );
+  check(
+    "and the dialog stays open with the name still in it",
+    (await cdp.evaluate("document.querySelector('[role=dialog] input')?.value ?? null")) ===
+      "Zebra",
+  );
+  await cdp.keyboard.press("Escape");
+  await cdp.settle("document.querySelector('[role=dialog]') === null", (gone) => gone === true);
+
+  // And inside a folder, where the message has a folder to name. Typed in the
+  // wrong case on purpose: user-authored names are compared without regard to
+  // it, so two rows a pane cannot tell apart never both exist.
+  await folderMenu("Design");
+  await cdp.evaluate(clickMenuItem("New subfolder…"));
+  await cdp.settle("document.querySelector('[role=dialog]') !== null", (there) => there === true);
+  await typeInto("ALPHA");
+  await cdp.keyboard.press("Enter");
+  const inside = await cdp.settle(
+    "document.querySelector('.dialog-problem')?.textContent ?? null",
+    (text) => typeof text === "string" && text.length > 0,
+    { attempts: 30 },
+  );
+  check(
+    "a subfolder is refused by its parent's name, whatever the case",
+    inside.includes('already in "Design"'),
+    inside,
+  );
+  await cdp.keyboard.press("Escape");
+  await cdp.settle("document.querySelector('[role=dialog]') === null", (gone) => gone === true);
+  check(
+    "and nothing was made by either refusal",
+    names(await tree()) === "0:Design 0:Logos 0:Zebra",
+    names(await tree()),
+  );
 
   section("Renaming");
   items = await folderMenu("Zebra");
@@ -343,7 +490,7 @@ try {
   check(
     "clicking a folder chip shows that folder, with the query the engine wrote",
     (await cdp.evaluate("document.querySelector('.search-input')?.value ?? null")) ===
-      "folder:Design/Alpha",
+      "infolder:Design/Alpha",
     await cdp.evaluate("document.querySelector('.search-input')?.value ?? null"),
   );
 
@@ -387,7 +534,7 @@ try {
   );
   check(
     "the folder became the place and the tag stayed a filter",
-    composed === `folder:Design/Alpha tag:${TAG}`,
+    composed === `infolder:Design/Alpha tag:${TAG}`,
     composed,
   );
   await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === 1);
@@ -478,10 +625,16 @@ try {
     { attempts: 40 },
   );
   check("a drop from All assets adds, because there is nothing to leave", true);
+  // Settled rather than read once. The status note lands before the sidebar is
+  // re-read, so a single read raced the refresh and this failed intermittently
+  // with the count it was about to have.
+  const counted = await cdp
+    .settle(treeExpression, (rows) => rowNamed(rows, "Aardvark")?.count === "1", { attempts: 40 })
+    .catch(() => tree());
   check(
     "and the folder's count follows",
-    (await tree()).find((row) => row.name === "Aardvark")?.count === "1",
-    `Aardvark=${(await tree()).find((row) => row.name === "Aardvark")?.count}`,
+    rowNamed(await counted, "Aardvark")?.count === "1",
+    `Aardvark=${rowNamed(await counted, "Aardvark")?.count}`,
   );
 
   // From inside a folder the same gesture is a move, which is the half that
@@ -634,9 +787,11 @@ try {
   check("it goes", true, "Aardvark gone");
 
   section("Deleting a folder and its contents");
-  // Taken from the row rather than from a constant: the drags above changed
-  // what is in there, and the dialog's own number comes from the same place.
-  const held = Number((await tree()).find((row) => row.name === "Design")?.count ?? 0);
+  // Asked of the engine rather than read off the pane. The drags above changed
+  // what is in there, and since ADR-0036 the drawn count and the subtree count
+  // are two different numbers — the dialog has to use the second, because the
+  // second is what ticking the box would trash.
+  const held = await folderDescendants("Design");
   await folderMenu("Design");
   await cdp.evaluate(clickMenuItem("Delete folder…"));
   const asked = await cdp.settle(

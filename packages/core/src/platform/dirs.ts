@@ -4,10 +4,16 @@ import { UnsupportedPlatformError } from "../model/index.js";
 /**
  * Where Roost keeps things that are not a library.
  *
- * Configuration, application state, logs, and caches all live **outside** every
- * library. That is not a preference: `STORAGE_SPEC.md` publishes the library
- * layout and it is binding, so a library holds `originals/`, `index.db`,
- * `journal/`, and `library.json` — nothing else.
+ * Application state, logs, and caches live **outside** every library, and so
+ * does the configuration a library cannot hold. That is not a preference:
+ * `STORAGE_SPEC.md` publishes the library layout and it is binding.
+ *
+ * **Per-library preferences are not among them** (ADR-0019): they live in
+ * `settings.json` inside the library, so they travel when the folder is copied.
+ * What lands here is what *cannot* — the recent-libraries list, which is how a
+ * library is found in the first place; window geometry, which is per machine;
+ * and the theme the picker is drawn in, which is read before any library is
+ * open.
  *
  * It is also right on the merits. A library may sit on read-only media, on a
  * network share, or be opened from two machines; logs and per-machine state

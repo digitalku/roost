@@ -273,7 +273,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
 | `Transport` | content | position, loop | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, the comment marks, and what the native bar withholds — frame stepping, playback rate, an A-B loop; §7. ADR-0024 |
 | `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
-| `FilterBar` | content | menu open, search draft | Tags, rating and file type over the grid. A **view of the query**: read with `query:split`, written with `query:join`. Tags carry an Any/All rule, which the window remembers only where the query cannot hold it. §4.4. ADR-0035 |
+| `FilterBar` | content | menu open, search draft | Tags, rating and file type over the grid, then **Show subfolder contents**. A **view of the query**: read with `query:split`, written with `query:join` and `query:subfolders`. Tags carry an Any/All rule the window remembers where the query cannot hold it; the depth falls back to the library's setting the same way. §4.4. ADR-0035, ADR-0036 |
 | `NameField` | inspector | draft | The panel's heading, and the only editable name. Holds the **stem**: the extension is not editable and is not shown here. **Wraps over as many lines as the name takes**; `Enter` commits and a name never holds one. §3.10 |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
 | `TagEditor` | inspector | draft | Typeahead over the tags the library already has, creates on Enter. §3.7 |
@@ -786,6 +786,52 @@ journal.
 
 **Over several assets there is no name field at all** (§3.2) — a name belongs to one asset.
 
+### 3.11 Where an import lands, and what was already there
+
+An import joins **the folder on screen** (ADR-0037). Not a setting and not a field in a dialog: the
+folder a person can see is the one they mean, and it is found by matching the running query against
+the sidebar's rows — so a folder reached by typing `folder:Design` into the search field counts as
+much as one reached by clicking it (§4.1). Where the query names no folder, the import files
+nothing; the library's root is a destination rather than a missing answer.
+
+**The folder is read when the run starts.** An import of forty thousand files takes minutes, and
+navigating elsewhere while it runs must not scatter its last batch into somewhere the user was only
+passing through.
+
+**Importing from Eagle is the exception**, and not by a special case: an Eagle library brings its own
+folders (ADR-0032), so its importer never names one. Pasting files is the other (ADR-0026) — half of
+what a paste can carry is not a file.
+
+Afterwards, a run that found files already in the library says so in a `Dialog`:
+
+```
+14 files were already in this library.
+Nothing was copied twice — Roost recognises a file by its contents.
+
+  autumn-3.jpg
+  autumn-4.jpg
+  …and 12 more
+
+[ Ignore all ]                       [ Add to Design ]
+```
+
+**It comes after the run, not before it.** Deduplication here is structural — identical bytes have
+one address (`STORAGE_SPEC.md` invariant 1) — so a duplicate is discovered by *hashing* the incoming
+file. Asking first would mean reading every candidate twice. Waiting costs nothing, because for a
+duplicate the import writes nothing at all: *Ignore all* is the behaviour the run already had, and
+dismissing by clicking away means the same thing. It is not an `AlertDialog` for that reason.
+
+**The second button adds; it never moves.** An asset belongs to as many folders as it was put in, so
+filing these into the folder on screen takes them out of nowhere — which is why the button carries
+the folder's name rather than the word *Move*. Where no folder is open the dialog is one button
+wide, and still worth drawing: a grid that did not grow reads as an import that failed until
+something says otherwise.
+
+**The list is a preview and the count is not.** At most two hundred names, scrolling inside the
+dialog, with the rest counted — re-importing a large directory is the ordinary way to produce a
+hundred thousand duplicates. The hashes never reach the window: the engine keeps the list the run
+reported, and the button acts on all of it.
+
 ## 4. Navigation
 
 ### 4.1 What the sidebar contains
@@ -801,10 +847,10 @@ PLACES
                                  makes it worth a row — an empty trash and one holding four
                                  hundred assets look identical without it
 
-FOLDERS                       +  the tree, depth-first; the `+` makes a top-level folder
-  ▸ Clients                      closed: the count is the subtree's, so nothing is hidden by it
-  ▾ Acme                         right-click any row for subfolder, rename, delete
-      Logos              412
+FOLDERS                    🔍 +  the tree, depth-first; the `+` makes a top-level folder,
+  ▸ Clients                      the 🔍 reveals a field that searches it
+  ▾ Acme                         closed: the count is the subtree's, so nothing is hidden by it
+      Logos              412     right-click any row for subfolder, rename, delete
 SMART FOLDERS                    saved RQL
   Recent PNGs               1.2k
 ```
@@ -818,8 +864,14 @@ controls that will disagree about that before they disagree about anything else.
 The engine still sends both. The bar needs the same six rating counts and the same tag rows, and so
 does the inspector's tag field; what moved is where they are drawn, not what `readSidebar` answers.
 
-Counts are subtree counts for folders and match counts for smart folders, computed by the
-engine — the renderer never counts anything it did not receive.
+**A folder's count is the count of its own row's query**, so it follows *Show subfolder contents*
+(§4.4, ADR-0036): the subtree when they are shown, the folder alone when they are not. Smart folders
+carry match counts. All of them are computed by the engine — the renderer never counts anything it
+did not receive.
+
+**The one number that does not follow it** is the one **Delete folder…** asks about. Ticking that
+dialog's box trashes the whole subtree in one journal batch (ADR-0033 §3.3), so its question counts
+the subtree whatever the pane is drawing; the row carries both numbers for exactly this.
 
 **The folder rows arrive depth-first**, each folder immediately followed by its own subtree
 (`@roost/library`'s `orderTree`). Until 2026-09-06 they arrived in one alphabetical run and were
@@ -829,7 +881,9 @@ the collapsing correct, and it is why no row needs to carry a parent: a closed b
 rows that follow it at a greater depth.
 
 **Every branch starts closed** (ADR-0033). A hundred folders drawn flat is the pane that prompted
-this, and closing them costs no information, because a folder's count is its subtree's. Expansion
+this. Closing a branch cost no information while every count was a subtree count; since ADR-0036 it
+can, because with *Show subfolder contents* off a folder's count is its own — and that is the right
+trade, since the count beside a query has to be the count of that query. Expansion
 lives in the window and **does not survive it**: where it belongs is `settings.json` in the library
 (ADR-0019), which is not built yet.
 
@@ -846,6 +900,35 @@ a square that rotates with the arrow takes its hover state round with it.
 a row offers **New subfolder…**, **Rename…**, and **Delete folder…**. The heading is drawn even when
 the section is empty, which no other section does — a new library with no folders and no way to make
 one is a dead end, and it was the state of every new library until this changed.
+
+**The tree is searched from a magnifier in its heading**, which reveals a field under it and takes
+the caret with it. Only this section has one: Places is four rows, and a folder tree is the only
+part of the pane that grows to the hundred rows that prompted ADR-0033.
+
+**A search keeps the tree's shape.** A match is drawn where it sits, every folder on the path down
+to it comes along as **context** — quieted, but still a real row that can be clicked and still a
+drop target — and everything else goes. What does *not* come along is a match's own subtree, which
+is what stops a needle matching a folder near the root from redrawing the whole pane.
+
+**While a needle is typed the disclosure is a mark rather than a control.** A branch is drawn only
+because something under it matched, so the one thing closing it could do is hide the reason it is
+there. The expansion state is not consulted and not touched: closing the field gives back exactly
+the tree that was left, which is why searching costs nothing to undo. `Escape` closes it, and so
+does the magnifier.
+
+**A folder command clears the needle and keeps the field.** All four — `+`, New subfolder, Rename,
+Delete — end in a dialog that changes the tree, and a new folder whose name does not match the
+needle would be made and then not drawn, which reads as the command having failed.
+
+**A name a sibling already has is refused**, by the engine, at the point the name is authored —
+in the New folder and Rename dialogs, and on a drag that would carry a folder into a parent already
+holding its name. Two folders called `logos` under one parent compile to the same `folder:` query
+and the path walk takes the first row it matches, so the second is unreachable from the moment it
+exists; it is the same defect as a name containing `/`, arriving by a different route. Names are
+compared **without regard to case**, which is the house rule for every user-authored name here.
+The dialog says which folder already holds it, and stays open with the name still in the field.
+A library that already holds such a pair still opens and still rebuilds — the rule binds new names,
+not old ones.
 
 **Deleting a folder asks what should happen to what is in it**, in one dialog with one checkbox
 (ADR-0033, §3.4). Unticked, the folder and its subfolders go and the assets stay in the library, no
@@ -942,12 +1025,13 @@ other.
 ### 4.4 The filter bar
 
 One row under the toolbar, over the grid, always drawn (ADR-0035). Three facets — **Tags**,
-**Rating**, **Types** — each a button that opens a menu of checkboxes, and one **Clear filters**
-that appears only when there is something to clear.
+**Rating**, **Types** — each a button that opens a menu of checkboxes, then the **Show subfolder
+contents** checkbox (ADR-0036), and one **Clear filters** that appears only when there is something
+to clear.
 
 ```
 Search…                                     8 matches    Icons ▾    + Add ▾
-Tags  wood +1 ▾    Rating  ★★★★★ ▾    Types  PNG ▾    Clear filters
+Tags  wood +1 ▾   Rating ★★★★★ ▾   Types PNG ▾   ☐ Show subfolder contents   Clear filters
       ┌──────────────────────────┐
       │ Rule            [Any] All│    tags only
       │ [ Search tags…         ] │    only past eight values
@@ -982,6 +1066,22 @@ moves the toggle to *All*.
 
 **Clearing the filters does not touch the rule.** It is how the *next* two tags will be joined, and
 clearing has said nothing about that.
+
+**To the right of Types sits one checkbox, and it is not a facet** (ADR-0036). *Show subfolder
+contents* says how deep the **place** reaches, where the three chips to its left narrow what is
+inside it — a different question, which is why it has no menu, no count, and no part in *Clear
+filters*.
+
+**It is a view of the query, like everything else here.** `folder:Design` ticks it,
+`infolder:Design` unticks it, and ticking it rewrites the query on screen so the grid answers now
+rather than after the next click. Typing either term by hand moves the checkbox. The setting decides
+which term a sidebar row *carries*; it never changes what a term means, so a query saved months ago
+asks the same question forever.
+
+**Where the query names no folder it shows the library's setting** — what the *next* folder opened
+will use. The same standing the tag rule has, one shelf further out: it lives in `settings.json`
+inside the library (ADR-0019), so it travels with the folder and the CLI reads the same one.
+**Off by default**: a folder shows its own contents, as a file manager's does.
 
 **A facet's menu is searched past eight values**, with a field at its head that filters the list as
 it is typed. A field over five tags costs a row and saves nothing. The rule is generic, so a library

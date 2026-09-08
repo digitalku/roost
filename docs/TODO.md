@@ -13,6 +13,28 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
 
 ## 1. Needs a decision from the user
 
+- ☑ ~~**ADR-0037 — an import lands where you are.**~~ **Accepted 2026-09-08** and built the same
+  day, from the user asking
+  whether importing files or a folder while a folder is open can put them in that folder, and what
+  should happen to the files the library already holds. Two answers already came from them, both as
+  recommended: *folder baru* means the folder **already on screen**, and an import made outside a
+  folder files nothing rather than asking. The folder half is small — the window knows which folder
+  is open (`App.tsx`'s `openFolder`), `folder_add` is a line this build has written since M2, and
+  the Eagle exclusion the user asked for is the default rather than a guard, because `eagle.ts`
+  maps Eagle's own folders (ADR-0032 §3). The duplicate half carries the thinking: deduplication
+  here is **structural**, so a duplicate is only discovered by hashing the incoming file — the
+  dialog therefore comes **after** a run rather than in front of one, which costs nothing because
+  an import writes nothing for a duplicate today. `ImportReport` has a count and not a list; the
+  wire report gains a preview and the engine retains the run's full hash list, because a re-import
+  of a large directory is the ordinary way to end up with a hundred thousand of them. The second
+  choice is an **add**, not a move: `asset_folders` is many-to-many. No journal op, no migration,
+  no schema change. Built: `ImportOptions.folder`, `folder` on `import:paths`,
+  `import:fileDuplicates`, `duplicateNames` on the report, `DuplicatesDialog`, and
+  `roost import --folder`. 15 more tests, 1105 in the workspace. **Pasting is deliberately left
+  alone** (ADR-0026's gesture, and half of what it carries is not a file), and **no window check
+  covers this** — neither door into an import can be driven over CDP, which the ADR §4 records
+  rather than leaving to look like coverage.
+
 - ☑ ~~**ADR-0022 — what `Delete` means.**~~ Accepted 2026-09-01 and built the same day: trash
   marks the row and keeps everything hanging off it, **nothing is ever emptied on a timer**, and
   permanent removal stays `remove`. Migration 0007, the `trash`/`restore` ops, `is:trashed`,
@@ -446,8 +468,9 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   while looking at `tag:wip` leaves the asset on screen — the same bug, one gesture over. The fix
   is the same shape and wants the window to know what the query is about.
 - 🟡 **Expansion does not survive the window.** It belongs in `settings.json` in the library
-  (ADR-0019), which is decided and not built. Until then every window opens collapsed — which is
-  right for a first look and wrong for the fifth.
+  (ADR-0019), which since 2026-09-08 **exists** — so this is now a field and a call rather than a
+  file to design. Until then every window opens collapsed, which is right for a first look and
+  wrong for the fifth.
 - ☑ ~~**Drag: assets onto a folder, and a folder onto a folder.**~~ Built 2026-09-07 (ADR-0033 §5),
   at the user's word. A drop from inside a folder **moves** and from anywhere else **adds**, because
   a folder is a collection and there is nothing to leave unless one is on screen; `Ctrl` forces the
@@ -843,15 +866,18 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
     creating a library is a deliberate act and belongs on the list, while `roost query` in a
     script rewriting a state file is not. If it lands, the rule is "init and open record; reads
     do not".
-- 🟡 **`settings.json` in the library** (ADR-0019). Reads tolerate absence, damage, unknown keys,
-  and wrong types by falling back per setting. Writes tolerate failure silently — a library on
-  read-only media must not raise a dialog when somebody changes the zoom. Unknown keys survive a
-  write, for the same reason unknown journal ops are skipped rather than dropped.
-  - **`dirs.ts`'s doc comment becomes wrong** the moment this lands: it says a library holds
-    `originals/`, `index.db`, `journal/`, and `library.json` "and nothing else". Correct it in
-    the same change.
-  - The CLI reads the same file, so the two frontends do not disagree about how a library is
-    configured (ADR-0005).
+- ☑ ~~**`settings.json` in the library** (ADR-0019).~~ Built 2026-09-08, when ADR-0036 needed the
+  first setting there was. `packages/library/src/settings.ts` is ADR-0019's three rules and nothing
+  else: reads tolerate absence, damage, unknown keys and wrong types by falling back per setting;
+  writes tolerate failure silently — a library on read-only media must not raise a dialog when
+  somebody changes a checkbox — and unknown keys survive a write, for the same reason unknown
+  journal ops are skipped rather than dropped. `Library` reads it once on open and holds it, so a
+  synchronous path can ask. `dirs.ts`'s doc comment was corrected in the same change.
+  - **Still to move in**: the view mode, the zoom, the sort key and the grouping (ADR-0018), which
+    the window remembers and loses; the folder tree's expansion (below); the default import mode.
+    Each is a field and a call, now that the file exists.
+  - The CLI does **not** yet read it — nothing it does has a preference — and there is no
+    `roost settings`. When one of the above moves in, the two frontends have to agree (ADR-0005).
 - 🟡 **`Ctrl+N` — a second window onto the same library** (ADR-0020). `broadcast()` is already
   plural and `createWindow()` already exists; what is missing is the command and per-window
   geometry in `stateDir()`. Switching library moves every window: a window is a view, not a

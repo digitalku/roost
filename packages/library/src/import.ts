@@ -12,7 +12,7 @@ import {
 import { hashFile, probe } from "@roost/media";
 import { mapWithConcurrency } from "./concurrency.js";
 import { discover } from "./discover.js";
-import { PartialHashCollisionError } from "./error.js";
+import { PartialHashCollisionError, UnknownFolderError } from "./error.js";
 import { enqueueDerives } from "./jobs.js";
 import type { Library } from "./library.js";
 import { nowUnix } from "./library.js";
@@ -39,6 +39,17 @@ const log = logger("import");
  * large enough that neither dominates an import of 100k files.
  */
 const BATCH_SIZE = 500;
+
+/**
+ * How many duplicate names a report carries for the window to draw.
+ *
+ * The count is unbounded and the list is not: re-importing a directory of a
+ * hundred thousand files is the ordinary way to produce a hundred thousand
+ * duplicates, and no dialog reads them out. The full set of *hashes* is kept
+ * (ADR-0037 §3.1) — it is what the folder is filled from — but the names are
+ * only ever a preview.
+ */
+const DUPLICATE_PREVIEW = 200;
 
 /**
  * How many files are hashed, placed, and probed at once.
@@ -72,6 +83,23 @@ export interface ImportOptions {
   readonly tags?: readonly string[];
   /** Whether to descend into dot-directories and import dotfiles. */
   readonly includeHidden?: boolean;
+  /**
+   * A folder every **newly imported** asset joins (ADR-0037).
+   *
+   * The window sets it to the folder on screen, so an import lands where the
+   * person who started it was looking. It is read once, when the run starts:
+   * an import of forty thousand files takes minutes, and navigating elsewhere
+   * in the middle of one must not scatter its last batch.
+   *
+   * **A duplicate does not join it.** A file the library already holds is not
+   * this run's asset to file, and what to do about it is a question the window
+   * asks afterwards, with the run's report in front of it (ADR-0037 §3).
+   *
+   * The Eagle importer never sets this: it maps Eagle's own folders
+   * (ADR-0032 §3), and a second destination on top of them would file every
+   * item twice.
+   */
+  readonly folder?: number;
   /**
    * Called with the content hash of each file that resolved, new or already
    * present.
@@ -155,6 +183,20 @@ export interface ImportReport {
    */
   subtitlesUnattached: number;
   readonly failed: ImportFailure[];
+  /**
+   * Every asset this run found already here, in walk order (ADR-0037 §3.1).
+   *
+   * Hashes rather than paths, because what they are *for* is a `folder_add`.
+   * The list is the run's, and lives as long as the report does.
+   */
+  readonly duplicateHashes: ContentHash[];
+  /**
+   * The first {@link DUPLICATE_PREVIEW} of them by name, for a dialog to draw.
+   *
+   * Names and not paths: the question a person answers is "which of my files
+   * were already here", and the directory they just chose is not news.
+   */
+  readonly duplicateNames: string[];
 }
 
 function emptyReport(): ImportReport {
@@ -178,6 +220,8 @@ function emptyReport(): ImportReport {
     subtitles: 0,
     subtitlesUnattached: 0,
     failed: [],
+    duplicateHashes: [],
+    duplicateNames: [],
   };
 }
 
@@ -201,8 +245,20 @@ export async function importInto(
   const started = performance.now();
   const report = emptyReport();
   const mode: StorageMode = options.mode ?? "managed";
-  const tags = options.tags ?? [];
   const storage = library.storageFor(mode);
+  const run: Run = {
+    mode,
+    tags: options.tags ?? [],
+    folder: options.folder,
+    onAsset: options.onAsset,
+  };
+
+  // Checked before the first file is hashed, not when its record is written.
+  // A folder deleted between the click and the request would otherwise fail
+  // the run halfway, after some of it had already been journalled.
+  if (run.folder !== undefined && library.db.repo.folder(run.folder) === undefined) {
+    throw new UnknownFolderError(run.folder);
+  }
 
   let batch: JournalRecord[] = [];
   /**
@@ -245,7 +301,7 @@ export async function importInto(
 
     const ingested = await mapWithConcurrency(window, CONCURRENCY, async (path) => {
       try {
-        return await ingest(library, storage, path, mode, tags, pending, report, options.onAsset);
+        return await ingest(library, storage, path, run, pending, report);
       } catch (error) {
         // One file that cannot be read must not end an import of ten thousand.
         report.failed.push({
@@ -298,6 +354,19 @@ export async function importInto(
   return report;
 }
 
+/**
+ * What every file in one run is treated with.
+ *
+ * Gathered once rather than threaded through as five parameters: the options
+ * are resolved when the run starts, and `ingest` is called once per file.
+ */
+interface Run {
+  readonly mode: StorageMode;
+  readonly tags: readonly string[];
+  readonly folder: number | undefined;
+  readonly onAsset: ((path: string, hash: ContentHash) => void) | undefined;
+}
+
 /** Who, if anyone, already holds an incoming file's hash. */
 type Claim =
   /** Nothing in the library has this hash. */
@@ -318,12 +387,11 @@ async function ingest(
   library: Library,
   storage: Storage,
   path: string,
-  mode: StorageMode,
-  tags: readonly string[],
+  run: Run,
   pending: Map<string, string>,
   report: ImportReport,
-  onAsset: ((path: string, hash: ContentHash) => void) | undefined,
 ): Promise<{ hash: ContentHash; path: string; records: JournalRecord[] } | undefined> {
+  const { mode, tags, onAsset } = run;
   const hashStarted = performance.now();
   const hashed = await hashFile(path);
   report.timings.hashing += performance.now() - hashStarted;
@@ -342,6 +410,12 @@ async function ingest(
     // Throws on a partial-hash collision, which is why the hook comes after:
     // a refused file is not this path's asset.
     await recordDuplicate(claim, path, hashed.isPartial, report);
+    // After `recordDuplicate`, never before it: a partial-hash collision is a
+    // refusal, not a duplicate, and it leaves by throwing.
+    report.duplicateHashes.push(hashed.hash);
+    if (report.duplicateNames.length < DUPLICATE_PREVIEW) {
+      report.duplicateNames.push(basename(path));
+    }
     onAsset?.(path, hashed.hash);
     // Importing a file the library has already trashed brings it back.
     // Otherwise the import would report a duplicate and the asset would stay
@@ -406,6 +480,11 @@ async function ingest(
   const ts = nowUnix();
   const records: JournalRecord[] = [{ ts, op: "add", ...(add as unknown as AddRecord) }];
   if (tags.length > 0) records.push({ ts, op: "tag_add", hash: hashed.hash, tags: [...tags] });
+  // In the same batch as the `add`, so a crash between them is not a file in
+  // the library that nobody put anywhere (invariant 9).
+  if (run.folder !== undefined) {
+    records.push({ ts, op: "folder_add", hash: hashed.hash, folder: run.folder });
+  }
 
   report.imported += 1;
   report.bytes += hashed.size;

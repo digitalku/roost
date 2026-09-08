@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Facets, joinQuery, NO_FACETS, splitQuery } from "./facets.js";
+import { type Facets, joinQuery, NO_FACETS, splitQuery, withSubfolders } from "./facets.js";
 import { parse } from "./parser.js";
 
 /**
@@ -12,8 +12,9 @@ const facets = (over: Partial<Facets> = {}): Facets => ({ ...NO_FACETS, ...over 
 
 describe("reading a query", () => {
   it("finds nothing in an empty query", () => {
-    expect(splitQuery("")).toEqual({ place: "", facets: NO_FACETS, representable: true });
-    expect(splitQuery("   ")).toEqual({ place: "", facets: NO_FACETS, representable: true });
+    const nothing = { place: "", facets: NO_FACETS, subfolders: null, representable: true };
+    expect(splitQuery("")).toEqual(nothing);
+    expect(splitQuery("   ")).toEqual(nothing);
   });
 
   it("takes one tag, one rating, one extension", () => {
@@ -221,5 +222,43 @@ describe("reading and writing agree", () => {
     expect(joinQuery('folder:"Design/Logos"', split.facets)).toBe(
       'folder:"Design/Logos" rating:5 ext:png',
     );
+  });
+});
+
+describe("the depth a query names", () => {
+  it("reads the folder term's depth, and nothing when there is no folder", () => {
+    expect(splitQuery("folder:Design").subfolders).toBe(true);
+    expect(splitQuery("infolder:Design").subfolders).toBe(false);
+    // Nothing to reflect: the checkbox then shows the library's setting, which
+    // is what the next folder opened will use (ADR-0036).
+    expect(splitQuery("tag:wood").subfolders).toBe(null);
+    expect(splitQuery("").subfolders).toBe(null);
+  });
+
+  it("refuses to answer for two folders, as it refuses two ratings", () => {
+    expect(splitQuery("folder:Design infolder:Icons").subfolders).toBe(null);
+    // And for shapes the checkbox has no answer for.
+    expect(splitQuery("-folder:Design").subfolders).toBe(null);
+    expect(splitQuery("(folder:Design OR folder:Icons)").subfolders).toBe(null);
+  });
+
+  it("keeps the folder term where it was, rather than absorbing it", () => {
+    // A folder is where you are looking, not a filter over it (ADR-0035 §6).
+    expect(splitQuery("folder:Design tag:wood").place).toBe("folder:Design");
+  });
+
+  it("rewrites the folder term to the other depth, and leaves the rest alone", () => {
+    expect(withSubfolders("folder:Design tag:wood", false)).toBe("infolder:Design tag:wood");
+    expect(withSubfolders("infolder:Design tag:wood", true)).toBe("folder:Design tag:wood");
+    // A path with a space in it has to come back out through `quoteValue`.
+    expect(withSubfolders('folder:"Old logos"', false)).toBe('infolder:"Old logos"');
+  });
+
+  it("returns a query with no folder in it byte for byte", () => {
+    // Rewriting nothing must not reformat what somebody typed.
+    for (const query of ["tag:wood   rating:4", "", "-folder:Design", "a OR b"]) {
+      expect(withSubfolders(query, false)).toBe(query);
+      expect(withSubfolders(query, true)).toBe(query);
+    }
   });
 });

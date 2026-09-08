@@ -47,6 +47,16 @@ export interface FilterBarProps {
   readonly ratings: readonly SidebarRow[];
   readonly types: readonly SidebarTypeRow[];
   readonly onChange: (facets: WireFacets) => void;
+  /**
+   * Whether the query on screen reaches into subfolders (ADR-0036).
+   *
+   * Read out of the query where it names a folder, and out of the library's
+   * setting where it does not — the window resolves those two before it gets
+   * here, because which one applies is a fact about the query and this control
+   * only draws it.
+   */
+  readonly subfolders: boolean;
+  readonly onSubfolders: (on: boolean) => void;
 }
 
 /** One value in a facet's menu, before the menu decides how to draw it. */
@@ -69,6 +79,8 @@ export function FilterBar({
   ratings,
   types,
   onChange,
+  subfolders,
+  onSubfolders,
 }: FilterBarProps): React.JSX.Element {
   const chosen = representable ? facets : { ...EMPTY, tagRule: facets.tagRule };
   const anything =
@@ -140,6 +152,23 @@ export function FilterBar({
         values={typeValues}
         searchLabel="Search types"
       />
+
+      {/*
+        Not a facet, and drawn as a checkbox rather than a chip because of it
+        (ADR-0036). A facet narrows what is on screen; this says how deep the
+        **place** reaches, which is a different question and the reason it has
+        no menu. It is a view of the query like everything else here: `folder:`
+        ticks it, `infolder:` unticks it, and where the query names no folder it
+        shows the library's setting — what the next folder opened will use.
+      */}
+      <label className="filter-check">
+        <input
+          type="checkbox"
+          checked={subfolders}
+          onChange={(changed) => onSubfolders(changed.target.checked)}
+        />
+        <span>Show subfolder contents</span>
+      </label>
 
       {/* Only when there is something to clear: a permanently visible Clear is
           a control that does nothing most of the time (`UI_SPEC.md` §8). The

@@ -216,9 +216,22 @@ describe("compiling", () => {
   });
 
   it("expands a folder subtree into bound ids", () => {
-    const filter = buildQuery("folder:Design", { subtree: () => [3, 4, 5] });
+    const filter = buildQuery("folder:Design", { subtree: () => [3, 4, 5], only: () => [3] });
     expect(filter.sql).toContain("af.folder_id IN (?, ?, ?)");
     expect(filter.params).toEqual([3, 4, 5]);
+  });
+
+  it("takes infolder through the resolver that does not descend", () => {
+    // One shape, two depths (ADR-0036). The SQL is the same `EXISTS` either
+    // way; which method expands the path is the whole difference, which is why
+    // this asserts on the ids rather than on the statement.
+    const folders = { subtree: () => [3, 4, 5], only: () => [3] };
+    expect(buildQuery("infolder:Design", folders).params).toEqual([3]);
+    expect(buildQuery("folder:Design", folders).params).toEqual([3, 4, 5]);
+  });
+
+  it("answers infolder for a folder nobody created with an empty match", () => {
+    expect(buildQuery("infolder:Nowhere").sql).toBe(`(0) AND ${MATCH_LIVE.sql}`);
   });
 
   it("searches free text as one phrase", () => {

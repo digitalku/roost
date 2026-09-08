@@ -52,9 +52,17 @@
   text-align: left;
 }
 
-/* The `+` beside FOLDERS, which is the only way to make the first one. It sits
-   in the heading rather than in a menu because a section that can be added to
-   is the section that says so. */
+/* The two controls in the FOLDERS heading, kept together at its right edge so
+   the heading's own `space-between` still puts the word on the left. */
+.sidebar-heading-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+/* The `+` beside FOLDERS, which is the only way to make the first one, and the
+   magnifier beside it. They sit in the heading rather than in a menu because a
+   section that can be added to, or searched, is the section that says so. */
 .sidebar-add {
   width: var(--control-height);
   height: var(--control-height);
@@ -71,6 +79,48 @@
 .sidebar-add:hover {
   background: var(--surface-raised);
   color: var(--text);
+}
+
+/* Held open, so the field it reveals does not read as having appeared on its
+   own. The `+` never takes this: it opens a dialog and is done. */
+.sidebar-add[aria-expanded="true"] {
+  background: var(--surface-overlay);
+  color: var(--text);
+}
+
+.sidebar-add > svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Searching the tree (UI_SPEC.md §4.1). Indented to the row padding so the
+   field lines up with the names it filters. */
+.sidebar-search {
+  padding: var(--space-1) var(--space-3);
+}
+
+.sidebar-search-input {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+/* Chromium draws its own clear button in a `search` input, in a colour that
+   answers to nothing in the token file. Escape is the way out of this field. */
+.sidebar-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.sidebar-empty {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
 }
 
 /* A folder's row and its disclosure arrow, on one line. The arrow is a sibling
@@ -128,7 +178,8 @@
   transition: transform var(--dur-fast) var(--ease-out);
 }
 
-.sidebar-twisty[aria-expanded="true"] > svg {
+.sidebar-twisty[aria-expanded="true"] > svg,
+.sidebar-twisty[data-open] > svg {
   transform: rotate(90deg);
 }
 
@@ -182,6 +233,24 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/*
+ * A folder drawn only because something under it matched (UI_SPEC.md §4.1).
+ * Quieted rather than disabled: it is still a real folder, still clickable and
+ * still a drop target, and the only thing being said is that the needle did not
+ * find it. The count keeps its own colour — it is a fact about the folder, not
+ * about the search.
+ */
+.sidebar-branch[data-context] .sidebar-label {
+  color: var(--text-subtle);
+}
+
+/* Unless it is the row on screen. A context folder is clickable, so it can be
+   the current one, and quieting a name against the selection fill is the one
+   place this colour would be unreadable. */
+.sidebar-branch[data-context] .sidebar-row[data-current] .sidebar-label {
+  color: inherit;
 }
 
 .sidebar-stars {

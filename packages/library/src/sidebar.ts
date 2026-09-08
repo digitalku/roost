@@ -51,10 +51,28 @@ export interface FolderEntry {
   readonly name: string;
   /** Slash-separated path from the root, which is what `folder:` matches. */
   readonly path: string;
-  /** The query selecting this folder and everything beneath it. */
+  /**
+   * The query selecting this folder — `folder:` or `infolder:` depending on
+   * *Show subfolder contents* (ADR-0036, ADR-0019).
+   */
   readonly query: string;
-  /** Assets in this folder and its descendants. */
+  /**
+   * How many assets {@link query} matches.
+   *
+   * **The count of the row's own query**, so it follows the setting: the
+   * subtree when subfolder contents are shown, this folder alone when they are
+   * not. `UI_SPEC.md` §4.1 — a sidebar saying 412 over a grid showing 12 is the
+   * shape this goes wrong in.
+   */
   readonly count: number;
+  /**
+   * Every live asset in this folder and beneath it, whatever the setting says.
+   *
+   * What **Delete folder…** asks about: ticking its box trashes the subtree in
+   * one journal batch (ADR-0033 §3.3), so the number in the question has to be
+   * the subtree's even when the pane is drawing a shallower one.
+   */
+  readonly descendants: number;
 }
 
 export interface TagEntry {
@@ -115,15 +133,22 @@ export function readSidebar(library: Library): Sidebar {
   const byId = new Map(rows.map((row) => [row.id, row]));
   const children = childrenById(rows);
 
+  // Which term a folder row asks with, and therefore what its count counts
+  // (ADR-0036). The setting decides what is *written*, never what a term
+  // means — a query saved months ago asks the same question forever.
+  const deep = library.settings.showSubfolderContents;
+
   const folders = rows.map((row) => {
     const path = pathOf(byId, row);
+    const descendants = subtreeCount(children, direct, row.id);
     return {
       id: row.id,
       parentId: row.parentId,
       name: row.name,
       path,
-      query: `folder:${quoteValue(path)}`,
-      count: subtreeCount(children, direct, row.id),
+      query: `${deep ? "folder" : "infolder"}:${quoteValue(path)}`,
+      count: deep ? descendants : (direct.get(row.id) ?? 0),
+      descendants,
     };
   });
 
@@ -151,10 +176,11 @@ const RECENT_DAYS = 7;
  * The fixed rows.
  *
  * "Recent" is a **date computed here**, not a relative term in the grammar.
- * RQL has no `imported:>7d`, and adding one would be a grammar change — the
- * grammar is frozen by cross-implementation compatibility (`CONCEPT.md` §1.1),
- * so a query that says the same thing in both implementations is the one to
- * send. The consequence is that the query goes stale at midnight UTC; the
+ * RQL has no `imported:>7d`, and adding one would be a grammar change. The
+ * grammar is frozen by compatibility (`DATA_MODEL.md` §3) — forward-only since
+ * the two-implementation requirement was retired, so the cost is that a smart
+ * folder written by this build would not parse in an older one. A date the
+ * engine computes costs nothing at all, which is why this one is not a term. The consequence is that the query goes stale at midnight UTC; the
  * sidebar is re-read whenever the library changes, and a day-old boundary on a
  * seven-day window is not a wrong answer.
  *

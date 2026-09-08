@@ -2,6 +2,7 @@ import type {
   ImportProgress,
   StorageMode,
   WireEagleReport,
+  WireFiled,
   WireImportReport,
   WireProblem,
 } from "@roost/contract";
@@ -34,6 +35,19 @@ export type ImportOutcome =
   | { readonly kind: "paths"; readonly report: WireImportReport }
   | { readonly kind: "eagle"; readonly report: WireEagleReport };
 
+/**
+ * The files a finished run found were already here (ADR-0037 §3).
+ *
+ * Raised after the run rather than before it, because deduplication here is
+ * structural: a duplicate is discovered by hashing the incoming file. It costs
+ * nothing to wait — for a duplicate, an import writes nothing at all.
+ */
+export interface DuplicateQuestion {
+  readonly total: number;
+  /** The first few by name. The rest are counted, never listed. */
+  readonly names: readonly string[];
+}
+
 export interface Importing {
   readonly running: boolean;
   readonly progress: ImportProgress | undefined;
@@ -46,13 +60,26 @@ export interface Importing {
   readonly startEagle: (path: string, mode?: StorageMode) => void;
   /** Puts the last outcome away. */
   readonly dismiss: () => void;
+  /** The duplicates a finished run is waiting for an answer about. */
+  readonly duplicates: DuplicateQuestion | undefined;
+  /**
+   * Puts the last run's duplicates in `folder` as well, and answers the
+   * question.
+   *
+   * An add, never a move: an asset belongs to as many folders as it was put in,
+   * so nothing is taken out of anywhere it already was.
+   */
+  readonly fileDuplicates: (folder: number) => Promise<WireFiled | undefined>;
+  /** Answers the question by leaving them alone, which is what the run did. */
+  readonly ignoreDuplicates: () => void;
 }
 
-export function useImport(onFinished: () => void): Importing {
+export function useImport(onFinished: () => void, folder: number | null): Importing {
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<ImportProgress | undefined>();
   const [outcome, setOutcome] = useState<ImportOutcome | undefined>();
   const [problem, setProblem] = useState<WireProblem | undefined>();
+  const [duplicates, setDuplicates] = useState<DuplicateQuestion | undefined>();
 
   useEffect(
     () =>
@@ -75,6 +102,9 @@ export function useImport(onFinished: () => void): Importing {
         setProgress(undefined);
         setOutcome(undefined);
         setProblem(undefined);
+        // The previous run's question goes with the previous run: the list it
+        // was about belongs to that run, and the engine has already replaced it.
+        setDuplicates(undefined);
 
         void (async () => {
           const answer = await request();
@@ -82,6 +112,15 @@ export function useImport(onFinished: () => void): Importing {
           setProgress(undefined);
           if ("kind" in answer) setOutcome(answer);
           else setProblem(answer);
+          // Only a path import asks. An Eagle library brings its own folders,
+          // and a duplicate in one is an item that found its bytes already
+          // here — not a file somebody just chose (ADR-0032 §3).
+          if ("kind" in answer && answer.kind === "paths" && answer.report.duplicates > 0) {
+            setDuplicates({
+              total: answer.report.duplicates,
+              names: answer.report.duplicateNames,
+            });
+          }
           // The counts, the sidebar, and the grid are all wrong now.
           onFinished();
         })();
@@ -97,11 +136,21 @@ export function useImport(onFinished: () => void): Importing {
       run(async () => {
         // Managed, and no tags: the mode belongs in a preference and the tags
         // in an import dialog, neither of which exists yet. `TODO.md` §M3.
-        const answer = await invoke({ type: "import:paths", paths, mode: "managed", tags: [] });
+        //
+        // The folder is the one the window was showing when the run started
+        // (ADR-0037 §2) — read here, not when the reply comes back, so an
+        // import of forty thousand files does not follow the user around.
+        const answer = await invoke({
+          type: "import:paths",
+          paths,
+          mode: "managed",
+          tags: [],
+          folder,
+        });
         return answer.ok ? { kind: "paths", report: answer.value } : answer.problem;
       });
     },
-    [run],
+    [run, folder],
   );
 
   const startEagle = useCallback(
@@ -120,5 +169,28 @@ export function useImport(onFinished: () => void): Importing {
     setProblem(undefined);
   }, []);
 
-  return { running, progress, outcome, problem, start, startEagle, dismiss };
+  const fileDuplicates = useCallback(async (into: number) => {
+    // Put away first: the answer has been given, and the engine's reply is
+    // about how it went rather than whether to ask again.
+    setDuplicates(undefined);
+    const answer = await invoke({ type: "import:fileDuplicates", folder: into });
+    if (answer.ok) return answer.value;
+    setProblem(answer.problem);
+    return undefined;
+  }, []);
+
+  const ignoreDuplicates = useCallback(() => setDuplicates(undefined), []);
+
+  return {
+    running,
+    progress,
+    outcome,
+    problem,
+    start,
+    startEagle,
+    dismiss,
+    duplicates,
+    fileDuplicates,
+    ignoreDuplicates,
+  };
 }

@@ -17,6 +17,7 @@ import type {
   WireDeriveStatus,
   WireEagleReport,
   WireEagleSurvey,
+  WireFiled,
   WireImportReport,
   WireSidebar,
 } from "@roost/contract";
@@ -88,7 +89,7 @@ import {
 } from "@roost/library";
 import { capabilities } from "@roost/media";
 import { formatFromExtension, isConvertible, kindOf } from "@roost/media/serving";
-import { joinQuery, QueryError, splitQuery } from "@roost/search";
+import { joinQuery, QueryError, splitQuery, withSubfolders } from "@roost/search";
 
 /**
  * One library, and the requests that reach it.
@@ -106,6 +107,16 @@ const log = logger("engine");
 
 export class EngineHost {
   #library: Library | undefined;
+
+  /**
+   * The duplicates the last import found, waiting for an answer (ADR-0037 §3).
+   *
+   * Held here rather than sent to the window because a re-import of a large
+   * directory produces more hashes than a dialog should be handed and then
+   * hand back. It is replaced by the next run and dropped with the library, so
+   * a dialog left open across either is answered with `expired`.
+   */
+  #duplicates: ContentHash[] | undefined;
 
   /**
    * Answers one request.
@@ -167,6 +178,32 @@ export class EngineHost {
 
       case "query:join":
         return joinQuery(request.place, request.facets);
+
+      case "query:subfolders":
+        return withSubfolders(request.query, request.on);
+
+      case "settings:read":
+        return this.#require().settings;
+
+      case "settings:write": {
+        const library = this.#require();
+        // A patch, so a build that learns a second setting need not send the
+        // first one back. The write may not reach the disk — ADR-0019 calls
+        // that the correct outcome for a library nobody can write to — and the
+        // answer is what the engine now holds either way.
+        if (request.showSubfolderContents !== undefined) {
+          await library.updateSettings({
+            showSubfolderContents: request.showSubfolderContents,
+          });
+          // Announced like an edit, though nothing in the library changed: this
+          // setting decides the **term every folder row carries**, so a pane
+          // that was not re-read would keep rows asking the other depth — stale
+          // counts, and the row for the folder on screen no longer matching the
+          // query, so it would quietly stop being marked as current.
+          this.onChanged?.();
+        }
+        return library.settings;
+      }
 
       case "asset:detail": {
         const library = this.#require();
@@ -349,7 +386,10 @@ export class EngineHost {
       }
 
       case "import:paths":
-        return this.#import(request.paths, request.mode, request.tags);
+        return this.#import(request.paths, request.mode, request.tags, request.folder);
+
+      case "import:fileDuplicates":
+        return this.#fileDuplicates(request.folder);
 
       case "eagle:survey":
         // No library is required, and none is opened: this reads somebody
@@ -450,11 +490,13 @@ export class EngineHost {
     paths: readonly string[],
     mode: StorageMode,
     tags: readonly string[],
+    folder: number | null,
   ): Promise<WireImportReport> {
     const library = this.#require();
     let announced = 0;
 
-    const report = await importInto(library, paths, { mode, tags: [...tags] }, (_path, running) => {
+    const options = { mode, tags: [...tags], ...(folder === null ? {} : { folder }) };
+    const report = await importInto(library, paths, options, (_path, running) => {
       if (handled(running) - announced < PROGRESS_EVERY) return;
       announced = handled(running);
       this.onProgress?.(progressOf(running, 0));
@@ -472,8 +514,38 @@ export class EngineHost {
       this.onProgress?.(progressOf(report, running.derived));
     });
 
+    // Kept only once the run finished. A run that threw has no answer to
+    // offer, and leaving the previous run's list in place would offer the
+    // wrong one.
+    this.#duplicates = report.duplicateHashes;
+
     this.onChanged?.();
     return reportOf(report, derived?.derived ?? 0);
+  }
+
+  /**
+   * Files the last import's duplicates into a folder (ADR-0037 §3.2).
+   *
+   * An add, not a move: `asset_folders` is many-to-many, so nothing leaves the
+   * folders these assets are already in.
+   *
+   * The list is filtered before it is applied. An asset removed between the
+   * import and the click would otherwise fail the whole batch, and the answer
+   * to "one of these is gone" is to file the rest.
+   */
+  async #fileDuplicates(folder: number): Promise<WireFiled> {
+    const library = this.#require();
+    const held = this.#duplicates;
+    if (held === undefined) return { filed: 0, expired: true };
+
+    // A Set because one run can meet the same bytes twice: the second copy of
+    // a file inside the same import is a duplicate of the first.
+    const live = [...new Set(held)].filter((hash) => library.db.repo.findAsset(hash) !== undefined);
+    if (live.length === 0) return { filed: 0, expired: false };
+
+    await addToFolder(library, live, folder);
+    this.onChanged?.();
+    return { filed: live.length, expired: false };
   }
 
   /**
@@ -627,6 +699,9 @@ export class EngineHost {
   async close(): Promise<void> {
     const open = this.#library;
     this.#library = undefined;
+    // The list names assets in the library that is going: it cannot mean
+    // anything about the next one.
+    this.#duplicates = undefined;
 
     // The runner is stopped before the library is: it commits batch by batch,
     // so a run cut short here has already kept everything it finished, and a
@@ -804,6 +879,7 @@ function sidebarOf(library: Library): WireSidebar {
         // by being a string; this is the number an op names.
         folder: folder.id,
         path: folder.path,
+        descendants: folder.descendants,
       }),
     ),
     smartFolders: sidebar.smartFolders.map(
@@ -1000,6 +1076,9 @@ function reportOf(report: ImportReport, thumbnails: number): WireImportReport {
     thumbnails,
     elapsedMs: Math.round(report.elapsed),
     failed: report.failed.map((failure) => ({ path: failure.path, reason: failure.reason })),
+    // A preview. The rest stays in the engine, which is what the dialog's
+    // button acts through (ADR-0037 §3.1).
+    duplicateNames: report.duplicateNames,
   };
 }
 

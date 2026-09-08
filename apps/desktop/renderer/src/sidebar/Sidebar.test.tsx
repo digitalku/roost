@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { ASSET_DRAG_TYPE, FOLDER_DRAG_TYPE } from "../dnd.js";
 import { useExpansion } from "./expansion.js";
-import { Sidebar, type SidebarProps } from "./Sidebar.js";
+import { found, Sidebar, type SidebarProps } from "./Sidebar.js";
 
 function row(over: Partial<SidebarRow> & { name: string; query: string }): SidebarRow {
   return { id: over.id ?? over.name, count: null, depth: 0, group: null, stars: null, ...over };
@@ -18,6 +18,7 @@ function folderRow(
     ...row({ ...over, query: over.query ?? `folder:"${over.path}"` }),
     folder: over.folder,
     path: over.path,
+    descendants: over.descendants ?? 0,
   };
 }
 
@@ -363,5 +364,160 @@ describe("the navigation pane", () => {
       "Places",
       "Folders+",
     ]);
+  });
+});
+
+/**
+ * A tree deep enough to search: two branches holding a match apiece, one
+ * branch holding none, and a match with a child of its own.
+ *
+ * ```
+ * Clients          Archive          Zebra
+ *   Acme             Old logos
+ *     Logos
+ *       Draft
+ *   Billing
+ * ```
+ */
+const DEEP: readonly SidebarFolderRow[] = [
+  folderRow({ id: "f1", folder: 1, name: "Clients", path: "Clients", depth: 0 }),
+  folderRow({ id: "f2", folder: 2, name: "Acme", path: "Clients/Acme", depth: 1 }),
+  folderRow({ id: "f3", folder: 3, name: "Logos", path: "Clients/Acme/Logos", depth: 2 }),
+  folderRow({ id: "f4", folder: 4, name: "Draft", path: "Clients/Acme/Logos/Draft", depth: 3 }),
+  folderRow({ id: "f5", folder: 5, name: "Billing", path: "Clients/Billing", depth: 1 }),
+  folderRow({ id: "f6", folder: 6, name: "Archive", path: "Archive", depth: 0 }),
+  folderRow({ id: "f7", folder: 7, name: "Old logos", path: "Archive/Old logos", depth: 1 }),
+  folderRow({ id: "f8", folder: 8, name: "Zebra", path: "Zebra", depth: 0 }),
+];
+
+const DEEP_SIDEBAR: WireSidebar = { ...SIDEBAR, folders: DEEP };
+
+/** Every folder row on screen, deepest-marked, in the order it is drawn. */
+function treeOnScreen(): string[] {
+  return [...document.querySelectorAll(".sidebar-branch")].map((branch) => {
+    const name = branch.querySelector(".sidebar-label")?.textContent ?? "";
+    return branch.hasAttribute("data-context") ? `(${name})` : name;
+  });
+}
+
+describe("searching the folder tree", () => {
+  it("keeps the field shut until the magnifier is pressed, then takes the caret", async () => {
+    render(<Pane sidebar={DEEP_SIDEBAR} />);
+    const user = userEvent.setup();
+    expect(screen.queryByRole("searchbox", { name: "Search folders" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Search folders" }));
+
+    const field = screen.getByRole("searchbox", { name: "Search folders" });
+    // A field that has to be clicked before it can be typed into is two
+    // gestures for one intention, and the magnifier was the first of them.
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("keeps the tree's shape, bringing every folder on the path to a match", async () => {
+    render(<Pane sidebar={DEEP_SIDEBAR} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Search folders" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search folders" }), "logos");
+
+    // `Clients`, `Acme` and `Archive` are drawn only because something under
+    // them matched, so they are marked as context. `Draft` is under a match
+    // and does not come along — which is what stops a needle matching near the
+    // root from redrawing the whole pane.
+    expect(treeOnScreen()).toEqual(["(Clients)", "(Acme)", "Logos", "(Archive)", "Old logos"]);
+  });
+
+  it("draws the disclosure as a mark rather than a control while searching", async () => {
+    render(<Pane sidebar={DEEP_SIDEBAR} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Search folders" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search folders" }), "logos");
+
+    // A branch is drawn here only because something under it matched, so the
+    // one thing closing it could do is hide the reason it is there.
+    expect(screen.queryByRole("button", { name: /Collapse|Expand/ })).toBeNull();
+    expect(document.querySelectorAll(".sidebar-twisty[data-open]").length).toBe(3);
+  });
+
+  it("says so when nothing matches, rather than drawing a heading over nothing", async () => {
+    render(<Pane sidebar={DEEP_SIDEBAR} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Search folders" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search folders" }), "nowhere");
+
+    expect(treeOnScreen()).toEqual([]);
+    expect(screen.getByText("Nothing matches")).toBeDefined();
+  });
+
+  it("gives the expansion back untouched when the field is closed", async () => {
+    render(<Pane sidebar={DEEP_SIDEBAR} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Expand Clients" }));
+    expect(treeOnScreen()).toEqual(["Clients", "Acme", "Billing", "Archive", "Zebra"]);
+
+    await user.click(screen.getByRole("button", { name: "Search folders" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search folders" }), "logos");
+    await user.keyboard("{Escape}");
+
+    // Escape closes the field, and the pane is exactly where it was left:
+    // `Clients` open, `Acme` still closed, so `Logos` is not drawn.
+    expect(screen.queryByRole("searchbox", { name: "Search folders" })).toBeNull();
+    expect(treeOnScreen()).toEqual(["Clients", "Acme", "Billing", "Archive", "Zebra"]);
+  });
+
+  it("clears the needle when a folder command is raised, keeping the field", async () => {
+    // A new subfolder whose name does not match the needle would be made and
+    // then not drawn, which reads as the command having failed.
+    const made: (SidebarFolderRow | null)[] = [];
+    render(<Pane sidebar={DEEP_SIDEBAR} onNewFolder={(parent) => made.push(parent)} />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Search folders" }));
+    await user.type(screen.getByRole("searchbox", { name: "Search folders" }), "logos");
+
+    await user.click(screen.getByRole("button", { name: "New folder" }));
+
+    expect(made).toEqual([null]);
+    expect(screen.getByRole("searchbox", { name: "Search folders" })).toHaveProperty("value", "");
+    expect(treeOnScreen()).toEqual(["Clients", "Archive", "Zebra"]);
+  });
+
+  it("offers no magnifier where there is nothing to search", () => {
+    render(<Pane sidebar={{ ...SIDEBAR, folders: [] }} />);
+    // The heading is drawn on an empty section solely so `+` has somewhere to
+    // live; a magnifier there could only ever answer "nothing matches".
+    expect(screen.queryByRole("button", { name: "Search folders" })).toBeNull();
+    expect(screen.getByRole("button", { name: "New folder" })).toBeDefined();
+  });
+});
+
+describe("found", () => {
+  const shape = (needle: string): string[] =>
+    found(DEEP, needle).map(
+      ({ row, hasChildren, isContext }) =>
+        `${isContext ? "-" : "+"}${row.depth}:${row.name}${hasChildren ? "*" : ""}`,
+    );
+
+  it("returns the matches and their ancestors, in depth-first order", () => {
+    expect(shape("logos")).toEqual([
+      "-0:Clients*",
+      "-1:Acme*",
+      "+2:Logos",
+      "-0:Archive*",
+      "+1:Old logos",
+    ]);
+  });
+
+  it("matches without regard to case, and ignores the ends", () => {
+    expect(shape("  ZEBRA ")).toEqual(["+0:Zebra"]);
+  });
+
+  it("marks a folder as having children by what is drawn, not by what exists", () => {
+    // `Acme` has `Logos` under it and `Logos` has `Draft`, but a match's own
+    // subtree does not come along — so `Logos` is drawn as a leaf here.
+    expect(shape("acme")).toEqual(["-0:Clients*", "+1:Acme"]);
+  });
+
+  it("finds nothing where nothing matches", () => {
+    expect(found(DEEP, "nowhere")).toEqual([]);
   });
 });

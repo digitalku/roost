@@ -9,6 +9,7 @@ import {
   importInto,
   Library,
   rankedStages,
+  resolveFolder,
   surveyEagle,
 } from "@roost/library";
 import { bytes, plural, rate, row, seconds } from "../format.js";
@@ -18,6 +19,8 @@ export interface ImportArgs {
   readonly mode: StorageMode;
   readonly tags: readonly string[];
   readonly includeHidden: boolean;
+  /** A folder path — `Design/Icons` — for everything newly imported (ADR-0037). */
+  readonly folder?: string;
 }
 
 export async function runImport(
@@ -30,10 +33,18 @@ export async function runImport(
   const library = await Library.open(root);
   try {
     let lastShown = 0;
+    // Resolved before the walk starts, so a folder that is not there is a
+    // usage error rather than a run that dies partway (ADR-0037 §2).
+    const folder = args.folder === undefined ? undefined : resolveFolder(library, args.folder);
     const report = await importInto(
       library,
       args.paths.map((path) => resolve(path)),
-      { mode: args.mode, tags: args.tags, includeHidden: args.includeHidden },
+      {
+        mode: args.mode,
+        tags: args.tags,
+        includeHidden: args.includeHidden,
+        ...(folder === undefined ? {} : { folder }),
+      },
       (_path, running) => {
         // Every hundred, not every file: a progress line per file costs more
         // than the import at these rates, and a terminal cannot read it anyway.

@@ -25,6 +25,7 @@ import {
   refuseExistingLibrary,
   writeManifest,
 } from "./manifest.js";
+import { readSettings, type Settings, writeSettings } from "./settings.js";
 
 const log = logger("library");
 
@@ -64,6 +65,7 @@ export class Library {
   #db: Db;
   #journal: Journal;
   #lock: InstanceLock | undefined;
+  #settings: Settings;
   #closed = false;
 
   private constructor(
@@ -72,12 +74,14 @@ export class Library {
     db: Db,
     journal: Journal,
     lock: InstanceLock | undefined,
+    settings: Settings,
   ) {
     this.root = root;
     this.manifest = manifest;
     this.#db = db;
     this.#journal = journal;
     this.#lock = lock;
+    this.#settings = settings;
   }
 
   /** Creates a library at `root` and opens it. */
@@ -109,13 +113,17 @@ export class Library {
     try {
       const db = Db.open(join(root, INDEX_FILE));
       const journal = await Journal.open(root);
+      // Read once and held, so a synchronous read path — the sidebar builds a
+      // row's query from it — never has to reach the filesystem. Nothing here
+      // can fail: an absent or damaged file is the defaults (ADR-0019).
+      const settings = await readSettings(root);
       log.debug("library opened", {
         root,
         schema: db.schemaVersion(),
         format: manifest.roost_library_version,
         exclusive: lock !== undefined,
       });
-      return new Library(root, manifest, db, journal, lock);
+      return new Library(root, manifest, db, journal, lock, settings);
     } catch (error) {
       // A lock taken and then abandoned would keep the library shut until
       // someone deleted the file by hand.
@@ -126,6 +134,23 @@ export class Library {
 
   get db(): Db {
     return this.#db;
+  }
+
+  /** This library's preferences (ADR-0019). */
+  get settings(): Settings {
+    return this.#settings;
+  }
+
+  /**
+   * Changes preferences, and says whether the change reached the disk.
+   *
+   * The in-memory value is updated either way: a library on read-only media
+   * keeps the setting for the session and loses it on close, which ADR-0019
+   * calls the correct outcome rather than a failure.
+   */
+  async updateSettings(patch: Partial<Settings>): Promise<boolean> {
+    this.#settings = { ...this.#settings, ...patch };
+    return writeSettings(this.root, patch);
   }
 
   get journal(): Journal {

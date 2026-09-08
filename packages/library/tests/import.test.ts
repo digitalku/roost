@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { parseContentHash, shardOf } from "@roost/core";
 import {
   count,
+  createFolder,
   generateMissing,
   importInto,
   Library,
@@ -13,6 +14,7 @@ import {
   subtitles,
   tagAdd,
   trashAssets,
+  UnknownFolderError,
 } from "@roost/library";
 import { GRID_SIZE, gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -199,6 +201,44 @@ describe("importing", () => {
       expect(library.db.repo.assetDetail(hash)?.tags).toEqual(["blue", "reference"]);
     }
     expect(library.stats().tags).toBe(2);
+  });
+
+  it("puts everything it imported in the folder the run names", async () => {
+    // ADR-0037: an import lands where the window was looking.
+    const folder = await createFolder(library, "Design", null);
+    await picture("one.png", 1);
+    await picture("two.png", 2);
+
+    const report = await importInto(library, [source], { folder });
+
+    expect(report.imported).toBe(2);
+    expect(count(library, "folder:Design")).toBe(2);
+  });
+
+  it("leaves a duplicate out of the folder, and names it in the report", async () => {
+    // The offer to file it is the dialog's, not the importer's: a file the
+    // library already holds is not this run's asset to put anywhere.
+    const folder = await createFolder(library, "Design", null);
+    const path = await picture("already.png", 9);
+    await importInto(library, [path]);
+
+    const again = await importInto(library, [path], { folder });
+
+    expect(again.duplicates).toBe(1);
+    expect(count(library, "folder:Design")).toBe(0);
+    expect(again.duplicateNames).toEqual(["already.png"]);
+    expect(again.duplicateHashes).toEqual(library.db.repo.allHashes());
+  });
+
+  it("refuses a folder that is not there before it hashes anything", async () => {
+    // Checked at the start rather than where the record is written: a run that
+    // failed halfway would have journalled some of itself already.
+    await picture("one.png", 1);
+
+    await expect(importInto(library, [source], { folder: 404 })).rejects.toBeInstanceOf(
+      UnknownFolderError,
+    );
+    expect(library.stats().assets).toBe(0);
   });
 
   it("keeps referenced originals where the user put them", async () => {

@@ -309,6 +309,15 @@ export interface SidebarFolderRow extends SidebarRow {
   readonly folder: number;
   /** Slash-separated, from the root. `name` is only the last segment. */
   readonly path: string;
+  /**
+   * Every live asset in this folder and beneath it (ADR-0036).
+   *
+   * `count` is the count of this row's *query*, which follows *Show subfolder
+   * contents*; this one never does. **Delete folder…** asks about the subtree
+   * whatever the pane is drawing, so the question and what it does have to be
+   * counted the same way.
+   */
+  readonly descendants: number;
 }
 
 /**
@@ -387,11 +396,30 @@ export interface WireFacets {
   readonly exts: readonly string[];
 }
 
+/**
+ * This library's preferences (ADR-0019).
+ *
+ * One field so far. It lives in `settings.json` inside the library, so it
+ * travels with the folder and both frontends read the same one.
+ */
+export interface WireSettings {
+  /** Whether opening a folder shows what is in its subfolders (ADR-0036). */
+  readonly showSubfolderContents: boolean;
+}
+
 /** A query read as somewhere to look plus what the bar narrowed it to. */
 export interface WireSplitQuery {
   /** Everything the bar does not own, in the words it was written in. */
   readonly place: string;
   readonly facets: WireFacets;
+  /**
+   * Whether the query on screen reaches into subfolders (ADR-0036).
+   *
+   * `true` for `folder:`, `false` for `infolder:`, and **`null` when the query
+   * names no folder** — the checkbox has nothing to reflect then and shows the
+   * library's setting, which is what the next folder opened will use.
+   */
+  readonly subfolders: boolean | null;
   /**
    * Whether the bar can show this query honestly.
    *
@@ -572,6 +600,19 @@ export interface DeriveProgress {
   readonly failed: number;
 }
 
+/**
+ * What filing an import's duplicates into a folder did (ADR-0037 §3).
+ *
+ * `expired` is the honest answer to a dialog left open too long: the list
+ * belongs to the last run, and another import — or closing the library —
+ * replaces it. Nothing was filed then, and the window says so rather than
+ * reporting a zero that reads like "they were already there".
+ */
+export interface WireFiled {
+  readonly filed: number;
+  readonly expired: boolean;
+}
+
 /** One file that could not be imported, and why. */
 export interface WireImportFailure {
   readonly path: string;
@@ -606,6 +647,16 @@ export interface WireImportReport {
   readonly subtitles: number;
   /** Subtitles that found no film beside them, and are now loose in the grid. */
   readonly subtitlesUnattached: number;
+  /**
+   * The first few duplicates by name, for the dialog to draw (ADR-0037 §3.1).
+   *
+   * A preview, never the whole list: re-importing a large directory is the
+   * ordinary way to produce a hundred thousand duplicates, and a window cannot
+   * draw that many names or usefully be sent them. `duplicates` is the total,
+   * and the engine holds the rest — `import:fileDuplicates` acts on all of
+   * them without any of them crossing back.
+   */
+  readonly duplicateNames: readonly string[];
   /**
    * Thumbnails generated for what was imported.
    *

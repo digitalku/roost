@@ -178,8 +178,10 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
 - ☑ Sidebar: places, folders with subtree counts, smart folders, grouped tags — each row
   carrying the RQL that selects it. The folder tree collapses and is editable from the pane
   (2026-09-06, ADR-0033 — which also fixed rows that were sorted by name and indented as though
-  they were a tree). Tag-group collapsing, drag-to-reparent, and the library switcher are
-  in `TODO.md`
+  they were a tree), and is searched from a magnifier in its heading, which keeps the tree's shape
+  and leaves the expansion untouched (2026-09-08, ADR-0033 §6). Whether opening a folder reaches
+  into its subfolders is a checkbox over the grid and a setting in the library
+  (2026-09-08, ADR-0036). Tag-group collapsing and the library switcher are in `TODO.md`
 - ☑ Inspector: preview, metadata, tags, folders (2026-09-06 — the chips and the tree menu, plus
   `Ctrl+Delete`; until then the window could neither file an asset nor unfile one), rating,
   favourite (retired, ADR-0029), note, source
@@ -219,9 +221,10 @@ against a running window, verified by weakening three settings and watching four
 What M3 does **not** include is written down rather than left to be discovered: the list view,
 the zoom control, marquee selection, autocomplete, chips, sidebar collapsing and
 drag-to-reparent, the library switcher, and 1:1 zoom in the preview are all in `TODO.md` §M3
-with the reason each one waited. Four have since arrived: the list view and the zoom control
-with ADR-0018, marquee selection on 2026-09-01, and the preview's own zoom on 2026-09-07 —
-which came back as more than 1:1, because what was asked for was the wheel.
+with the reason each one waited. Six have since arrived: the list view and the zoom control
+with ADR-0018, marquee selection on 2026-09-01, the preview's own zoom on 2026-09-07 —
+which came back as more than 1:1, because what was asked for was the wheel — and sidebar
+collapsing with drag-to-reparent, both ADR-0033.
 
 ## M4 — Format breadth ☑
 
@@ -343,7 +346,16 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-08.** **ADR-0035 was amended** that day (§7), from the user asking
+**Nothing open, as of 2026-09-08.** **ADR-0037 — an import lands where you are** was proposed and
+accepted that day, from the user asking whether an import can join the folder already on screen, and
+what the pop-up should offer for the files the library already holds. Both of its questions were
+answered as recommended: the folder is the one on screen, and an import made outside a folder files
+nothing. Its one piece of reasoning worth carrying: deduplication here is **structural**, so a
+duplicate is discovered by hashing the incoming file — which is why the dialog comes *after* a run
+rather than in front of one, and why it can, since an import writes nothing for a duplicate. No
+journal op, no migration, no schema change.
+
+**ADR-0035 was amended** on 2026-09-08 (§7), from the user asking
 for a search field in the tag menu and Eagle's **Any / All** rule. The amendment turns §2's refusal
 into a meaning: `tag:a tag:b` is *all* and `(tag:a OR tag:b)` is *any*, so the rule needs no new
 grammar. Only tags carry one — an asset has one extension and one rating, so *all* on either would
@@ -448,7 +460,7 @@ not draw, all settled before any of them was written against:
 | --- | --- | --- |
 | What `Delete` means | Trash, and trash is a `trashed_at` column (migration 0007) with `trash` and `restore` journal ops. A trashed asset keeps everything and stops matching every query but `is:trashed`. **Nothing is ever emptied on a timer** — permanent removal is `remove`, which is what "Empty trash" and "Delete permanently" send | ADR-0022 |
 
-| Where settings live | `settings.json` inside `<Name>.roost`, which is the default; `stateDir()` and `configDir()` hold only what cannot live in a library — the recent list that finds one, window geometry, and the theme the picker is drawn in | ADR-0019 |
+| Where settings live | `settings.json` inside `<Name>.roost`, which is the default; `stateDir()` and `configDir()` hold only what cannot live in a library — the recent list that finds one, window geometry, and the theme the picker is drawn in. **Built 2026-09-08**, with *Show subfolder contents* as its first setting | ADR-0019, ADR-0036 |
 | Windows | Several windows onto one library. Several libraries at once is refused for now, and the work it would need is named | ADR-0020 |
 
 | UI primitives | `radix-ui` 1.6.7, measured against three alternatives. Native `Menu.popup()` was recommended first, on the user's request for the OS's own menus, and reversed by finding that Electron draws its own menu on Linux — the only platform v1 ships | ADR-0021 |

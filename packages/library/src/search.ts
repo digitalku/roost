@@ -30,6 +30,9 @@ const log = logger("search");
  * finds the folder someone has in mind without making them type
  * `Design/Brand/Icons`. An exact path always wins, so the fallback can only
  * broaden a query that found nothing.
+ *
+ * Two depths over one resolution (ADR-0036): `folder:` descends and `infolder:`
+ * does not, and both name the same place.
  */
 class LibraryFolders implements Folders {
   readonly #library: Library;
@@ -39,26 +42,37 @@ class LibraryFolders implements Folders {
   }
 
   subtree(path: string): number[] {
+    const rows = this.#library.db.repo.folders();
+    return descendants(childrenById(rows), this.#roots(path, rows));
+  }
+
+  only(path: string): number[] {
+    return this.#roots(path, this.#library.db.repo.folders());
+  }
+
+  /**
+   * The folders a path names, before any descent.
+   *
+   * Shared by both terms so they can disagree about depth and about nothing
+   * else: an exact path wins, and a bare name falls back to every folder so
+   * named. The fallback is what makes `infolder:Icons` mean the same *place* as
+   * `folder:Icons`, one level shallower.
+   */
+  #roots(path: string, rows: readonly FolderRow[]): number[] {
     const segments = path
       .split("/")
       .map((segment) => segment.trim())
       .filter((segment) => segment !== "");
 
-    const [only] = segments;
-    if (only === undefined) return [];
+    const [first] = segments;
+    if (first === undefined) return [];
 
-    const repo = this.#library.db.repo;
-    const rows = repo.folders();
+    const exact = this.#library.db.repo.findFolderByPath(segments);
+    if (exact !== undefined) return [exact];
 
-    const exact = repo.findFolderByPath(segments);
-    let roots: number[] = exact === undefined ? [] : [exact];
-
-    if (roots.length === 0 && segments.length === 1) {
-      const wanted = foldAscii(only);
-      roots = rows.filter((row) => foldAscii(row.name) === wanted).map((row) => row.id);
-    }
-
-    return descendants(childrenById(rows), roots);
+    if (segments.length > 1) return [];
+    const wanted = foldAscii(first);
+    return rows.filter((row) => foldAscii(row.name) === wanted).map((row) => row.id);
   }
 }
 

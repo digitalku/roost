@@ -62,6 +62,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
     mode: { type: "string" },
     tag: { type: "string", multiple: true },
     hidden: { type: "boolean" },
+    folder: { type: "string" },
     "from-eagle": { type: "string" },
     "dry-run": { type: "boolean" },
   },
@@ -196,6 +197,11 @@ async function dispatch(
         if (flag(values, "hidden")) {
           return usage(streams, command, "--hidden means nothing with --from-eagle");
         }
+        // An Eagle library brings its own folders (ADR-0032 §3); a destination
+        // on top of them would file every item twice.
+        if (text(values, "folder") !== undefined) {
+          return usage(streams, command, "--folder means nothing with --from-eagle");
+        }
         if (flag(values, "dry-run")) {
           // No library is opened: reading an Eagle library is a question that
           // stands on its own, and there may not be anywhere to put it yet.
@@ -218,6 +224,7 @@ async function dispatch(
       if (positionals.length === 0) {
         return usage(streams, command, "import needs at least one path");
       }
+      const folder = text(values, "folder");
       await runImport(
         await library(),
         {
@@ -225,6 +232,7 @@ async function dispatch(
           mode,
           tags: list(values, "tag"),
           includeHidden: flag(values, "hidden"),
+          ...(folder === undefined ? {} : { folder }),
         },
         streams.out,
         streams.progress,

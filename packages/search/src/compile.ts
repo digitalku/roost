@@ -24,10 +24,19 @@ import type { Compare, Expr, Flag, Term } from "./ast.js";
 export interface Folders {
   /** Every folder id matching `path`, including descendants. */
   subtree(path: string): number[];
+  /**
+   * Every folder id matching `path`, and **no** descendants (ADR-0036).
+   *
+   * What `infolder:` compiles through. The path resolves exactly as it does
+   * for {@link subtree} — an exact path first, a bare name anywhere in the tree
+   * as the fallback — so the two terms disagree about depth and about nothing
+   * else.
+   */
+  only(path: string): number[];
 }
 
 /** A resolver that finds no folders, for compiling without a database. */
-export const NO_FOLDERS: Folders = { subtree: () => [] };
+export const NO_FOLDERS: Folders = { subtree: () => [], only: () => [] };
 
 /**
  * Compiles an expression into a filter.
@@ -153,8 +162,12 @@ function termSql(term: Term, folders: Folders, params: Param[]): string {
       return `EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id = at.tag_id
                        WHERE at.hash = a.hash AND t.name = ?)`;
 
-    case "folder": {
-      const ids = folders.subtree(term.value);
+    // One shape, two depths. `folder:` is the folder and everything beneath it,
+    // `infolder:` is the folder alone (ADR-0036) — the difference is which
+    // resolver method expands the path, and nothing else.
+    case "folder":
+    case "infolder": {
+      const ids = term.field === "folder" ? folders.subtree(term.value) : folders.only(term.value);
       // A folder nobody has created is an empty answer, not an error.
       if (ids.length === 0) return "0";
       const placeholders = ids.map(() => "?").join(", ");

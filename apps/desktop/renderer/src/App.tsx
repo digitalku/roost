@@ -10,6 +10,7 @@ import type {
   WireFacets,
   WireProblem,
   WireRecentLibrary,
+  WireSettings,
   WireSidebar,
   WireSplitQuery,
   WireTagRule,
@@ -32,6 +33,7 @@ import { SelectionStore } from "./grid/selection.js";
 import { assets, type ConfirmRequest, useTrashActions } from "./grid/trash-actions.js";
 import { ViewMenu } from "./grid/ViewMenu.js";
 import { DropZone } from "./import/DropZone.js";
+import { DuplicatesDialog } from "./import/DuplicatesDialog.js";
 import { EagleDialog } from "./import/EagleDialog.js";
 import { type Importing, useImport } from "./import/useImport.js";
 import { Inspector } from "./inspector/Inspector.js";
@@ -51,9 +53,15 @@ import { Sidebar } from "./sidebar/Sidebar.js";
  * Frozen at module scope so it is one object — it is a `useState` initial value
  * and a ref's, and a fresh one per render would be a fresh dependency too.
  */
+/** What a library has before anything has been changed in it (ADR-0019). */
+const DEFAULT_SETTINGS: WireSettings = { showSubfolderContents: false };
+
 const NO_SPLIT: WireSplitQuery = {
   place: "",
   facets: { tags: [], tagRule: "any", stars: [], unrated: false, exts: [] },
+  // No folder named, so nothing to reflect: the checkbox shows the library's
+  // setting until a folder is opened (ADR-0036).
+  subfolders: null,
   representable: true,
 };
 
@@ -740,6 +748,67 @@ function LibraryView({
   const heldFacets = useRef<WireFacets>(NO_SPLIT.facets);
   heldFacets.current = facets;
 
+  /**
+   * This library's preferences (ADR-0019), read once when one is opened.
+   *
+   * Only *Show subfolder contents* so far, and the bar needs it for the case
+   * the query cannot answer: no folder on screen means nothing to reflect, and
+   * the checkbox then says what the **next** folder opened will show. Exactly
+   * the standing the tag rule has, one shelf further out — the library rather
+   * than the window, because that is where the user asked for it.
+   */
+  const [settings, setSettings] = useState<WireSettings>(DEFAULT_SETTINGS);
+  useEffect(() => {
+    if (opened === undefined) return setSettings(DEFAULT_SETTINGS);
+    let current = true;
+    void (async () => {
+      const outcome = await invoke({ type: "settings:read" });
+      if (current && outcome.ok) setSettings(outcome.value);
+    })();
+    return () => {
+      current = false;
+    };
+  }, [opened]);
+
+  /**
+   * *Show subfolder contents* was ticked (ADR-0036).
+   *
+   * Two things, and both are needed. The **setting** is written to the library,
+   * which is what decides the term the next folder row carries; the **query on
+   * screen** is rewritten to the other depth, so the grid answers now rather
+   * than after the next click. A query naming no folder comes back byte for
+   * byte and only the setting moves.
+   *
+   * Held locally first for the same reason the tag rule is: the engine's answer
+   * is a round trip away and a checkbox that waited for it would flick back for
+   * a frame.
+   */
+  const applySubfolders = useCallback(
+    (on: boolean) => {
+      setSettings((held) => ({ ...held, showSubfolderContents: on }));
+      void (async () => {
+        const written = await invoke({ type: "settings:write", showSubfolderContents: on });
+        if (written.ok) setSettings(written.value);
+        // The folder term lives in the **place** — a folder is where you are
+        // looking, not a filter over it (ADR-0035 §6) — so the rewrite is of
+        // the place, and the facets go back on around it.
+        const rewritten = await invoke({
+          type: "query:subfolders",
+          query: held.current.place,
+          on,
+        });
+        if (!rewritten.ok) return;
+        const joined = await invoke({
+          type: "query:join",
+          place: rewritten.value,
+          facets: heldFacets.current,
+        });
+        if (joined.ok) applyQuery(joined.value);
+      })();
+    },
+    [applyQuery],
+  );
+
   /** A facet was ticked: the place stands, the facets are the new ones. */
   const applyFacets = useCallback(
     (chosen: WireFacets) => {
@@ -1011,14 +1080,17 @@ function LibraryView({
   /**
    * Deleting a folder, and the one question that goes with it (ADR-0033).
    *
-   * The count in the body is the row's own, which is a **subtree** count — the
-   * same number the sidebar is showing beside the folder, and the number of
-   * assets the ticked box would move. Taking it from the row rather than asking
-   * the engine keeps the dialog instant and keeps the two from disagreeing.
+   * The count in the body is the row's **subtree** count, which is the number of
+   * assets the ticked box would move. It is a separate field from the one the
+   * pane draws, because since ADR-0036 those two can differ: with *Show
+   * subfolder contents* off the row shows what is directly in the folder, and
+   * a question that said 2 while trashing 12 would be the worst kind of wrong.
+   * Taking both from the row rather than asking the engine keeps the dialog
+   * instant and keeps it from disagreeing with what it is about to do.
    */
   const deleteFolder = useCallback(
     (folder: SidebarFolderRow) => {
-      const held = folder.count ?? 0;
+      const held = folder.descendants;
       setConfirming({
         title: `Delete ${folder.name}?`,
         body:
@@ -1129,7 +1201,7 @@ function LibraryView({
 
   // An import changes the counts, the sidebar, and what the grid holds, so it
   // is the one thing in the window that has to reset the paging as well.
-  const importing = useImport(onImported);
+  const importing = useImport(onImported, openFolder?.folder ?? null);
   const startImport = importing.start;
   const importRunning = importing.running;
 
@@ -1405,6 +1477,10 @@ function LibraryView({
                 ratings={sidebar?.ratings ?? NO_TAGS}
                 types={sidebar?.types ?? NO_TYPES}
                 onChange={applyFacets}
+                // The query wins where it says anything, and the library's
+                // setting stands in where it does not (ADR-0036).
+                subfolders={split.subfolders ?? settings.showSubfolderContents}
+                onSubfolders={applySubfolders}
               />
             </>
           )}
@@ -1579,6 +1655,28 @@ function LibraryView({
             // just renamed, which sprang the branch open under a gesture that
             // was about the name — seen in a real window on 2026-09-07.
             noteResult(naming.kind === "create" ? `Created ${name}` : `Renamed to ${name}`);
+          }}
+        />
+      )}
+      {/*
+        The question a finished import raises (ADR-0037 §3). It names the folder
+        the window is showing *now* rather than the one the run was given: the
+        offer is about where these files should also be, and that is wherever
+        the person answering is looking.
+      */}
+      {importing.duplicates !== undefined && (
+        <DuplicatesDialog
+          question={importing.duplicates}
+          {...(openFolder === undefined
+            ? {}
+            : { folder: { id: openFolder.folder, name: openFolder.name } })}
+          onIgnore={importing.ignoreDuplicates}
+          onFile={(folder) => {
+            void importing.fileDuplicates(folder).then((filed) => {
+              if (filed === undefined) return;
+              if (filed.expired) return noteResult("That import's list is no longer held");
+              noteResult(`Added ${assets(filed.filed)} to ${openFolder?.name ?? "the folder"}`);
+            });
           }}
         />
       )}

@@ -79,6 +79,18 @@ export interface SplitQuery {
   readonly place: string;
   readonly facets: Facets;
   /**
+   * Whether the query on screen reaches into subfolders (ADR-0036).
+   *
+   * `true` for a `folder:` conjunct, `false` for an `infolder:` one, and
+   * **`null` when the query names no folder at all** — the checkbox has nothing
+   * to reflect then, and shows the library's setting, which is what the next
+   * folder opened will use.
+   *
+   * Also `null` for two folder conjuncts, for the same reason two ratings are
+   * refused: the answer would be two answers.
+   */
+  readonly subfolders: boolean | null;
+  /**
    * Whether the bar can show this query honestly.
    *
    * False for a query whose facets it cannot represent — a top-level `OR`, two
@@ -105,7 +117,7 @@ type FacetKind = "tags" | "rating" | "exts";
 export function splitQuery(input: string): SplitQuery {
   const conjuncts = topLevelConjuncts(input);
   if (conjuncts === undefined) {
-    return { place: input.trim(), facets: NO_FACETS, representable: false };
+    return { place: input.trim(), facets: NO_FACETS, subfolders: null, representable: false };
   }
 
   const claimed = conjuncts.map((slice) => ({ slice, claim: facetOf(slice) }));
@@ -155,6 +167,12 @@ export function splitQuery(input: string): SplitQuery {
   const rating = owned.get("rating")?.[0];
   const exts = owned.get("exts")?.[0]?.exts ?? [];
 
+  // Read off the place rather than absorbed out of it. A folder is where you
+  // are looking, not a filter over it (ADR-0035 §6), so the term stays in the
+  // words it was written in and the checkbox only says what depth it names.
+  const depths = place.map(folderTerm).filter((term) => term !== undefined);
+  const [depth] = depths;
+
   return {
     // The kept slices in the order they were written; a conjunct the bar
     // absorbed simply is not there any more.
@@ -166,8 +184,56 @@ export function splitQuery(input: string): SplitQuery {
       unrated: rating?.unrated ?? false,
       exts,
     },
+    subfolders: depths.length === 1 && depth !== undefined ? depth.field === "folder" : null,
     representable: refused.size === 0,
   };
+}
+
+/**
+ * Rewrites the folder a query names to the other depth (ADR-0036).
+ *
+ * The whole of *Show subfolder contents* as far as a query on screen is
+ * concerned: `folder:Design` becomes `infolder:Design` and back. A query naming
+ * no folder is returned **unchanged and identical** — the checkbox is then a
+ * setting for the next folder opened, and rewriting nothing must not reformat
+ * what somebody typed.
+ *
+ * The term is reprinted rather than patched byte-for-byte, because the value
+ * has to come back out through `quoteValue` to survive a path with a space in
+ * it — and that is the one printer the grammar has.
+ */
+export function withSubfolders(query: string, on: boolean): string {
+  const conjuncts = topLevelConjuncts(query);
+  if (conjuncts === undefined) return query;
+
+  const wanted = on ? "folder" : "infolder";
+  let changed = false;
+  const rewritten = conjuncts.map((slice) => {
+    const term = folderTerm(slice);
+    if (term === undefined || term.field === wanted) return slice;
+    changed = true;
+    return `${wanted}:${quoteValue(term.value)}`;
+  });
+  return changed ? rewritten.join(" ") : query;
+}
+
+/** A conjunct that is one plain folder term, at whichever depth it names. */
+function folderTerm(
+  slice: string,
+): { readonly field: "folder" | "infolder"; readonly value: string } | undefined {
+  let expr: Expr;
+  try {
+    expr = parse(slice);
+  } catch {
+    return undefined;
+  }
+  // One bare term only. `-folder:x` and `(folder:a OR folder:b)` are questions
+  // the checkbox has no answer for, and quietly rewriting either would change
+  // what was asked.
+  if (expr.kind !== "term") return undefined;
+  const { term } = expr;
+  if (term.field !== "folder" && term.field !== "infolder") return undefined;
+  return { field: term.field, value: term.value };
 }
 
 /**

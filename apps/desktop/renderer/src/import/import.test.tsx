@@ -1,3 +1,4 @@
+import type { SidebarFolderRow } from "@roost/contract";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -14,6 +15,31 @@ import { droppedFile, FakeEngine, fakeAsset, fakeDetail, install } from "../test
  */
 
 const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+/** A folder in the pane, so an import has somewhere to land (ADR-0037). */
+const DESIGN: SidebarFolderRow = {
+  id: "folder:7",
+  name: "Design",
+  query: 'folder:"Design"',
+  count: 2,
+  descendants: 2,
+  depth: 0,
+  group: null,
+  stars: null,
+  folder: 7,
+  path: "Design",
+};
+
+const WITH_DESIGN = {
+  sidebar: {
+    ratings: [],
+    places: [],
+    folders: [DESIGN],
+    smartFolders: [],
+    tags: [],
+    types: [],
+  },
+} as const;
 
 /** A `DataTransfer` happy-dom will carry, since it constructs none of its own. */
 function transfer(files: readonly File[]): DataTransfer {
@@ -203,6 +229,85 @@ describe("importing", () => {
         before,
       ),
     );
+  });
+
+  it("imports into the folder the window is showing", async () => {
+    // ADR-0037: the folder is read when the run starts, and it is the one the
+    // grid is drawing — found by matching the query, never written by the
+    // renderer.
+    const user = await open(WITH_DESIGN);
+    await user.click(screen.getByRole("button", { name: /Design/ }));
+
+    fire("drop", [droppedFile("/photos/one.png")]);
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "import:paths")[0]).toMatchObject({ folder: 7 }),
+    );
+  });
+
+  it("imports into no folder when none is open", async () => {
+    // The library's root is a destination rather than a missing answer, so the
+    // request says `null` rather than leaving the field out.
+    await open(WITH_DESIGN);
+    fire("drop", [droppedFile("/photos/one.png")]);
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "import:paths")[0]).toMatchObject({
+        folder: null,
+      }),
+    );
+  });
+
+  it("asks about the files that were already here, and files them when told to", async () => {
+    const user = await open({
+      ...WITH_DESIGN,
+      importReport: { imported: 1, duplicates: 2, duplicateNames: ["one.png", "two.png"] },
+      filed: { filed: 2, expired: false },
+    });
+    await user.click(screen.getByRole("button", { name: /Design/ }));
+
+    fire("drop", [droppedFile("/photos/one.png")]);
+
+    // After the run, not before it: a duplicate is only discovered by hashing,
+    // and for a duplicate the run wrote nothing.
+    expect(await screen.findByText("2 files were already in this library")).toBeDefined();
+    expect(screen.getByText("one.png")).toBeDefined();
+
+    await user.click(screen.getByRole("button", { name: "Add to Design" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "import:fileDuplicates")[0]).toMatchObject({
+        folder: 7,
+      }),
+    );
+    // The hashes never crossed: the engine kept the list the run reported.
+    expect(await screen.findByText(/Added 2 assets to Design/)).toBeDefined();
+  });
+
+  it("writes nothing when the duplicates are ignored", async () => {
+    const user = await open({
+      ...WITH_DESIGN,
+      importReport: { imported: 0, duplicates: 1, duplicateNames: ["one.png"] },
+    });
+    await user.click(screen.getByRole("button", { name: /Design/ }));
+    fire("drop", [droppedFile("/photos/one.png")]);
+
+    await user.click(await screen.findByRole("button", { name: "Ignore all" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("1 file was already in this library")).toBeNull(),
+    );
+    expect(engine.seen.some((r) => r.type === "import:fileDuplicates")).toBe(false);
+  });
+
+  it("still says what was already here when there is no folder to offer", async () => {
+    // Worth drawing with one button: a grid that did not grow looks like an
+    // import that failed until something says otherwise.
+    await open({ importReport: { imported: 0, duplicates: 1, duplicateNames: ["one.png"] } });
+    fire("drop", [droppedFile("/photos/one.png")]);
+
+    expect(await screen.findByText("1 file was already in this library")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^Add to / })).toBeNull();
   });
 
   /** Opens the Add menu and picks one of its items. */

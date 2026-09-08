@@ -84,6 +84,10 @@ describe("opening a library", () => {
       // because the grammar has one implementation, and the bar is a view of
       // the query rather than a second piece of state.
       "query:split",
+      // This library's preferences, read once when one is opened (ADR-0019).
+      // The filter bar needs the one setting there is for the case the query
+      // cannot answer: no folder on screen means nothing to reflect.
+      "settings:read",
     ]);
   });
 
@@ -688,6 +692,7 @@ describe("the navigation pane, in the window", () => {
     stars: null,
     folder: 8,
     path: "Logos",
+    descendants: 0,
   };
 
   /**
@@ -714,6 +719,7 @@ describe("the navigation pane, in the window", () => {
     name: "Design",
     query: 'folder:"Design"',
     count: 2,
+    descendants: 2,
     depth: 0,
     group: null,
     stars: null,
@@ -891,6 +897,7 @@ describe("the navigation pane, in the window", () => {
             stars: null,
             folder: 7,
             path: "Design",
+            descendants: 2,
           },
         ],
         smartFolders: [],
@@ -1114,6 +1121,7 @@ describe("the navigation pane, in the window", () => {
             stars: null,
             folder: 7,
             path: "Design",
+            descendants: 2,
           },
         ],
         smartFolders: [],
@@ -1240,6 +1248,103 @@ describe("the navigation pane, in the window", () => {
     // filter is a count of things nobody can see. The total becomes the match
     // count, because the grid is no longer showing the whole library.
     expect(await screen.findByText("1 asset")).toBeDefined();
+  });
+});
+
+describe("Show subfolder contents, in the window (ADR-0036)", () => {
+  const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+  const DESIGN: SidebarFolderRow = {
+    id: "folder:7",
+    name: "Design",
+    query: "infolder:Design",
+    count: 1,
+    descendants: 4,
+    depth: 0,
+    group: null,
+    stars: null,
+    folder: 7,
+    path: "Design",
+  };
+
+  const open = async () => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 4 },
+      assets: Array.from({ length: 4 }, (_, i) => fakeAsset(i)),
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [DESIGN],
+        smartFolders: [],
+        tags: [],
+        types: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+    return { engine, user };
+  };
+
+  const box = (): HTMLElement => screen.getByRole("checkbox", { name: "Show subfolder contents" });
+
+  it("starts from the library's setting while no folder is on screen", async () => {
+    await open();
+    // Nothing to reflect: the query names no folder, so the checkbox says what
+    // the **next** folder opened will show.
+    expect(box()).toHaveProperty("checked", false);
+  });
+
+  it("writes the setting and rewrites the folder on screen, in that order", async () => {
+    const { engine, user } = await open();
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("searchbox", { name: /Search/ })).toHaveProperty(
+        "value",
+        "infolder:Design",
+      ),
+    );
+
+    await user.click(box());
+
+    // Both halves. The setting decides the term the next folder row carries;
+    // the query on screen is rewritten so the grid answers now rather than
+    // after the next click.
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "settings:write")).toBe(true),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("searchbox", { name: /Search/ })).toHaveProperty(
+        "value",
+        "folder:Design",
+      ),
+    );
+    expect(engine.settings).toEqual({ showSubfolderContents: true });
+  });
+
+  it("reflects the query rather than the setting once a folder is on screen", async () => {
+    const { user } = await open();
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    // `infolder:` unticks it, and it was already unticked; type `folder:` by
+    // hand and it ticks, which is the promise §4.2 makes about this bar.
+    const field = screen.getByRole("searchbox", { name: /Search/ });
+    await user.clear(field);
+    await user.type(field, "folder:Design{Enter}");
+    await waitFor(() => expect(box()).toHaveProperty("checked", true));
+  });
+
+  it("asks about the subtree when a folder is deleted, not about what is drawn", async () => {
+    // The row shows 1 and holds 4. A question saying "also move 1 asset" while
+    // trashing four would be the worst kind of wrong (ADR-0036).
+    const { user } = await open();
+    const row = await screen.findByRole("button", { name: /^Design/ });
+    fireEvent.contextMenu(row);
+    await user.click(await screen.findByRole("menuitem", { name: "Delete folder…" }));
+    expect(await screen.findByText(/Also move 4 assets to the trash/)).toBeDefined();
   });
 });
 

@@ -54,7 +54,7 @@ export const FLAGS = [
 export type Flag = (typeof FLAGS)[number];
 
 /** Fields whose value is a string compared for equality or membership. */
-export const NAME_FIELDS = ["tag", "folder", "group", "ext"] as const;
+export const NAME_FIELDS = ["tag", "folder", "infolder", "group", "ext"] as const;
 
 export type NameField = (typeof NAME_FIELDS)[number];
 
@@ -76,8 +76,10 @@ export type Term =
   /**
    * `tag` is an exact name, compared case-insensitively as the schema does.
    * `folder` is a path such as `Design/Icons`, matching the folder and
-   * everything beneath it. `group` reaches an asset through the tags in that
-   * group, since a group arranges tags rather than containing assets.
+   * everything beneath it; `infolder` is the same path matching **only** that
+   * folder, which is what *Show subfolder contents* turns off (ADR-0036).
+   * `group` reaches an asset through the tags in that group, since a group
+   * arranges tags rather than containing assets.
    */
   | { readonly field: NameField; readonly value: string }
   | { readonly field: NumericField; readonly compare: Compare }

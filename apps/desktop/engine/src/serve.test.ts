@@ -773,6 +773,7 @@ describe("the engine's message loop", () => {
 
     const reply = await ask(2, {
       type: "import:paths",
+      folder: null,
       paths: [source],
       mode: "managed",
       tags: [],
@@ -784,6 +785,7 @@ describe("the engine's message loop", () => {
     expect(Object.keys(report).sort()).toEqual(
       [
         "bytes",
+        "duplicateNames",
         "duplicates",
         "elapsedMs",
         "failed",
@@ -803,6 +805,7 @@ describe("the engine's message loop", () => {
     // one address (`STORAGE_SPEC.md` invariant 1).
     const again = await ask(3, {
       type: "import:paths",
+      folder: null,
       paths: [source],
       mode: "managed",
       tags: [],
@@ -811,6 +814,68 @@ describe("the engine's message loop", () => {
       imported: 0,
       duplicates: 3,
     });
+  });
+
+  it("imports into a folder, and files the duplicates only when asked", async () => {
+    // ADR-0037, end to end: the run lands where the window was looking, a file
+    // already here does not, and the second question is answered afterwards.
+    const source = join(dir, "landing");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "one.txt"), "one");
+    const root = join(dir, `Landed${LIBRARY_SUFFIX}`);
+    const library = await Library.create(root, "Landed");
+    await library.close();
+    await ask(1, { type: "library:open", path: root });
+
+    const made = await ask(2, { type: "folder:create", name: "Design", parent: null });
+    const folder = (made as { value: number }).value;
+
+    await ask(3, { type: "import:paths", paths: [source], mode: "managed", tags: [], folder });
+    expect(
+      (await ask(4, { type: "assets:count", query: "folder:Design" })) as unknown,
+    ).toMatchObject({ value: 1 });
+
+    // The same file again, with no folder: a duplicate, and it joins nothing.
+    const again = await ask(5, {
+      type: "import:paths",
+      paths: [source],
+      mode: "managed",
+      tags: [],
+      folder: null,
+    });
+    const report = (again as { value: Record<string, unknown> }).value;
+    expect(report["duplicates"]).toBe(1);
+    expect(report["duplicateNames"]).toEqual(["one.txt"]);
+
+    // And now the answer to the pop-up. The hashes are never sent: the engine
+    // kept the list the run reported.
+    const other = await ask(6, { type: "folder:create", name: "Later", parent: null });
+    const filed = await ask(7, {
+      type: "import:fileDuplicates",
+      folder: (other as { value: number }).value,
+    });
+    expect((filed as { value: unknown }).value).toEqual({ filed: 1, expired: false });
+    expect(
+      (await ask(8, { type: "assets:count", query: "folder:Later" })) as unknown,
+    ).toMatchObject({ value: 1 });
+    // An add, not a move: it is still in the folder it was imported into.
+    expect(
+      (await ask(9, { type: "assets:count", query: "folder:Design" })) as unknown,
+    ).toMatchObject({ value: 1 });
+  });
+
+  it("has nothing to file before an import has run", async () => {
+    // A dialog left open across a library change is answered honestly rather
+    // than with a zero that reads like "they were already there".
+    await ask(1, { type: "library:create", parent: dir, name: "Fresh" });
+    const made = await ask(2, { type: "folder:create", name: "Design", parent: null });
+
+    const filed = await ask(3, {
+      type: "import:fileDuplicates",
+      folder: (made as { value: number }).value,
+    });
+
+    expect((filed as { value: unknown }).value).toEqual({ filed: 0, expired: true });
   });
 
   it("reports progress, and announces the change once at the end", async () => {
@@ -832,7 +897,13 @@ describe("the engine's message loop", () => {
       );
     const changedBefore = eventsOf("library:changed").length;
 
-    await ask(2, { type: "import:paths", paths: [source], mode: "managed", tags: [] });
+    await ask(2, {
+      type: "import:paths",
+      folder: null,
+      paths: [source],
+      mode: "managed",
+      tags: [],
+    });
 
     // One final progress event however small the run, so a status bar showing
     // an import always ends up showing what it ended on.

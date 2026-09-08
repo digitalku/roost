@@ -12,6 +12,7 @@ import {
   createFolder,
   createSmartFolder,
   createTagGroup,
+  DuplicateFolderNameError,
   deleteFolder,
   EmptyCommentError,
   EmptyNameError,
@@ -168,6 +169,64 @@ describe("organizing a library", () => {
     await expect(createFolder(library, "  ", null)).rejects.toBeInstanceOf(EmptyNameError);
   });
 
+  it("refuses a name a sibling already has", async () => {
+    // Reported from a real pane on 2026-09-08: a subfolder made twice under one
+    // folder, and the tree drew both. `findFolderByPath` walks a path one
+    // segment at a time and takes the first row each segment matches, so the
+    // second one was unreachable by `folder:` from the moment it existed.
+    const archive = await createFolder(library, "Archive", null);
+    await createFolder(library, "logos", archive);
+
+    await expect(createFolder(library, "logos", archive)).rejects.toBeInstanceOf(
+      DuplicateFolderNameError,
+    );
+    // Named, because the message reaches a dialog: a sentence about rowids is
+    // one nobody can act on.
+    await expect(createFolder(library, "logos", archive)).rejects.toThrow(
+      'A folder called "logos" is already in "Archive"',
+    );
+
+    // Without regard to case, which is the house rule for every user-authored
+    // name here — the Eagle importer reuses a folder by a lowercased key and
+    // tags merge the same way. Two rows a pane cannot tell apart are refused
+    // even where both would be addressable.
+    await expect(createFolder(library, "LOGOS", archive)).rejects.toBeInstanceOf(
+      DuplicateFolderNameError,
+    );
+
+    // The top level is a place like any other, and says so in its own words.
+    await createFolder(library, "Clients", null);
+    await expect(createFolder(library, "clients", null)).rejects.toThrow(
+      'A folder called "clients" is already at the top level',
+    );
+
+    // Siblings only. The same name under two parents is what a tree is for.
+    const clients = library.db.repo.folders().find((row) => row.name === "Clients")?.id ?? 0;
+    await expect(createFolder(library, "logos", clients)).resolves.toBeTypeOf("number");
+  });
+
+  it("refuses a rename and a move onto a name a sibling already has", async () => {
+    const archive = await createFolder(library, "Archive", null);
+    const logos = await createFolder(library, "logos", archive);
+    const drafts = await createFolder(library, "drafts", archive);
+    const clients = await createFolder(library, "Clients", null);
+    const stray = await createFolder(library, "logos", clients);
+
+    await expect(renameFolder(library, drafts, "Logos")).rejects.toBeInstanceOf(
+      DuplicateFolderNameError,
+    );
+    // A folder is not its own sibling: renaming one to the case it already has
+    // has to stay a thing that works.
+    await expect(renameFolder(library, logos, "Logos")).resolves.toBeUndefined();
+
+    // A move carries the name into a place that may already hold it, and is
+    // refused rather than quietly renamed.
+    await expect(moveFolder(library, stray, archive)).rejects.toBeInstanceOf(
+      DuplicateFolderNameError,
+    );
+    expect(library.db.repo.folder(stray)?.parentId).toBe(clients);
+  });
+
   it("still replays a folder name an older library recorded", async () => {
     // The rule binds names as they are authored, not as they are read. A
     // library written before it — or by the Rust implementation — must still
@@ -175,8 +234,14 @@ describe("organizing a library", () => {
     const sink = new IndexSink(library.db);
     library.db.transaction(() => {
       sink.apply({ ts: 1, op: "folder_create", id: 900, parent: null, name: "Design/Icons" });
+      // And a sibling pair the authoring rule would now refuse. A library that
+      // already holds one — this one did, before 2026-09-08 — must still
+      // rebuild, or the rule would have destroyed the thing it protects.
+      sink.apply({ ts: 2, op: "folder_create", id: 901, parent: null, name: "Twice" });
+      sink.apply({ ts: 3, op: "folder_create", id: 902, parent: null, name: "Twice" });
     });
     expect(library.db.repo.folders().some((row) => row.name === "Design/Icons")).toBe(true);
+    expect(library.db.repo.folders().filter((row) => row.name === "Twice").length).toBe(2);
   });
 
   it("refuses to move a folder into its own subtree", async () => {
@@ -327,9 +392,23 @@ describe("organizing a library", () => {
 
     const nested = sidebar.folders.find((folder) => folder.id === icons);
     expect(nested?.path).toBe("Design/Icons");
-    // The count is the subtree's, because `folder:` matches the subtree — the
-    // number and the query beside it must not disagree.
-    expect(sidebar.folders.find((folder) => folder.id === design)?.count).toBe(1);
+
+    // **A count is the count of the row's own query**, so both follow *Show
+    // subfolder contents* together (ADR-0036). Off by default: `Design` asks
+    // with `infolder:` and holds nothing directly, whatever is under it.
+    const shallow = sidebar.folders.find((folder) => folder.id === design);
+    expect(shallow?.query).toBe("infolder:Design");
+    expect(shallow?.count).toBe(0);
+    expect(count(library, shallow?.query ?? "")).toBe(0);
+    // And the subtree is still carried, because **Delete folder…** asks about
+    // it whatever the pane is drawing.
+    expect(shallow?.descendants).toBe(1);
+
+    await library.updateSettings({ showSubfolderContents: true });
+    const deep = readSidebar(library).folders.find((folder) => folder.id === design);
+    expect(deep?.query).toBe("folder:Design");
+    expect(deep?.count).toBe(1);
+    expect(count(library, deep?.query ?? "")).toBe(1);
 
     const tag = sidebar.tags.find((entry) => entry.name === "oak wood");
     expect(tag?.group).toBe("Material");

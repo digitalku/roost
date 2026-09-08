@@ -41,6 +41,7 @@ export {
   type SplitQuery,
   type Stars,
   splitQuery,
+  withSubfolders,
 } from "./facets.js";
 export { MAX_DEPTH, parse } from "./parser.js";
 export { quoteValue } from "./quote.js";

@@ -17,9 +17,11 @@
  * facets return the same number of assets: a check that cannot tell `ext:png`
  * from `rating:5` would pass with the two swapped.
  */
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ledger } from "./lib/checks.mjs";
-import { imageLibrary, rateFirst, scratch, tagsOnto } from "./lib/fixtures.mjs";
+import { foldersInto, imageLibrary, rateFirst, scratch, tagsOnto } from "./lib/fixtures.mjs";
 import { launch } from "./lib/window.mjs";
 
 /** Every asset is a PNG, so the type facet selects all of them. */
@@ -48,6 +50,14 @@ await tagsOnto(root, [TAG], TAGGED);
 await tagsOnto(root, [OTHER], ASSETS - TAGGED + BOTH, TAGGED - BOTH);
 await tagsOnto(root, FILLER, 1);
 await rateFirst(root, STARS, RATED);
+/**
+ * A folder holding nothing directly, with everything one level down.
+ *
+ * Which is what makes *Show subfolder contents* visible at all (ADR-0036): off,
+ * `Design` is empty; on, it is `Alpha`'s three.
+ */
+const NESTED = 3;
+await foldersInto(root, [{ name: "Design" }, { name: "Alpha", parent: "Design", assets: NESTED }]);
 
 const window = await launch({ library: root });
 const { cdp } = window;
@@ -95,6 +105,25 @@ async function typeQuery(text) {
   await cdp.keyboard.press("Backspace");
   for (const character of text) await cdp.keyboard.press(character);
   await cdp.keyboard.press("Enter");
+  await sleep(400);
+}
+
+/** The Show subfolder contents checkbox, as the window draws it. */
+const checkbox = () =>
+  cdp.evaluate('document.querySelector(".filter-check input")?.checked ?? null');
+
+/** Clicks a row in the navigation pane, by name. */
+async function pickRow(name) {
+  const at = await cdp.evaluate(`(() => {
+    const found = [...document.querySelectorAll(".sidebar-row")].find(
+      (row) => row.querySelector(".sidebar-label")?.textContent === ${JSON.stringify(name)},
+    );
+    if (found === undefined) return null;
+    const box = found.getBoundingClientRect();
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  })()`);
+  if (at === null) throw new Error(`no sidebar row called ${name}`);
+  await cdp.mouse.click(at.x, at.y);
   await sleep(400);
 }
 
@@ -304,6 +333,77 @@ try {
     const after = await state();
     check("nothing was chosen by typing", after.query === `tag:${TAG} tag:${OTHER}`, after.query);
   }
+  section("Show subfolder contents (ADR-0036)");
+  await typeQuery("");
+  check(
+    "the checkbox is drawn, and starts from the library's setting",
+    (await checkbox()) === false,
+  );
+
+  await pickRow("Design");
+  const shallow = await state();
+  // Off by default, so the sidebar wrote the term that does not descend and the
+  // grid answers it: `Design` holds nothing directly.
+  check(
+    "opening a folder asks with infolder:, and the grid shows the folder alone",
+    shallow.query === "infolder:Design" && shallow.cells === 0,
+    `${shallow.query} → ${shallow.cells} cells`,
+  );
+
+  const at = await cdp.box(".filter-check input");
+  await cdp.mouse.click(at.x, at.y);
+  await sleep(500);
+  const deep = await state();
+  check(
+    "ticking it rewrites the query on screen rather than changing what a term means",
+    deep.query === "folder:Design" && deep.cells === NESTED,
+    `${deep.query} → ${deep.cells} cells`,
+  );
+
+  // The pane has to be re-read, and nothing in the library changed — which is
+  // why this was missed by every unit test and found in a screenshot. The
+  // setting decides the term every folder row carries, so a stale pane keeps
+  // rows asking the other depth: the count stays wrong and the row for the
+  // folder on screen stops matching the query, so it stops being marked.
+  const pane = await cdp.settle(
+    `(() => {
+      const found = [...document.querySelectorAll(".sidebar-branch")].find(
+        (row) => row.querySelector(".sidebar-label")?.textContent === "Design",
+      );
+      if (found === undefined) return null;
+      return {
+        count: found.querySelector(".sidebar-count")?.textContent ?? null,
+        current: found.querySelector(".sidebar-row[data-current]") !== null,
+      };
+    })()`,
+    (row) => row !== null && row.count === String(NESTED),
+    { attempts: 40 },
+  );
+  check(
+    "the pane follows: the row counts what its own query now matches",
+    pane.count === String(NESTED),
+    `Design=${pane.count}`,
+  );
+  check("and it is still the row on screen", pane.current === true);
+
+  // The setting, on disk, in the library — not in the window (ADR-0019). This
+  // is the whole reason it is a file rather than a piece of window state.
+  const saved = JSON.parse(await readFile(join(root, "settings.json"), "utf8"));
+  check(
+    "and writes the setting into the library's own settings.json",
+    saved.showSubfolderContents === true,
+    JSON.stringify(saved),
+  );
+
+  await typeQuery("infolder:Design");
+  check("typing the other term by hand unticks it", (await checkbox()) === false);
+  await typeQuery("folder:Design");
+  check("and typing this one ticks it", (await checkbox()) === true);
+
+  // A query naming no folder has nothing to reflect, so the checkbox falls back
+  // to the setting — which is what the next folder opened will use.
+  await typeQuery(`tag:${TAG}`);
+  check("with no folder on screen it shows the setting again", (await checkbox()) === true);
 } finally {
   report();
   await window.close();

@@ -89,6 +89,7 @@ export {
   AlreadyALibraryError,
   AmbiguousFolderNameError,
   AmbiguousHashError,
+  DuplicateFolderNameError,
   EditTooLargeError,
   EmptyCommentError,
   EmptyNameError,

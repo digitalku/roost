@@ -115,6 +115,9 @@ ${LIBRARY_FLAG}
                          the file where it is). Default: managed
       --tag <TAG>        Apply to everything imported in this run. Repeatable
       --hidden           Descend into dot-directories and import dotfiles
+      --folder <PATH>    Put everything newly imported in this folder, by path
+                         (Design/Icons). The folder must already exist, and
+                         files already in the library do not join it
       --from-eagle <DIR> Import an Eagle library, translating its metadata
       --dry-run          With --from-eagle: report what would be imported and
                          write nothing

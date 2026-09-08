@@ -210,6 +210,43 @@ export class AmbiguousFolderNameError extends RoostError {
   }
 }
 
+/**
+ * A folder name a sibling already has.
+ *
+ * Two folders called `logos` under one parent compile to the same `folder:`
+ * query, so one of them is unreachable — `findFolderByPath` walks a path one
+ * segment at a time and takes the first row each segment matches. It is the
+ * same defect as {@link AmbiguousFolderNameError} arriving by a different
+ * route, and it is refused in the same place: where the name is authored.
+ * Reported from a real pane on 2026-09-08, where a subfolder was made twice
+ * under one folder and the tree drew both.
+ *
+ * **Names are compared without regard to case**, which is the house rule for
+ * every user-authored name here: the Eagle importer reuses a folder by a
+ * lowercased key, tags merge case-insensitively, and a subtitle finds
+ * `Holiday.MP4` beside `holiday.srt`. `Logos` and `logos` are addressable as
+ * separate folders and are still refused, because a pane showing both is a
+ * pane nobody can read.
+ *
+ * Siblings only — the same name under two different parents is what a tree is
+ * for, and `folder:Design/Icons` names exactly one of them.
+ *
+ * Replay does **not** check this: a library written before the rule, or by
+ * another implementation, must still rebuild. The rule binds new names only.
+ */
+export class DuplicateFolderNameError extends RoostError {
+  readonly code = "duplicate_folder_name";
+
+  constructor(name: string, parent: string | null) {
+    super(
+      parent === null
+        ? `A folder called "${name}" is already at the top level`
+        : `A folder called "${name}" is already in "${parent}"`,
+      { name, parent },
+    );
+  }
+}
+
 export class InvalidRatingError extends RoostError {
   readonly code = "invalid_rating";
 

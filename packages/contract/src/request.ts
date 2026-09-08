@@ -28,6 +28,7 @@ import type {
   WireEagleSurvey,
   WireExportReport,
   WireFacets,
+  WireFiled,
   WireFolderDeleted,
   WireImportReport,
   WirePasted,
@@ -35,6 +36,7 @@ import type {
   WireReclaimable,
   WireRemoval,
   WireSelectionSummary,
+  WireSettings,
   WireSidebar,
   WireSplitQuery,
   WireStars,
@@ -142,6 +144,26 @@ export type Request =
    * own query is the new `place`.
    */
   | { readonly type: "query:join"; readonly place: string; readonly facets: WireFacets }
+  /**
+   * The same query, asking at the other depth (ADR-0036).
+   *
+   * *Show subfolder contents* rewrites the folder term the query names —
+   * `folder:Design` to `infolder:Design` and back — and returns a query naming
+   * no folder **unchanged, byte for byte**. The bar sends the string it holds
+   * for the same reason `query:join` exists: the grammar has one implementation
+   * and the sandbox is not the place for a second.
+   */
+  | { readonly type: "query:subfolders"; readonly query: string; readonly on: boolean }
+  /** This library's preferences (ADR-0019). */
+  | { readonly type: "settings:read" }
+  /**
+   * Changes one or more preferences, and answers with all of them.
+   *
+   * Answers rather than acknowledges, because the write may not have reached
+   * the disk — a library on read-only media keeps the setting for the session
+   * (ADR-0019) — and the window should draw what the engine actually holds.
+   */
+  | { readonly type: "settings:write"; readonly showSubfolderContents?: boolean }
   /**
    * Everything the inspector shows about one asset.
    *
@@ -469,7 +491,31 @@ export type Request =
       readonly mode: StorageMode;
       /** Applied to everything imported in this run. */
       readonly tags: readonly string[];
+      /**
+       * The folder every newly imported asset joins, or `null` for none
+       * (ADR-0037).
+       *
+       * The window sends the folder it is showing, so an import lands where
+       * the person who started it was looking. `null` where no folder is open
+       * — the library's root is a destination, not a missing answer.
+       *
+       * Duplicates do not join it; `import:fileDuplicates` is how they can.
+       */
+      readonly folder: number | null;
     }
+  /**
+   * Put the last import's duplicates into a folder (ADR-0037 §3).
+   *
+   * The answer to the pop-up a finished import raises: these files were already
+   * here, and *this* is where they should also be. It is an **add** — an asset
+   * belongs to as many folders as it was put in — so nothing is taken out of
+   * anywhere, and the dialog's other choice writes nothing at all.
+   *
+   * The hashes are not sent. The engine kept the list from the run that
+   * reported them, because a large re-import produces more of them than a
+   * window should be handed and then handed back.
+   */
+  | { readonly type: "import:fileDuplicates"; readonly folder: number }
   /**
    * What an Eagle library holds, without importing any of it (ADR-0032 §6).
    *
@@ -576,6 +622,10 @@ export interface Responses {
   "query:split": WireSplitQuery;
   /** The composed query text, which the window puts in the search field. */
   "query:join": string;
+  /** The rewritten query text, or the one that came in when it named no folder. */
+  "query:subfolders": string;
+  "settings:read": WireSettings;
+  "settings:write": WireSettings;
   "asset:detail": WireAssetDetail | null;
   "asset:summary": WireSelectionSummary;
   /**
@@ -627,6 +677,7 @@ export interface Responses {
   "library:reclaim": WireReclaimable;
   "assets:export": WireExportReport;
   "import:paths": WireImportReport;
+  "import:fileDuplicates": WireFiled;
   "eagle:survey": WireEagleSurvey;
   "eagle:import": WireEagleReport;
   "derive:status": WireDeriveStatus;
@@ -732,6 +783,24 @@ export const REQUEST_VALIDATORS: {
     return facets.ok
       ? ok({ type: "query:join", place: place.value, facets: facets.value })
       : facets;
+  },
+
+  "query:subfolders": (source) => {
+    const query = readString(source, "query");
+    if (!query.ok) return query;
+    const on = readBoolean(source, "on");
+    return on.ok ? ok({ type: "query:subfolders", query: query.value, on: on.value }) : on;
+  },
+
+  "settings:read": () => ok({ type: "settings:read" }),
+
+  "settings:write": (source) => {
+    // Every field is optional and absent means "leave it alone", so a build
+    // that learns a second setting does not have to send the first one back.
+    const held = source["showSubfolderContents"];
+    if (held === undefined) return ok({ type: "settings:write" });
+    const on = readBoolean(source, "showSubfolderContents");
+    return on.ok ? ok({ type: "settings:write", showSubfolderContents: on.value }) : on;
   },
 
   "asset:detail": (source) => {
@@ -986,7 +1055,22 @@ export const REQUEST_VALIDATORS: {
     if (!mode.ok) return mode;
     const tags = readStringArray(source, "tags");
     if (!tags.ok) return tags;
-    return ok({ type: "import:paths", paths: paths.value, mode: mode.value, tags: tags.value });
+    // `null` is an import into no folder at all, which is what an import made
+    // outside one does (ADR-0037 §2).
+    const folder = readNullable(source, "folder", readFolderIn);
+    if (!folder.ok) return folder;
+    return ok({
+      type: "import:paths",
+      paths: paths.value,
+      mode: mode.value,
+      tags: tags.value,
+      folder: folder.value,
+    });
+  },
+
+  "import:fileDuplicates": (source) => {
+    const folder = readFolder(source);
+    return folder.ok ? ok({ type: "import:fileDuplicates", folder: folder.value }) : folder;
   },
 
   "eagle:survey": (source) => {

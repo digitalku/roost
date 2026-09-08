@@ -158,6 +158,7 @@ function toTerm(field: string | undefined, value: string, at: number): Term {
   switch (field) {
     case "tag":
     case "folder":
+    case "infolder":
     case "group":
       return { field, value };
     case "ext":

@@ -612,6 +612,13 @@ parse error with a clear message, not a silent empty result.
 The grammar is frozen by compatibility, not by preference. A smart folder stores its query
 text, so a query this implementation cannot parse is a folder the user loses.
 
+**What that costs is now forward-only.** The freeze was written when a library had to open in
+both implementations; the user retired that requirement on 2026-08-29 (`CLAUDE.md` §1.1), so an
+*addition* costs only that a smart folder written by this build cannot be parsed by an older
+build of this one. Changing or removing a term still costs what it always did. `infolder:` was
+added on that basis (ADR-0036 §5); `kind:` was declined on it (ADR-0035 §3.4) and could be
+reconsidered.
+
 **Specified — implemented in the Rust engine, and M2's job here**
 ```
 tag:wood                      tag equals, case-insensitive as the schema stores it
@@ -620,7 +627,10 @@ group:Materials               any tag in that group
 -tag:wip                      negation
 folder:Moodboards             folder and everything beneath it
 folder:Design/Icons           nested path; a bare name matches every folder so named
-                              (a folder name may therefore not contain "/")
+                              (a folder name may therefore not contain "/", and two
+                               siblings may not share one)
+infolder:Moodboards           that folder alone, no descendants (ADR-0036). Same path
+                              resolution as `folder:`; the two differ only in depth
 ext:png                       extension, with or without the dot
 size:>10mb                    byte size; kb/mb/gb are binary multiples, 1.5mb is fine
 w:>2000  h:<=1080             dimensions
@@ -687,11 +697,17 @@ compiler live in `@roost/search`.
 
 - `is:duplicate` cannot mean "same hash" — identical bytes are one asset by invariant 1.
   It means *perceptually* near-duplicate, via `asset_hashes`, and is therefore M5.
-- `folder:` matches the folder and its descendants. The subtree is expanded to a list of
-  ids **before** compiling, by a `Folders` resolver the caller supplies, rather than by a
-  recursive CTE inside every query: a folder tree is user-made and small, and expanding it
-  keeps the compiled SQL simple and lets `@roost/search` be tested without a database. A
-  smart folder recompiles on every run, so the expansion cannot go stale.
+- `folder:` matches the folder and its descendants, and `infolder:` matches the folder
+  alone (ADR-0036). The ids are expanded **before** compiling, by a `Folders` resolver the
+  caller supplies, rather than by a recursive CTE inside every query: a folder tree is
+  user-made and small, and expanding it keeps the compiled SQL simple and lets
+  `@roost/search` be tested without a database. A smart folder recompiles on every run, so
+  the expansion cannot go stale. The two terms share one path resolution and differ only in
+  whether it descends, which is what lets the *Show subfolder contents* checkbox rewrite one
+  into the other without changing what was asked.
+- **The setting never changes what a term means**, only which one the sidebar writes. That is
+  the whole of ADR-0036 and the reason it is a term at all: a smart folder stores its query
+  *text*, so a `folder:` saved months ago has to keep asking the same question.
 - A **path** resolves to at most one folder — names are unique among siblings, which is what
   makes `Design/Icons` name one thing. A **bare name** is tried only when no path matches, and
   then it matches *every* folder with that name, subtrees included. That is deliberate and it

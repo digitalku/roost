@@ -44,8 +44,9 @@ const TYPES: readonly SidebarTypeRow[] = [
   { ext: "", count: 2 },
 ];
 
-function show(facets: WireFacets = NONE, representable = true) {
+function show(facets: WireFacets = NONE, representable = true, subfolders = false) {
   const sent: WireFacets[] = [];
+  const depths: boolean[] = [];
   render(
     <FilterBar
       facets={facets}
@@ -54,9 +55,11 @@ function show(facets: WireFacets = NONE, representable = true) {
       ratings={RATINGS}
       types={TYPES}
       onChange={(next) => sent.push(next)}
+      subfolders={subfolders}
+      onSubfolders={(on) => depths.push(on)}
     />,
   );
-  return { user: userEvent.setup(), sent };
+  return { user: userEvent.setup(), sent, depths };
 }
 
 const open = async (user: ReturnType<typeof userEvent.setup>, facet: RegExp): Promise<void> => {
@@ -233,6 +236,8 @@ describe("the filter bar", () => {
         ratings={RATINGS}
         types={TYPES}
         onChange={() => {}}
+        subfolders={false}
+        onSubfolders={() => {}}
       />,
     );
     const triggers = screen.getAllByRole("button", { name: /^Tags/ });
@@ -258,6 +263,8 @@ describe("the filter bar", () => {
         ratings={RATINGS}
         types={TYPES}
         onChange={() => {}}
+        subfolders={false}
+        onSubfolders={() => {}}
       />,
     );
     const user = userEvent.setup();
@@ -276,10 +283,44 @@ describe("the filter bar", () => {
         ratings={RATINGS}
         types={[]}
         onChange={(next) => sent.push(next)}
+        subfolders={false}
+        onSubfolders={() => {}}
       />,
     );
     const user = userEvent.setup();
     await open(user, /^Tags/);
     await waitFor(() => expect(screen.getByText("No tags yet")).toBeDefined());
+  });
+
+  it("draws Show subfolder contents beside the facets, not as one of them", async () => {
+    // A facet narrows what is on screen; this says how deep the place reaches
+    // (ADR-0036). Different question, so a checkbox rather than a chip — and it
+    // is why the roster test above still finds three buttons.
+    const { user, depths } = show(NONE, true, false);
+    const box = screen.getByRole("checkbox", { name: "Show subfolder contents" });
+    expect(box).toHaveProperty("checked", false);
+
+    await user.click(box);
+    expect(depths).toEqual([true]);
+  });
+
+  it("draws it ticked when the query on screen reaches into subfolders", async () => {
+    const { user, depths } = show(NONE, true, true);
+    const box = screen.getByRole("checkbox", { name: "Show subfolder contents" });
+    expect(box).toHaveProperty("checked", true);
+
+    await user.click(box);
+    expect(depths).toEqual([false]);
+  });
+
+  it("draws it even where the chips cannot describe the query", () => {
+    // The chips go off for a query they cannot show, and this does not: the
+    // depth is read off the place, which is exactly the part that survives a
+    // query the bar refuses.
+    show(NONE, false, true);
+    expect(screen.getByRole("checkbox", { name: "Show subfolder contents" })).toHaveProperty(
+      "checked",
+      true,
+    );
   });
 });
