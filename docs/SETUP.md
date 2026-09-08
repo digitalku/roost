@@ -214,7 +214,49 @@ a command line that cannot be acted on, **1** for a command that tried and faile
 Never point these at a library you care about while the engine is under development. Journal
 writes are append-only and recoverable; a half-written migration is not.
 
-## 4. A test library, cheaply
+## 4. Using it as an application
+
+Roost is not packaged yet — that is M6 — so everyday use is this checkout. Two commands make it
+behave like an installed application anyway.
+
+```bash
+node scripts/install-launcher.mjs    # writes $XDG_DATA_HOME/applications/roost.desktop
+pnpm refresh                         # git pull --ff-only, install, build
+```
+
+**The desktop entry launches the built output and never builds.** It runs the `electron` binary
+from `node_modules` directly, by absolute path, so it depends on nothing being on `PATH` — a
+desktop entry is not started from a login shell and cannot be assumed to have one. A menu click
+that ran `tsc -b` first would spend a couple of seconds on it and, when it failed, would have
+nowhere to print the error. So building is `pnpm refresh`, and it is a separate, visible step. A
+launcher installed before the first build refuses to write rather than pointing at nothing.
+
+**`pnpm refresh` pulls with `--ff-only` on purpose.** A machine that only consumes this
+repository should never quietly acquire a merge commit; `--ff-only` stops and says so instead.
+It builds both halves, which is exactly what `pnpm start` does before opening the window, so
+after a refresh the entry and the terminal run the same code.
+
+**An update migrates the library forward, and there is no way back.** Opening a library on a
+newer build applies the numbered migrations to `index.db`; the older build then refuses that
+library with `SchemaTooNewError` rather than migrating it down (`db.test.ts`). Recovering from a
+bad release means going forward to a fixed one, not `git checkout` to yesterday. Nothing is at
+risk — the journal is the source of truth and `roost rebuild` reconstructs the index — but the
+old binary is done with that library.
+
+**Inside a container the entry needs exporting once.** `install-launcher` writes into the
+container's own applications directory, which no desktop draws. From inside the container:
+
+```bash
+distrobox-export --app roost           # and --delete to take it back out
+```
+
+**The window groups under `StartupWMClass=electron`, which is measured rather than chosen.** An
+unpackaged Electron reports `WM_CLASS` as `electron` whatever it is launched as — neither
+`--class=Roost` nor a symlink named `roost` moves it, both tried. It is accurate here because
+every other Electron application on a machine ships its own named binary. Packaging gives Roost
+one too, and settles it (M6).
+
+## 5. A test library, cheaply
 
 `roost fixture` builds a reproducible synthetic library — the same seed produces the same
 library — which is what every benchmark in `BENCHMARKS.md` is measured against.
@@ -231,7 +273,7 @@ and expect it to take an order of magnitude longer.
 The bytes match what `../roost-old` writes for the same seed, count, and size, which is what
 makes a measurement here comparable to one recorded there rather than merely similar.
 
-## 5. Debugging
+## 6. Debugging
 
 - **Renderer** — the usual Chromium devtools, opened from the app.
 - **Main** — `pnpm dev` passes `--inspect` on a fixed port; attach from the editor.
@@ -246,7 +288,7 @@ makes a measurement here comparable to one recorded there rather than merely sim
   and `EXPLAIN QUERY PLAN` are the fastest way to answer a performance question, and deleting
   the file is safe by construction: `roost rebuild` replays it.
 
-## 6. Things that will confuse you once
+## 7. Things that will confuse you once
 
 - **The renderer cannot import anything from `packages/`.** A lint rule enforces it. If an
   auto-import pulls `@roost/core` into a component, the failure appears as a bundler error

@@ -539,6 +539,25 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   and will read as a bug the first time somebody hits it. The chips say exactly what the asset is
   *in*; the sidebar says what the query answers with.
 
+### Running it from a checkout (2026-09-08)
+
+- ☑ ~~**A desktop entry, and one command that brings a checkout up to date.**~~
+  `scripts/install-launcher.mjs` writes `roost.desktop` pointing at the built output by absolute
+  path — a desktop entry is not started from a login shell and cannot be assumed to have one on
+  `PATH` — and `pnpm refresh` is `git pull --ff-only`, install, build. Documented in `SETUP.md` §4
+  and in the README, which had no install instructions at all. The entry deliberately never builds:
+  a menu click that ran `tsc -b` first would have nowhere to print the error. Superseded by
+  packaging when M6 arrives, and not a substitute for it.
+- 🟡 **Nothing tells a user how to sync a library between machines.** `CONCEPT.md` §3 promises Roost
+  will not break somebody's Syncthing or Nextcloud, and the two rules that make that true are
+  written nowhere: `index.db` has to be excluded from the sync — it is WAL-mode SQLite, and it is
+  derived, so invariant 1 means a rebuild replaces it — and the single-instance lock lives under
+  `$XDG_STATE_HOME` rather than in the library (deliberately: the binding layout has four entries
+  and a lock is not one), so it is **per-machine** and cannot stop two machines opening one synced
+  library at once. The journal is append-only, so that collision is a conflicted copy and lost
+  lines. A short section in `SETUP.md`. Nobody has hit it — the user's machines keep separate
+  libraries — which is exactly why it should be written before somebody does.
+
 ### Engine (M1)
 - ☑ ~~**A journal file not named `YYYY-MM.jsonl` is invisible to replay.**~~ `roost doctor`
   reports them, and treats them as a reason to refuse `--reclaim`: a month replay cannot see is a

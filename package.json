@@ -31,7 +31,8 @@
     "check:css": "node scripts/check-css-tokens.mjs 'apps/desktop/renderer/**/*.css'",
     "verify": "pnpm typecheck && pnpm check:ci && pnpm check:css && pnpm test",
     "dev": "pnpm build && node scripts/dev.mjs",
-    "start": "pnpm build && pnpm --filter @roost/desktop-renderer build && electron apps/desktop/main/dist/main.js --ozone-platform-hint=auto"
+    "start": "pnpm build && pnpm --filter @roost/desktop-renderer build && electron apps/desktop/main/dist/main.js --ozone-platform-hint=auto",
+    "refresh": "git pull --ff-only && pnpm install && pnpm build && pnpm --filter @roost/desktop-renderer build"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",

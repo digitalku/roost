@@ -40,6 +40,37 @@ format your metadata is kept in.
 - **Scriptable.** The engine ships as a headless CLI too, and the interface may not do anything
   the CLI cannot.
 
+## Install
+
+There is no package yet — Linux packaging is M6 — so Roost is installed by building this
+repository. On Fedora:
+
+```bash
+sudo dnf install -y nodejs npm gcc-c++ make python3 vips-devel \
+                    nss gtk3 libX11 alsa-lib ffmpeg-free
+corepack enable
+
+git clone <this repo> && cd roost
+pnpm install
+pnpm start
+```
+
+`vips-devel` is not optional on Linux. `sharp` is built from source against the system's libvips,
+because the prebuilt binary bundles its own GLib and segfaults inside Electron on the first decode
+(ADR-0013); the install fails loudly when the headers are missing, which is the better of the two
+failures. `ffmpeg` is optional — without it video and audio are still indexed, just not
+thumbnailed, and `roost thumb --retry-blocked` picks that work up once it arrives (ADR-0017).
+
+Then, to put Roost in the application menu and to update it later:
+
+```bash
+node scripts/install-launcher.mjs    # a desktop entry pointing at this checkout
+pnpm refresh                         # pull, install, build
+```
+
+[docs/SETUP.md](docs/SETUP.md) §4 covers both, including what an update does to a library that is
+already open — migrations run forward, and the previous build will not open it again.
+
 ## Documentation
 
 | Document | Contents |
