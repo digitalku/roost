@@ -126,6 +126,16 @@ function EagleSummary({ survey }: { readonly survey: WireEagleSurvey }): React.J
       </p>
       {holds.length > 0 && <p className="eagle-line">{holds.join(" · ")}</p>}
 
+      {survey.rated + survey.notes + survey.sources > 0 && (
+        // Said here because it is the one thing this import does to assets the
+        // library already holds, and the answer is the reassuring one
+        // (ADR-0032 §8). How many will actually collide cannot be known without
+        // hashing the whole library, which is what a survey must not cost.
+        <p className="eagle-line">
+          Ratings, notes and URLs fill only what is empty — nothing you wrote here is overwritten
+        </p>
+      )}
+
       <p className="eagle-heading">Not carried across</p>
       <ul className="eagle-list">
         <li>Eagle's thumbnails — Roost draws its own</li>

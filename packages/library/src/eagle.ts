@@ -150,6 +150,16 @@ export interface EagleReport {
   readonly ratings: number;
   readonly notes: number;
   readonly sources: number;
+  /**
+   * Ratings, notes and URLs Eagle brought for an asset that already had one
+   * (ADR-0032 §8).
+   *
+   * Eagle fills what is empty and never overwrites what somebody wrote here,
+   * so this is the number that says the import *declined* to say something.
+   * Counted for the reason `subtitlesUnattached` is: leaving it out would make
+   * "the note did not change" indistinguishable from "there was no note".
+   */
+  readonly preserved: number;
   readonly comments: number;
   readonly trashed: number;
   readonly subtitles: number;
@@ -536,6 +546,7 @@ export async function importEagle(
   const created = await createFolders(library, folders, null, folderIds, existingFolders(library));
 
   const seen = new Set<string>();
+  const written: Written = new Map();
   const failed: ImportFailure[] = [];
   const counts = {
     imported: 0,
@@ -545,6 +556,7 @@ export async function importEagle(
     ratings: 0,
     notes: 0,
     sources: 0,
+    preserved: 0,
     comments: 0,
     trashed: 0,
     subtitles: 0,
@@ -559,10 +571,21 @@ export async function importEagle(
   let chunk: EagleEntry[] = [];
   const flush = async (): Promise<void> => {
     if (chunk.length === 0) return;
-    await importChunk(library, chunk, mode, extraTags, folderIds, seen, counts, failed, () => {
-      done += 1;
-      onProgress?.(done, survey.items);
-    });
+    await importChunk(
+      library,
+      chunk,
+      mode,
+      extraTags,
+      folderIds,
+      seen,
+      written,
+      counts,
+      failed,
+      () => {
+        done += 1;
+        onProgress?.(done, survey.items);
+      },
+    );
     chunk = [];
   };
 
@@ -589,6 +612,7 @@ export async function importEagle(
     ratings: counts.ratings,
     notes: counts.notes,
     sources: counts.sources,
+    preserved: counts.preserved,
     comments: counts.comments,
     trashed: counts.trashed,
     subtitles: counts.subtitles,
@@ -661,6 +685,22 @@ function mergeTags(own: readonly string[], extra: readonly string[]): string[] {
   return [...own, ...extra.filter((tag) => !seen.has(tag.toLowerCase()))];
 }
 
+/**
+ * What this run has already written on an asset.
+ *
+ * The index cannot answer it: the ops are applied a chunk at a time, so two
+ * items in one chunk both read an empty note. Identical bytes are one asset
+ * (§4), and the second item must no more overwrite the first than Eagle
+ * overwrites Roost.
+ */
+type Written = Map<string, { rated?: true; noted?: true; sourced?: true }>;
+
+function remember(written: Written, hash: ContentHash, field: "rated" | "noted" | "sourced"): void {
+  const held = written.get(hash) ?? {};
+  held[field] = true;
+  written.set(hash, held);
+}
+
 /** What one chunk of items adds up to, accumulated across the run. */
 interface Counts {
   imported: number;
@@ -670,6 +710,7 @@ interface Counts {
   ratings: number;
   notes: number;
   sources: number;
+  preserved: number;
   comments: number;
   trashed: number;
   subtitles: number;
@@ -684,6 +725,7 @@ async function importChunk(
   /** Eagle's folder ids, mapped onto this library's by {@link createFolders}. */
   folderIds: ReadonlyMap<string, number>,
   seen: Set<string>,
+  written: Written,
   counts: Counts,
   failed: ImportFailure[],
   /** Called once per item whose bytes have been placed, for the progress line. */
@@ -748,17 +790,35 @@ async function importChunk(
       const id = folderIds.get(folder);
       if (id !== undefined) ops.push({ op: "folder_add", hash, folder: id });
     }
+    // Eagle fills what is empty and never overwrites what somebody wrote here
+    // (ADR-0032 §8). The row is read once for all three, and `written` carries
+    // what this run has already put on the asset — two Eagle items with
+    // identical bytes are one asset, and the second must not overwrite the
+    // first any more than Eagle overwrites Roost.
+    const brings = item.star !== undefined || item.note !== undefined || item.url !== undefined;
+    const held = brings ? library.db.repo.judgements(hash) : undefined;
+    const mine = written.get(hash);
+
     if (item.star !== undefined) {
-      ops.push({ op: "rate", hash, rating: item.star });
-      counts.ratings += 1;
+      if (held?.rating === null && mine?.rated !== true) {
+        ops.push({ op: "rate", hash, rating: item.star });
+        counts.ratings += 1;
+        remember(written, hash, "rated");
+      } else counts.preserved += 1;
     }
     if (item.note !== undefined) {
-      ops.push({ op: "note_set", hash, note: item.note });
-      counts.notes += 1;
+      if (held?.note === null && mine?.noted !== true) {
+        ops.push({ op: "note_set", hash, note: item.note });
+        counts.notes += 1;
+        remember(written, hash, "noted");
+      } else counts.preserved += 1;
     }
     if (item.url !== undefined) {
-      ops.push({ op: "source_set", hash, url: item.url });
-      counts.sources += 1;
+      if (held?.sourceUrl === null && mine?.sourced !== true) {
+        ops.push({ op: "source_set", hash, url: item.url });
+        counts.sources += 1;
+        remember(written, hash, "sourced");
+      } else counts.preserved += 1;
     }
     // A comment is the one thing here that is neither set membership nor
     // last-write-wins: `comment_add` mints an id, so re-running would leave a

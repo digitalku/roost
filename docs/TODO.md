@@ -13,6 +13,17 @@ Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 
 
 ## 1. Needs a decision from the user
 
+- ☑ ~~**ADR-0032 §8 — Eagle fills what is empty.**~~ **Amended and built 2026-09-08**, from the
+  user asking what an Eagle import does when the file is already in the library. The bytes were
+  never the problem — the three fields a person writes one at a time were: `rating`, `note` and
+  `source_url` were last-write-wins, so Eagle silently replaced a rating somebody set here. It now
+  writes only where the field is empty, **inside one run as well as between two** (two Eagle items
+  with identical bytes are one asset, and the ops are applied a chunk at a time, so the index cannot
+  answer "is this empty" on its own). `preserved` counts what it declined to write, in the report,
+  the status bar and the CLI; the Eagle dialog says the rule up front but never a number, because a
+  number would cost a hash of the whole library. Union rules for tags, folders, comments and trash
+  are unchanged. `repo.judgements()` is the one new read. 3 more tests, 1108 in the workspace.
+
 - ☑ ~~**ADR-0037 — an import lands where you are.**~~ **Accepted 2026-09-08** and built the same
   day, from the user asking
   whether importing files or a folder while a folder is open can put them in that folder, and what

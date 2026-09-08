@@ -729,6 +729,14 @@ export interface WireEagleReport {
   readonly ratings: number;
   readonly notes: number;
   readonly sources: number;
+  /**
+   * What Eagle brought for an asset that already had one (ADR-0032 §8).
+   *
+   * Eagle fills what is empty and never overwrites, so this is the number that
+   * says the import declined to say something — and without it, "the note did
+   * not change" and "there was no note" look the same afterwards.
+   */
+  readonly preserved: number;
   readonly comments: number;
   readonly trashed: number;
   readonly subtitles: number;

@@ -2,7 +2,15 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ContentHash } from "@roost/core";
-import { importEagle, Library, NotAnEagleLibraryError, surveyEagle } from "@roost/library";
+import {
+  importEagle,
+  Library,
+  NotAnEagleLibraryError,
+  rate,
+  setNote,
+  setSource,
+  surveyEagle,
+} from "@roost/library";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 /**
@@ -79,7 +87,15 @@ const ITEMS: readonly ItemFixture[] = [
   { id: "a6", name: "README", ext: "", bytes: "a file with no extension" },
 ];
 
-async function writeEagleLibrary(root: string): Promise<void> {
+/**
+ * Writes an Eagle library. `items` defaults to the shared fixture; a test that
+ * needs a shape the fixture does not have passes its own rather than growing
+ * the one every other test asserts counts against.
+ */
+async function writeEagleLibrary(
+  root: string,
+  items: readonly ItemFixture[] = ITEMS,
+): Promise<void> {
   await mkdir(join(root, "images"), { recursive: true });
 
   await writeFile(
@@ -108,9 +124,9 @@ async function writeEagleLibrary(root: string): Promise<void> {
     JSON.stringify({ historyTags: ["blue", "ghost"], starredTags: [] }),
   );
   // "all" is the item count, not an item id.
-  await writeFile(join(root, "mtime.json"), JSON.stringify({ a1: 1, a2: 2, all: ITEMS.length }));
+  await writeFile(join(root, "mtime.json"), JSON.stringify({ a1: 1, a2: 2, all: items.length }));
 
-  for (const item of ITEMS) {
+  for (const item of items) {
     const dir = join(root, "images", `${item.id}.info`);
     await mkdir(dir, { recursive: true });
 
@@ -287,6 +303,68 @@ describe("importing an Eagle library", () => {
     expect(second.folders).toBe(0);
     expect(second.comments).toBe(0);
     expect(snapshot(library)).toEqual(before);
+  });
+
+  it("fills a rating, a note and a URL, and never overwrites one", async () => {
+    // ADR-0032 §8, the user's decision of 2026-09-08. Re-running an import must
+    // not undo the judgements somebody made here in between.
+    await importEagle(library, eagle);
+    const hash = hashOf(library, "photo two.jpg");
+    await rate(library, [hash], 1);
+    await setNote(library, hash, "what I actually think");
+    await setSource(library, hash, "https://example.test/mine");
+
+    const second = await importEagle(library, eagle);
+
+    const detail = library.db.repo.assetDetail(hash);
+    expect(detail?.rating).toBe(1);
+    expect(detail?.note).toBe("what I actually think");
+    expect(detail?.sourceUrl).toBe("https://example.test/mine");
+    // Counted rather than silent: an import that left a note alone and one that
+    // found no note are otherwise indistinguishable afterwards.
+    expect(second.preserved).toBe(3);
+    expect({ ratings: second.ratings, notes: second.notes, sources: second.sources }).toEqual({
+      ratings: 0,
+      notes: 0,
+      sources: 0,
+    });
+  });
+
+  it("says nothing was preserved on a first run, because nothing was there", async () => {
+    const report = await importEagle(library, eagle);
+
+    expect(report.preserved).toBe(0);
+    expect({ ratings: report.ratings, notes: report.notes, sources: report.sources }).toEqual({
+      ratings: 1,
+      notes: 1,
+      sources: 1,
+    });
+  });
+
+  it("does not let one item overwrite another that shares its bytes", async () => {
+    // The index cannot answer "is this empty" inside a chunk: the ops are
+    // applied at the end, so both items would read an empty note and the second
+    // would win. Identical bytes are one asset, and the rule holds within a run
+    // as much as between two.
+    const twins = join(dir, "Twins.library");
+    await writeEagleLibrary(twins, [
+      { id: "b1", name: "first", ext: "jpg", bytes: "one and the same", star: 5, annotation: "a" },
+      { id: "b2", name: "second", ext: "jpg", bytes: "one and the same", star: 1, annotation: "b" },
+    ]);
+
+    const report = await importEagle(library, twins);
+
+    expect(report.collapsed).toBe(1);
+    // Which of the two lands is the directory's order to decide; that exactly
+    // one does is this rule.
+    expect({ ratings: report.ratings, notes: report.notes, preserved: report.preserved }).toEqual({
+      ratings: 1,
+      notes: 1,
+      preserved: 2,
+    });
+    const detail = library.db.repo.assetDetail(hashOf(library, "first.jpg", "second.jpg"));
+    expect([5, 1]).toContain(detail?.rating);
+    expect(["a", "b"]).toContain(detail?.note);
   });
 
   it("applies a run-wide tag to items the library already held", async () => {

@@ -512,6 +512,12 @@ function eagleSaid(report: WireEagleReport): string[] {
     `${report.assets.toLocaleString()} from Eagle`,
     ...(report.duplicates > 0 ? [`${report.duplicates.toLocaleString()} already here`] : []),
     ...(report.collapsed > 0 ? [`${report.collapsed.toLocaleString()} merged by content`] : []),
+    ...(report.preserved > 0
+      ? // Eagle fills what is empty and never overwrites (ADR-0032 §8). Without
+        // this line, an import that left a note alone and one that found no
+        // note look identical afterwards.
+        [`${report.preserved.toLocaleString()} kept as they were`]
+      : []),
     ...(report.folders > 0 ? [`${report.folders.toLocaleString()} folders`] : []),
     ...(report.comments > 0 ? [`${report.comments.toLocaleString()} comments`] : []),
     ...(report.subtitles > 0 ? [`${report.subtitles.toLocaleString()} captioned`] : []),

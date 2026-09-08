@@ -226,6 +226,42 @@ try {
     `comments=${again?.value?.comments}`,
   );
 
+  section("A judgement made here survives the next import (ADR-0032 §8)");
+  // Eagle gives `a1` four stars and a note. The point is what happens when
+  // somebody disagrees with Eagle *after* the first import.
+  const page = await cdp.evaluate(
+    request({ type: "assets:page", query: "a1", limit: 1, after: null }),
+  );
+  const hash = page?.value?.assets?.[0]?.hash ?? null;
+  check("the rated item is findable by name", hash !== null, `hash=${String(hash).slice(0, 12)}`);
+
+  await cdp.evaluate(request({ type: "asset:rate", hashes: [hash], rating: 1 }));
+  await cdp.evaluate(request({ type: "asset:note", hash, note: "what I actually think" }));
+
+  const third = await cdp.evaluate(request({ type: "eagle:import", path: eagle, mode: "managed" }));
+  const detail = await cdp.evaluate(request({ type: "asset:detail", hash }));
+
+  check(
+    "the rating set here is not replaced by Eagle's",
+    detail?.value?.rating === 1,
+    `rating=${detail?.value?.rating}`,
+  );
+  check(
+    "and neither is the note",
+    detail?.value?.note === "what I actually think",
+    JSON.stringify(detail?.value?.note),
+  );
+  check(
+    "the run says how many it left alone, rather than saying nothing",
+    (third?.value?.preserved ?? 0) >= 2,
+    `preserved=${third?.value?.preserved}`,
+  );
+  check(
+    "and wrote none of the three it was carrying",
+    third?.value?.ratings === 0 && third?.value?.notes === 0 && third?.value?.sources === 0,
+    `ratings=${third?.value?.ratings} notes=${third?.value?.notes} sources=${third?.value?.sources}`,
+  );
+
   section("A directory that is not an Eagle library");
   const refused = await cdp.evaluate(request({ type: "eagle:survey", path: dir }));
   check("it is refused rather than reported as empty", refused?.ok === false);

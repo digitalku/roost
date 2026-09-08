@@ -687,6 +687,12 @@ Eagle library is deleted, and it is the one thing in the mapping with no home he
 comes from the journal line's own timestamp. The file's own date does survive, which is the half
 that makes it bearable, and the line says so.
 
+**Where the survey found a rating, a note or a URL, the dialog says what happens to the ones this
+library already has**: Eagle fills only what is empty and overwrites nothing (ADR-0032 §8). It is a
+sentence and never a number — knowing how many would collide means hashing the whole Eagle library,
+which is what a survey must not cost. The count of the ones it declined to write comes afterwards,
+in the status bar, as *N kept as they were*.
+
 **The survey is fetched when the dialog opens**, not passed in: it costs a read per item and the
 caller has only a path. Until it answers the dialog says *Reading the library…* and **Import** is
 disabled — as it stays for a survey of zero items, which is what a directory that is not an Eagle

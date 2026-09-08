@@ -261,6 +261,20 @@ function printEagleReport(
     ),
   );
   if (report.tagGroups > 0) out(row("", plural(report.tagGroups, "tag group"), 1, 0));
+  if (report.preserved > 0) {
+    // Eagle fills what is empty and never overwrites (ADR-0032 §8), so this is
+    // the import declining to say something — which is invisible afterwards
+    // unless it is counted here.
+    out(
+      row(
+        "",
+        `${plural(report.preserved, "rating, note or URL")} left as it was, ` +
+          "because this library already had one",
+        1,
+        0,
+      ),
+    );
+  }
   if (report.subtitles > 0) {
     out(row("", `${plural(report.subtitles, "subtitle")} attached to the film beside them`, 1, 0));
   }

@@ -1117,6 +1117,7 @@ function wireEagleReport(report: EagleReport, thumbnails: number): WireEagleRepo
     ratings: report.ratings,
     notes: report.notes,
     sources: report.sources,
+    preserved: report.preserved,
     comments: report.comments,
     trashed: report.trashed,
     subtitles: report.subtitles,

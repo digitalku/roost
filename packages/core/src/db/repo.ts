@@ -52,6 +52,20 @@ export interface AssetSummary {
 }
 
 /**
+ * The three fields a person writes on an asset one value at a time.
+ *
+ * Read together because they are asked about together: an importer deciding
+ * whether it has anything to add wants all three in one row rather than three
+ * lookups (ADR-0032 §8). Every one is nullable, and `null` means nobody has
+ * said anything — which is the whole question.
+ */
+export interface AssetJudgements {
+  readonly rating: number | null;
+  readonly note: string | null;
+  readonly sourceUrl: string | null;
+}
+
+/**
  * Where an asset's bytes are, and how big they are.
  *
  * Leaner than {@link AssetDetail} on purpose: serving a file needs four columns
@@ -945,6 +959,19 @@ export class Repo {
     return this.#s("SELECT hash, size, ext, orig_name AS origName FROM assets WHERE hash = ?").get(
       hash,
     ) as AssetSummary | undefined;
+  }
+
+  /**
+   * What a person has already written on an asset, or `undefined` for no row.
+   *
+   * Three columns rather than {@link assetDetail}'s twenty and its three
+   * further queries: the Eagle importer asks this once per item that carries a
+   * rating, a note or a URL, and it must not cost a detail each.
+   */
+  judgements(hash: ContentHash): AssetJudgements | undefined {
+    return this.#s("SELECT rating, note, source_url AS sourceUrl FROM assets WHERE hash = ?").get(
+      hash,
+    ) as AssetJudgements | undefined;
   }
 
   /** One asset with its tags and folder names resolved. */

@@ -172,6 +172,7 @@ const EMPTY_EAGLE_REPORT: WireEagleReport = {
   ratings: 0,
   notes: 0,
   sources: 0,
+  preserved: 0,
   comments: 0,
   trashed: 0,
   subtitles: 0,

@@ -346,7 +346,14 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-08.** **ADR-0037 — an import lands where you are** was proposed and
+**Nothing open, as of 2026-09-08.** **ADR-0032 was amended** that day (§8), from the user asking what
+an Eagle import does to files the library already holds. Its answer had been *last-write-wins*, which
+is right for re-running one import and wrong for a library somebody has been using: a rating and a
+note written here were replaced silently. **Eagle now fills only what is empty**, at the user's
+choosing, and the three fields it declines to write are counted as `preserved` — the union rules for
+tags, folders and comments are untouched, because none of them can destroy an answer.
+
+Before it that day, **ADR-0037 — an import lands where you are** was proposed and
 accepted that day, from the user asking whether an import can join the folder already on screen, and
 what the pop-up should offer for the files the library already holds. Both of its questions were
 answered as recommended: the folder is the one on screen, and an import made outside a folder files
