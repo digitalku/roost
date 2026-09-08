@@ -762,7 +762,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
     state is also waiting for.
   - **Smart-folder match counts** (§4.1). Every read would run every saved query; the count
     arrives with the search field's count, which is the thing that makes it cheap enough.
-- 🟡 **The search field validates but does not suggest.** What `UI_SPEC.md` §5 still describes:
+- 🟡 **The search field validates but does not suggest.** It became *legible* on 2026-09-08 — it
+  rests at the head of the query and taking the focus selects the whole of it (`UI_SPEC.md` §5),
+  from the user asking how to reach the end of a long folder path without typing it. That answers
+  reading a long query, not writing one; the list below is still what would answer writing one.
+  What `UI_SPEC.md` §5 still describes:
   - **Autocomplete**: field names first, then values once a field is typed — `tag:` offers tags,
     `folder:` offers folders, `ext:` offers the extensions actually present. The vocabulary is
     `@roost/search`'s (`FLAGS`, `NAME_FIELDS`, `NUMERIC_FIELDS`) and the values are the
@@ -780,6 +784,16 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   carries both — the CLI has had `--mode` and `--tag` since M1 — and what is missing is where to
   put them: the mode belongs in a preference (the application config that window state is also
   waiting for) and the tags in an import dialog that does not exist yet.
+- 🟢 **A folder is reached by typing its whole path, or by clicking it.** Two ideas were put to the
+  user on 2026-09-08 beside the one that was built, and neither was taken up yet. **A breadcrumb
+  over the grid**, with the last crumb offering the folder's children, is the file manager's answer
+  to descending without typing — it would be a *view of the query* exactly as the filter bar is
+  (ADR-0035), so it needs an ADR and a place in `UI_SPEC.md` §6. And **matching a path from its
+  tail**: `folder:"SINTANG/Kelas 12"` finds nothing today, because a multi-segment path has to be
+  exact from the root while a bare name matches anywhere (`library/search.ts`). Widening it to a
+  suffix would follow the rule already there — the exact path wins, and the fallback can only
+  broaden — but it changes what a *saved* smart folder's query means, so it is a decision rather
+  than a patch.
 - 🟢 **The tag facet has no Untagged row.** Eagle's has one, `is:untagged` is in the grammar, and it
   would sit beside the tags exactly as unrated sits beside the stars (ADR-0035 §7). The pane still
   carries **Untagged** as a place, so nothing is unreachable; what would change is that it could be

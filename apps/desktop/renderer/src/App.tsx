@@ -37,6 +37,7 @@ import { DuplicatesDialog } from "./import/DuplicatesDialog.js";
 import { EagleDialog } from "./import/EagleDialog.js";
 import { type Importing, useImport } from "./import/useImport.js";
 import { Inspector } from "./inspector/Inspector.js";
+import { isTyping } from "./keyboard.js";
 import { RecentList } from "./library/RecentList.js";
 import { NewFileDialog } from "./NewFileDialog.js";
 import { PreviewPane } from "./preview/PreviewPane.js";
@@ -1701,14 +1702,5 @@ function LibraryView({
         />
       )}
     </div>
-  );
-}
-
-/** Whether a keystroke belongs to whatever the user is typing into. */
-function isTyping(element: HTMLElement): boolean {
-  return (
-    element.isContentEditable ||
-    element instanceof HTMLInputElement ||
-    element instanceof HTMLTextAreaElement
   );
 }

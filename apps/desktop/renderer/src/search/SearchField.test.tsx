@@ -105,4 +105,61 @@ describe("the search field", () => {
     await user.type(field, "half-typed{Escape}");
     expect(field.value).toBe("tag:wood");
   });
+
+  const LONG = 'folder:"SMA NUSANTARA INDAH SINTANG/IG smanusantaraindah_sintang/post"';
+
+  it("selects the whole query, from its head, when the field is first clicked", async () => {
+    const user = show(LONG);
+    const field = screen.getByRole("searchbox") as HTMLInputElement;
+    await user.click(field);
+
+    expect(field.selectionStart).toBe(0);
+    expect(field.selectionEnd).toBe(LONG.length);
+    // Backward, so the selection's focus end is offset 0 and the view scrolls
+    // to the part of the path that names the place rather than to `/post"`.
+    expect(field.selectionDirection).toBe("backward");
+  });
+
+  it("leaves the caret where a second click puts it", async () => {
+    const user = show(LONG);
+    const field = screen.getByRole("searchbox") as HTMLInputElement;
+    await user.click(field);
+    expect(field.selectionStart).toBe(0);
+    await user.pointer({ target: field, offset: 9, keys: "[MouseLeft]" });
+
+    // A click carries a position, and the field is already focused: the rule is
+    // for arriving, not for editing one term of a query that is already here.
+    expect(field.selectionStart).toBe(9);
+    expect(field.selectionEnd).toBe(9);
+  });
+
+  it("takes the caret on Ctrl+F from anywhere in the window", async () => {
+    const user = show(LONG);
+    const field = screen.getByRole("searchbox") as HTMLInputElement;
+    await user.keyboard("{Control>}f{/Control}");
+
+    expect(document.activeElement).toBe(field);
+    expect(field.selectionEnd).toBe(LONG.length);
+  });
+
+  it("takes the caret on a bare slash, unless a slash is what is being typed", async () => {
+    render(
+      <>
+        <input aria-label="Elsewhere" />
+        <SearchField query={LONG} onApply={(q) => applied.push(q)} matches={1} />
+      </>,
+    );
+    const user = userEvent.setup();
+    const field = screen.getByRole("searchbox") as HTMLInputElement;
+    const elsewhere = screen.getByLabelText("Elsewhere") as HTMLInputElement;
+
+    await user.keyboard("/");
+    expect(document.activeElement).toBe(field);
+
+    field.blur();
+    await user.type(elsewhere, "and/or");
+    // A field prefix is a shortcut in a window and a character in a text field.
+    expect(elsewhere.value).toBe("and/or");
+    expect(document.activeElement).toBe(elsewhere);
+  });
 });

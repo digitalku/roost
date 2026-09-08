@@ -1155,6 +1155,17 @@ while empty bar sat beside it.
   appears under the field with a caret at the byte offset the parser reported — not a red
   border and not a toast.
 - **Applies on a 250ms idle**, and immediately on Enter.
+- **It rests showing the head of the query.** A field is scrolled to wherever its caret last
+  was, and for a folder path that is the tail — `…/post/testing"`, the half that names nothing,
+  while the half saying *which place* sits off the left edge. So the scroll is pinned to the
+  start whenever nobody is typing in it, which is the state it spends its life in: a sidebar
+  click writes a query and then nothing touches it.
+- **Taking the focus selects the whole query, from its head.** The first click selects, a
+  second one puts the caret where it landed, and `Ctrl+F` / `/` do the same from anywhere —
+  the address bar's own gesture, because arriving somewhere and then typing means replacing
+  the query rather than prefixing it. The selection is made *backward*, so the view scrolls to
+  offset 0 and the field shows `folder:"SMA NUSANTARA…` rather than the tail. It is not a
+  substitute for autocomplete above; it is what makes a query too long to fit still legible.
 - **Autocomplete** for field names, then for values once a field is typed: `tag:` offers tags,
   `folder:` offers folders, `ext:` offers the extensions actually present in this library.
 - **Chips, optionally.** A toggle renders the parsed query as removable chips above the grid

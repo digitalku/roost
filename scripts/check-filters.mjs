@@ -10,6 +10,10 @@
  * and the field, the grid and the chip must all say the same thing; type into
  * the field, and the chips must follow.
  *
+ * The last section is the field itself rather than the bar, and it is here for
+ * the same reason the rest of this is: where a text field is *scrolled to* is a
+ * browser's decision, and jsdom has no layout to make it with (`UI_SPEC.md` §5).
+ *
  *   node scripts/check-filters.mjs
  *
  * **It builds its own library** in a temporary directory and deletes it again,
@@ -404,6 +408,90 @@ try {
   // to the setting — which is what the next folder opened will use.
   await typeQuery(`tag:${TAG}`);
   check("with no folder on screen it shows the setting again", (await checkbox()) === true);
+
+  section("A long query shows its head");
+
+  // The one thing about this field no unit test can see: a browser decides
+  // where a text field is scrolled to, and jsdom has no layout at all. A folder
+  // path long enough to overflow leaves the field showing its tail — the half
+  // that names nothing — unless something puts it back.
+  const room = await cdp.evaluate('document.querySelector(".search-input").clientWidth');
+  // Padded with bare words, which are ordinary free text (ADR-0027): the query
+  // has to overflow the field, and it also has to parse.
+  let long = 'folder:"Design/Alpha"';
+  for (let word = 0; long.length < room / 6; word += 1) long += ` word${word}`;
+  await typeQuery(long);
+
+  const afterTyping = await cdp.evaluate(`(() => {
+    const input = document.querySelector(".search-input");
+    return { over: input.scrollWidth > input.clientWidth + 1, scroll: input.scrollLeft };
+  })()`);
+  check(
+    "typing a query longer than the field leaves it scrolled off its head",
+    afterTyping.over === true && afterTyping.scroll > 0,
+    `scrollLeft=${afterTyping.scroll}`,
+  );
+
+  // The empty state rather than the grid: this query matches nothing, and a
+  // paragraph is the one thing on screen a click cannot ask a question with.
+  const elsewhere = await cdp.box(".grid-empty");
+  await cdp.mouse.click(elsewhere.x, elsewhere.y);
+  await sleep(200);
+  const atRest = await cdp.evaluate('document.querySelector(".search-input").scrollLeft');
+  check("and it goes back to the head as soon as the caret leaves", atRest === 0, `${atRest}`);
+
+  const fieldAt = await cdp.box(".search-input");
+  await cdp.mouse.click(fieldAt.x, fieldAt.y);
+  await sleep(200);
+  const clicked = await cdp.evaluate(`(() => {
+    const input = document.querySelector(".search-input");
+    return {
+      start: input.selectionStart,
+      end: input.selectionEnd,
+      direction: input.selectionDirection,
+      scroll: input.scrollLeft,
+      length: input.value.length,
+    };
+  })()`);
+  check(
+    "the click that focuses it selects the whole query",
+    clicked.start === 0 && clicked.end === clicked.length,
+    `${clicked.start}-${clicked.end} of ${clicked.length}`,
+  );
+  // The point of the backward direction: a browser scrolls to the selection's
+  // focus end, so the field shows the folder the query names rather than the
+  // last twenty characters of a path.
+  check(
+    "and shows its head rather than the tail it was scrolled to",
+    clicked.direction === "backward" && clicked.scroll === 0,
+    `${clicked.direction}, scrollLeft=${clicked.scroll}`,
+  );
+
+  // The two shortcuts, dispatched as real keys: `Ctrl+F` is a chord the window
+  // has to claim, and `/` is a character that must reach a field somebody is
+  // typing into rather than the shortcut (`UI_SPEC.md` §9).
+  await cdp.mouse.click(elsewhere.x, elsewhere.y);
+  await sleep(150);
+  await cdp.keyboard.press("f", { ctrl: true });
+  await sleep(150);
+  const byChord = await cdp.evaluate("document.activeElement?.className ?? null");
+  check("Ctrl+F takes the field from anywhere in the window", byChord === "search-input", byChord);
+
+  await cdp.mouse.click(elsewhere.x, elsewhere.y);
+  await sleep(150);
+  const before = (await state()).query;
+  await cdp.keyboard.press("/");
+  await sleep(150);
+  const bySlash = await cdp.evaluate(`(() => ({
+    focused: document.activeElement?.className ?? null,
+    query: document.querySelector(".search-input").value,
+  }))()`);
+  check("a bare slash takes it too", bySlash.focused === "search-input", bySlash.focused);
+  // And it is a shortcut rather than a character the field then swallowed —
+  // the query it lands in already has slashes of its own in a folder path.
+  check("without typing itself into the query", bySlash.query === before, bySlash.query);
+
+  await typeQuery(`tag:${TAG}`);
 } finally {
   report();
   await window.close();
