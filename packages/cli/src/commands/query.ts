@@ -1,3 +1,4 @@
+import { DEFAULT_SORT, type Sort } from "@roost/core";
 import { matches, pages } from "@roost/library";
 import { bytes } from "../format.js";
 import { withLibrary } from "../open.js";
@@ -12,6 +13,8 @@ export interface QueryOptions {
   readonly countOnly: boolean;
   /** One hash per line, for piping into another command. */
   readonly hashesOnly: boolean;
+  /** The order to list in (ADR-0039). Absent is newest first. */
+  readonly sort?: Sort;
 }
 
 export async function query(
@@ -28,7 +31,12 @@ export async function query(
     let shown = 0;
     // Paged rather than fetched whole: `--limit 1000000` on a million-asset
     // library must not be a million rows in memory before the first line prints.
-    for (const hits of pages(library, options.query, Math.min(options.limit, MAX_PAGE))) {
+    for (const hits of pages(
+      library,
+      options.query,
+      Math.min(options.limit, MAX_PAGE),
+      options.sort ?? DEFAULT_SORT,
+    )) {
       for (const hit of hits) {
         if (shown >= options.limit) return;
         shown += 1;

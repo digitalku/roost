@@ -67,12 +67,12 @@ describe("the schema on disk against the schema in the documents", () => {
     expect(statements(migration?.sql ?? "")).toEqual(published);
   });
 
-  it("keeps migrations 0002 to 0013 identical to what DATA_MODEL publishes", () => {
-    // `DATA_MODEL.md` §2.1 through §2.12 publish one block each, in migration
+  it("keeps migrations 0002 to 0014 identical to what DATA_MODEL publishes", () => {
+    // `DATA_MODEL.md` §2.1 through §2.13 publish one block each, in migration
     // order, because the specification's schema block is v1 and stays v1 —
     // growth lives in that file (its §2).
     const published = sqlBlocks(docs("DATA_MODEL.md"));
-    expect(published).toHaveLength(12);
+    expect(published).toHaveLength(13);
 
     for (const [index, block] of published.entries()) {
       const migration = allMigrations()[index + 1];
@@ -89,9 +89,9 @@ describe("the schema on disk against the schema in the documents", () => {
     // this repository authors, and it is where the two builds part company:
     // see `DATA_MODEL.md` §2.5 on what a library that goes back has to do.
     expect(allMigrations().map((m) => m.version)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
     ]);
-    expect(latestSchemaVersion()).toBe(13);
+    expect(latestSchemaVersion()).toBe(14);
   });
 });
 
@@ -107,13 +107,23 @@ describe("the schema a fresh library actually gets", () => {
         .filter((name) => name.startsWith("idx_"))
         .sort();
 
-      expect(indexes).toEqual([
-        "idx_assets_ext",
-        "idx_assets_favorite",
-        "idx_assets_imported",
-        "idx_assets_rating",
-        "idx_assets_trashed",
-      ]);
+      expect(indexes).toEqual(
+        [
+          // The four filter indexes and the ordering one, each rebuilt by 0014
+          // with its tie-break pointing the same way as its key.
+          "idx_assets_ext",
+          "idx_assets_favorite",
+          "idx_assets_imported",
+          "idx_assets_rating",
+          "idx_assets_trashed",
+          // And one per sort key the view menu offers, added by 0014. `random`
+          // has none and cannot have one (ADR-0039 §5).
+          "idx_assets_created",
+          "idx_assets_name",
+          "idx_assets_rated",
+          "idx_assets_size",
+        ].sort(),
+      );
 
       // Migration 0007 made every one of them partial: four scoped to live
       // assets and one to the trash. An index that covered both would make
@@ -123,13 +133,36 @@ describe("the schema a fresh library actually gets", () => {
         .every((row) => row.partial === 1);
       expect(partial).toBe(true);
 
-      for (const index of indexes) {
+      for (const index of [
+        "idx_assets_ext",
+        "idx_assets_favorite",
+        "idx_assets_imported",
+        "idx_assets_rating",
+        "idx_assets_trashed",
+      ]) {
         const columns = (db.pragma(`index_info(${index})`) as { name: string | null }[]).map(
           (c) => c.name,
         );
-        // Every one of them carries the grid's sort key, which is what lets
+        // Every one of them carries the default order, which is what lets
         // SQLite seek and stop at the LIMIT instead of sorting the match set.
         expect(columns.slice(-2)).toEqual(["imported_at", "hash"]);
+      }
+
+      // And every one of the four new ones ends on the same tie-break, because
+      // an order that is not total pages wrongly (migration 0003). Two of them
+      // index an expression, which `index_info` reports as a null name — the
+      // expression itself is asserted in `repo.test.ts` through the plan.
+      for (const index of [
+        "idx_assets_created",
+        "idx_assets_name",
+        "idx_assets_rated",
+        "idx_assets_size",
+      ]) {
+        const columns = (db.pragma(`index_info(${index})`) as { name: string | null }[]).map(
+          (c) => c.name,
+        );
+        expect(columns).toHaveLength(2);
+        expect(columns.at(-1)).toBe("hash");
       }
     } finally {
       db.close();

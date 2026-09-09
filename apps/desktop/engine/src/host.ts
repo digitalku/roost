@@ -20,6 +20,7 @@ import type {
   WireFiled,
   WireImportReport,
   WireSidebar,
+  WireSort,
 } from "@roost/contract";
 import {
   type AssetDetail,
@@ -161,7 +162,7 @@ export class EngineHost {
         return sidebarOf(this.#require());
 
       case "assets:page":
-        return this.#page(request.query, request.limit, request.after);
+        return this.#page(request.query, request.limit, request.after, request.sort);
 
       case "assets:count":
         return matches(this.#require(), request.query);
@@ -202,12 +203,27 @@ export class EngineHost {
           // query, so it would quietly stop being marked as current.
           this.onChanged?.();
         }
-        if (request.fitVideoToWindow !== undefined) {
-          // Nothing is announced for this one: it changes how big a video is
-          // drawn and nothing about what any query answers, and the pane that
-          // sent it is already showing the new size (ADR-0024 §8).
-          await library.updateSettings({ fitVideoToWindow: request.fitVideoToWindow });
-        }
+        // Everything else here is a preference about how the window draws what
+        // it already has — the video's fit (ADR-0024 §8), the order, the view,
+        // the zoom — so none of them is announced: no query answers
+        // differently, and the window that sent it is already drawing the new
+        // state. The keys are applied in one write rather than one each,
+        // because a menu can change two at once (choosing `random` rolls a
+        // seed) and two writes would be two reads of the file.
+        const quiet = {
+          ...(request.fitVideoToWindow !== undefined && {
+            fitVideoToWindow: request.fitVideoToWindow,
+          }),
+          ...(request.sortKey !== undefined && { sortKey: request.sortKey }),
+          ...(request.sortDescending !== undefined && { sortDescending: request.sortDescending }),
+          ...(request.shuffleSeed !== undefined && { shuffleSeed: request.shuffleSeed }),
+          ...(request.gridView !== undefined && { gridView: request.gridView }),
+          ...(request.matchImageProportions !== undefined && {
+            matchImageProportions: request.matchImageProportions,
+          }),
+          ...(request.gridZoom !== undefined && { gridZoom: request.gridZoom }),
+        };
+        if (Object.keys(quiet).length > 0) await library.updateSettings(quiet);
         return library.settings;
       }
 
@@ -461,23 +477,25 @@ export class EngineHost {
    * search field wants the parse error, not an empty grid that looks like a
    * library with nothing in it.
    */
-  #page(query: string, limit: number, after: WireCursor | null): AssetPage {
+  #page(query: string, limit: number, after: WireCursor | null, sort: WireSort | null): AssetPage {
     const library = this.#require();
     // `parseContentHash` rather than a cast: the contract already checked the
     // shape, and this is the engine checking it again at its own boundary —
     // which is the boundary ADR-0007 says matters.
     const cursor: Cursor | undefined =
-      after === null
-        ? undefined
-        : { importedAt: after.importedAt, hash: parseContentHash(after.hash) };
+      after === null ? undefined : { key: after.key, hash: parseContentHash(after.hash) };
 
     // Spread rather than assigned: `exactOptionalPropertyTypes` makes an
     // explicit `after: undefined` a different thing from an absent one.
-    const hits = pageOf(library, query, { limit, ...(cursor && { after: cursor }) });
+    const hits = pageOf(library, query, {
+      limit,
+      ...(sort !== null && { sort }),
+      ...(cursor && { after: cursor }),
+    });
     const last = hits.length < limit ? undefined : lastCursor(hits);
     return {
       assets: hits.map(cardOf),
-      next: last === undefined ? null : { importedAt: last.importedAt, hash: last.hash },
+      next: last === undefined ? null : { key: last.key, hash: last.hash },
     };
   }
 

@@ -12,6 +12,7 @@ import type {
   WireRecentLibrary,
   WireSettings,
   WireSidebar,
+  WireSort,
   WireSplitQuery,
   WireTagRule,
 } from "@roost/contract";
@@ -29,7 +30,14 @@ import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
 import { FilterBar } from "./filter/FilterBar.js";
 import { AssetContextMenu } from "./grid/AssetContextMenu.js";
 import { Grid } from "./grid/Grid.js";
-import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, zoomBy } from "./grid/layout.js";
+import {
+  DEFAULT_ZOOM,
+  GRID_VIEWS,
+  type GridView,
+  isGridView,
+  nearestZoom,
+  zoomBy,
+} from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
 import { assets, type ConfirmRequest, useTrashActions } from "./grid/trash-actions.js";
@@ -57,7 +65,19 @@ import { Sidebar } from "./sidebar/Sidebar.js";
  * and a ref's, and a fresh one per render would be a fresh dependency too.
  */
 /** What a library has before anything has been changed in it (ADR-0019). */
-const DEFAULT_SETTINGS: WireSettings = { showSubfolderContents: false, fitVideoToWindow: false };
+const DEFAULT_SETTINGS: WireSettings = {
+  showSubfolderContents: false,
+  fitVideoToWindow: false,
+  sortKey: "added",
+  sortDescending: true,
+  shuffleSeed: 0,
+  gridView: "icons",
+  matchImageProportions: true,
+  gridZoom: DEFAULT_ZOOM,
+};
+
+/** The order a menu draws while the library is still being asked for its own. */
+const DEFAULT_ORDER: WireSort = { key: "added", descending: true, seed: 0 };
 
 const NO_SPLIT: WireSplitQuery = {
   place: "",
@@ -614,11 +634,95 @@ function LibraryView({
   readonly onImported: () => void;
   readonly problem: WireProblem | undefined;
 }): React.JSX.Element {
-  const [view, setView] = useState<GridView>("icons");
-  // Icons take the asset's own shape by default: it is the only layout that
-  // does not crop, and this is a library of pictures (ADR-0018).
-  const [proportional, setProportional] = useState(true);
-  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  /**
+   * The view menu's state, which is the library's rather than the window's
+   * (ADR-0039 §7).
+   *
+   * Read out of `settings` below rather than held here: a `useState` seeded
+   * from a value that arrives one round trip later is two sources of truth, and
+   * the second one wins for exactly one frame. Icons take the asset's own shape
+   * by default because it is the only layout that does not crop, and this is a
+   * library of pictures (ADR-0018).
+   */
+  /**
+   * This library's preferences (ADR-0019), read once when one is opened.
+   *
+   * The filter bar needs *Show subfolder contents* for the case the query
+   * cannot answer: no folder on screen means nothing to reflect, and the
+   * checkbox then says what the **next** folder opened will show. Exactly the
+   * standing the tag rule has, one shelf further out — the library rather than
+   * the window, because that is where the user asked for it.
+   *
+   * The view menu's four are here for a different reason and reach further: a
+   * library is a kind of thing, and being asked again on every open is the
+   * application forgetting what it was told (ADR-0039 §7). Read **before** the
+   * grid pages, because the order is one of them.
+   */
+  const [settings, setSettings] = useState<WireSettings>(DEFAULT_SETTINGS);
+  /**
+   * Whether the answer has arrived, which is what the grid waits for.
+   *
+   * The order is a preference now, so paging before it arrives means paging in
+   * the default order, throwing the rows away, and paging again — a hundred
+   * rows fetched to be discarded, and a grid that shows the wrong order first.
+   * True on a *failure* as well as an answer: a library whose settings cannot
+   * be read still has a grid, and it draws in the defaults.
+   */
+  const [known, setKnown] = useState(false);
+  /*
+   * Keyed on **which library**, not on the object holding it: `opened` is
+   * rebuilt whenever the stats are re-read, and re-reading the preferences
+   * there would now be a grid that throws its rows away every time somebody
+   * imports or renames something.
+   */
+  const root = opened?.summary.root;
+  useEffect(() => {
+    setKnown(false);
+    if (root === undefined) {
+      setSettings(DEFAULT_SETTINGS);
+      return;
+    }
+    let current = true;
+    void (async () => {
+      const outcome = await invoke({ type: "settings:read" });
+      if (!current) return;
+      if (outcome.ok) setSettings(outcome.value);
+      setKnown(true);
+    })();
+    return () => {
+      current = false;
+    };
+  }, [root]);
+
+  /**
+   * The view menu's state, read out of the library's settings.
+   *
+   * `gridView` and `gridZoom` are checked here rather than in the engine: the
+   * vocabulary is the interface's, so a view this build does not know falls
+   * back to Icons and a zoom that is not a step snaps to the nearest one
+   * (`layout.ts`). An engine that knew what "compact" is would be an engine
+   * holding a copy of the interface.
+   */
+  const view: GridView = isGridView(settings.gridView) ? settings.gridView : "icons";
+  const proportional = settings.matchImageProportions;
+  const zoom = nearestZoom(settings.gridZoom);
+  /*
+   * Memoised because it is what makes the grid throw its rows away: `useAssetPages`
+   * re-pages when the order changes, and a fresh object every render is a fresh
+   * order every render.
+   */
+  const sort = useMemo<WireSort | undefined>(
+    () =>
+      known
+        ? {
+            key: settings.sortKey,
+            descending: settings.sortDescending,
+            seed: settings.shuffleSeed,
+          }
+        : undefined,
+    [known, settings.sortKey, settings.sortDescending, settings.shuffleSeed],
+  );
+
   /**
    * What the last action said, if it said anything.
    *
@@ -674,7 +778,7 @@ function LibraryView({
   // `applyQuery` closes the preview and a `useState` below it would be read
   // before it exists.
   const [previewing, setPreviewing] = useState(false);
-  const paging = useAssetPages(query, generation);
+  const paging = useAssetPages(query, generation, sort);
   const dropRows = paging.drop;
   const derives = useDeriveStatus(revision);
 
@@ -768,28 +872,6 @@ function LibraryView({
   heldFacets.current = facets;
 
   /**
-   * This library's preferences (ADR-0019), read once when one is opened.
-   *
-   * Only *Show subfolder contents* so far, and the bar needs it for the case
-   * the query cannot answer: no folder on screen means nothing to reflect, and
-   * the checkbox then says what the **next** folder opened will show. Exactly
-   * the standing the tag rule has, one shelf further out — the library rather
-   * than the window, because that is where the user asked for it.
-   */
-  const [settings, setSettings] = useState<WireSettings>(DEFAULT_SETTINGS);
-  useEffect(() => {
-    if (opened === undefined) return setSettings(DEFAULT_SETTINGS);
-    let current = true;
-    void (async () => {
-      const outcome = await invoke({ type: "settings:read" });
-      if (current && outcome.ok) setSettings(outcome.value);
-    })();
-    return () => {
-      current = false;
-    };
-  }, [opened]);
-
-  /**
    * *Show subfolder contents* was ticked (ADR-0036).
    *
    * Two things, and both are needed. The **setting** is written to the library,
@@ -842,6 +924,39 @@ function LibraryView({
       const written = await invoke({ type: "settings:write", fitVideoToWindow: on });
       if (written.ok) setSettings(written.value);
     })();
+  }, []);
+
+  /**
+   * The view menu changed something, and the library remembers it (ADR-0039 §7).
+   *
+   * Held locally first for the same reason every other preference is: the
+   * engine's answer is a round trip away, and a grid that waited for it would
+   * redraw twice. One writer for all four, because they are one menu and the
+   * difference between them is only which key it names.
+   */
+  const applyView = useCallback((patch: Partial<WireSettings>) => {
+    setSettings((held) => ({ ...held, ...patch }));
+    void (async () => {
+      const written = await invoke({ type: "settings:write", ...patch });
+      if (written.ok) setSettings(written.value);
+    })();
+  }, []);
+
+  /**
+   * **Shuffle again** — the only thing that changes what `random` shows.
+   *
+   * A seed the window rolls: what it selects is the engine's business
+   * (ADR-0039 §5). Chosen away from the one on screen, because a shuffle that
+   * gives back the order it had reads as a shuffle that did not happen, and
+   * one seed in sixty-three would do exactly that.
+   */
+  const applyShuffle = useCallback(() => {
+    setSettings((held) => {
+      let next = held.shuffleSeed;
+      while (next === held.shuffleSeed) next = Math.floor(Math.random() * 1_000_000);
+      void invoke({ type: "settings:write", sortKey: "random", shuffleSeed: next });
+      return { ...held, sortKey: "random", shuffleSeed: next };
+    });
   }, []);
 
   /** A facet was ticked: the place stands, the facets are the new ones. */
@@ -973,11 +1088,11 @@ function LibraryView({
       const chosen = GRID_VIEWS[at];
       if (chosen === undefined) return;
       event.preventDefault();
-      setView(chosen);
+      applyView({ gridView: chosen });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [applyView]);
 
   /**
    * Whether what is on screen is the Trash place.
@@ -1490,11 +1605,18 @@ function LibraryView({
                     view={view}
                     proportional={proportional}
                     zoom={zoom}
-                    onView={setView}
-                    onProportional={setProportional}
+                    sort={sort ?? DEFAULT_ORDER}
+                    onView={(next) => applyView({ gridView: next })}
+                    onProportional={(next) => applyView({ matchImageProportions: next })}
                     onZoom={(steps) =>
-                      setZoom((at) => (steps === 0 ? DEFAULT_ZOOM : zoomBy(at, steps)))
+                      applyView({
+                        gridZoom: steps === 0 ? DEFAULT_ZOOM : zoomBy(zoom, steps),
+                      })
                     }
+                    onSort={(next) =>
+                      applyView({ sortKey: next.key, sortDescending: next.descending })
+                    }
+                    onShuffle={applyShuffle}
                   />
                   <AddMenu
                     busy={importing.running}

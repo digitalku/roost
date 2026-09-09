@@ -198,6 +198,8 @@ Examples:
   roost query 'is:untagged' --hashes | xargs roost tag add --tag triage
   roost query 'size:>10mb' --count
   roost query --count -- '-tag:wip'
+  roost query 'tag:wood' --sort name --asc
+  roost query 'ext:jpg' --sort random --seed 12
 
 A query starting with \`-\` reads as a flag, here and in the Rust build alike.
 Put \`--\` before it, and every other flag before that: everything
@@ -208,6 +210,11 @@ ${LIBRARY_FLAG}
       --limit <N>        Stop after this many results. Default: 50
       --count            Print the number of matches instead of the matches
       --hashes           Print one hash per line, for piping into another command
+      --sort <KEY>       added, created, name, size, rating, or random.
+                         Default: added
+      --asc              Reverse the order. Every key runs the way it is usually
+                         wanted — newest, largest, five stars, Z first
+      --seed <N>         Which shuffle --sort random means. Default: 0
 ${GLOBAL}`,
 
   show: `Show everything the library knows about one asset.

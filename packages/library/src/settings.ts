@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { logger } from "@roost/core";
+import { DEFAULT_SORT, isSortKey, logger, type SortKey } from "@roost/core";
 
 /**
  * Per-library preferences (ADR-0019).
@@ -54,11 +54,63 @@ export interface Settings {
    * because it is an answer about eyesight and screens, not about one file.
    */
   readonly fitVideoToWindow: boolean;
+  /**
+   * The order the grid is in, and which shuffle `random` means (ADR-0039).
+   *
+   * Here rather than in the window because a library is a kind of thing: a
+   * folder of screenshots wants newest first and a folder of scans wants the
+   * name, and being asked again on every open is the application forgetting
+   * something it was told. It is **not** part of the query — a smart folder
+   * stores query text, and a saved search whose meaning depended on a
+   * preference would answer differently in two windows (ADR-0036's lesson).
+   */
+  readonly sortKey: SortKey;
+  readonly sortDescending: boolean;
+  /**
+   * Which shuffle the random order is showing.
+   *
+   * Remembered, at the user's choosing on 2026-09-09, so that switching views
+   * or reopening the library does not scramble a grid somebody was working
+   * through. **Shuffle again** rolls it.
+   */
+  readonly shuffleSeed: number;
+  /**
+   * The view, its icon shape, and its zoom (ADR-0018, ADR-0039 §7).
+   *
+   * The three the view menu holds. ADR-0018 named them as belonging here on the
+   * day the menu was built and could not put them here, because `settings.json`
+   * did not exist until ADR-0036.
+   *
+   * `gridView` and `gridZoom` are the renderer's vocabulary, and this file
+   * checks only their shape: a string for the view — the renderer refuses one
+   * it does not know, because the list of views is a fact about the interface —
+   * and a positive number for the zoom, which the renderer clamps to its own
+   * steps. An engine that knew what "compact" is would be an engine holding a
+   * copy of the interface.
+   */
+  readonly gridView: string;
+  readonly matchImageProportions: boolean;
+  readonly gridZoom: number;
 }
+
+/**
+ * The zoom this file will believe, in CSS pixels of a grid cell.
+ *
+ * A guard rather than a vocabulary: the steps are the renderer's (`layout.ts`),
+ * and a hand-edited `settings.json` should not be able to make a cell a
+ * million pixels wide before anything clamps it.
+ */
+const ZOOM_RANGE = { min: 32, max: 1024 } as const;
 
 export const DEFAULT_SETTINGS: Settings = {
   showSubfolderContents: false,
   fitVideoToWindow: false,
+  sortKey: DEFAULT_SORT.key,
+  sortDescending: DEFAULT_SORT.descending,
+  shuffleSeed: DEFAULT_SORT.seed,
+  gridView: "icons",
+  matchImageProportions: true,
+  gridZoom: 160,
 };
 
 /**
@@ -76,6 +128,18 @@ export async function readSettings(root: string): Promise<Settings> {
       DEFAULT_SETTINGS.showSubfolderContents,
     ),
     fitVideoToWindow: boolish(raw["fitVideoToWindow"], DEFAULT_SETTINGS.fitVideoToWindow),
+    sortKey: sortKeyish(raw["sortKey"]),
+    sortDescending: boolish(raw["sortDescending"], DEFAULT_SETTINGS.sortDescending),
+    shuffleSeed: numberish(raw["shuffleSeed"], DEFAULT_SETTINGS.shuffleSeed, {
+      min: 0,
+      max: Number.MAX_SAFE_INTEGER,
+    }),
+    gridView: typeof raw["gridView"] === "string" ? raw["gridView"] : DEFAULT_SETTINGS.gridView,
+    matchImageProportions: boolish(
+      raw["matchImageProportions"],
+      DEFAULT_SETTINGS.matchImageProportions,
+    ),
+    gridZoom: numberish(raw["gridZoom"], DEFAULT_SETTINGS.gridZoom, ZOOM_RANGE),
   };
 }
 
@@ -99,6 +163,27 @@ export async function writeSettings(root: string, patch: Partial<Settings>): Pro
     log.debug("settings not written", { root, error: String(cause) });
     return false;
   }
+}
+
+/** One sort key, or the default where the file names one this build has retired. */
+function sortKeyish(value: unknown): SortKey {
+  return typeof value === "string" && isSortKey(value) ? value : DEFAULT_SETTINGS.sortKey;
+}
+
+/**
+ * One number, clamped rather than rejected.
+ *
+ * A zoom a little outside the range is a build that changed its steps, and
+ * falling back to the default there would throw away a preference over an
+ * arithmetic detail. A value that is not a number at all is not a preference.
+ */
+function numberish(
+  value: unknown,
+  fallback: number,
+  range: { readonly min: number; readonly max: number },
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(Math.max(value, range.min), range.max);
 }
 
 /** Whatever is in the file, as an object. Never throws, never rejects. */

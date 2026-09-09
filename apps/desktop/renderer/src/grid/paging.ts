@@ -1,9 +1,16 @@
-import type { AssetCard, WireCursor, WireProblem } from "@roost/contract";
+import type { AssetCard, WireCursor, WireProblem, WireSort } from "@roost/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 
 /**
  * The grid's pages, fetched one cursor at a time.
+ *
+ * `sort` must be a stable object — it is a dependency of the effect that throws
+ * the rows away, and a fresh one per render would re-page the grid on every
+ * keystroke. **Undefined means the order is not known yet**, and nothing is
+ * asked for: the order lives in the library (ADR-0039 §7) and arrives a round
+ * trip after the library does, so paging before it would fetch a hundred rows
+ * in order to throw them away.
  *
  * Keyset paging, never an offset: the cost of page 9,000 is the cost of page 1
  * (`DATA_MODEL.md`). The cursor is opaque here — the renderer sends back
@@ -69,7 +76,11 @@ export interface Paging {
   readonly drop: (hashes: readonly string[]) => void;
 }
 
-export function useAssetPages(query: string, generation: number): Paging {
+export function useAssetPages(
+  query: string,
+  generation: number,
+  sort: WireSort | undefined,
+): Paging {
   const [assets, setAssets] = useState<readonly AssetCard[]>([]);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -104,7 +115,7 @@ export function useAssetPages(query: string, generation: number): Paging {
   const listing = useRef(0);
 
   const more = useCallback(() => {
-    if (inFlight.current || finished.current) return;
+    if (sort === undefined || inFlight.current || finished.current) return;
     inFlight.current = true;
     const mine = listing.current;
     setLoading(true);
@@ -115,6 +126,7 @@ export function useAssetPages(query: string, generation: number): Paging {
         query,
         limit: PAGE_SIZE,
         after: cursor.current,
+        sort,
       });
       // The listing changed while this was in the air. Its rows belong to a
       // query nobody is looking at.
@@ -138,12 +150,14 @@ export function useAssetPages(query: string, generation: number): Paging {
       }
       setAssets((held) => [...held, ...outcome.value.assets]);
     })();
-  }, [query]);
+  }, [query, sort]);
 
   /*
    * The dependencies here are the *trigger*, not values the body reads: a new
-   * query or a new library is what makes the rows already held wrong rather
-   * than merely incomplete.
+   * query, a new order, or a new library is what makes the rows already held
+   * wrong rather than merely incomplete. A cursor belongs to the order it was
+   * handed out under (ADR-0039 §4), so changing the order starts again — which
+   * is also what somebody choosing one expects to see.
    */
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
@@ -163,7 +177,7 @@ export function useAssetPages(query: string, generation: number): Paging {
      * into would go on saying it was empty, which is exactly what it did.
      */
     more();
-  }, [query, generation, more]);
+  }, [query, generation, sort, more]);
 
   const pinPoster = useCallback((hash: string, posterMs: number | null): void => {
     setAssets((held) => held.map((card) => (card.hash === hash ? { ...card, posterMs } : card)));

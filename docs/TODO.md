@@ -4,7 +4,7 @@ Everything known to be outstanding, in priority order. `ROADMAP.md` holds the mi
 this file holds the working list, including the small things that surface during implementation
 and would otherwise be forgotten.
 
-Last reviewed: 2026-09-07. M5 and M6 are deferred at the user's request — feature work first,
+Last reviewed: 2026-09-09. M5 and M6 are deferred at the user's request — feature work first,
 and those two milestones get planned once the feature set has settled.
 
 Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 whenever
@@ -968,9 +968,10 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   somebody changes a checkbox — and unknown keys survive a write, for the same reason unknown
   journal ops are skipped rather than dropped. `Library` reads it once on open and holds it, so a
   synchronous path can ask. `dirs.ts`'s doc comment was corrected in the same change.
-  - **Still to move in**: the view mode, the zoom, the sort key and the grouping (ADR-0018), which
-    the window remembers and loses; the folder tree's expansion (below); the default import mode.
-    Each is a field and a call, now that the file exists.
+  - **Moved in on 2026-09-09** (ADR-0039 §7): the sort key, its direction, the shuffle seed, the
+    view mode, the icon shape and the zoom — six keys, and the pattern for the rest.
+  - **Still to move in**: the folder tree's expansion (below) and the default import mode. Each is
+    a field and a call, now that the file exists.
   - The CLI does **not** yet read it — nothing it does has a preference — and there is no
     `roost settings`. When one of the above moves in, the two frontends have to agree (ADR-0005).
 - 🟡 **`Ctrl+N` — a second window onto the same library** (ADR-0020). `broadcast()` is already
@@ -1348,16 +1349,25 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
     `px` and declared once, the grid measures the content box, and it writes the reserved strip
     to the frame as a custom property. Measured after: zero drift across all six columns.
 
-- 🟡 **Sort By.** Not a menu item — a migration and a bench run per key. The application has one
-  order, `imported_at DESC, hash`, and keyset paging plus all four composite indexes in migration
-  0005 are built on it. Each key needs its own index *per filter*, its own cursor, and a
-  `searchSql` that stops hardcoding one predicate — including the trap the function's own comment
-  records: the order is mixed, so a row-value comparison silently skips rows.
-- 🟢 **Group By.** Last. A group header can fall across a keyset page boundary, and a count per
-  group is a second aggregate query.
-- 🟡 **The chosen view, the zoom target, and the sort want to be per-library settings** — a photo
-  library and a library of design files want different defaults. Until that lands the menu holds
-  its state in memory and forgets it when the window closes.
+- ☑ ~~**Sort By.**~~ **Built 2026-09-09** (ADR-0039), with migration 0014 and a bench run per key.
+  Six orders — added, created, name, size, rating, random — one index each except the last, which
+  cannot have one. Two things this note predicted were wrong in the same direction: an index *per
+  filter* is not needed for the unfiltered grid (four indexes, not twenty; the filtered case is
+  10.5 ms and recorded rather than fixed), and the mixed-order trap was **removed** rather than
+  worked around — every tie-break now follows its key, so one index serves both directions and the
+  resume is two index seeks. What it did not predict is the measurement that mattered most: written
+  as one predicate, a resume walks the whole run of rows sharing a key, which is 5.8 ms at page 500
+  of a rating-sorted library against 0.06 ms as two seeks.
+- ☑ ~~**Group By.**~~ **Withdrawn 2026-09-09** at the user's word (ADR-0039 §8): never built, and a
+  menu item that has never done anything is one nobody should read twice. If it is ever wanted it
+  is an ADR of its own, not a disabled row waiting.
+- ☑ ~~**The chosen view, the zoom target, and the sort want to be per-library settings.**~~ **Built
+  2026-09-09** (ADR-0039 §7), the icon shape with them: six keys in `settings.json`, each falling
+  back on its own. The view and the zoom stay the window's vocabulary — a `gridView` this build
+  does not know draws as Icons and a `gridZoom` off the steps snaps to the nearest — because an
+  engine that knew what "compact" is would hold a copy of the interface. One consequence: the grid
+  asks for its first page *after* the preferences arrive, so `assets:page` is the last request on
+  opening a library rather than one of the first.
 
 ### Format breadth (M4) — done 2026-08-29
 

@@ -1,7 +1,10 @@
 import { type ParseArgsConfig, parseArgs } from "node:util";
 import {
+  DEFAULT_SORT,
+  isSortKey,
   isStorageMode,
   type LogLevel,
+  SORT_KEYS,
   setLogLevel,
   setSink,
   stderrSink,
@@ -81,7 +84,14 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
     seed: { type: "string" },
     "real-images": { type: "boolean" },
   },
-  query: { limit: { type: "string" }, count: { type: "boolean" }, hashes: { type: "boolean" } },
+  query: {
+    limit: { type: "string" },
+    count: { type: "boolean" },
+    hashes: { type: "boolean" },
+    sort: { type: "string" },
+    asc: { type: "boolean" },
+    seed: { type: "string" },
+  },
   show: {},
   tag: { tag: { type: "string", multiple: true } },
   folder: { parent: { type: "string" }, "trash-contents": { type: "boolean" } },
@@ -297,6 +307,15 @@ async function dispatch(
       if (!Number.isInteger(limit) || limit <= 0) {
         return usage(streams, command, "--limit must be a positive whole number");
       }
+      const sortKey = text(values, "sort") ?? DEFAULT_SORT.key;
+      if (!isSortKey(sortKey)) {
+        return usage(streams, command, `--sort must be one of ${SORT_KEYS.join(", ")}`);
+      }
+      const seed = numberOr(text(values, "seed"), DEFAULT_SORT.seed);
+      if (!Number.isInteger(seed) || seed < 0) {
+        return usage(streams, command, "--seed must be a whole number, zero or more");
+      }
+
       await query(
         await library(),
         {
@@ -306,6 +325,10 @@ async function dispatch(
           limit,
           countOnly: flag(values, "count"),
           hashesOnly: flag(values, "hashes"),
+          // Descending is what every key means by default — newest, largest,
+          // five stars first — so the flag is the exception rather than a pair
+          // of opposites, and `--sort name --asc` reads as the A-to-Z it is.
+          sort: { key: sortKey, descending: !flag(values, "asc"), seed },
         },
         streams.out,
       );

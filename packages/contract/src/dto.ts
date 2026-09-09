@@ -53,6 +53,39 @@ export type ImportSubject = (typeof IMPORT_SUBJECTS)[number];
 export const ASSET_KINDS = ["image", "video", "audio", "document", "font", "other"] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
+/**
+ * The orders the view menu can ask for (ADR-0039).
+ *
+ * Declared here as well as in `@roost/core` for the reason above, and checked
+ * against it the same way. Each key but the last names something the schema has
+ * an index for; `random` is a seeded shuffle with no index and no column, and
+ * it is the one order that costs what it costs.
+ *
+ * `added` is the order the application had before it had a menu, and it is
+ * still the default.
+ */
+export const SORT_KEYS = ["added", "created", "name", "size", "rating", "random"] as const;
+export type SortKey = (typeof SORT_KEYS)[number];
+
+export function isSortKey(value: string): value is SortKey {
+  return (SORT_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * The three ways a grid can be drawn (ADR-0018).
+ *
+ * Here rather than only in the renderer because the chosen one is remembered in
+ * the library (ADR-0039 §7), and a preference that crosses the boundary needs a
+ * vocabulary on both sides of it. What each view *looks like* stays entirely in
+ * the renderer.
+ */
+export const GRID_VIEWS = ["icons", "compact", "details"] as const;
+export type GridView = (typeof GRID_VIEWS)[number];
+
+export function isGridView(value: string): value is GridView {
+  return (GRID_VIEWS as readonly string[]).includes(value);
+}
+
 /** What the window shows about the library it has open. */
 export interface LibrarySummary {
   readonly root: string;
@@ -172,10 +205,37 @@ export interface WireProblem {
  * Keyset paging, never an offset (`DATA_MODEL.md`): a cursor costs the same at
  * row 900,000 as at row 100, and the grid scrolls through both. The renderer
  * never builds one — it sends back what the previous page handed it.
+ *
+ * `key` is the sort key's value on the last row of the page, whatever that
+ * order made of it (ADR-0039 §4). **It is opaque here on purpose**: a window
+ * that understood it would be a window with a second opinion about the order,
+ * and the order is defined in SQL.
  */
 export interface WireCursor {
-  readonly importedAt: number;
+  readonly key: number | string;
   readonly hash: string;
+}
+
+/**
+ * The order a listing is asked for (ADR-0039).
+ *
+ * Sent with the page rather than held by the engine: the request says what it
+ * wants, and the *preference* — which is a different thing — lives in
+ * `settings.json` and reaches the window through {@link WireSettings}. Two
+ * windows onto one library therefore share the remembered order and can still
+ * be looking at it differently for as long as one of them is changed.
+ */
+export interface WireSort {
+  readonly key: SortKey;
+  /** Newest, largest, five stars, Z first. The key's own words, not a symbol. */
+  readonly descending: boolean;
+  /**
+   * Which shuffle `random` means. Ignored by every other key.
+   *
+   * A number the window rolls and gives back; what it selects is the engine's
+   * business. Seeds past the last shuffle wrap onto one it has.
+   */
+  readonly seed: number;
 }
 
 /**
@@ -405,6 +465,22 @@ export interface WireFacets {
 export interface WireSettings {
   /** Whether opening a folder shows what is in its subfolders (ADR-0036). */
   readonly showSubfolderContents: boolean;
+  /** The order the grid is in, and which shuffle is on (ADR-0039). */
+  readonly sortKey: SortKey;
+  readonly sortDescending: boolean;
+  readonly shuffleSeed: number;
+  /**
+   * The view menu's three (ADR-0018, ADR-0039 §7).
+   *
+   * `gridView` arrives as a plain string rather than a `GridView`, because the
+   * list of views is a fact about the interface and the engine holds no copy of
+   * it: a value this build does not know falls back to `icons` in the window,
+   * where the vocabulary is. `gridZoom` is a cell's width in CSS pixels, which
+   * the window clamps to its own steps.
+   */
+  readonly gridView: string;
+  readonly matchImageProportions: boolean;
+  readonly gridZoom: number;
   /**
    * Whether the preview scales a video up to the pane (ADR-0024 §8).
    *

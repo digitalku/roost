@@ -69,10 +69,9 @@ describe("opening a library", () => {
       "dialog:openLibrary",
       "library:open",
       "library:stats",
-      // The grid's first page and the navigation pane, both as soon as there
-      // is a library: a grid with no rows has nothing to scroll, so nothing
-      // else would ask for a page.
-      "assets:page",
+      // This library's preferences, asked for before anything is drawn from
+      // them, because the **order** is one of them (ADR-0039 §7).
+      "settings:read",
       // The derive queue, as soon as there is a library: an empty cell has to
       // be able to say whether it is waiting, parked, or simply undrawable.
       "derive:status",
@@ -84,10 +83,10 @@ describe("opening a library", () => {
       // because the grammar has one implementation, and the bar is a view of
       // the query rather than a second piece of state.
       "query:split",
-      // This library's preferences, read once when one is opened (ADR-0019).
-      // The filter bar needs the one setting there is for the case the query
-      // cannot answer: no folder on screen means nothing to reflect.
-      "settings:read",
+      // And the grid's first page **last**, because it is the one request that
+      // depends on an answer: a page fetched before the order arrives is a
+      // hundred rows fetched to be thrown away (ADR-0039 §7).
+      "assets:page",
     ]);
   });
 
@@ -549,6 +548,149 @@ describe("the library view", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Reset zoom" }));
     await user.keyboard("{Escape}");
     await waitFor(() => expect(box().width).toBe(before));
+  });
+
+  /**
+   * Opens the view menu and its Sort By submenu.
+   *
+   * The rows inside it are clicked with `fireEvent` rather than through
+   * `userEvent`: a `radix-ui` submenu decides what a pointer did from the
+   * sequence of pointer events, and happy-dom's sequence is not a browser's —
+   * the same difference that made a second tick close the filter menu on
+   * 2026-09-08. What a pointer really does to this menu is asserted against a
+   * window instead, in `scripts/check-grid.mjs`.
+   */
+  const openSort = async (user: ReturnType<typeof userEvent.setup>): Promise<void> => {
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Sort By/ }));
+  };
+
+  it("sorts the grid by what the menu was asked for, and remembers it", async () => {
+    // ADR-0039. Two claims in one gesture: the grid re-pages in the new order,
+    // and the order is written to the library rather than held by the window.
+    const { engine, user } = await open(6);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(6));
+    const names = (): string[] =>
+      screen.getAllByRole("option").map((cell) => cell.getAttribute("aria-label") ?? "");
+    const first = names();
+
+    await openSort(user);
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Size" }));
+    await user.keyboard("{Escape}");
+
+    // Largest first, which is what Size means without being asked which way.
+    await waitFor(() => expect(names()).toEqual([...first].reverse()));
+    expect(engine.settings).toMatchObject({ sortKey: "size", sortDescending: true });
+
+    // And the page was asked for in that order rather than sorted in the
+    // window: the grid holds one screen of a listing it cannot see the rest of.
+    const asked = engine.seen.filter((request) => request.type === "assets:page");
+    expect(asked.at(-1)).toMatchObject({ sort: { key: "size", descending: true } });
+  });
+
+  it("turns the order round without changing the key", async () => {
+    const { engine, user } = await open(6);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(6));
+
+    await openSort(user);
+    // The words are the key's own — nobody wants "imported ascending".
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Oldest first" }));
+    await user.keyboard("{Escape}");
+
+    await waitFor(() =>
+      expect(engine.settings).toMatchObject({ sortKey: "added", sortDescending: false }),
+    );
+  });
+
+  it("offers a shuffle rather than a direction, and rolls a new one on demand", async () => {
+    // A shuffle has no direction: reversing one is another shuffle (ADR-0039).
+    const { engine, user } = await open(6);
+    await openSort(user);
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Random" }));
+    await user.keyboard("{Escape}");
+
+    await openSort(user);
+    expect(screen.queryByRole("menuitemradio", { name: "Newest first" })).toBeNull();
+    const shuffle = await screen.findByRole("menuitem", { name: "Shuffle again" });
+
+    const before = engine.settings.shuffleSeed;
+    fireEvent.click(shuffle);
+    await waitFor(() => expect(engine.settings.shuffleSeed).not.toBe(before));
+    expect(engine.settings.sortKey).toBe("random");
+  });
+
+  it("opens in the order, view and zoom the library was left in", async () => {
+    // The whole point of the preference being the library's (ADR-0039 §7): a
+    // window that asked again on every open is one that forgot.
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 6 },
+      assets: Array.from({ length: 6 }, (_, i) => fakeAsset(i)),
+      settings: {
+        showSubfolderContents: false,
+        fitVideoToWindow: false,
+        sortKey: "name",
+        sortDescending: false,
+        shuffleSeed: 0,
+        gridView: "details",
+        matchImageProportions: false,
+        gridZoom: 400,
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+
+    await waitFor(() =>
+      expect(screen.getByRole("listbox").getAttribute("data-view")).toBe("details"),
+    );
+    // The first page was asked for in the remembered order, not in the default
+    // and then again — the read comes before the page for exactly this.
+    const asked = engine.seen.filter((request) => request.type === "assets:page");
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ sort: { key: "name", descending: false } });
+  });
+
+  it("takes a view it has never heard of as Icons", async () => {
+    // The vocabulary is the window's, so a `settings.json` from a newer build
+    // must not leave the grid drawing nothing.
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 3 },
+      assets: Array.from({ length: 3 }, (_, i) => fakeAsset(i)),
+      settings: {
+        showSubfolderContents: false,
+        fitVideoToWindow: false,
+        sortKey: "added",
+        sortDescending: true,
+        shuffleSeed: 0,
+        gridView: "gallery",
+        matchImageProportions: true,
+        gridZoom: 240,
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+    await waitFor(() =>
+      expect(screen.getByRole("listbox").getAttribute("data-view")).toBe("icons"),
+    );
+  });
+
+  it("has no Group By, because it never did anything", async () => {
+    // Withdrawn on 2026-09-09 (ADR-0039 §8). It stood here as a disabled
+    // promise from ADR-0018, and a menu item that has never done anything is
+    // one nobody should read twice.
+    const { user } = await open(3);
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await screen.findByRole("menu");
+    expect(screen.queryByText("Group By")).toBeNull();
   });
 
   it("says so when a library holds nothing, rather than showing an empty grid", async () => {
@@ -1383,7 +1525,10 @@ describe("Show subfolder contents, in the window (ADR-0036)", () => {
         "folder:Design",
       ),
     );
-    expect(engine.settings).toEqual({ showSubfolderContents: true, fitVideoToWindow: false });
+    expect(engine.settings).toMatchObject({
+      showSubfolderContents: true,
+      fitVideoToWindow: false,
+    });
   });
 
   it("reflects the query rather than the setting once a folder is on screen", async () => {

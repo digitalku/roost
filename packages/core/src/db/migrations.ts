@@ -40,6 +40,7 @@ const MIGRATIONS: readonly Migration[] = [
   { version: 11, name: "subtitles", file: "0011_subtitles.sql" },
   { version: 12, name: "search_prose", file: "0012_search_prose.sql" },
   { version: 13, name: "source_url", file: "0013_source_url.sql" },
+  { version: 14, name: "sort_orders", file: "0014_sort_orders.sql" },
 ];
 
 /** The schema version this build understands. */

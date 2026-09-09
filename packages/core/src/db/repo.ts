@@ -1,7 +1,8 @@
 import type { Database, Statement } from "better-sqlite3";
 import type { AddRecord } from "../journal/index.js";
-import type { ContentHash, JobKind, JobState } from "../model/index.js";
-import type { Cursor, Filter, Page, SearchHit } from "./query.js";
+import type { ContentHash, JobKind, JobState, Sort, SortKey } from "../model/index.js";
+import { DEFAULT_SORT, rotationFor } from "../model/index.js";
+import type { Cursor, CursorKey, Filter, Page, SearchHit } from "./query.js";
 
 /**
  * Summary counts for `roost stats`.
@@ -1641,18 +1642,32 @@ export class Repo {
    * resume are index seeks rather than a scan and a sort.
    */
   search(filter: Filter, page: Page): SearchHit[] {
-    const named: { limit: number; cursorTs?: number; cursorHash?: string } = {
-      limit: page.limit,
-    };
+    const sort = page.sort ?? DEFAULT_SORT;
+    const named: {
+      limit: number;
+      rotate: number;
+      cursorKey?: CursorKey;
+      cursorHash?: string;
+    } = { limit: page.limit, rotate: rotationFor(sort.seed) };
     if (page.after !== undefined) {
-      named.cursorTs = page.after.importedAt;
+      named.cursorKey = page.after.key;
       named.cursorHash = page.after.hash;
     }
 
-    const rows = this.#s(searchSql(filter.sql, page.after !== undefined)).all(
-      ...filter.params,
-      named,
-    ) as (Omit<SearchHit, "isFavorite"> & { isFavorite: number })[];
+    // The filter's own `?` are positional, and a resume repeats the whole
+    // statement once per seek (see {@link searchSql}) — so its values are
+    // repeated with it. Everything the repository adds is bound by name, which
+    // is what lets one cursor value be written in two places and still be one
+    // parameter to SQLite.
+    const sql = searchSql(filter.sql, page.after !== undefined, sort);
+    const positional =
+      page.after !== undefined && ties(sort)
+        ? [...filter.params, ...filter.params]
+        : [...filter.params];
+
+    const rows = this.#s(sql).all(...positional, named) as (Omit<SearchHit, "isFavorite"> & {
+      isFavorite: number;
+    })[];
 
     return rows.map((row) => ({ ...row, isFavorite: row.isFavorite !== 0 }));
   }
@@ -1667,46 +1682,105 @@ export class Repo {
 }
 
 /**
+ * How each sort key is spelled in SQL, and whether two rows can share it.
+ *
+ * The expression is the **definition of the order**: migration 0014 indexes
+ * exactly these, character for character, and the resume compares exactly
+ * these. A second spelling anywhere is an order that pages wrongly.
+ *
+ * Two of them coalesce a nullable column, because a NULL in a keyset comparison
+ * yields NULL and silently drops rows: a file with no creation date is dated
+ * when it arrived, and an unrated asset sorts below one star. `lower()` is
+ * SQLite's, which folds ASCII and nothing else — the same folding
+ * `@roost/library` does for folder names, chosen there for the same reason.
+ *
+ * `random` is the one with no column, no index, and no ties: a rotation of the
+ * content hash by `@rotate` characters (`rotationFor`). Because the rotation is
+ * a bijection of a unique hash it cannot tie, which is why it needs only one
+ * seek rather than two.
+ */
+const ORDERS: Readonly<Record<SortKey, { readonly expr: string; readonly ties: boolean }>> = {
+  added: { expr: "a.imported_at", ties: true },
+  created: { expr: "COALESCE(a.created_at, a.imported_at)", ties: true },
+  name: { expr: "lower(a.orig_name)", ties: true },
+  size: { expr: "a.size", ties: true },
+  rating: { expr: "COALESCE(a.rating, 0)", ties: true },
+  random: { expr: "substr(a.hash, @rotate + 1) || substr(a.hash, 1, @rotate)", ties: false },
+};
+
+/** Whether resuming this order needs the second seek. */
+function ties(sort: Sort): boolean {
+  return ORDERS[sort.key].ties;
+}
+
+/**
  * Assembles the statement {@link Repo.search} runs, around a compiled filter.
  *
- * **The cursor's timestamp is written twice and named once**, and that is the
- * whole point of naming it. Written as two placeholders, SQLite sees two
- * unrelated parameters, cannot prove the disjunction collapses to a range, and
- * answers by walking the index from the newest row and discarding everything
- * before the cursor — which is `OFFSET` by another name, and was measured in
- * the Rust build at 23x on page 200 of a 50,000-asset library. Given one
- * parameter in both places it recognises the range and seeks, and page 200
- * costs what page 1 costs.
+ * **The tie-break follows the key.** Every order is `(key, hash)` in one
+ * direction, never a mixed one, and migration 0014 rebuilt the five oldest
+ * indexes to match — because a mixed order is one an index can serve in a
+ * single direction, and it was the reason the resume could not be written as a
+ * comparison of the pair. That trap is gone; this is what replaced it.
  *
- * The Rust build spelled that shared parameter `?1`. Here it has to be a
- * *named* parameter: `better-sqlite3` treats `?NNN` as named and refuses to
- * bind it positionally, so the numbered form does not survive the port. Mixing
- * is what makes this work — the filter's anonymous `?` are bound positionally,
- * and everything appended is bound by name, which also means the filter's
- * parameter count no longer has to be threaded through.
+ * **A resume is two seeks, not one predicate.** The rows still to come are
+ * those *further along the key*, plus those *with the same key and a later
+ * hash*, and written as one disjunction SQLite seeks on the key alone and then
+ * walks the whole run of equal keys. That is invisible until a key repeats:
+ * ratings have six values, so page 500 of a rating-sorted library walked 50,000
+ * rows and cost 5.8 ms against 0.06 ms for the same page written as two seeks
+ * (measured at 95,001 assets, `docs/BENCHMARKS.md`). Each half is a range on an
+ * index that already holds `(key, hash)`, so each is a seek; the halves cannot
+ * overlap, and the first half sorts entirely before the second, so a plain
+ * `UNION ALL` is already in order and needs no outer sort.
  *
- * The predicate cannot be a row-value comparison — `(imported_at, hash) < (?, ?)`,
- * which would seek just as well — because the ordering is mixed: descending on
- * `imported_at`, ascending on `hash`. A row value would compare the tie-break
- * the wrong way round and silently skip rows.
+ * **The cursor is written twice and named once.** Given two anonymous
+ * placeholders SQLite sees two unrelated parameters and cannot prove the
+ * comparison collapses to a range; given one named parameter it seeks. The Rust
+ * build spelled that `?1`, which does not survive the port — `better-sqlite3`
+ * treats `?NNN` as *named* and refuses to bind it positionally — so the filter's
+ * anonymous `?` are bound positionally and everything this function adds is
+ * bound by name.
  */
-export function searchSql(filterSql: string, hasCursor: boolean): string {
-  const keyset = hasCursor
-    ? " AND (a.imported_at < @cursorTs OR (a.imported_at = @cursorTs AND a.hash > @cursorHash))"
-    : "";
+export function searchSql(
+  filterSql: string,
+  hasCursor: boolean,
+  sort: Sort = DEFAULT_SORT,
+): string {
+  const { expr, ties: canTie } = ORDERS[sort.key];
+  const way = sort.descending ? "DESC" : "ASC";
+  // Descending, "still to come" means smaller. The comparison and the direction
+  // are the same fact said twice, and they are derived from it rather than
+  // written down twice.
+  const beyond = sort.descending ? "<" : ">";
 
-  return `SELECT a.hash AS hash, a.orig_name AS origName, a.ext AS ext, a.size AS size,
-                 a.width AS width, a.height AS height, a.imported_at AS importedAt,
-                 a.rating AS rating, a.is_favorite AS isFavorite,
-                 a.poster_ms AS posterMs
-            FROM assets a
-           WHERE (${filterSql})${keyset}
-           ORDER BY a.imported_at DESC, a.hash
-           LIMIT @limit`;
+  const page = (where: string, order: string): string =>
+    `SELECT a.hash AS hash, a.orig_name AS origName, a.ext AS ext, a.size AS size,
+            a.width AS width, a.height AS height, a.imported_at AS importedAt,
+            a.rating AS rating, a.is_favorite AS isFavorite,
+            a.poster_ms AS posterMs, ${expr} AS sortKey
+       FROM assets a
+      WHERE ${where}
+      ORDER BY ${order}
+      LIMIT @limit`;
+
+  const whole = `${expr} ${way}, a.hash ${way}`;
+  if (!hasCursor) return page(`(${filterSql})`, whole);
+
+  const beyondKey = page(`(${filterSql}) AND ${expr} ${beyond} @cursorKey`, whole);
+  if (!canTie) return beyondKey;
+
+  const sameKey = page(
+    `(${filterSql}) AND ${expr} = @cursorKey AND a.hash ${beyond} @cursorHash`,
+    `a.hash ${way}`,
+  );
+  return `SELECT * FROM (${sameKey})
+    UNION ALL
+    SELECT * FROM (${beyondKey})
+    LIMIT @limit`;
 }
 
 /** The cursor that resumes a listing after the last hit on a page. */
 export function lastCursor(hits: readonly SearchHit[]): Cursor | undefined {
   const last = hits.at(-1);
-  return last === undefined ? undefined : { importedAt: last.importedAt, hash: last.hash };
+  return last === undefined ? undefined : { key: last.sortKey, hash: last.hash };
 }

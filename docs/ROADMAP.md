@@ -349,7 +349,20 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-08.** **ADR-0038 — Roost is proprietary, and the format stays open**
+**Nothing open, as of 2026-09-09.** **ADR-0039 — sorting, a random order, and a view the library
+remembers** was proposed and accepted that day, from the user asking for the sort the view menu had
+been promising with a disabled row since M3, plus a **random** order, the removal of **Group By**,
+and for the order and the view to be remembered the way *Show subfolder contents* is. Three answers
+were the user's before any code: six keys, a shuffle that is remembered with a **Shuffle again**
+beside it, and all four of the view menu's settings in `settings.json`. The rest was measurement.
+Ordering the grid by an unindexed key cost 28–35 ms against 0.07 ms, so migration 0014 adds four
+indexes and rebuilds five with **the tie-break turned to follow the key** — which removes the
+mixed-order trap and lets one index serve both directions. A resume became **two seeks rather than
+one predicate**, worth 5.8 ms against 0.06 ms on a key with six distinct values. `random` is a
+seeded rotation of the content hash: the one order with no index and no possibility of one, at
+18.4 ms a page, accepted deliberately. Group By is withdrawn rather than left disabled.
+
+Before it, as of 2026-09-08: **ADR-0038 — Roost is proprietary, and the format stays open**
 was proposed and accepted that day, from the user giving the product its landing page
 (`roost.digitalku.com`) and support address and saying it will be distributed closed source. The
 licence had been an assumption since M0 — MIT because `roost-old` was MIT — and it is now a
@@ -474,7 +487,7 @@ not draw, all settled before any of them was written against:
 
 | Question | Outcome | Record |
 | --- | --- | --- |
-| The view control | A menu in the file manager idiom — Icons, Compact, Details, Zoom, Sort By, Group By — replacing the masonry/uniform toggle. Masonry becomes a checkbox under Icons rather than a peer view or a deletion: it is the only layout that does not crop | ADR-0018 |
+| The view control | A menu in the file manager idiom — Icons, Compact, Details, Zoom, Sort By — replacing the masonry/uniform toggle. Masonry becomes a checkbox under Icons rather than a peer view or a deletion: it is the only layout that does not crop. Sort By was built and Group By withdrawn on 2026-09-09 | ADR-0018, ADR-0039 |
 
 **And one on 2026-09-01, the last one that was open:**
 

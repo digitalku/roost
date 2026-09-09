@@ -1,4 +1,4 @@
-import type { ContentHash } from "../model/index.js";
+import type { ContentHash, Sort } from "../model/index.js";
 
 /**
  * One bound value.
@@ -75,16 +75,34 @@ export const MATCH_NONE: Filter = { sql: "0", params: [] };
  * Keyset paging, never `OFFSET`: an offset makes SQLite walk and discard every
  * earlier row, so scrolling gets slower the further it goes. A cursor costs the
  * same at row 900,000 as at row 100.
+ *
+ * `key` is the **sort key's value on the last row of the previous page**, and
+ * it is whatever that order made of it — a timestamp, a size, a folded name, a
+ * rotated hash. It is read back off the row rather than recomputed here,
+ * because the order is defined in SQL and a second implementation in TypeScript
+ * would fold a name differently on the first non-ASCII character (ADR-0039 §4).
+ *
+ * A cursor belongs to the order it was handed out under. Changing the order
+ * starts the listing again, which is what the grid does when the menu changes.
  */
 export interface Cursor {
-  readonly importedAt: number;
+  readonly key: CursorKey;
   readonly hash: ContentHash;
 }
 
-/** One page of results. `after` absent starts at the newest asset. */
+/** What a sort key's value can be: a number for four of them, text for two. */
+export type CursorKey = number | string;
+
+/**
+ * One page of results. `after` absent starts at the beginning of the order.
+ *
+ * `sort` absent is {@link DEFAULT_SORT} — newest first, the order the
+ * application had before it had a menu.
+ */
 export interface Page {
   readonly limit: number;
   readonly after?: Cursor;
+  readonly sort?: Sort;
 }
 
 /** The default page: one screen of a grid, with room to scroll into. */
@@ -118,9 +136,19 @@ export interface SearchHit {
    * promise stays true and a changed thumbnail is a changed address.
    */
   readonly posterMs: number | null;
+  /**
+   * This row's value for the order it was fetched in (ADR-0039 §4).
+   *
+   * A column of the result rather than a field a caller derives: the order is
+   * an expression in SQL, and the cursor has to be the same expression's answer
+   * or the resume lands somewhere else. For the default order it is the same
+   * number as `importedAt`; for `random` it is the rotated hash, which exists
+   * nowhere but in the statement that asked for it.
+   */
+  readonly sortKey: CursorKey;
 }
 
 /** The cursor that resumes a listing after `hit`. */
 export function cursorAfter(hit: SearchHit): Cursor {
-  return { importedAt: hit.importedAt, hash: hit.hash };
+  return { key: hit.sortKey, hash: hit.hash };
 }

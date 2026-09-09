@@ -4,7 +4,14 @@ import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AddRecord } from "../journal/index.js";
-import { JOB_PRIORITY, parseContentHash } from "../model/index.js";
+import {
+  DEFAULT_SORT,
+  JOB_PRIORITY,
+  parseContentHash,
+  SHUFFLES,
+  SORT_KEYS,
+  type Sort,
+} from "../model/index.js";
 import { Db } from "./database.js";
 import {
   type Cursor,
@@ -250,32 +257,57 @@ describe("keyset paging", () => {
     const hashes = seen.map((h) => h.hash);
     expect(hashes).toHaveLength(7);
     expect(new Set(hashes).size).toBe(7);
-    // Ascending on the tie-break, which is what the index holds.
-    expect(hashes).toEqual([...hashes].sort());
+    // Descending on the tie-break, because the key is descending and the
+    // tie-break follows it (migration 0014).
+    expect(hashes).toEqual([...hashes].sort().reverse());
   });
 
-  it("names the cursor timestamp once and writes it twice", () => {
+  it("names the cursor once and writes it once per seek", () => {
     // The regression the Rust build's benchmark found, expressed as a property
     // of the SQL rather than of a timing. A query-plan test cannot catch it:
-    // with the parameters written as literals the two timestamps become one
+    // with the parameters written as literals the two values become one
     // constant, which SQLite collapses exactly as it collapses one shared
     // parameter, so the plan looks correct either way.
     const sql = searchSql("1", true);
-    // `\b` matters: an unanchored `/@cursorTs/` also matches a second, distinct
-    // `@cursorTs2`, so the broken version passes the test meant to catch it.
-    expect(sql.match(/@cursorTs\b/g)).toHaveLength(2);
-    expect(sql).toContain("a.hash > @cursorHash");
+    // `\b` matters: an unanchored `/@cursorKey/` also matches a second,
+    // distinct `@cursorKey2`, so the broken version passes the test meant to
+    // catch it.
+    expect(sql.match(/@cursorKey\b/g)).toHaveLength(2);
+    expect(sql).toContain("a.hash < @cursorHash");
     expect(sql.trimEnd().endsWith("LIMIT @limit")).toBe(true);
   });
 
-  it("orders by a total order, tie-break included", () => {
-    // Also structural, and for a subtler reason than the one above. After
-    // migration 0003 the ordering index *is* `(imported_at DESC, hash)`, so
-    // SQLite satisfies `ORDER BY imported_at DESC` by walking it — and hands
-    // back rows in hash order anyway. Dropping the tie-break is invisible to
-    // any fixture small enough to write, and stops being invisible on a
-    // library where a different plan is cheaper.
-    expect(searchSql("1", false)).toContain("ORDER BY a.imported_at DESC, a.hash");
+  it("resumes as two seeks rather than one predicate over a run of equal keys", () => {
+    // ADR-0039 §4: written as one disjunction, SQLite seeks on the key and then
+    // walks every row sharing it — invisible until a key repeats, and ratings
+    // have six values. The two halves are asserted structurally because the
+    // cost is invisible in a fixture small enough to write down.
+    const sql = searchSql("1", true, { key: "rating", descending: true, seed: 0 });
+    expect(sql).toContain("UNION ALL");
+    expect(sql).toContain("COALESCE(a.rating, 0) = @cursorKey AND a.hash < @cursorHash");
+    expect(sql).toContain("COALESCE(a.rating, 0) < @cursorKey");
+  });
+
+  it("needs one seek for an order that cannot tie", () => {
+    // A rotation of the hash is a bijection of a unique column, so the second
+    // seek would be a scan that can only return nothing.
+    const sql = searchSql("1", true, { key: "random", descending: false, seed: 3 });
+    expect(sql).not.toContain("UNION ALL");
+    expect(sql).toContain("@rotate");
+  });
+
+  it("orders by a total order, tie-break included and pointing the same way", () => {
+    // Also structural, and for a subtler reason than the one above. The
+    // ordering index *is* `(imported_at DESC, hash DESC)`, so SQLite satisfies
+    // `ORDER BY imported_at DESC` by walking it — and hands back rows in hash
+    // order anyway. Dropping the tie-break is invisible to any fixture small
+    // enough to write, and stops being invisible on a library where a different
+    // plan is cheaper. The direction matters as much as the column: a mixed
+    // order is one an index serves in a single direction (migration 0014).
+    expect(searchSql("1", false)).toContain("ORDER BY a.imported_at DESC, a.hash DESC");
+    expect(searchSql("1", false, { key: "name", descending: false, seed: 0 })).toContain(
+      "ORDER BY lower(a.orig_name) ASC, a.hash ASC",
+    );
   });
 
   it("leaves the filter's own placeholders anonymous and positional", () => {
@@ -284,7 +316,7 @@ describe("keyset paging", () => {
     // The filter contract stays anonymous `?`; everything appended is named.
     const filter: Filter = { sql: "a.ext = ? AND a.size >= ?", params: ["png", 105] };
     const hits = db.repo.search(filter, { limit: 10 });
-    expect(hits.map((h) => h.hash)).toEqual([5, 6, 7].map(hashOf).sort());
+    expect(hits.map((h) => h.hash)).toEqual([5, 6, 7].map(hashOf).sort().reverse());
     expect(db.repo.count(filter)).toBe(3);
   });
 });
@@ -314,14 +346,21 @@ describe("the plan a grid query actually gets", () => {
    * Read through a second connection because `EXPLAIN QUERY PLAN` is not a
    * repository statement; WAL is what makes that free.
    */
-  function planFor(filterSql: string, ...params: unknown[]): string {
+  function planFor(filterSql: string, sort: Sort = DEFAULT_SORT, ...params: unknown[]): string {
     const raw = new BetterSqlite3(db.path, { readonly: true });
     try {
+      // The filter is written once per seek and a resume has two of them, so
+      // its positional values are repeated with it — the same doubling
+      // `Repo.search` does.
+      const repeated = sort.key === "random" ? params : [...params, ...params];
       const plan = raw
-        .prepare(`EXPLAIN QUERY PLAN ${searchSql(filterSql, true)}`)
-        .all(...params, { cursorTs: 1_700_000_100, cursorHash: hashOf(1), limit: 200 }) as {
-        detail: string;
-      }[];
+        .prepare(`EXPLAIN QUERY PLAN ${searchSql(filterSql, true, sort)}`)
+        .all(...repeated, {
+          cursorKey: sort.key === "name" ? "asset-000001.png" : 1_700_000_100,
+          cursorHash: hashOf(1),
+          limit: 200,
+          rotate: 1,
+        }) as { detail: string }[];
       return plan.map((row) => row.detail).join("\n");
     } finally {
       raw.close();
@@ -337,7 +376,7 @@ describe("the plan a grid query actually gets", () => {
     //
     // The filter is spelled as `@roost/search` compiles it, trailing scope and
     // all, because that is the only shape this statement is ever given.
-    const detail = planFor(`(a.ext = ?) AND ${MATCH_LIVE.sql}`, "png");
+    const detail = planFor(`(a.ext = ?) AND ${MATCH_LIVE.sql}`, DEFAULT_SORT, "png");
 
     expect(detail).toContain("idx_assets_ext");
     expect(detail).not.toContain("TEMP B-TREE");
@@ -351,7 +390,7 @@ describe("the plan a grid query actually gets", () => {
     // of the compiler — so it is asserted, and the unscoped version is asserted
     // to lose the index rather than silently falling back to a scan nobody
     // measured.
-    expect(planFor("a.ext = ?", "png")).not.toContain("idx_assets_ext");
+    expect(planFor("a.ext = ?", DEFAULT_SORT, "png")).not.toContain("idx_assets_ext");
     expect(planFor(`(1) AND ${MATCH_LIVE.sql}`)).toContain("idx_assets_imported");
     // Half the scope is not the scope. Migration 0010 added the second term to
     // every partial index, so a query carrying only the first one loses them —
@@ -363,6 +402,156 @@ describe("the plan a grid query actually gets", () => {
     const detail = planFor("a.trashed_at IS NOT NULL AND a.superseded_by IS NULL");
     expect(detail).toContain("idx_assets_trashed");
     expect(detail).not.toContain("TEMP B-TREE");
+  });
+
+  it.each([
+    ["created", "idx_assets_created"],
+    ["name", "idx_assets_name"],
+    ["size", "idx_assets_size"],
+    ["rating", "idx_assets_rated"],
+  ] as const)("seeks rather than sorts when the grid is ordered by %s", (key, index) => {
+    // The whole of ADR-0039's engine half. Without migration 0014's index the
+    // plan carries a TEMP B-TREE, which is SQLite reading the match set into a
+    // sorter to produce one screen: 28–35 ms at 95,001 assets against 0.05 ms
+    // with it (`docs/BENCHMARKS.md`).
+    for (const descending of [false, true]) {
+      const detail = planFor(`(1) AND ${MATCH_LIVE.sql}`, { key, descending, seed: 0 });
+      expect(detail).toContain(index);
+      expect(detail).not.toContain("TEMP B-TREE");
+    }
+  });
+
+  it("has no index for the random order, and says so rather than pretending", () => {
+    // A rotation per seed is 63 indexes. This plan is the cost ADR-0039 §5
+    // accepts deliberately, and a test asserting it is what keeps the
+    // acceptance visible.
+    const detail = planFor(`(1) AND ${MATCH_LIVE.sql}`, {
+      key: "random",
+      descending: false,
+      seed: 7,
+    });
+    expect(detail).toContain("TEMP B-TREE");
+  });
+});
+
+describe("every order pages without repeating or skipping a row", () => {
+  let db: Db;
+
+  beforeEach(() => {
+    db = Db.openInMemory();
+    db.transaction(() => {
+      for (let n = 1; n <= 25; n += 1) {
+        // Keys that tie on purpose: five timestamps over twenty-five assets,
+        // one size for a third of them, and a rating on some. A key that never
+        // repeats never exercises the second seek.
+        db.repo.applyAdd(1_700_000_000 + (n % 5), asset(n, { size: n % 3 === 0 ? 100 : 100 + n }));
+        if (n % 4 === 0) db.repo.applyRate(hashOf(n), 3);
+      }
+    });
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  const walk = (sort: Sort): SearchHit[] => {
+    const seen: SearchHit[] = [];
+    let cursor: Cursor | undefined;
+    for (;;) {
+      const hits = db.repo.search(MATCH_ALL, {
+        limit: 4,
+        sort,
+        ...(cursor && { after: cursor }),
+      });
+      if (hits.length === 0) break;
+      seen.push(...hits);
+      cursor = lastCursor(hits);
+      // A runaway loop is the failure this whole shape exists to catch, and an
+      // unbounded `for` would hang the suite rather than fail it.
+      if (seen.length > 100) throw new Error("paging did not terminate");
+    }
+    return seen;
+  };
+
+  it.each(SORT_KEYS)("in %s, both ways", (key) => {
+    for (const descending of [false, true]) {
+      const seen = walk({ key, descending, seed: 4 });
+      const hashes = seen.map((hit) => hit.hash);
+      expect(hashes).toHaveLength(25);
+      expect(new Set(hashes).size).toBe(25);
+
+      // And in the order it was asked for, not merely all of it: a page that
+      // starts again from the top would still return every row once if the
+      // cursor happened to advance.
+      const keys = seen.map((hit) => hit.sortKey);
+      const sorted = [...keys].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      expect(keys).toEqual(descending ? sorted.reverse() : sorted);
+    }
+  });
+});
+
+describe("the random order", () => {
+  let db: Db;
+
+  /**
+   * Hashes with every character carrying information, unlike `hashOf`.
+   *
+   * The shuffle is a rotation of the hash, so it shuffles exactly as far as the
+   * hash is uniformly distributed — which a BLAKE3 digest is and
+   * `0000…0001` is not. A fixture of padded counters is ordered the same way by
+   * every seed, and a test built on it would report a working shuffle as a
+   * broken one.
+   */
+  const spread = (n: number): ReturnType<typeof parseContentHash> => {
+    let state = n * 2654435761;
+    let hex = "";
+    while (hex.length < 64) {
+      state = (state * 1103515245 + 12345) & 0x7fffffff;
+      hex += (state >>> 8).toString(16).padStart(6, "0");
+    }
+    return parseContentHash(hex.slice(0, 64));
+  };
+
+  beforeEach(() => {
+    db = Db.openInMemory();
+    db.transaction(() => {
+      for (let n = 1; n <= 60; n += 1) {
+        db.repo.applyAdd(1_700_000_000 + n, { ...asset(n), hash: spread(n) });
+      }
+    });
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  const order = (seed: number): string[] =>
+    db.repo
+      .search(MATCH_ALL, { limit: 60, sort: { key: "random", descending: false, seed } })
+      .map((hit) => hit.hash);
+
+  it("gives one seed's order and another seed's differently", () => {
+    const one = order(1);
+    const two = order(2);
+    expect(new Set(one)).toEqual(new Set(two));
+    expect(one).not.toEqual(two);
+    // And neither is the order the rows arrived in, which is the shuffle that
+    // would be no shuffle at all.
+    expect(one).not.toEqual(
+      db.repo.search(MATCH_ALL, { limit: 60, sort: DEFAULT_SORT }).map((hit) => hit.hash),
+    );
+  });
+
+  it("is the same order every time it is asked for one seed", () => {
+    // What a cursor rests on: a shuffle that moved between two pages would show
+    // one asset twice and another not at all.
+    expect(order(9)).toEqual(order(9));
+  });
+
+  it("counts a seed past the last shuffle as one of the shuffles it has", () => {
+    // `rotationFor` wraps, so a seed is a number a frontend can roll without
+    // knowing anything about hashes.
+    expect(order(1)).toEqual(order(1 + SHUFFLES));
   });
 });
 

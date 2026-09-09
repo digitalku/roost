@@ -1,6 +1,7 @@
 import {
   type Cursor,
   DEFAULT_PAGE_LIMIT,
+  DEFAULT_SORT,
   type Filter,
   type FolderRow,
   lastCursor,
@@ -8,6 +9,7 @@ import {
   MATCH_LIVE,
   type Page,
   type SearchHit,
+  type Sort,
 } from "@roost/core";
 import { buildQuery, type Folders } from "@roost/search";
 import { childrenById, descendants } from "./folder-tree.js";
@@ -98,7 +100,7 @@ export function compileFor(library: Library, query: string): Filter {
   return filter;
 }
 
-/** One page of results for `query`, newest first. */
+/** One page of results for `query`, in the order `page` asks for. */
 export function search(library: Library, query: string, page: Page): SearchHit[] {
   return library.db.repo.search(compileFor(library, query), page);
 }
@@ -152,6 +154,7 @@ export function* pages(
   library: Library,
   query: string,
   pageSize: number = DEFAULT_PAGE_LIMIT,
+  sort: Sort = DEFAULT_SORT,
 ): Generator<SearchHit[]> {
   const filter = query.trim() === "" ? MATCH_LIVE : compileFor(library, query);
   const repo = library.db.repo;
@@ -160,7 +163,7 @@ export function* pages(
   for (;;) {
     // `after` is spread rather than assigned, because `exactOptionalPropertyTypes`
     // makes an explicit `after: undefined` a different thing from an absent one.
-    const hits = repo.search(filter, { limit: pageSize, ...(after && { after }) });
+    const hits = repo.search(filter, { limit: pageSize, sort, ...(after && { after }) });
     if (hits.length === 0) return;
     yield hits;
     // A short page is the last page: asking again would cost a statement to

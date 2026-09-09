@@ -29,10 +29,18 @@
  * And the marquee, whose autoscroll, paint, and refusal to start on the
  * scrollbar strip are all gestures rather than state.
  *
+ * The view menu's **orders** are here too (ADR-0039): what a real pointer does
+ * to a `radix-ui` submenu is the half a component test cannot drive — happy-dom
+ * decides differently from what a browser does with the same clicks — and
+ * "the library opens in the order it was left in" needs a second window to
+ * mean anything.
+ *
  *   node scripts/check-grid.mjs
  *
  * Builds its own library in a temporary directory and deletes it again.
  */
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ledger } from "./lib/checks.mjs";
 import { imageLibrary, scratch } from "./lib/fixtures.mjs";
@@ -602,6 +610,182 @@ try {
     scrolled > 0,
     `scrollTop=${Math.round(scrolled)}px`,
   );
+
+  section("The orders the view menu offers (ADR-0039)");
+  /**
+   * The names the grid is drawing, top to bottom and left to right.
+   *
+   * Read off the boxes rather than out of the DOM: the grid is virtualised and
+   * proportional icons place each cell in the shortest column, so document
+   * order is not the order anybody sees.
+   */
+  const drawnExpression = `
+    [...document.querySelectorAll(".cell")]
+      .map((cell) => {
+        const box = cell.getBoundingClientRect();
+        return { name: cell.getAttribute("aria-label"), top: box.top, left: box.left };
+      })
+      .sort((a, b) => (Math.abs(a.top - b.top) > 2 ? a.top - b.top : a.left - b.left))
+      .map((cell) => cell.name)`;
+
+  /**
+   * Where a menu row is, by the words on it.
+   *
+   * Every row of every menu is searched rather than the nth of a selector: the
+   * view menu has three radio items, a checkbox, three zoom buttons and a
+   * submenu trigger, and a check that pointed at an index would be pointing
+   * somewhere else the next time a row was added.
+   */
+  const menuRow = async (text, role = "menuitem") => {
+    const at = await cdp.evaluate(`
+      (() => {
+        // The mark column is part of a row's text — a chosen row reads
+        // "●Name" — so the label is looked for inside it rather than as it.
+        const row = [...document.querySelectorAll('[role="${role}"]')]
+          .find((item) => (item.textContent ?? "").includes(${JSON.stringify(text)}));
+        if (row === undefined) return null;
+        const box = row.getBoundingClientRect();
+        return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+      })()`);
+    if (at === null) throw new Error(`no ${role} called "${text}"`);
+    return at;
+  };
+
+  /** Opens the view menu and its Sort By submenu, with a real pointer. */
+  const openSort = async () => {
+    const trigger = await cdp.box('button[aria-label="View"]');
+    await cdp.mouse.click(trigger.x, trigger.y);
+    await cdp.settle("document.querySelectorAll('[role=menu]').length", (n) => n > 0);
+    const sub = await menuRow("Sort By");
+    await cdp.mouse.click(sub.x, sub.y);
+    return cdp.settle(
+      `[...document.querySelectorAll('[role=menuitemradio]')].map((i) => i.textContent)`,
+      (items) => Array.isArray(items) && items.some((label) => label.includes("Random")),
+    );
+  };
+
+  /** Chooses one row of the open submenu, by the words on it. */
+  const chooseSort = async (label, role = "menuitemradio") => {
+    const at = await menuRow(label, role);
+    await cdp.mouse.click(at.x, at.y);
+    await cdp.settle("document.querySelectorAll('[role=menu]').length", (n) => n === 0);
+  };
+
+  // Back to the top first: the marquee's autoscroll left the scroller 900px
+  // down, and a virtualised grid draws what is in view — so the first cell
+  // would be whatever the last gesture scrolled to rather than the first of
+  // the order.
+  await cdp.evaluate('document.querySelector(".grid").scrollTop = 0');
+  await cdp.settle('document.querySelector(".grid").scrollTop', (top) => top === 0);
+
+  const offered = await openSort();
+  check(
+    "the submenu offers every order, and Group By is not among them",
+    // A row's text carries the mark column with it, so each label is looked for
+    // *inside* a row rather than as one.
+    ["Date added", "Date created", "Name", "Size", "Rating", "Random"].every((label) =>
+      offered.some((row) => row.includes(label)),
+    ) && (await cdp.evaluate("document.body.textContent.includes('Group By')")) === false,
+    offered.join(" · "),
+  );
+
+  await chooseSort("Name");
+  const byName = await cdp.settle(
+    drawnExpression,
+    (names) => names.length > 0 && names[0] === "shot-0.png",
+  );
+  check(
+    "choosing Name draws the grid A to Z, which is the direction Name means",
+    JSON.stringify(byName) === JSON.stringify([...byName].sort()),
+    byName.slice(0, 4).join(" "),
+  );
+
+  await openSort();
+  await chooseSort("Z to A");
+  const reversed = await cdp.settle(drawnExpression, (names) => names[0] !== byName[0]);
+  check(
+    "and turning it round reverses what is drawn, without changing the key",
+    JSON.stringify(reversed) === JSON.stringify([...byName].reverse()),
+    reversed.slice(0, 4).join(" "),
+  );
+
+  // The whole of what the user asked for: the order is the library's, not the
+  // window's, so it is on disk before any of it is remembered.
+  const settingsPath = join(root, "settings.json");
+  const written = JSON.parse(await readFile(settingsPath, "utf8"));
+  check(
+    "the order is written to the library rather than held by the window",
+    written.sortKey === "name" && written.sortDescending === true,
+    JSON.stringify(written),
+  );
+
+  await openSort();
+  await chooseSort("Random");
+  const shuffled = await cdp.settle(
+    drawnExpression,
+    (names) => names.length === byName.length && JSON.stringify(names) !== JSON.stringify(reversed),
+  );
+  check(
+    "Random draws the same assets in an order that is neither way round",
+    JSON.stringify(shuffled) !== JSON.stringify(byName) &&
+      JSON.stringify(shuffled) !== JSON.stringify(reversed) &&
+      new Set(shuffled).size === byName.length,
+    shuffled.slice(0, 4).join(" "),
+  );
+
+  await openSort();
+  await chooseSort("Shuffle again", "menuitem");
+  const reshuffled = await cdp.settle(
+    drawnExpression,
+    (names) =>
+      names.length === shuffled.length && JSON.stringify(names) !== JSON.stringify(shuffled),
+  );
+  check(
+    "and Shuffle again gives a different one",
+    JSON.stringify(reshuffled) !== JSON.stringify(shuffled),
+    reshuffled.slice(0, 4).join(" "),
+  );
+
+  // Back to an order that can be predicted from the outside, so the window
+  // opened next can be asserted against something other than itself. Two
+  // gestures, because choosing the key it is already on changes nothing: the
+  // radio is already there.
+  await openSort();
+  await chooseSort("Name");
+  await openSort();
+  await chooseSort("A to Z");
+  await cdp.settle(drawnExpression, (names) => names[0] === "shot-0.png");
+
+  section("A library opens in the order it was left in (ADR-0039 §7)");
+  // A second window, because that is the claim: a preference nothing reads back
+  // is a preference nobody has. Started beside the first rather than after it —
+  // several windows onto one library is allowed (ADR-0020), and the only thing
+  // they share is the library on disk.
+  // The first is closed first: Electron holds a single-instance lock, so a
+  // second process started beside it hands its command line to the first and
+  // exits — and what is under test here is a **start-up**, which is the one
+  // thing that cannot be borrowed from a window already running.
+  await window.close();
+  const second = await launch({ library: root });
+  try {
+    const names = await second.cdp.settle(
+      drawnExpression,
+      (drawn) => Array.isArray(drawn) && drawn.length > 0,
+    );
+    check(
+      "the grid is in the remembered order on the first page it draws",
+      names[0] === "shot-0.png" && JSON.stringify(names) === JSON.stringify([...names].sort()),
+      names.slice(0, 4).join(" "),
+    );
+    // The view as well as the order: they are one menu and one preference, and
+    // the view is the half somebody notices first.
+    const drawnView = await second.cdp.evaluate(
+      'document.querySelector(".grid")?.getAttribute("data-view") ?? null',
+    );
+    check("and in the view it was left in", drawnView === "details", `view=${drawnView}`);
+  } finally {
+    await second.close();
+  }
 
   report();
 } catch (error) {

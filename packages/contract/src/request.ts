@@ -39,12 +39,21 @@ import type {
   WireSelectionSummary,
   WireSettings,
   WireSidebar,
+  WireSort,
   WireSplitQuery,
   WireStars,
   WireSubtitlesAdded,
   WireTagRule,
 } from "./dto.js";
-import { IMPORT_SUBJECTS, type ImportSubject, STARS, STORAGE_MODES, TAG_RULES } from "./dto.js";
+import {
+  IMPORT_SUBJECTS,
+  type ImportSubject,
+  SORT_KEYS,
+  type SortKey,
+  STARS,
+  STORAGE_MODES,
+  TAG_RULES,
+} from "./dto.js";
 
 /**
  * Every request the renderer can make, and what each one answers with.
@@ -116,6 +125,16 @@ export type Request =
       readonly query: string;
       readonly limit: number;
       readonly after: WireCursor | null;
+      /**
+       * The order to page in, or `null` for the default — newest first
+       * (ADR-0039).
+       *
+       * Explicit rather than read from the library's settings here, because a
+       * cursor belongs to the order it was handed out under: a page that took
+       * the order from a preference could be resumed against a different one
+       * the moment another window changed it.
+       */
+      readonly sort: WireSort | null;
     }
   /**
    * How many assets a query matches.
@@ -176,6 +195,12 @@ export type Request =
       readonly type: "settings:write";
       readonly showSubfolderContents?: boolean;
       readonly fitVideoToWindow?: boolean;
+      readonly sortKey?: SortKey;
+      readonly sortDescending?: boolean;
+      readonly shuffleSeed?: number;
+      readonly gridView?: string;
+      readonly matchImageProportions?: boolean;
+      readonly gridZoom?: number;
     }
   /**
    * Everything the inspector shows about one asset.
@@ -772,7 +797,16 @@ export const REQUEST_VALIDATORS: {
     const after = readCursor(source["after"]);
     if (!after.ok) return within("after", after);
 
-    return ok({ type: "assets:page", query: query.value, limit: limit.value, after: after.value });
+    const sort = readSort(source["sort"]);
+    if (!sort.ok) return within("sort", sort);
+
+    return ok({
+      type: "assets:page",
+      query: query.value,
+      limit: limit.value,
+      after: after.value,
+      sort: sort.value,
+    });
   },
   "assets:count": (source) => {
     const query = readString(source, "query");
@@ -814,13 +848,52 @@ export const REQUEST_VALIDATORS: {
     // that learns another setting does not have to send the first one back.
     // A key that is present is still validated: "absent" and "not a boolean"
     // are different answers, and only the first of them is a request.
-    const patch: { showSubfolderContents?: boolean; fitVideoToWindow?: boolean } = {};
-    for (const key of ["showSubfolderContents", "fitVideoToWindow"] as const) {
+    const patch: {
+      showSubfolderContents?: boolean;
+      fitVideoToWindow?: boolean;
+      sortKey?: SortKey;
+      sortDescending?: boolean;
+      shuffleSeed?: number;
+      gridView?: string;
+      matchImageProportions?: boolean;
+      gridZoom?: number;
+    } = {};
+
+    for (const key of [
+      "showSubfolderContents",
+      "fitVideoToWindow",
+      "sortDescending",
+      "matchImageProportions",
+    ] as const) {
       if (source[key] === undefined) continue;
       const on = readBoolean(source, key);
       if (!on.ok) return on;
       patch[key] = on.value;
     }
+
+    if (source["sortKey"] !== undefined) {
+      const key = readOneOf(source, "sortKey", SORT_KEYS);
+      if (!key.ok) return key;
+      patch.sortKey = key.value as SortKey;
+    }
+
+    // The view is a string rather than one of `GRID_VIEWS` on purpose: the
+    // vocabulary is the window's, and an engine refusing a view it has not
+    // heard of would refuse the next build's (`WireSettings`).
+    if (source["gridView"] !== undefined) {
+      const view = readNonEmpty(source, "gridView");
+      if (!view.ok) return view;
+      patch.gridView = view.value;
+    }
+
+    for (const key of ["shuffleSeed", "gridZoom"] as const) {
+      if (source[key] === undefined) continue;
+      const value = readInteger(source, key);
+      if (!value.ok) return value;
+      if (value.value < 0) return bad(`${key}: expected zero or more`);
+      patch[key] = value.value;
+    }
+
     return ok({ type: "settings:write", ...patch });
   },
 
@@ -1216,11 +1289,36 @@ function readFacets(value: unknown): Checked<WireFacets> {
 function readCursor(value: unknown): Checked<WireCursor | null> {
   if (value === null) return ok(null);
   if (!isRecord(value)) return bad("expected null or an object");
-  const importedAt = readInteger(value, "importedAt");
-  if (!importedAt.ok) return importedAt;
+  // The key is whatever the order made of the last row (ADR-0039 §4) — a
+  // timestamp, a size, a folded name, a rotated hash — so this checks that it
+  // is one of the two things a sort key can be and nothing more. A cursor is
+  // the engine's own words handed back; validating its *meaning* here would be
+  // the contract holding a second opinion about the order.
+  const key = value["key"];
+  if (typeof key !== "number" && typeof key !== "string") {
+    return bad("key: expected a number or a string");
+  }
+  if (typeof key === "number" && !Number.isFinite(key)) return bad("key: expected a finite number");
   const hash = readHash(value, "hash");
   if (!hash.ok) return hash;
-  return ok({ importedAt: importedAt.value, hash: hash.value });
+  return ok({ key, hash: hash.value });
+}
+
+/** The order a page is asked for, or `null` for the default (ADR-0039). */
+function readSort(value: unknown): Checked<WireSort | null> {
+  if (value === null) return ok(null);
+  if (!isRecord(value)) return bad("expected null or an object");
+  const key = readOneOf(value, "key", SORT_KEYS);
+  if (!key.ok) return key;
+  const descending = readBoolean(value, "descending");
+  if (!descending.ok) return descending;
+  const seed = readInteger(value, "seed");
+  if (!seed.ok) return seed;
+  // Negative seeds are refused rather than folded: a frontend that rolls one is
+  // rolling a random number, and a negative one is a sign it rolled something
+  // else.
+  if (seed.value < 0) return bad("seed: expected zero or more");
+  return ok({ key: key.value as SortKey, descending: descending.value, seed: seed.value });
 }
 
 export const REQUEST_TYPES = Object.keys(REQUEST_VALIDATORS) as RequestType[];

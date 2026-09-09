@@ -143,35 +143,58 @@ describe("validating a request", () => {
 
 describe("validating a page of the grid", () => {
   const page = (over: Record<string, unknown>): ReturnType<typeof checkRequest> =>
-    checkRequest({ type: "assets:page", query: "", limit: 100, after: null, ...over });
+    checkRequest({ type: "assets:page", query: "", limit: 100, after: null, sort: null, ...over });
 
   it("accepts an empty query, which means the whole library", () => {
     expect(page({})).toEqual({
       ok: true,
-      value: { type: "assets:page", query: "", limit: 100, after: null },
+      value: { type: "assets:page", query: "", limit: 100, after: null, sort: null },
     });
   });
 
   it("takes a cursor back only in the shape it handed one out", () => {
-    const cursor = { importedAt: 1_700_000_000, hash: "a".repeat(64) };
+    const cursor = { key: 1_700_000_000, hash: "a".repeat(64) };
     expect(page({ after: cursor })).toEqual({
       ok: true,
-      value: { type: "assets:page", query: "", limit: 100, after: cursor },
+      value: { type: "assets:page", query: "", limit: 100, after: cursor, sort: null },
     });
+
+    // A key is a number or a string and nothing else, because that is what a
+    // sort key can be (ADR-0039 §4) — the *meaning* is the engine's, and a
+    // contract with an opinion about it would be a second one.
+    expect(page({ after: { key: "asset-01.png", hash: "a".repeat(64) } }).ok).toBe(true);
 
     // Every field of it, checked. A cursor is used in a keyset predicate, and
     // the renderer is the process this build assumes may be compromised.
-    expect(page({ after: { importedAt: 1, hash: "not-a-hash" } })).toEqual({
+    expect(page({ after: { key: 1, hash: "not-a-hash" } })).toEqual({
       ok: false,
       reason: "assets:page: after: hash: expected 64 lowercase hex characters",
     });
     expect(page({ after: { hash: "a".repeat(64) } })).toEqual({
       ok: false,
-      reason: "assets:page: after: importedAt: expected a safe integer",
+      reason: "assets:page: after: key: expected a number or a string",
     });
     expect(page({ after: "resume-please" })).toEqual({
       ok: false,
       reason: "assets:page: after: expected null or an object",
+    });
+  });
+
+  it("takes an order, and refuses one it does not have", () => {
+    const sort = { key: "name", descending: false, seed: 0 };
+    expect(page({ sort })).toEqual({
+      ok: true,
+      value: { type: "assets:page", query: "", limit: 100, after: null, sort },
+    });
+
+    expect(page({ sort: { key: "colour", descending: false, seed: 0 } }).ok).toBe(false);
+    expect(page({ sort: { key: "name", descending: false, seed: -1 } })).toEqual({
+      ok: false,
+      reason: "assets:page: sort: seed: expected zero or more",
+    });
+    expect(page({ sort: { key: "name", seed: 0 } })).toEqual({
+      ok: false,
+      reason: "assets:page: sort: descending: expected a boolean",
     });
   });
 

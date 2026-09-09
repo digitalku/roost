@@ -35,6 +35,15 @@ export {
 } from "./job.js";
 export { isKind, KINDS, type Kind } from "./kind.js";
 export {
+  DEFAULT_SORT,
+  isSortKey,
+  rotationFor,
+  SHUFFLES,
+  SORT_KEYS,
+  type Sort,
+  type SortKey,
+} from "./sort.js";
+export {
   isLinkMethod,
   isStorageMode,
   LINK_METHODS,

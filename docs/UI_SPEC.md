@@ -266,7 +266,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `RecentList` | picker | — | The libraries this machine has opened. Pin, forget; §3.1 |
 | `Toolbar` | toolbar | — | Composes the four below |
 | `SearchField` | toolbar | draft text | RQL input; §5 |
-| `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, sort, grouping. ADR-0018 |
+| `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, and a Sort By submenu of six orders. ADR-0018, ADR-0039 |
 | `AddMenu` | toolbar | — | One button, one menu: the four ways an asset comes into being. §1 |
 | `AssetContextMenu` | content | — | Right-click on the selection; §3.3. Native menus were considered and rejected; ADR-0021 |
 | `NavTree` | sidebar | — | Smart folders and the flat sections; §4.2 |
@@ -1335,10 +1335,32 @@ controls are one row on one menu line, and **selecting one does not close the me
 twice should not cost two trips. Each is a real menu item underneath, because a bare button
 inside the content would be reachable by pointer and by nothing else (§10).
 
-**Sort By** and **Group By** are in the menu, disabled, because that is where a person looks for
-them and an absent item teaches nothing. Neither is a renderer change: the application has exactly one order — `imported_at DESC, hash` —
-and keyset paging plus every composite index in migration 0005 is built on it. Each sort key
-needs its own index per filter and its own cursor. See ADR-0018.
+**Sort By** is a submenu of six orders and a direction (ADR-0039, built 2026-09-09). The trigger
+says which one is on — *Sort By … Date added ›* — so the answer is readable without opening it.
+The words are the key's own rather than a direction, because nobody wants "imported ascending":
+**Newest first / Oldest first**, **A to Z / Z to A**, **Largest first**, **Highest first**. Choosing
+a key **sets that key's own direction**, since keeping the last one's would make *Name* mean Z to A
+for anybody looking at the newest first, which is every library by default.
+
+**Random** is the sixth, and it has no direction — reversing a shuffle is another shuffle — so where
+the two ways round would be, it offers **Shuffle again** instead. The shuffle it is showing is
+remembered with the order, so scrolling, switching views and reopening the library all leave it
+alone; only that item rolls a new one.
+
+**The order is not a renderer change and never was.** It is a key, an index, and a cursor per key
+(ADR-0039 §4), which is why this menu carried it as a disabled promise from M3 until the engine work
+was done. What the renderer owns is the vocabulary above and one rule: the grid **re-pages** when
+the order changes, because a cursor belongs to the order it was handed out under.
+
+**Group By is not here.** It stood in this menu as a disabled promise from ADR-0018 and was
+withdrawn on 2026-09-09: it was never built, and a menu item that has never done anything is one
+nobody should read twice.
+
+**The view, the icon shape, the zoom and the order are the library's, not the window's**
+(ADR-0039 §7). They live in `settings.json` beside *Show subfolder contents*, so a library opens as
+it was left — and the first page of the grid is asked for **after** the preferences arrive, because
+a page fetched in the default order would be a hundred rows thrown away and the wrong order shown
+first.
 
 **Common to every view.** Column count derives from the scroller's **content** width — not
 `clientWidth`, which includes the scroller's own padding and made every view one gutter too

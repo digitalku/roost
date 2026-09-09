@@ -13,6 +13,7 @@ import type {
   WireAbout,
   WireAssetDetail,
   WireComment,
+  WireCursor,
   WireDeriveStatus,
   WireEagleReport,
   WireEagleSurvey,
@@ -27,6 +28,7 @@ import type {
   WireSelectionSummary,
   WireSettings,
   WireSidebar,
+  WireSort,
   WireStars,
   WireTagRule,
 } from "@roost/contract";
@@ -328,7 +330,16 @@ export class FakeEngine {
   constructor(options: FakeEngineOptions = {}) {
     this.#options = options;
     this.folders = options.sidebar?.folders ?? [];
-    this.settings = options.settings ?? { showSubfolderContents: false, fitVideoToWindow: false };
+    this.settings = options.settings ?? {
+      showSubfolderContents: false,
+      fitVideoToWindow: false,
+      sortKey: "added",
+      sortDescending: true,
+      shuffleSeed: 0,
+      gridView: "icons",
+      matchImageProportions: true,
+      gridZoom: 240,
+    };
     this.#nextFolderId = Math.max(0, ...this.folders.map((row) => row.folder)) + 1;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);
     for (const detail of options.details ?? []) {
@@ -1034,19 +1045,17 @@ export class FakeEngine {
         return ok(this.settings);
 
       case "settings:write": {
-        if (request.fitVideoToWindow !== undefined) {
-          this.settings = { ...this.settings, fitVideoToWindow: request.fitVideoToWindow };
-        }
-        if (request.showSubfolderContents !== undefined) {
-          this.settings = {
-            ...this.settings,
-            showSubfolderContents: request.showSubfolderContents,
-          };
+        // A patch: every key absent means "leave it alone" (ADR-0019), so the
+        // fake takes whatever is present rather than naming each one.
+        const { type: _type, showSubfolderContents, ...rest } = request;
+        this.settings = { ...this.settings, ...rest };
+        if (showSubfolderContents !== undefined) {
+          this.settings = { ...this.settings, showSubfolderContents };
           // The real engine rewrites every folder row's query when this
           // changes, and the window re-reads the pane because of it.
           this.folders = this.folders.map((row) => ({
             ...row,
-            query: `${request.showSubfolderContents ? "folder" : "infolder"}:"${row.path}"`,
+            query: `${showSubfolderContents ? "folder" : "infolder"}:"${row.path}"`,
           }));
           this.emit({ type: "library:changed" });
         }
@@ -1097,7 +1106,7 @@ export class FakeEngine {
             query: request.query,
           });
         }
-        return ok(pageOf(rows, request.limit, request.after));
+        return ok(pageOf(sorted(rows, request.sort), request.limit, request.after));
       }
     }
   }
@@ -1119,12 +1128,43 @@ function ordered(comments: readonly WireComment[]): WireComment[] {
   });
 }
 
+/**
+ * The rows in the order a page asked for (ADR-0039).
+ *
+ * Enough of the engine's order to tell a component test that the grid asked for
+ * one and drew what came back — not a second implementation of it. `random` is
+ * the rotation the engine uses, because it is four lines and a fake that
+ * shuffled differently would make a window check and a component test disagree
+ * about the same seed.
+ */
+function sorted(assets: readonly AssetCard[], sort: WireSort | null): readonly AssetCard[] {
+  if (sort === null || sort.key === "added") return assets;
+  const rotate = 1 + (Math.abs(Math.trunc(sort.seed)) % 63);
+  const keyOf = (asset: AssetCard): number | string => {
+    switch (sort.key) {
+      case "created":
+        return asset.importedAt;
+      case "name":
+        return asset.name.toLowerCase();
+      case "size":
+        return asset.size;
+      case "rating":
+        return asset.rating ?? 0;
+      default:
+        return asset.hash.slice(rotate) + asset.hash.slice(0, rotate);
+    }
+  };
+  const way = sort.descending ? -1 : 1;
+  return [...assets].sort((left, right) => {
+    const a = keyOf(left);
+    const b = keyOf(right);
+    if (a !== b) return a < b ? -way : way;
+    return left.hash < right.hash ? -way : way;
+  });
+}
+
 /** Keyset paging over a plain array, the way the engine does it over SQLite. */
-function pageOf(
-  assets: readonly AssetCard[],
-  limit: number,
-  after: { readonly importedAt: number; readonly hash: string } | null,
-): AssetPage {
+function pageOf(assets: readonly AssetCard[], limit: number, after: WireCursor | null): AssetPage {
   const start = after === null ? 0 : assets.findIndex((asset) => asset.hash === after.hash) + 1;
   const slice = assets.slice(start, start + limit);
   const last = slice[slice.length - 1];
@@ -1132,9 +1172,7 @@ function pageOf(
     assets: slice,
     // A short page is the last page, which is the rule the grid stops on.
     next:
-      slice.length < limit || last === undefined
-        ? null
-        : { importedAt: last.importedAt, hash: last.hash },
+      slice.length < limit || last === undefined ? null : { key: last.importedAt, hash: last.hash },
   };
 }
 

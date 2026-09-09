@@ -600,6 +600,87 @@ op with `null`, and there is no `source_clear` to keep in step with it. `saveEdi
 takes it across a supersession, because replacing an asset's bytes does not change where they came
 from.
 
+### 2.13 Migration 0014 — the orders a view menu can ask for (schema v14)
+
+Decided as ADR-0039 on 2026-09-09 and built the same day, from the user asking for the sort the view
+menu had been promising with a disabled row since M3. Sorting is engine work: until this migration
+the application had exactly one order — `imported_at DESC, hash` — and every index since 0003 was
+built for it, so a grid ordered by name read the whole match set into a temporary B-tree to produce
+one screen. Measured at 95,001 assets: **28.6 ms against 0.07 ms**, and each of the other keys the
+same 28–35 ms.
+
+```sql
+-- The five that existed, rebuilt with the tie-break following the key.
+DROP INDEX idx_assets_imported;
+DROP INDEX idx_assets_ext;
+DROP INDEX idx_assets_rating;
+DROP INDEX idx_assets_favorite;
+DROP INDEX idx_assets_trashed;
+
+CREATE INDEX idx_assets_imported ON assets(imported_at DESC, hash DESC)
+                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_ext      ON assets(ext, imported_at DESC, hash DESC)
+                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_rating   ON assets(rating, imported_at DESC, hash DESC)
+                                 WHERE rating IS NOT NULL AND trashed_at IS NULL
+                                   AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_favorite ON assets(is_favorite, imported_at DESC, hash DESC)
+                                 WHERE is_favorite = 1 AND trashed_at IS NULL
+                                   AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_trashed  ON assets(imported_at DESC, hash DESC)
+                                 WHERE trashed_at IS NOT NULL AND superseded_by IS NULL;
+
+-- One per new key, each partial in the same way and each ending on the tie-break.
+CREATE INDEX idx_assets_name     ON assets(lower(orig_name), hash)
+                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_size     ON assets(size, hash)
+                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_created  ON assets(COALESCE(created_at, imported_at), hash)
+                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
+
+CREATE INDEX idx_assets_rated    ON assets(COALESCE(rating, 0), hash)
+                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
+```
+
+**The tie-break follows the key**, which is why the five existing indexes are rebuilt rather than
+left alone. `hash` ascending under a descending timestamp is a *mixed* order: one index serves a
+single direction of it, and the resume cannot be written as a comparison of the pair — the trap
+`searchSql` has carried a comment about since M2. Pointing the tie-break the same way makes
+`(imported_at DESC, hash DESC)` newest-first read forwards and oldest-first read backwards, so **one
+index serves both directions of every key**. The only visible change to an existing library is the
+order among assets sharing one timestamp, which a bulk import produces by the thousand.
+
+**Two of the four new indexes are over an expression, and the expression is the definition of the
+order** — indexed, ordered by, and compared in the resume, spelled identically in all three places.
+`lower(orig_name)` because sorting by name is case-insensitive and SQLite's `lower()` folds ASCII
+only, which is the folding `@roost/library` already chose for folder names; `COALESCE` on the two
+nullable columns because a NULL in a keyset comparison yields NULL and silently drops rows.
+
+**A resume is two seeks rather than one predicate.** The rows still to come are those further along
+the key plus those with the same key and a later hash, and as one disjunction SQLite seeks on the
+key and then walks the whole run of equal keys. A rating has six values: page 500 cost 5.8 ms that
+way and 0.06 ms as a `UNION ALL` of two ranges over `(key, hash)`.
+
+**No index for the random order and no possibility of one.** It is a seeded rotation of the content
+hash — 63 independent orders, since a hash is uniformly distributed and comparing from character *k*
+has nothing to do with comparing from character 0 — and an index per seed is 63 indexes. It costs
+18.4 ms a page at 95,001 assets, constant with depth, and ADR-0039 §5 records why that is the right
+trade and what the two faster alternatives break.
+
+**Deliberately not extended per filter.** `ext:png` ordered by name seeks the filter's index and
+sorts what it finds: 10.5 ms, against 0.10 ms in the default order. Fixing it means one composite
+index per key *per filter* — five by four, all maintained on every insert, against a target of ≥300
+imports/sec.
+
+**No journal op, no column, no table.** The order is a *preference*, not library data: it lives in
+`settings.json` (ADR-0019, ADR-0039 §7) with the view, the icon shape and the zoom.
+
 ## 3. Roost Query Language (RQL)
 
 The search bar and smart folders share one grammar. It compiles to SQL with **bound

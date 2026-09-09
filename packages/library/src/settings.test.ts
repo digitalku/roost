@@ -43,6 +43,37 @@ describe("reading settings", () => {
     expect(DEFAULT_SETTINGS.fitVideoToWindow).toBe(false);
   });
 
+  it("starts in the order the application had before it had a menu", async () => {
+    // ADR-0039: `added` descending is what every library shows until somebody
+    // asks for something else, and a new library must not open shuffled.
+    expect(DEFAULT_SETTINGS.sortKey).toBe("added");
+    expect(DEFAULT_SETTINGS.sortDescending).toBe(true);
+  });
+
+  it("falls back on a sort key this build has retired", async () => {
+    // The one shape ADR-0019's per-key rule has to survive on a vocabulary:
+    // a newer build's key read by an older one is not a broken library.
+    await write('{ "sortKey": "colour", "sortDescending": false }');
+    expect(await readSettings(dir)).toEqual({ ...DEFAULT_SETTINGS, sortDescending: false });
+  });
+
+  it("clamps a zoom rather than throwing it away", async () => {
+    // The steps are the renderer's, so a number a little outside them is a
+    // build that changed its steps — and forgetting the preference over that
+    // would be worse than snapping it.
+    await write('{ "gridZoom": 100000 }');
+    expect((await readSettings(dir)).gridZoom).toBe(1024);
+    await write('{ "gridZoom": "big" }');
+    expect((await readSettings(dir)).gridZoom).toBe(DEFAULT_SETTINGS.gridZoom);
+  });
+
+  it("takes a view it has never heard of at its word", async () => {
+    // The vocabulary is the window's (ADR-0039 §7): this file checks the shape
+    // and the renderer decides whether it knows the word.
+    await write('{ "gridView": "gallery" }');
+    expect((await readSettings(dir)).gridView).toBe("gallery");
+  });
+
   it("takes what the file says", async () => {
     await write('{ "showSubfolderContents": true }');
     expect(await readSettings(dir)).toEqual({ ...DEFAULT_SETTINGS, showSubfolderContents: true });
@@ -76,6 +107,7 @@ describe("writing settings", () => {
     await writeSettings(dir, { showSubfolderContents: true });
     await writeSettings(dir, { fitVideoToWindow: true });
     expect(await readSettings(dir)).toEqual({
+      ...DEFAULT_SETTINGS,
       showSubfolderContents: true,
       fitVideoToWindow: true,
     });
@@ -84,11 +116,11 @@ describe("writing settings", () => {
   it("keeps a key this build has never heard of", async () => {
     // The same reason an unknown journal op is skipped rather than dropped: a
     // newer build's settings have to survive being opened by an older one.
-    await write('{ "gridZoom": 3, "showSubfolderContents": true }');
+    await write('{ "colourLabels": ["red"], "showSubfolderContents": true }');
     await writeSettings(dir, { showSubfolderContents: false });
 
     const kept: unknown = JSON.parse(await read());
-    expect(kept).toEqual({ gridZoom: 3, showSubfolderContents: false });
+    expect(kept).toEqual({ colourLabels: ["red"], showSubfolderContents: false });
   });
 
   it("says so rather than throwing when it cannot write", async () => {

@@ -702,6 +702,14 @@ button:disabled {
   font-size: var(--text-sm);
 }
 
+/* The mark that says a row opens a submenu, after the value that row is showing
+   — so "Sort By … Date added ›" reads left to right as the sentence it is. */
+.menu-arrow {
+  flex: none;
+  margin-left: var(--space-1);
+  color: var(--text-subtle);
+}
+
 /* The proportion checkbox belongs to Icons above it, and is indented to say so. */
 .menu-item[data-nested] {
   padding-left: var(--space-6);

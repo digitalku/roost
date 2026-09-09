@@ -264,7 +264,13 @@ describe("the engine's message loop", () => {
   it("pages the grid by cursor, and says when there is no next page", async () => {
     await libraryOf(5);
 
-    const first = await ask(1, { type: "assets:page", query: "", limit: 2, after: null });
+    const first = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 2,
+      after: null,
+      sort: null,
+    });
     const firstPage = pageOfHits(first);
     expect(firstPage.names).toHaveLength(2);
     expect(firstPage.next).not.toBeNull();
@@ -273,7 +279,8 @@ describe("the engine's message loop", () => {
       type: "assets:page",
       query: "",
       limit: 2,
-      after: firstPage.next as { importedAt: number; hash: string },
+      after: firstPage.next as { key: number; hash: string },
+      sort: null,
     });
     const secondPage = pageOfHits(second);
     expect(secondPage.names).toHaveLength(2);
@@ -284,7 +291,8 @@ describe("the engine's message loop", () => {
       type: "assets:page",
       query: "",
       limit: 2,
-      after: secondPage.next as { importedAt: number; hash: string },
+      after: secondPage.next as { key: number; hash: string },
+      sort: null,
     });
     // A short page is the last page, and saying so saves the grid a round trip
     // that would only confirm what the row count already said.
@@ -294,7 +302,13 @@ describe("the engine's message loop", () => {
 
   it("sends the grid only the fields a cell draws, and never bytes", async () => {
     await libraryOf(1);
-    const reply = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const reply = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 1,
+      after: null,
+      sort: null,
+    });
     const [card] = (reply as { value: { assets: Record<string, unknown>[] } }).value.assets;
 
     // Invariant 12: a thumbnail reaches the window over `roost://`, never in a
@@ -317,13 +331,31 @@ describe("the engine's message loop", () => {
   it("treats an empty query as the whole library and RQL as a filter", async () => {
     await libraryOf(3);
 
-    const all = await ask(1, { type: "assets:page", query: "", limit: 10, after: null });
+    const all = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 10,
+      after: null,
+      sort: null,
+    });
     expect(pageOfHits(all).names).toHaveLength(3);
 
-    const txt = await ask(2, { type: "assets:page", query: "ext:txt", limit: 10, after: null });
+    const txt = await ask(2, {
+      type: "assets:page",
+      query: "ext:txt",
+      limit: 10,
+      after: null,
+      sort: null,
+    });
     expect(pageOfHits(txt).names).toHaveLength(3);
 
-    const none = await ask(3, { type: "assets:page", query: "ext:png", limit: 10, after: null });
+    const none = await ask(3, {
+      type: "assets:page",
+      query: "ext:png",
+      limit: 10,
+      after: null,
+      sort: null,
+    });
     expect(pageOfHits(none)).toEqual({ names: [], next: null });
   });
 
@@ -331,7 +363,13 @@ describe("the engine's message loop", () => {
     await libraryOf(1);
     // An empty grid would look like a library with nothing in it. The search
     // field needs to be able to say where the query went wrong.
-    const reply = await ask(1, { type: "assets:page", query: "rating:>>", limit: 10, after: null });
+    const reply = await ask(1, {
+      type: "assets:page",
+      query: "rating:>>",
+      limit: 10,
+      after: null,
+      sort: null,
+    });
     expect(reply?.ok).toBe(false);
   });
 
@@ -411,6 +449,7 @@ describe("the engine's message loop", () => {
         query: place.query,
         limit: 5,
         after: null,
+        sort: null,
       });
       expect({ query: place.query, ok: reply?.ok }).toEqual({ query: place.query, ok: true });
     }
@@ -452,7 +491,13 @@ describe("the engine's message loop", () => {
 
   it("reads one asset back with everything the inspector shows", async () => {
     await libraryOf(1);
-    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const page = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 1,
+      after: null,
+      sort: null,
+    });
     const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
 
     const reply = await ask(2, { type: "asset:detail", hash });
@@ -511,7 +556,13 @@ describe("the engine's message loop", () => {
 
   it("applies each edit and lets the reader see what the engine made of it", async () => {
     await libraryOf(1);
-    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const page = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 1,
+      after: null,
+      sort: null,
+    });
     const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
     const detail = async (): Promise<Record<string, unknown>> => {
       const reply = await ask(99, { type: "asset:detail", hash });
@@ -570,7 +621,13 @@ describe("the engine's message loop", () => {
     }
     await ask(100, { type: "library:open", path: root });
 
-    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const page = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 1,
+      after: null,
+      sort: null,
+    });
     const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
     const folders = async (): Promise<unknown> => {
       const reply = await ask(99, { type: "asset:detail", hash });
@@ -592,7 +649,13 @@ describe("the engine's message loop", () => {
     expect(await folders()).toEqual([]);
 
     // The asset itself is untouched: a folder is a collection, not a location.
-    const after = await ask(5, { type: "assets:page", query: "", limit: 1, after: null });
+    const after = await ask(5, {
+      type: "assets:page",
+      query: "",
+      limit: 1,
+      after: null,
+      sort: null,
+    });
     expect((after as { value: { assets: unknown[] } }).value.assets).toHaveLength(1);
   });
 
@@ -609,7 +672,13 @@ describe("the engine's message loop", () => {
     }
     await ask(100, { type: "library:open", path: root });
 
-    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const page = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 1,
+      after: null,
+      sort: null,
+    });
     const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
 
     const made = await ask(2, { type: "folder:create", name: "Design", parent: null });
@@ -651,7 +720,13 @@ describe("the engine's message loop", () => {
 
   it("carries comments on the asset they are about, in timeline order", async () => {
     await libraryOf(1);
-    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const page = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 1,
+      after: null,
+      sort: null,
+    });
     const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
     const comments = async (): Promise<Record<string, unknown>[]> => {
       const reply = await ask(99, { type: "asset:detail", hash });
@@ -699,7 +774,13 @@ describe("the engine's message loop", () => {
 
   it("refuses a comment the format cannot hold", async () => {
     await libraryOf(1);
-    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const page = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 1,
+      after: null,
+      sort: null,
+    });
     const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
 
     // Refused by the contract before the engine is asked, and therefore
@@ -724,7 +805,13 @@ describe("the engine's message loop", () => {
 
   it("refuses a rating the schema will not hold", async () => {
     await libraryOf(1);
-    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const page = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 1,
+      after: null,
+      sort: null,
+    });
     const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
 
     const reply = await ask(2, { type: "asset:rate", hashes: [hash], rating: 9 });
@@ -733,7 +820,13 @@ describe("the engine's message loop", () => {
 
   it("announces that the library changed, once per edit", async () => {
     await libraryOf(1);
-    const page = await ask(1, { type: "assets:page", query: "", limit: 1, after: null });
+    const page = await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 1,
+      after: null,
+      sort: null,
+    });
     const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
 
     const events = (): unknown[] =>

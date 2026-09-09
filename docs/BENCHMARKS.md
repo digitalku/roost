@@ -37,6 +37,7 @@ tables behind each decision.
 | Import throughput | **4,900 files/sec** at 100k assets | M1, against a target of ≥300/sec |
 | Search p95 | **6–30 ms** on 95k assets | M2, against a budget of <100 ms at 1M |
 | Grid filter query (`ext:png`) | **18.9 ms** before, **0.51 ms** after migration 0005 | The sort key inside the filter index; 37× |
+| Grid ordered by name | **28.6 ms** before, **0.05 ms** after migration 0014 | One index per sort key; ADR-0039 |
 | First grid page | **369–435 ms** on 96,666 assets | M3 |
 | Dropped frames, reading speed | **none**, across three consecutive runs | M3, on WebKitGTK |
 | Dropped frames, flinging | **0.25%** through 79,800 assets | M3, on WebKitGTK |
@@ -53,6 +54,76 @@ target now under pressure — and it is measured from M3, the first milestone th
 rather than assumed until someone complains.
 
 ## 3. Results
+
+### 2026-09-09 — the orders a view menu can ask for (ADR-0039)
+
+Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe. Node 22.23.1. 95,001 assets
+from `roost fixture --count 100000 --size 2048 --seed 5`, warm page cache. Measured through
+`MATCH_LIVE`, which is the scope every grid query carries and the scope every index is partial to —
+a query without it cannot use one and would measure a plan no window ever asks for.
+
+**The first page of the unfiltered grid, before and after migration 0014's indexes:**
+
+| Order | Without an index | With | Plan without |
+| --- | --- | --- | --- |
+| `added` (the only order there was) | 0.07 ms | **0.07 ms** | index seek |
+| `name` | 28.6 ms | **0.05 ms** | TEMP B-TREE |
+| `size` | 30.4 ms | **0.06 ms** | TEMP B-TREE |
+| `created` | 28.0 ms | **0.06 ms** | TEMP B-TREE |
+| `rating` | 31.1 ms | **0.07 ms** | TEMP B-TREE |
+
+The 28–35 ms is SQLite reading the whole match set into a sorter to produce one screen — the same
+plan migration 0005 was written to avoid, arriving again through a different door. At a million
+assets it is ~300 ms against a 100 ms p95 budget, which is why every key gets an index and why
+`random` is the one that cannot.
+
+**Resuming: one predicate against two seeks.** Page 500, walked by cursor:
+
+| Order | `key ≥ @k AND (key > @k OR hash > @h)` | Two seeks, `UNION ALL` |
+| --- | --- | --- |
+| `rating` | 5.82 ms | **0.06 ms** |
+| `created` | 3.66 ms | **0.06 ms** |
+| `name` | 3.38 ms | **0.04 ms** |
+| `size` | 2.11 ms | **0.05 ms** |
+
+This is the measurement that decided the shape of `searchSql`. Written as one predicate, SQLite
+seeks on the key and then **walks the entire run of rows sharing it** — invisible in any fixture
+small enough to write down, and unavoidable in real data: a rating has six values, and this fixture
+has one distinct size across 95,001 rows, which is the worst case a library can present. Split into
+a seek for *the same key, a later hash* and a seek for *beyond the key*, both halves are ranges over
+an index that already holds `(key, hash)`.
+
+**Every order, at the first page and at page 200** (`scripts/bench-search.ts`):
+
+| Order | First page p95 | Page 200 p95 |
+| --- | --- | --- |
+| `added` | 0.11 ms | 0.14 ms |
+| `created` | 0.11 ms | 0.17 ms |
+| `name` | 0.27 ms | 0.14 ms |
+| `size` | 0.11 ms | 0.17 ms |
+| `rating` | 0.11 ms | 0.16 ms |
+| `random` | **18.39 ms** | **24.00 ms** |
+
+**What this revealed.** Three things, and the third is the one worth carrying forward.
+
+- **A mixed order is what made the resume hard, and it was removable.** `hash` ascending under a
+  descending timestamp meant one index served a single direction and the cursor could not be a
+  comparison of the pair — a comment `searchSql` had carried since M2. Turning the tie-break to
+  follow the key made both directions of every key one index walk, forwards or backwards.
+- **`random` costs what it costs, and it is constant.** 18.4 ms at page 1 and 24.0 ms at page 200:
+  the seeded rotation of the hash is a full index scan with a sorter every time, so paging into it
+  does not get worse — it is simply never cheap. At a million that is ~200 ms, above the search
+  budget, and ADR-0039 §5 accepts it deliberately rather than shipping a shuffle that is one fixed
+  cyclic order.
+- **A filtered sort is the number nobody has paid for yet.** `ext:png` ordered by name is 10.46 ms
+  and by size 6.52 ms, against 0.10 ms for the same filter in the default order: SQLite seeks the
+  filter's index and sorts the ~19,000 matches. Fixing it means a composite index per key *per
+  filter*, five by four, all maintained on every insert against a ≥300 imports/sec target. Recorded
+  here so the trade is visible if a library ever makes it matter.
+
+**Correctness at scale, checked with the timings**: every one of the six orders, both directions,
+paged the whole library — 951 pages of 100 — and returned each of the 95,001 assets exactly once,
+including the two pathological keys this fixture has (one distinct size, no ratings at all).
 
 ### 2026-08-29 — deriving, per backend (M4)
 

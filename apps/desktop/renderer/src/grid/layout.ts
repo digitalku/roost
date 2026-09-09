@@ -48,17 +48,38 @@ export interface Layout {
   readonly order: readonly Tile[];
 }
 
-/** The three views the view menu offers (ADR-0018). */
-export const GRID_VIEWS = ["icons", "compact", "details"] as const;
-export type GridView = (typeof GRID_VIEWS)[number];
+/**
+ * The three views the view menu offers (ADR-0018).
+ *
+ * The vocabulary moved to `@roost/contract` when the chosen view began being
+ * remembered in the library (ADR-0039 §7) — a preference that crosses the
+ * boundary needs a word on both sides of it. It is re-exported here because
+ * this is where the renderer looks for it, and because what each view *is*
+ * remains entirely this file's business.
+ */
+import type { GridView } from "@roost/contract";
 
-export function isGridView(value: string): value is GridView {
-  return (GRID_VIEWS as readonly string[]).includes(value);
-}
+export { GRID_VIEWS, type GridView, isGridView } from "@roost/contract";
 
 /** The zoom targets, snapped rather than free (`UI_SPEC.md` §6). */
 export const ZOOM_STEPS = [120, 160, 200, 240, 300, 360, 400] as const;
 export const DEFAULT_ZOOM = 240;
+
+/**
+ * The step nearest `target`, for a zoom coming back from `settings.json`.
+ *
+ * The steps are the renderer's and the stored number is only a number, so a
+ * build that changes them must not throw away what somebody chose. Snapping to
+ * the nearest keeps the size they were working at; falling back to the default
+ * would be the application forgetting.
+ */
+export function nearestZoom(target: number): number {
+  let best: number = DEFAULT_ZOOM;
+  for (const step of ZOOM_STEPS) {
+    if (Math.abs(step - target) < Math.abs(best - target)) best = step;
+  }
+  return best;
+}
 
 /** Moves along {@link ZOOM_STEPS}, stopping at the ends. */
 export function zoomBy(target: number, steps: number): number {

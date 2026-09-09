@@ -93,7 +93,10 @@ describe("importing", () => {
       details: [fakeDetail(0, { ext: "mp4", kind: "video" })],
     });
 
-    await user.dblClick(screen.getAllByRole("option")[0] as HTMLElement);
+    // Awaited rather than read: the grid pages once the library has answered
+    // with the order it is in (ADR-0039 §7), which is a round trip after the
+    // library itself.
+    await user.dblClick(await screen.findByRole("option", { name: "holiday.mp4" }));
     await screen.findByRole("dialog");
 
     // The overlay says what will happen, since it cannot say what is held.

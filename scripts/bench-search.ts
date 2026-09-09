@@ -13,7 +13,14 @@
  * would hide whichever one moved.
  */
 import { parseArgs } from "node:util";
-import { DEFAULT_PAGE_LIMIT, lastCursor, MATCH_ALL } from "@roost/core";
+import {
+  DEFAULT_PAGE_LIMIT,
+  lastCursor,
+  MATCH_ALL,
+  MATCH_LIVE,
+  SORT_KEYS,
+  type Sort,
+} from "@roost/core";
 import { compileFor, Library } from "@roost/library";
 
 /** Queries chosen to reach a different part of the schema each. */
@@ -78,6 +85,7 @@ try {
     );
   }
   pagingCost(library);
+  sortCost(library, runs);
 } finally {
   await library.close();
 }
@@ -111,6 +119,58 @@ function pagingCost(library: Library): void {
   console.log(`\nPaging ${costs.length} pages of ${DEFAULT_PAGE_LIMIT}, keyset, never OFFSET`);
   console.log(`  first 10 pages p95 ${ms(percentile(first, 95))}`);
   console.log(`  last 10 pages  p95 ${ms(percentile(last, 95))}`);
+}
+
+/**
+ * What each order costs, at the first page and deep into the listing.
+ *
+ * The two halves are separate claims. The **first page** is the one migration
+ * 0014's indexes exist for: without them SQLite reads the match set into a
+ * sorter to produce one screen. **Page 200** is the resume, which is written as
+ * two seeks rather than one predicate because a key with few distinct values —
+ * a rating has six — makes the single-predicate form walk the whole run of
+ * equal keys (ADR-0039 §4).
+ *
+ * `random` is measured with the rest and is expected to be the slow one: it is
+ * a seeded rotation of the hash with no index and cannot have one, and the
+ * number here is what that costs.
+ *
+ * Measured through `MATCH_LIVE` rather than `MATCH_ALL`, unlike the paging cost
+ * above it: every index the schema has is **partial**, scoped to live rows
+ * (migrations 0007 and 0010), so a query without that scope cannot use one and
+ * would measure a plan no window ever asks for.
+ */
+function sortCost(library: Library, runs: number): void {
+  console.log(`\nOrders, one page of ${DEFAULT_PAGE_LIMIT} (ADR-0039)`);
+  console.log("      first p95   page 200 p95   key");
+
+  for (const key of SORT_KEYS) {
+    const sort: Sort = { key, descending: true, seed: 7 };
+    const first: number[] = [];
+    for (let run = 0; run < runs; run += 1) {
+      const started = performance.now();
+      library.db.repo.search(MATCH_LIVE, { limit: DEFAULT_PAGE_LIMIT, sort });
+      first.push(performance.now() - started);
+    }
+
+    // Walked rather than jumped, because a cursor is the only way to reach page
+    // 200 — which is the whole point of the shape being measured.
+    let after = undefined as ReturnType<typeof lastCursor>;
+    const deep: number[] = [];
+    for (let page = 0; page < 200; page += 1) {
+      const started = performance.now();
+      const hits = library.db.repo.search(MATCH_LIVE, {
+        limit: DEFAULT_PAGE_LIMIT,
+        sort,
+        ...(after && { after }),
+      });
+      deep.push(performance.now() - started);
+      after = lastCursor(hits);
+      if (after === undefined) break;
+    }
+
+    console.log(`${ms(percentile(first, 95))}  ${ms(percentile(deep.slice(-10), 95))}   ${key}`);
+  }
 }
 
 function percentile(samples: readonly number[], p: number): number {

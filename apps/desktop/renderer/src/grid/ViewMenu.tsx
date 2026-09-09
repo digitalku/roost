@@ -1,3 +1,4 @@
+import { SORT_KEYS, type SortKey, type WireSort } from "@roost/contract";
 import { DropdownMenu } from "radix-ui";
 import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, ZOOM_STEPS } from "./layout.js";
 
@@ -5,10 +6,16 @@ import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, ZOOM_STEPS } from "./layout.js
  * The view control: one toolbar button, one menu (ADR-0018).
  *
  * The shape is a file manager's — a radio group of named views with `Ctrl+1..3`,
- * then zoom, then sort, then grouping — because that is where somebody who has
- * used a computer already looks for "show me a table with a size column". The
- * two-button toggle it replaces taught nothing and had nowhere to put the two
- * things `UI_SPEC.md` §6 had promised since M3.
+ * then zoom, then sort — because that is where somebody who has used a computer
+ * already looks for "show me a table with a size column". The two-button toggle
+ * it replaces taught nothing and had nowhere to put the things `UI_SPEC.md` §6
+ * had promised since M3.
+ *
+ * **Group By is not here and is not coming.** It stood in this menu as a
+ * disabled promise from ADR-0018 until 2026-09-09, when the user asked for the
+ * sort and said to drop the half that had never been built. A menu item that
+ * has never done anything is a menu item nobody should read twice (ADR-0039
+ * §8).
  *
  * **Match image proportions is a checkbox under Icons, not a fourth view.** It
  * is the layout formerly called masonry, and it is a property of how an icon is
@@ -27,22 +34,54 @@ const LABELS: Readonly<Record<GridView, string>> = {
   details: "Details",
 };
 
+/**
+ * What each order is called, which way round it runs by default, and what the
+ * two ways are called in that key's own words.
+ *
+ * The words are the key's rather than a direction: nobody wants "imported
+ * ascending", they want *Newest first*. `descending` is what the engine is told
+ * (ADR-0039), and this table is the only place the two vocabularies meet.
+ *
+ * **Choosing a key sets its own direction**, because the answer somebody wants
+ * from a key is nearly always the same one: newest, largest, highest — and A to
+ * Z, which is the one that runs the other way. Keeping the last key's direction
+ * would make *Name* mean Z to A for anyone who had been looking at the newest
+ * first, which is every library by default.
+ */
+const SORTS: Readonly<
+  Record<SortKey, { label: string; down: string; up: string; descending: boolean }>
+> = {
+  added: { label: "Date added", down: "Newest first", up: "Oldest first", descending: true },
+  created: { label: "Date created", down: "Newest first", up: "Oldest first", descending: true },
+  name: { label: "Name", down: "Z to A", up: "A to Z", descending: false },
+  size: { label: "Size", down: "Largest first", up: "Smallest first", descending: true },
+  rating: { label: "Rating", down: "Highest first", up: "Lowest first", descending: true },
+  random: { label: "Random", down: "Shuffled", up: "Shuffled", descending: false },
+};
+
 export interface ViewMenuProps {
   readonly view: GridView;
   readonly proportional: boolean;
   readonly zoom: number;
+  readonly sort: WireSort;
   readonly onView: (view: GridView) => void;
   readonly onProportional: (proportional: boolean) => void;
   readonly onZoom: (zoom: number) => void;
+  readonly onSort: (sort: WireSort) => void;
+  /** Rolls a new shuffle, which is the only way `random` changes (ADR-0039). */
+  readonly onShuffle: () => void;
 }
 
 export function ViewMenu({
   view,
   proportional,
   zoom,
+  sort,
   onView,
   onProportional,
   onZoom,
+  onSort,
+  onShuffle,
 }: ViewMenuProps): React.JSX.Element {
   const first = ZOOM_STEPS[0] ?? DEFAULT_ZOOM;
   const last = ZOOM_STEPS[ZOOM_STEPS.length - 1] ?? DEFAULT_ZOOM;
@@ -131,21 +170,69 @@ export function ViewMenu({
           <DropdownMenu.Separator className="menu-separator" />
 
           {/*
-            Promised here because this is where a person looks for them, and
-            disabled because neither is a renderer change: the application has
-            one order — `imported_at DESC, hash` — and keyset paging plus every
-            composite index in migration 0005 is built on it (ADR-0018).
+            A submenu rather than eleven more rows: the key and the direction
+            are one decision made in two parts, and the trigger says which one
+            is on so the answer is readable without opening it.
           */}
-          <DropdownMenu.Item className="menu-item" disabled>
-            <span className="menu-mark" />
-            <span className="menu-label">Sort By</span>
-            <span className="menu-accelerator">›</span>
-          </DropdownMenu.Item>
-          <DropdownMenu.Item className="menu-item" disabled>
-            <span className="menu-mark" />
-            <span className="menu-label">Group By</span>
-            <span className="menu-accelerator">›</span>
-          </DropdownMenu.Item>
+          <DropdownMenu.Sub>
+            <DropdownMenu.SubTrigger className="menu-item">
+              <span className="menu-mark" />
+              <span className="menu-label">Sort By</span>
+              <span className="menu-accelerator">{SORTS[sort.key].label}</span>
+              <span className="menu-arrow" aria-hidden="true">
+                ›
+              </span>
+            </DropdownMenu.SubTrigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.SubContent className="menu" sideOffset={2} collisionPadding={8}>
+                <DropdownMenu.RadioGroup
+                  value={sort.key}
+                  onValueChange={(next) =>
+                    onSort({
+                      ...sort,
+                      key: next as SortKey,
+                      descending: SORTS[next as SortKey].descending,
+                    })
+                  }
+                >
+                  {SORT_KEYS.map((key) => (
+                    <DropdownMenu.RadioItem key={key} className="menu-item" value={key}>
+                      <span className="menu-mark">{sort.key === key ? "●" : ""}</span>
+                      <span className="menu-label">{SORTS[key].label}</span>
+                    </DropdownMenu.RadioItem>
+                  ))}
+                </DropdownMenu.RadioGroup>
+
+                <DropdownMenu.Separator className="menu-separator" />
+
+                {/*
+                  A shuffle has no direction — reversing one is another shuffle
+                  — so where the two ways round would be, `random` offers the
+                  one thing it can be asked for instead.
+                */}
+                {sort.key === "random" ? (
+                  <DropdownMenu.Item className="menu-item" onSelect={() => onShuffle()}>
+                    <span className="menu-mark" />
+                    <span className="menu-label">Shuffle again</span>
+                  </DropdownMenu.Item>
+                ) : (
+                  <DropdownMenu.RadioGroup
+                    value={sort.descending ? "down" : "up"}
+                    onValueChange={(next) => onSort({ ...sort, descending: next === "down" })}
+                  >
+                    {(["down", "up"] as const).map((way) => (
+                      <DropdownMenu.RadioItem key={way} className="menu-item" value={way}>
+                        <span className="menu-mark">
+                          {sort.descending === (way === "down") ? "●" : ""}
+                        </span>
+                        <span className="menu-label">{SORTS[sort.key][way]}</span>
+                      </DropdownMenu.RadioItem>
+                    ))}
+                  </DropdownMenu.RadioGroup>
+                )}
+              </DropdownMenu.SubContent>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Sub>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
