@@ -69,6 +69,7 @@ import {
   readSidebar,
   reclaim,
   reclaimableBytes,
+  releaseNowSupported,
   rememberLibrary,
   removeAssets,
   removeComment,
@@ -89,8 +90,13 @@ import {
   trashAssets,
   unsoundForReclaim,
 } from "@roost/library";
-import { capabilities } from "@roost/media";
-import { formatFromExtension, isConvertible, kindOf } from "@roost/media/serving";
+import { capabilities, refreshCapabilities } from "@roost/media";
+import {
+  formatFromExtension,
+  isBrowserDrawable,
+  isConvertible,
+  kindOf,
+} from "@roost/media/serving";
 import { joinQuery, QueryError, splitQuery, withSubfolders } from "@roost/search";
 
 /**
@@ -428,10 +434,17 @@ export class EngineHost {
         return this.#deriveStatus();
 
       case "derive:failures":
-        return deriveFailures(this.#require());
+        return deriveFailures(this.#require(), { state: request.state });
 
       case "derive:retry": {
         const library = this.#require();
+        // **Probe again first.** The whole point of this button is that
+        // somebody has just installed the thing that was missing, and the
+        // capabilities are cached for the life of the process (ADR-0017) — so
+        // without this, releasing the work only hands it back to a backend this
+        // process still believes is absent. It was never wired until the day
+        // libheif arrived and proved it (ADR-0040 §6).
+        await refreshCapabilities();
         retryBlocked(library, request.reason ?? undefined);
         // Every failure, however many times it has already been tried. The
         // attempts cap belongs to the sweep that offers work again on its own;
@@ -689,6 +702,7 @@ export class EngineHost {
         available: capability.available,
         version: capability.version,
         detail: capability.detail,
+        install: capability.install,
       })),
     };
   }
@@ -758,6 +772,12 @@ export class EngineHost {
     await this.close();
     this.#library = library;
     log.info("library opened", { root: library.root, name: library.manifest.name });
+
+    // Work parked on a format this build has since learned to draw. First,
+    // because it decides what the sweep below finds still missing — and because
+    // a parked `unsupported:heic` is a fact about the build that wrote it
+    // rather than about the file (ADR-0040 §6).
+    releaseNowSupported(library);
 
     // Whatever the last session left undone, plus whatever a rebuild dropped.
     // Queued and worked in the background, so opening a library is not held up
@@ -999,6 +1019,7 @@ function detailOf(
     name: detail.origName,
     ext: detail.ext,
     kind: kindOf(formatFromExtension(detail.ext)) satisfies AssetKind,
+    browserDrawable: isBrowserDrawable(formatFromExtension(detail.ext)),
     size: detail.size,
     posterMs: detail.posterMs,
     width: detail.width,

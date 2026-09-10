@@ -2,6 +2,8 @@ import { decoderVersions } from "./decoder.js";
 import { documentVersion } from "./document.js";
 import { ffmpegVersion, ffprobeVersion } from "./ffmpeg.js";
 import type { Format } from "./format.js";
+import { heifVersion } from "./heif.js";
+import { installCommand } from "./install.js";
 import { vectorVersion } from "./vector.js";
 
 /**
@@ -14,7 +16,7 @@ import { vectorVersion } from "./vector.js";
  * arriving later changes nothing but this table.
  */
 
-export const CAPABILITIES = ["images", "vectors", "documents", "media"] as const;
+export const CAPABILITIES = ["images", "vectors", "documents", "media", "heif"] as const;
 
 export type CapabilityName = (typeof CAPABILITIES)[number];
 
@@ -33,6 +35,16 @@ export interface Capability {
    * `roost doctor` and by the UI when something is missing.
    */
   readonly detail: string;
+  /**
+   * The command that would install it, on this machine, or `null` when it is
+   * already here (ADR-0040 §5).
+   *
+   * Separate from `detail` because the two are read in different places and at
+   * different lengths: the status bar has room for a sentence, and a shell
+   * command belongs where it can be copied rather than where it can be
+   * truncated.
+   */
+  readonly install: string | null;
   /** The formats this backend is responsible for. */
   readonly formats: readonly Format[];
 }
@@ -43,6 +55,9 @@ export const CAPABILITY_FORMATS: Readonly<Record<CapabilityName, readonly Format
   vectors: ["svg", "ttf", "otf", "woff", "woff2"],
   documents: ["pdf"],
   media: ["mp4", "mkv", "webm", "ogg", "flac", "mp3", "wav"],
+  // `heic` is the whole of it, and it is deliberately not in `images`: sharp
+  // reads the container and cannot decode what is inside it (ADR-0040 §2).
+  heif: ["heic"],
 };
 
 /** The backend responsible for a format, or `undefined` if nothing draws it. */
@@ -86,7 +101,11 @@ export async function capability(name: CapabilityName): Promise<Capability> {
 }
 
 async function probe(): Promise<readonly Capability[]> {
-  const [ffmpeg, ffprobe] = await Promise.all([ffmpegVersion(), ffprobeVersion()]);
+  const [ffmpeg, ffprobe, heif] = await Promise.all([
+    ffmpegVersion(),
+    ffprobeVersion(),
+    heifVersion(),
+  ]);
   const decoder = decoderVersions();
 
   return [
@@ -95,6 +114,7 @@ async function probe(): Promise<readonly Capability[]> {
       available: true,
       version: `libvips ${decoder.libvips}`,
       detail: `sharp ${decoder.sharp}, ${decoder.build} build`,
+      install: null,
       formats: CAPABILITY_FORMATS.images,
     },
     {
@@ -102,6 +122,7 @@ async function probe(): Promise<readonly Capability[]> {
       available: true,
       version: vectorVersion(),
       detail: "resvg in WebAssembly, with no filesystem access",
+      install: null,
       formats: CAPABILITY_FORMATS.vectors,
     },
     {
@@ -109,6 +130,7 @@ async function probe(): Promise<readonly Capability[]> {
       available: true,
       version: documentVersion(),
       detail: "pdfium in WebAssembly, with no filesystem access",
+      install: null,
       formats: CAPABILITY_FORMATS.documents,
     },
     {
@@ -121,7 +143,19 @@ async function probe(): Promise<readonly Capability[]> {
         ffmpeg !== null && ffprobe !== null
           ? `ffmpeg ${ffmpeg}, ffprobe ${ffprobe}`
           : "install ffmpeg for video and audio previews",
+      install: ffmpeg !== null && ffprobe !== null ? null : installCommand("media"),
       formats: CAPABILITY_FORMATS.media,
+    },
+    {
+      name: "heif",
+      // A version alone is not the question: `heif-dec` runs on a Fedora that
+      // has no HEVC decoder for it at all, and answers every photograph with a
+      // refusal. `heifVersion` reports one only when a decoder is listed too.
+      available: heif !== null,
+      version: heif,
+      detail: heif !== null ? `libheif ${heif}` : "install libheif for HEIC photographs",
+      install: heif !== null ? null : installCommand("heif"),
+      formats: CAPABILITY_FORMATS.heif,
     },
   ];
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fallbackToGrid, gridSrc, previewSrc } from "./thumbnail.js";
+import { fallbackFromRendition, fallbackToGrid, gridSrc, previewSrc } from "./thumbnail.js";
 
 /** A stand-in for the one field the handler reads and writes. */
 function imageEvent(src: string): {
@@ -55,5 +55,30 @@ describe("a thumbnail's address", () => {
     const { event, image } = imageEvent(previewSrc(HASH, 91_500));
     fallbackToGrid(event);
     expect(image.src).toBe(gridSrc(HASH, 91_500));
+  });
+});
+
+describe("stepping down from a rendition", () => {
+  const HASH = "a".repeat(64);
+
+  it("falls back to the picture Roost already derived", () => {
+    // A rendition can fail for reasons the window cannot see — no libheif, a
+    // RAW with no embedded preview (ADR-0040 §7) — and the thumbnail is a
+    // better answer than a broken-image glyph.
+    const { event, image } = imageEvent(`roost://render/${HASH}`);
+
+    fallbackFromRendition(event);
+
+    expect(image.src).toBe(previewSrc(HASH));
+  });
+
+  it("keeps stepping, one step at a time, and gives up rather than looping", () => {
+    const preview = imageEvent(previewSrc(HASH));
+    fallbackFromRendition(preview.event);
+    expect(preview.image.src).toBe(gridSrc(HASH));
+
+    const grid = imageEvent(gridSrc(HASH));
+    fallbackFromRendition(grid.event);
+    expect(grid.image.hidden).toBe(true);
   });
 });

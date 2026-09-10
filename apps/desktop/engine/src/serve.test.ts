@@ -527,6 +527,8 @@ describe("the engine's message loop", () => {
     // the two types are allowed to differ, and this is the place that notices.
     expect(Object.keys(value).sort()).toEqual(
       [
+        // Whether the pane may load the file into an `<img>` (ADR-0040 §7).
+        "browserDrawable",
         "comments",
         "createdAt",
         "durationMs",

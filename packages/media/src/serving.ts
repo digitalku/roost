@@ -12,6 +12,7 @@
 export {
   type Format,
   formatFromExtension,
+  isBrowserDrawable,
   isFormat,
   kindOf,
   mediaTypeOf,

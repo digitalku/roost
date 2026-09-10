@@ -416,6 +416,58 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟢 **`--dry-run` opens no Roost library**, so it answers "what is in this Eagle library" before
   there is anywhere to put it. It is the only subcommand of `import` that does not need one.
 
+### HEIC photographs (ADR-0040, 2026-09-10)
+- ☑ ~~**A HEIC used to be handed to ffmpeg as if it were a video.**~~ A HEIF is ISO base media, so
+  the sniffer's `ftyp` branch fell through to `mp4`; from the extension it was `unknown`, so the
+  grid called it `other`. It was neither an image nor a video to Roost. `heic` is now a format with
+  `kind: image`, sniffed from the ten major brands a camera writes, with `.heic`/`.heif`/`.hif`
+  mapped from the extension. **The AVIF test runs first**, because AVIF carries the generic `mif1`
+  brand too.
+- ☑ ~~**The decoder is the system's libheif, never Roost's.**~~ HEVC is patent-encumbered and Roost
+  is a proprietary binary (ADR-0038): a bundled decoder is a licensing question, not a packaging
+  one. Nor is sharp a way round it: on Linux it is built against the system's libvips, and libheif
+  refuses a 48-tile photograph on its own security limits even with the HEVC plugin present.
+  A fifth capability, `heif`, through `heif-dec` — 0.19 s per photograph to JPEG, tiles
+  assembled and rotation applied. **PNG output costs 1.35 s**, which is the whole reason the
+  intermediate is a JPEG.
+- ☑ ~~**A version is not a capability.**~~ Fedora ships `libheif-tools` in its own repositories and
+  the HEVC plugin in none of them, so `heif-dec` installs, runs, reports 1.21.2, and refuses every
+  photograph. The probe reads `--list-decoders` and wants a non-empty `HEIC decoders:` section.
+- ☑ ~~**`refreshCapabilities()` was never called anywhere.**~~ `capability.ts` has claimed since M4
+  that it is "the UI's try again"; nothing called it, so *install the tool, then press Try again*
+  could not work in a running window — for ffmpeg either. `derive:retry` probes again first.
+- ☑ ~~**A parked reason can outlive the build that wrote it.**~~ `unsupported:heic` is a fact about
+  a build. Nothing in the window could release it — the capability retry matches `missing:`, and an
+  unsupported format has nothing to install — so every HEIC already in a library would have stayed
+  parked forever. `releaseNowSupported()` runs when a library opens.
+- ☑ ~~**The preview pane could never show a HEIC, a RAW, or a TIFF.**~~ Older than this work: the
+  pane loads the file's own bytes into an `<img>` and Chromium decodes none of the three, so all
+  three opened as a thumbnail in the grid and a blank pane after it. `roost://render/<hash>` serves
+  a rendition at full size — measured in a real window at 3024×4032 — and a rendition that cannot
+  be made steps down to the thumbnail rather than to a broken-image glyph.
+- ☑ ~~**The numbers are in `BENCHMARKS.md`, and the path has a window check.**~~ Both were the gap
+  between "it works" and "it is guarded": `bench-derive.ts` now measures HEIC beside the other
+  backends, and `check-heic.mjs` drives a real window twice — once with libheif, once with
+  `ROOST_HEIF_DEC` pointed at nothing, which is the only way the parked state and its install line
+  are ever exercised on a machine that has the decoder. It **skips loudly** where libheif is
+  absent, because a check that quietly passed without it would assert nothing.
+- 🟢 **Only the Fedora install line is verified.** `install.ts` names a command per distribution
+  from `/etc/os-release`; Fedora's two packages were run on this machine, and the Debian, Arch and
+  SUSE lines come from each distribution's package index and have not been. An unrecognised system
+  is told what it needs rather than given a command that may not exist. Worth checking one line at
+  a time, whenever somebody has the machine to check it on.
+- 🟢 **A rendition is made again every time it is asked for.** 0.19 s for a HEIC, `max-age=3600`,
+  nothing stored. Caching them in `index.db` would be megabytes each and a derived column for
+  `rebuild` to worry about (invariant 1). Revisit if the pane ever feels slow on a slow disk.
+- 🟢 **The `media` capability does not check for HEVC the way `heif` does.** ADR-0040 §2 made the
+  point for libheif — a version is not a capability — and ffmpeg has the same shape: Fedora's
+  `ffmpeg-free` runs, reports 8.1.2, and has **no `hevc` decoder at all**, so an iPhone `.mov`
+  fails its derive with ffmpeg's own words rather than parking with something to install. Reading
+  `ffmpeg -decoders` once per session would fix it, and the honest version is a small table of
+  codec-to-package rather than one flag. Nobody has hit it yet in a library here.
+- 🟢 **No HEIC encoding, and no animated HEIF.** Roost reads them and never writes one; a Live
+  Photo's video half is a separate file on the phone.
+
 ### What could not be drawn (2026-09-10)
 - ☑ ~~**"36 could not be drawn" opens a list instead of retrying.**~~ Asked for from the user's own
   library: *"ada keterangan 36 could not be drawn. apakah bisa buat lebih informatif?"* The number
@@ -435,9 +487,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   somebody just pressed: a library whose failures had been retried three times had a *Try again*
   that did nothing and said nothing. A retry that came from a person is now uncapped, and the group
   says how many times it has already been tried so the button is a known quantity.
-- 🟢 **The blocked line still has no list.** *"3 without a preview"* stays a plain span: those are
-  formats nothing in this build draws, and a list of them would be a list of correct outcomes. If a
-  reason ever needs naming there, `derive:failures` is the shape to copy — it takes a state.
+- ☑ ~~**The blocked line now opens the same list.**~~ Written the same day as a *"whenever"* and
+  answered by the user's own library within hours: `19 without a preview` and no way to learn which
+  nineteen — they had to ask. `derive:failures` takes a state, both lines are buttons, and a group
+  parked on a missing backend carries the command that would supply it with its own **Try again**.
+  A group parked on `unsupported:` still gets no button, because nothing arriving would change it.
 - 🟢 **A failure cannot be reached from the grid.** The list names files; it does not select them,
   because there is no term for "has no thumbnail" and inventing one is a grammar change
   (`DATA_MODEL.md` §1). Worth doing if somebody wants to trash or re-import the whole set at once —
@@ -1517,6 +1571,27 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
     prebuilt, and `--ozone-platform-hint=auto` in the `start` script is a Linux flag.
   - Packaging targets, signing, and whether ffmpeg is bundled are an ADR of their own when the
     milestone arrives — the same question M6 answers for Linux, asked again.
+
+### The window's own scrollbar (2026-09-10)
+
+- ☑ ~~**The status bar's failure count stood half a pixel out of the bar.**~~ It is the one line
+  in the status bar that is a `button`, so it took `--control-height` from the element rule, and
+  the bar's content box is that height *minus its own top border*: 28px in 27px, centred, which
+  put 0.5px below the window and made Chromium draw a scrollbar for the viewport — a second bar
+  down the right edge, outside the inspector's. `height: auto`, like the `span` beside it.
+- ☑ ~~**`html` is clipped, so the viewport cannot scroll at all.**~~ Every scroller here is a
+  named region sized to its frame; the window scrolling is always a defect, never a view. The
+  clip hides the symptom and `check-failures.mjs` asserts on `scrollHeight`, which still counts
+  what overflows, so the cause stays visible (`UI_SPEC.md` §2.5).
+- 🟡 **A larger overflow in the reporter's own library is unexplained.** Their two screenshots
+  put the viewport's thumb at ~81% and ~53% of its track, which is ~220px and ~700px of overflow
+  — far more than the button's half pixel, and invisible: the region below the frame is bare
+  `--bg`. Not reproduced here. Every interaction that leaves something behind was driven against
+  that library and against fixtures — menus, dialogs, the preview, a drag, the tag suggestions,
+  resizing — and the frame stayed exact. The library is on a removable drive that was unmounted
+  before it could be measured again. Clipping means it can no longer be *seen*; it has still not
+  been *found*, so the next sighting wants the culprit read off `check-failures.mjs`'s expression
+  in a live window.
 
 ### Flakes
 

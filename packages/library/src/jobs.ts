@@ -10,7 +10,7 @@ import {
   parseContentHash,
   type ThumbnailTarget,
 } from "@roost/core";
-import { derive, EAGER_SIZES, type Thumbnail } from "@roost/media";
+import { capabilityFor, derive, EAGER_SIZES, isFormat, type Thumbnail } from "@roost/media";
 import { mapWithConcurrency } from "./concurrency.js";
 import type { Library } from "./library.js";
 
@@ -177,7 +177,16 @@ export interface DeriveFailures {
 }
 
 export interface FailureOptions {
-  /** How many failed rows to read. */
+  /**
+   * Which half of "no picture" to read.
+   *
+   * `failed` is work that went wrong and can be tried again; `blocked` is work
+   * this machine cannot do as it stands — a format nothing here draws, or a
+   * decoder that is not installed (ADR-0040). The list is the same shape for
+   * both, because the question a person asks about an empty cell is.
+   */
+  readonly state?: "failed" | "blocked";
+  /** How many rows to read. */
   readonly rows?: number;
   /** How many groups to return, largest first. */
   readonly groups?: number;
@@ -209,7 +218,8 @@ const FAILURE_SAMPLES = 8;
  * {@link normaliseReason} is what turns those into one row.
  */
 export function deriveFailures(library: Library, options: FailureOptions = {}): DeriveFailures {
-  const rows = library.db.repo.failedJobs("derive", options.rows ?? FAILURE_ROWS);
+  const state = options.state ?? "failed";
+  const rows = library.db.repo.jobsIn("derive", state, options.rows ?? FAILURE_ROWS);
   const wanted = options.samples ?? FAILURE_SAMPLES;
 
   const groups = new Map<
@@ -234,8 +244,7 @@ export function deriveFailures(library: Library, options: FailureOptions = {}): 
 
   return {
     total:
-      library.db.repo.jobCounts().find((c) => c.kind === "derive" && c.state === "failed")?.count ??
-      0,
+      library.db.repo.jobCounts().find((c) => c.kind === "derive" && c.state === state)?.count ?? 0,
     read: rows.length,
     hidden: ordered.slice(kept.length).reduce((sum, group) => sum + group.count, 0),
     groups: kept,
@@ -295,6 +304,35 @@ export function retryBlocked(library: Library, reason?: string): number {
   return reason === undefined
     ? library.db.repo.requeueBlocked("derive")
     : library.db.repo.requeueBlocked("derive", reason);
+}
+
+/**
+ * Releases work parked on a format this build has since learned to draw.
+ *
+ * `unsupported:heic` is not a fact about the file — it is a fact about the
+ * build that wrote it, and builds change. When HEIC gained a backend
+ * (ADR-0040) every HEIC already in a library stayed parked behind a reason that
+ * had stopped being true, and nothing in the window could release it: the
+ * capability retry matches `missing:` reasons, and an unsupported format has
+ * nothing to install.
+ *
+ * So this is checked when a library opens. It costs one grouped read of the
+ * parked reasons — a handful of rows, whatever the size of the library — and it
+ * requeues only what this build can now do, which keeps the sweep convergent
+ * exactly as `enqueueMissing` does.
+ */
+export function releaseNowSupported(library: Library): number {
+  let released = 0;
+  for (const parked of library.db.repo.jobReasons("blocked")) {
+    const format = parked.reason.startsWith("unsupported:")
+      ? parked.reason.slice("unsupported:".length)
+      : undefined;
+    if (format === undefined || !isFormat(format)) continue;
+    if (capabilityFor(format) === undefined) continue;
+    released += library.db.repo.requeueBlocked("derive", parked.reason);
+  }
+  if (released > 0) log.info("released work this build has learned to draw", { jobs: released });
+  return released;
 }
 
 /** Retries work that failed, while it is still worth retrying. */

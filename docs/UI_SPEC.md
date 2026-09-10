@@ -255,6 +255,15 @@ properties can neither round the thumb nor inset it. The renderer is Chromium by
 which is what it *measured* on a live element (§6); they are different facts and keep different
 names.
 
+**The window itself never scrolls.** Every scroller here is a named region — the sidebar, the
+grid, the inspector, a dialog's list — and each is sized to the frame it sits in, so a bar down
+the *outside* of the inspector's is never a view of anything: it is something half a pixel out of
+place, and it lets the whole layout be dragged up under a status bar that stays where it is.
+Reported on 2026-09-10, from a status bar whose failure count is the one line in it that is a
+`button` and therefore the one line that took `--control-height` — a pixel taller than the bar's
+content box. So `html` is clipped, and `check-failures.mjs` asserts that nothing overflows the
+frame: clipping hides the symptom, and the assertion is what keeps the cause visible.
+
 ## 3. Components
 
 The inventory, with what each one owes. "Owns state" means it holds state no parent needs.
@@ -920,7 +929,7 @@ be reached at all. It sits in the picker's frame rather than in its panel, so it
 the panel swaps between opening a library and making one. Quiet on purpose: a credit that competes
 with **Open library…** is an advert.
 
-### 3.13 What could not be drawn
+### 3.13 What has no preview, and why
 
 The status bar counts three states of the derive queue (§8), and one of them is a number nobody
 can act on: *"36 could not be drawn"* says that thirty-six files have no preview without saying
@@ -945,6 +954,15 @@ list**; it no longer retries on the spot.
 │      [ Copy list ]     [ Try again ]     [ Close ]     │
 └────────────────────────────────────────────────────────┘
 ```
+
+**Both halves of "no picture" open the same list.** The status bar draws one line for work that
+*failed* and another for work that is *parked* — "36 could not be drawn" and "19 without a
+preview" — and both are numbers whose whole content is the reasons behind them, so both are
+buttons. What differs is what can be done: a failure offers one retry for everything, while a
+parked group offers one only where something could have arrived, and offers it **beside the thing
+it is waiting for**. A group parked on a missing backend carries the command that would supply it,
+in monospace, chosen for the distribution Roost is running on (ADR-0040 §5) — a string to read and
+run, never a button that installs anything.
 
 **Grouped by fault, because the answer is usually one answer.** Thirty-six failures are rarely
 thirty-six problems: they are a folder of renamed files, or a drive unplugged halfway through an
@@ -975,9 +993,10 @@ group says *"Tried 3 times already."* so the button is a known quantity rather t
 file's translations, and every name the engine sampled. It goes through main like everything else
 the renderer cannot do for itself (invariant 11).
 
-The blocked line — *"3 without a preview"* — is unchanged and stays a plain span. Nothing failed
-there: those are formats nothing in this build draws, and a list of them would be a list of
-correct outcomes.
+A parked group whose reason is `unsupported:` gets **no** button: nothing arriving would change it,
+and a retry would produce the same answer at the same cost. That is not a dead end for the user
+either — the list still names the files and says plainly that the asset is fine and only its
+picture is missing.
 
 ## 4. Navigation
 
@@ -1725,6 +1744,19 @@ error anywhere. It stays in the library and waits for the backend that can read 
 **Open externally** hands the file to the desktop's own handler. A Roost library is not only a
 media collection, and a format Roost cannot draw should not be a dead end.
 
+### 7.1 Three formats the pane cannot read itself
+
+An asset's own bytes go into an `<img>`, which is right for a JPEG and empty for **HEIC**, **RAW**
+and **TIFF**: Chromium decodes none of the three. They arrive instead as a rendition over
+`roost://render/<hash>` — the HEIC assembled from its tiles by libheif, a RAW's embedded JPEG, a
+TIFF re-encoded — at full resolution, so the zoom in §7 still means something. `browserDrawable` on
+the asset's detail is what the pane switches on, and the engine decides it from the format table
+rather than the pane guessing from an extension (ADR-0040 §7).
+
+Where the rendition cannot be made — a machine with no libheif, a RAW with no embedded preview —
+the route answers 404 and the pane shows what it always shows for a file it cannot draw: the
+thumbnail, the metadata, and **Open externally**. Never a broken-image glyph.
+
 ## 8. States
 
 Every surface owes four states, and the empty one is where most applications get lazy.
@@ -1735,7 +1767,9 @@ installed, and a file that was tried and would not decode — so the status bar 
 is: *"Deriving… 42 to go"*, *"3 without a preview"*, the capability's own line with a **Try again**
 beside it, or *"36 could not be drawn"*. The last two are the ones a person can act on, and they
 are the two that are buttons: the capability's retries on the spot, because installing ffmpeg is
-the whole of the fix; the failures **open the list** (§3.13), because a count is not a diagnosis.
+the whole of the fix; the failures **open the list** (§3.13), because a count is not a diagnosis —
+and so does the parked line, which is where a missing decoder names the command that would supply
+it (ADR-0040).
 
 **Empty.** Heading, one sentence explaining *why it is empty*, at most one action.
 - No library open → the picker, with "Create library" and "Open library".

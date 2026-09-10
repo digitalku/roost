@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { parseArgs, promisify } from "node:util";
 import { capabilities, derive, GRID_SIZE, gradient } from "@roost/media";
 import { makeFont } from "@roost/media/testing/font-fixture";
+import { canMakeHeic, makeHeic } from "@roost/media/testing/heic-fixture";
 import { makePdf } from "@roost/media/testing/pdf-fixture";
 import { makeRaw } from "@roost/media/testing/raw-fixture";
 
@@ -31,8 +32,13 @@ const each = Number(values.each ?? "20");
 const dir = await mkdtemp(join(tmpdir(), "roost-bench-derive-"));
 
 try {
-  const media = (await capabilities()).find((capability) => capability.name === "media");
+  const all = await capabilities();
+  const media = all.find((capability) => capability.name === "media");
   const hasFfmpeg = media?.available === true;
+  const heif = all.find((capability) => capability.name === "heif");
+  // Two questions, not one: libheif has to be able to *make* a HEIC to measure
+  // (`heif-enc`) and Roost has to be able to read one (ADR-0040 §2).
+  const hasHeif = heif?.available === true && (await canMakeHeic());
 
   const cases: { name: string; path: string }[] = [
     { name: "jpeg 4000×3000", path: await put("photo.jpg", await gradient(4000, 3000, 1, "jpeg")) },
@@ -48,6 +54,12 @@ try {
       ),
     },
   ];
+
+  if (hasHeif) {
+    // 3024×4032 is an iPhone photograph, which is the case this backend exists
+    // for: 48 tiles of 512×512 that libheif has to assemble (ADR-0040).
+    cases.push({ name: "heic 3024×4032", path: await makeHeic(dir, "photo.heic", 3024, 4032) });
+  }
 
   if (hasFfmpeg) {
     cases.push(
@@ -80,6 +92,7 @@ try {
   }
 
   if (!hasFfmpeg) console.log(`\n  video and audio not measured: ${media?.detail ?? "no ffmpeg"}`);
+  if (!hasHeif) console.log(`  heic not measured: ${heif?.detail ?? "no libheif"}`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

@@ -60,6 +60,52 @@ because the prebuilt binary bundles its own GLib and segfaults inside Electron o
 (ADR-0013); the install fails loudly when the headers are missing, which is the better of the two
 failures. `ffmpeg` is optional — without it video and audio are still indexed, just not
 thumbnailed, and `roost thumb --retry-blocked` picks that work up once it arrives (ADR-0017).
+`ffmpeg-free` is Fedora's build and covers everything except HEVC; the section below is about the
+formats it and libvips deliberately leave out.
+
+### Formats that need a decoder from the system
+
+Roost ships the decoders it can: images through libvips, SVG through resvg, PDF through pdfium.
+Two families it cannot ship, because they are **patent-encumbered** — HEVC, which is what an
+iPhone's `.HEIC` photographs and many camera videos are coded with. Roost is proprietary software
+(ADR-0038), so bundling a decoder for them is a licensing question rather than a packaging one.
+This is the same reason Fedora's own `ffmpeg-free` cannot open them.
+
+Nothing here is required. Files of these kinds still import, still hash, still carry tags and
+folders, and still turn up in a search — what is missing is the picture, and Roost says so in the
+status bar rather than leaving an empty cell. Install a decoder and the pictures appear.
+
+**On Fedora, both live in RPM Fusion**, which is one command to enable:
+
+```bash
+sudo dnf install -y \
+  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+```
+
+| For | Install | What it gives you |
+| --- | --- | --- |
+| **HEIC / HEIF photographs** | `sudo dnf install -y libheif-tools libheif-freeworld` | `heif-dec`, plus the libde265 plugin that decodes HEVC. Roost assembles the tiled grid an iPhone writes and applies its rotation |
+| **HEVC video** (iPhone `.mov`, most modern cameras) | `sudo dnf swap ffmpeg-free ffmpeg --allowerasing` | Thumbnails, durations and waveforms for video Fedora's own ffmpeg build cannot decode |
+
+`libheif-tools` alone is not enough: it is in Fedora's own repositories and the decoder plugin is
+not, so `heif-dec` installs, runs, reports a version — and refuses every photograph. That is the
+pair, and Roost checks for the decoder rather than for the binary.
+
+**If Roost runs inside a container** — a distrobox, say — install these **inside the container**.
+The engine runs `heif-dec` and `ffmpeg` from its own `PATH`, which is the container's and not the
+host's.
+
+Check what arrived:
+
+```bash
+heif-dec --list-decoders | grep -A2 'HEIC decoders'   # a non-empty list is the point
+ffmpeg -hide_banner -decoders | grep hevc
+pnpm --filter @roost/cli start -- doctor -L ~/Pictures/Photos.roost
+```
+
+`roost doctor` prints a line per backend, with the command to install anything missing. Assets that
+were parked while a decoder was absent pick themselves up the next time the library is opened, or
+straight away from the status bar's **Try again**.
 
 ### Put it in the application menu
 

@@ -46,6 +46,16 @@ describe("the preview pane", () => {
     steps = [];
   });
 
+  it("asks for a rendition where a browser cannot read the file itself", async () => {
+    // HEIC, RAW and TIFF all import and none of them can go into an `<img>`
+    // (ADR-0040 §7). Before this they opened as an empty pane: a thumbnail in
+    // the grid, and then nothing at all.
+    show("image", "heic", { browserDrawable: false });
+
+    const image = await screen.findByRole("img");
+    expect(image.getAttribute("src")).toBe(`roost://render/${HASH}`);
+  });
+
   it("renders an image over roost://original, which is the whole file", async () => {
     show("image");
     const image = (await screen.findByRole("img", { name: "one.png" })) as HTMLImageElement;

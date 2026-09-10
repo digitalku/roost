@@ -37,6 +37,9 @@ const HEADERS: [Format, Uint8Array][] = [
   ["webm", bytes(0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x82, "webm")],
   ["mp4", bytes(0, 0, 0, 0x20, "ftypisom")],
   ["avif", bytes(0, 0, 0, 0x20, "ftypavif")],
+  // The brand an iPhone writes, with the compatible brands that follow it.
+  ["heic", bytes(0, 0, 0, 0x20, "ftypheic", 0, 0, 0, 0, "mif1miaf")],
+  ["heic", bytes(0, 0, 0, 0x18, "ftypmif1", 0, 0, 0, 0, "mif1heic")],
   ["ttf", bytes(0x00, 0x01, 0x00, 0x00)],
   ["ttf", bytes("true")],
   ["otf", bytes("OTTO")],
@@ -49,6 +52,23 @@ const HEADERS: [Format, Uint8Array][] = [
 describe("sniffing a header", () => {
   it.each(HEADERS)("recognises %s", (expected, header) => {
     expect(sniff(header)).toBe(expected);
+  });
+
+  it("does not mistake an AVIF that carries the generic brand for a HEIC", () => {
+    // `mif1` is the generic HEIF image brand and AVIF carries it too, as a
+    // compatible brand beside its own. Both formats are ISO base media and the
+    // major brand alone does not separate them.
+    expect(sniff(bytes(0, 0, 0, 0x1c, "ftypmif1", 0, 0, 0, 0, "mif1avif"))).toBe("avif");
+  });
+
+  it("reads a HEIC as a photograph, not as the video its container resembles", () => {
+    // A HEIC is ISO base media, so it looks like an MP4 from four bytes in. It
+    // used to sniff as one and be handed to ffmpeg, which unpacks the tiles of
+    // an iPhone photograph as forty-eight separate video streams and draws none
+    // of them (ADR-0040).
+    expect(kindOf(sniff(bytes(0, 0, 0, 0x20, "ftypheic")))).toBe("image");
+    expect(kindOf(formatFromExtension("HEIC"))).toBe("image");
+    expect(formatFromExtension("hif")).toBe("heic");
   });
 
   it("does not trust the extension", () => {

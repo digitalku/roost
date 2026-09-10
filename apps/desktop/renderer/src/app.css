@@ -16,6 +16,24 @@ body,
   margin: 0;
 }
 
+/*
+ * The window is not a page, so the viewport itself never scrolls.
+ *
+ * Every scroller in Roost is deliberate — the sidebar, the grid, the inspector
+ * — and each one is sized to the frame it sits in. What the viewport could
+ * still do is scroll by *accident*: anything half a pixel past the bottom of
+ * the window makes Chromium draw a second bar down the right edge, outside the
+ * inspector's own, and lets the whole layout be dragged out of place under a
+ * status bar that stays where it is. Reported on 2026-09-10, with the window's
+ * bar and the inspector's both on screen at once.
+ *
+ * It hides the symptom, not the bug: `scrollHeight` still counts what overflows
+ * a clipped viewport, which is what `check-failures.mjs` asserts on.
+ */
+html {
+  overflow: hidden;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -434,6 +452,15 @@ button:disabled {
   /* Nothing in the status bar wraps: a third item was enough to fold the counts
      onto two lines and eat the bar's own height. What gives way is the path. */
   white-space: nowrap;
+  /*
+   * As tall as its own line, like the `span` beside it.
+   *
+   * A `button` takes `--control-height` from the element rule, and the bar's
+   * content box is `--row-height` *minus its top border* — so the one line in
+   * the bar that is a button stood half a pixel out of it at each end, and the
+   * half below the window was enough to make the viewport scrollable.
+   */
+  height: auto;
   padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--radius-sm);
@@ -990,6 +1017,28 @@ button:disabled {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+}
+
+/* The command that would supply a missing backend (ADR-0040 §5). Selectable,
+   monospaced, and never a button that runs anything: Roost has no terminal, and
+   installing software is not something an image manager does on your behalf. */
+.failure-install {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  /* One step below the dialog, which sits on `--surface-raised`. */
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+/* Beside the thing it would release, rather than in the dialog's own row: this
+   retries one reason, and the footer's button retries everything. */
+.failure-retry {
+  margin-top: var(--space-2);
 }
 
 .failure-aside {

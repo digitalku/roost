@@ -46,6 +46,7 @@ export {
   FORMATS,
   type Format,
   formatFromExtension,
+  isBrowserDrawable,
   isFormat,
   kindOf,
   mediaTypeOf,
@@ -68,6 +69,7 @@ export {
   type RawFacts,
   readRaw,
 } from "./raw.js";
+export { type Rendition, renderForBrowser } from "./render.js";
 export { isConvertible, SUBTITLE_EXTENSIONS, toWebVtt } from "./subtitle.js";
 export {
   gradient,

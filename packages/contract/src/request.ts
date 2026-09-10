@@ -594,13 +594,17 @@ export type Request =
    */
   | { readonly type: "derive:retry"; readonly reason: string | null }
   /**
-   * What could not be drawn, and why (`UI_SPEC.md` §3.13).
+   * What has no picture, and why (`UI_SPEC.md` §3.13).
    *
-   * Asked only when somebody opens the list: the status bar needs a count, and
-   * this reads every failed row to group them. A window that asked for it
-   * beside `derive:status` would pay for a list nobody had looked at.
+   * `state` picks which half: `failed` is work that went wrong and can be tried
+   * again, `blocked` is work this machine cannot do as it stands. The status bar
+   * draws one line for each and both open the same list.
+   *
+   * Asked only when somebody opens it: the status bar needs a count, and this
+   * reads every stalled row to group them. A window that asked for it beside
+   * `derive:status` would pay for a list nobody had looked at.
    */
-  | { readonly type: "derive:failures" }
+  | { readonly type: "derive:failures"; readonly state: "failed" | "blocked" }
   /**
    * Puts a block of text on the clipboard. Answered by main.
    *
@@ -1225,7 +1229,10 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "derive:retry", reason: reason.value });
   },
 
-  "derive:failures": () => ok({ type: "derive:failures" }),
+  "derive:failures": (source) => {
+    const state = readOneOf(source, "state", STALLED_STATES);
+    return state.ok ? ok({ type: "derive:failures", state: state.value }) : state;
+  },
 
   "clipboard:copyText": (source) => {
     // Non-empty: putting an empty string on the clipboard silently destroys
@@ -1364,6 +1371,9 @@ function readSort(value: unknown): Checked<WireSort | null> {
   if (seed.value < 0) return bad("seed: expected zero or more");
   return ok({ key: key.value as SortKey, descending: descending.value, seed: seed.value });
 }
+
+/** The two halves of "no picture", as `derive:failures` accepts them. */
+const STALLED_STATES = ["failed", "blocked"] as const;
 
 export const REQUEST_TYPES = Object.keys(REQUEST_VALIDATORS) as RequestType[];
 

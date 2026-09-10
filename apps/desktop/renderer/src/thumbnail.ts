@@ -54,6 +54,28 @@ export function fallbackToGrid(event: React.SyntheticEvent<HTMLImageElement>): v
 }
 
 /**
+ * Steps a preview down to something that exists, once per step.
+ *
+ * The pane asks for a **rendition** where a browser cannot read the file itself
+ * — HEIC, RAW, TIFF (ADR-0040 §7) — and that can fail for reasons the window
+ * cannot see: a machine with no libheif, a RAW with no embedded preview, a file
+ * that is not what its name says. The picture Roost already derived is the
+ * honest answer then, and Chromium's broken-image glyph is not.
+ *
+ * `render → @512 → @256 → hidden`, and each failure moves one step, so a
+ * missing thumbnail cannot become a loop against a 404.
+ */
+export function fallbackFromRendition(event: React.SyntheticEvent<HTMLImageElement>): void {
+  const image = event.currentTarget;
+  const rendition = /^roost:\/\/render\/([0-9a-f]{64})$/.exec(image.src);
+  if (rendition?.[1] !== undefined) {
+    image.src = previewSrc(rendition[1]);
+    return;
+  }
+  fallbackToGrid(event);
+}
+
+/**
  * Shows an image that has arrived, undoing a hiding meant for a different one.
  *
  * The hiding above is written straight onto the node, which React neither knows

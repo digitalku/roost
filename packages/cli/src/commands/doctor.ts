@@ -73,6 +73,10 @@ async function printCapabilities(out: (line: string) => void): Promise<void> {
     const mark = capability.available ? " " : "!";
     const version = capability.version === null ? "" : ` ${capability.version}`;
     out(`  ${mark} ${capability.name}${version} — ${capability.detail}`);
+    // The command, on its own line and only when it would do something: this is
+    // a terminal, and the one thing a terminal is better at than the window is
+    // being able to run what it just printed (ADR-0040 §5).
+    if (capability.install !== null) out(`      ${capability.install}`);
   }
 }
 

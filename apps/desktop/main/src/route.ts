@@ -24,6 +24,16 @@ export type Route =
    * content type would be a lie that shows an empty track and no error.
    */
   | { readonly kind: "subtitle"; readonly hash: ContentHash }
+  /**
+   * A picture a browser can draw, for an asset whose own bytes are not one
+   * (ADR-0040 §7).
+   *
+   * A route of its own for the same reason `subtitle` is: what comes back is a
+   * rendition — HEIC assembled by libheif, a RAW's embedded JPEG, a TIFF
+   * re-encoded — and an address that promises the file's bytes must hand back
+   * the file's bytes.
+   */
+  | { readonly kind: "render"; readonly hash: ContentHash }
   | {
       readonly kind: "page";
       readonly hash: ContentHash;
@@ -124,6 +134,11 @@ export function parseRoostUrl(url: string): Checked<Route> {
   if (parsed.host === "subtitle") {
     if (!isContentHash(rest)) return bad("not a content hash");
     return ok({ kind: "subtitle", hash: rest });
+  }
+
+  if (parsed.host === "render") {
+    if (!isContentHash(rest)) return bad("not a content hash");
+    return ok({ kind: "render", hash: rest });
   }
 
   return bad(`no such route: ${parsed.host}`);

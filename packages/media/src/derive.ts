@@ -11,6 +11,7 @@ import {
 } from "./ffmpeg.js";
 import { readFont, renderSpecimen } from "./font.js";
 import type { Format } from "./format.js";
+import { decodeHeif } from "./heif.js";
 import { sniffFile } from "./probe.js";
 import { looksLikeRaw, type RawFacts, readRaw } from "./raw.js";
 import { EAGER_SIZES } from "./serving.js";
@@ -70,6 +71,16 @@ export async function derive(
     return deriveMedia(path, format, sizes, posterMs);
   }
 
+  if (backend === "heif") {
+    const libheif = await capability("heif");
+    // Parked, not failed: the file is fine and this machine is missing a
+    // decoder it cannot lawfully be shipped (ADR-0040). The reason names the
+    // capability so that installing libheif and pressing Try again releases
+    // exactly these jobs and nothing else.
+    if (!libheif.available) return { ok: false, reason: "missing:libheif" };
+    return { ok: true, ...(await deriveHeif(path, sizes)) };
+  }
+
   if (backend === "documents") return { ok: true, ...(await deriveDocument(path, sizes)) };
   if (backend === "vectors") return deriveVector(path, format, sizes);
 
@@ -112,6 +123,25 @@ async function deriveRawPhoto(facts: RawFacts, sizes: readonly number[]): Promis
       ...(height === undefined ? {} : { height }),
     },
   };
+}
+
+/**
+ * A HEIC photograph, through libheif and then through sharp.
+ *
+ * Two stages because they answer different questions: libheif assembles the
+ * tiles, applies the stored rotation and hands back one ordinary picture, and
+ * sharp does what it does for every other photograph. The dimensions therefore
+ * come from the **assembled** image rather than from the container — a 3024×4032
+ * shot is stored as forty-eight 512×512 tiles, and neither number is the
+ * photograph's.
+ */
+async function deriveHeif(path: string, sizes: readonly number[]): Promise<Derived> {
+  const bytes = await decodeHeif(path);
+  const [thumbnails, dimensions] = await Promise.all([
+    renderThumbnails({ bytes }, sizes),
+    readDimensions({ bytes }),
+  ]);
+  return { thumbnails, metadata: dimensions ?? {} };
 }
 
 async function deriveImage(path: string, sizes: readonly number[]): Promise<Derived> {

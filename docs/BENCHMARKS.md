@@ -55,6 +55,59 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-09-10 — HEIC, and what it costs to assemble one (ADR-0040)
+
+Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe. Node 22.23.1, libheif 1.21.2
+with the libde265 1.0.18 plugin, sharp 0.35.3 against libvips 8.18.3 (source build), ffmpeg 8.1.2.
+Measured **twice on purpose**: once on the generated corpus, which is what makes runs comparable,
+and once on a real iPhone photograph, which is what the backend exists for.
+
+**The corpus**, `node --experimental-strip-types scripts/bench-derive.ts --each 8`:
+
+| Format | ms | Per second |
+| --- | --- | --- |
+| JPEG 4000×3000 | 17.2 | 58 |
+| PNG 1600×1200 | 44.0 | 23 |
+| SVG, 200 paths | 27.1 | 37 |
+| Font specimen | 12.5 | 80 |
+| PDF first page | 10.3 | 97 |
+| RAW embedded preview | 9.4 | 106 |
+| **HEIC 3024×4032** | **710.4** | **1** |
+| Video frame (720p, 10 s) | 225.0 | 4 |
+| Audio waveform (60 s MP3) | 216.5 | 5 |
+
+**A real iPhone photograph**, 3024×4032 in 48 tiles of 512×512, six runs each:
+
+| Step | ms |
+| --- | --- |
+| `heif-dec` alone, to JPEG q88 | 180–200 |
+| `heif-dec` alone, to PNG | **1,350** |
+| `derive`, grid size only | 227 |
+| `derive`, grid **and** preview size | 279 |
+| `renderForBrowser`, what the preview pane asks for | 325 |
+
+Four readings.
+
+**The intermediate is a JPEG because PNG costs seven times as much.** 1.35 s against 0.19 s for the
+same picture, all of it compression — a file that exists only until sharp has read it. It is the
+one decision in `heif.ts` that a reader would otherwise assume was arbitrary.
+
+**A photograph in tiles decodes faster than one that is not.** The generated fixture is a single
+3024×4032 HEVC image and costs **710 ms**; the real photograph is the same size cut into 48 tiles
+and costs 227 ms end to end. libde265 has 48 independent pieces to work on there and one long
+scan here, and the corpus number is therefore a **worst case** rather than a typical one — worth
+knowing before anybody optimises against it.
+
+**HEIC is the second-slowest backend, and it belongs on the queue for the same reason video does.**
+At 227 ms a thousand photographs is nearly four minutes. That is background work by any reading
+(ADR-0017's argument, arriving again), and it is why the derive queue commits per batch and why a
+library of iPhone photographs fills in rather than blocking on import.
+
+**A rendition costs about what a derive does**, 325 ms, which is why `roost://render/` is left to
+the ordinary HTTP cache rather than stored: it is cheap enough to make again on the next open, and
+storing it would be megabytes per asset plus a derived column `rebuild` has to account for
+(invariant 1).
+
 ### 2026-09-09 — the orders a view menu can ask for (ADR-0039)
 
 Machine: Fedora 44 in distrobox, 22 cores, 30 GB RAM, Btrfs on NVMe. Node 22.23.1. 95,001 assets

@@ -295,7 +295,12 @@ function Stage({
   readonly fitVideo: boolean;
   readonly onFitVideo: (on: boolean) => void;
 }): React.JSX.Element {
-  const src = `roost://original/${detail.hash}`;
+  // A rendition where a browser cannot read the file itself — HEIC, RAW, TIFF
+  // (ADR-0040 §7). Everything else is the original, which is what makes a video
+  // seek and an SVG stay a vector.
+  const src = detail.browserDrawable
+    ? `roost://original/${detail.hash}`
+    : `roost://render/${detail.hash}`;
 
   if (detail.kind === "image") {
     // An SVG renders through the same `<img>`, which is what sandboxes it:

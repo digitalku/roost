@@ -678,7 +678,7 @@ describe("the derive queue", () => {
     db.repo.failJob(claims[0]?.id ?? 0, "sharp: unsupported image format");
     db.repo.failJob(claims[1]?.id ?? 0, "sharp: unsupported image format");
 
-    expect(db.repo.failedJobs("derive", 10)).toEqual([
+    expect(db.repo.jobsIn("derive", "failed", 10)).toEqual([
       {
         hash: hashOf(1),
         name: "asset-1.png",
@@ -694,7 +694,20 @@ describe("the derive queue", () => {
         reason: "sharp: unsupported image format",
       },
     ]);
-    expect(db.repo.failedJobs("derive", 1)).toHaveLength(1);
+    expect(db.repo.jobsIn("derive", "failed", 1)).toHaveLength(1);
+  });
+
+  it("reads parked work the same way, because the question about it is the same", () => {
+    // `blocked` is not a failure — a format nothing here draws, or a decoder
+    // nobody installed (ADR-0040) — but "which files, and why" is asked of both.
+    enqueueAll();
+    const claims = db.repo.claimJobs("derive", 3);
+    db.repo.blockJob(claims[0]?.id ?? 0, "missing:libheif");
+
+    expect(db.repo.jobsIn("derive", "blocked", 10)).toMatchObject([
+      { hash: hashOf(1), name: "asset-1.png", reason: "missing:libheif" },
+    ]);
+    expect(db.repo.jobsIn("derive", "failed", 10)).toEqual([]);
   });
 
   it("re-queuing something urgent moves it ahead of what it was behind", () => {

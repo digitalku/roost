@@ -110,3 +110,18 @@ describe("parsing a page URL", () => {
     expect(parseRoostUrl(`roost://page/${HASH}/0`).ok).toBe(false);
   });
 });
+
+describe("a rendition's address", () => {
+  it("takes a hash and nothing else", () => {
+    // A route of its own because what comes back is not the file's bytes
+    // (ADR-0040 §7): HEIC assembled, a RAW's embedded JPEG, a TIFF re-encoded.
+    expect(parseRoostUrl(`roost://render/${HASH}`)).toEqual({
+      ok: true,
+      value: { kind: "render", hash: HASH },
+    });
+  });
+
+  it("refuses anything that is not a hash", () => {
+    expect(parseRoostUrl("roost://render/../../etc/passwd").ok).toBe(false);
+  });
+});

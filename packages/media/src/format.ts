@@ -16,6 +16,7 @@ export const FORMATS = [
   "bmp",
   "tiff",
   "avif",
+  "heic",
   "raw",
   "svg",
   "pdf",
@@ -48,6 +49,7 @@ const KIND_OF: Readonly<Record<Format, Kind>> = {
   bmp: "image",
   tiff: "image",
   avif: "image",
+  heic: "image",
   raw: "image",
   svg: "image",
   mp4: "video",
@@ -84,6 +86,10 @@ const MEDIA_TYPE_OF: Readonly<Record<Format, string>> = {
   bmp: "image/bmp",
   tiff: "image/tiff",
   avif: "image/avif",
+  // Honest about what it is, and no browser draws it — which is the point: the
+  // window shows the thumbnail Roost derived rather than trying the original,
+  // exactly as it does for a RAW.
+  heic: "image/heic",
   // Deliberately not an `image/*` type: no browser draws a sensor mosaic, and
   // claiming one would make the preview pane try. What a RAW *shows* is the
   // JPEG the camera embedded, which reaches the window as a thumbnail.
@@ -122,7 +128,10 @@ const FORMAT_OF_EXTENSION: Readonly<Record<string, Format>> = {
   tif: "tiff",
   tiff: "tiff",
   avif: "avif",
-  cr2: "raw",
+  heic: "heic",
+  heif: "heic",
+  // Canon's spelling of the same container, from the R-series bodies.
+  hif: "heic",
   cr3: "raw",
   nef: "raw",
   arw: "raw",
@@ -161,6 +170,46 @@ const FORMAT_OF_EXTENSION: Readonly<Record<string, Format>> = {
 export function formatFromExtension(ext: string): Format {
   return FORMAT_OF_EXTENSION[ext.toLowerCase()] ?? "unknown";
 }
+
+/**
+ * Formats a browser draws from the original bytes.
+ *
+ * Chromium's list, not a wish: it decodes JPEG, PNG, GIF, WebP, AVIF, BMP and
+ * SVG, and nothing else Roost recognises. **HEIC, RAW and TIFF are the three
+ * that reach the preview pane and cannot be shown there** — HEVC has no browser
+ * decoder, a sensor mosaic is not a picture, and browsers dropped TIFF decades
+ * ago — so they are rendered first (ADR-0040 §7).
+ *
+ * A table rather than a media-type test, because `mediaTypeOf` answers a
+ * different question: what the bytes *are*, which for a RAW is deliberately not
+ * an `image/*` type at all.
+ */
+const BROWSER_DRAWS: readonly Format[] = ["jpeg", "png", "gif", "webp", "avif", "bmp", "svg"];
+
+/** Whether an `<img>` can show this format's own bytes. */
+export function isBrowserDrawable(format: Format): boolean {
+  return BROWSER_DRAWS.includes(format);
+}
+
+/**
+ * Major brands that mean HEIF.
+ *
+ * `heic`/`heix` are HEVC stills, `hevc`/`hevx` sequences, `heim`/`heis`/
+ * `hevm`/`hevs` the multiview and scalable variants an iPhone writes beside a
+ * Live Photo, and `mif1`/`msf1` the generic image and sequence brands.
+ */
+const HEIF_BRANDS = [
+  "heic",
+  "heix",
+  "hevc",
+  "hevx",
+  "heim",
+  "heis",
+  "hevm",
+  "hevs",
+  "mif1",
+  "msf1",
+] as const;
 
 /**
  * Bytes read for magic-number detection.
@@ -237,6 +286,13 @@ export function sniff(bytes: Uint8Array): Format {
   // ISO base media: a four-byte size, then "ftyp", then the brand.
   if (at(bytes, 4, "ftyp")) {
     if (at(bytes, 8, "avif") || at(bytes, 8, "avis")) return "avif";
+    // HEIF, in the brands a camera actually writes. `mif1` and `msf1` are the
+    // generic ones and AVIF carries them too — as a *compatible* brand beside
+    // its own — so the AVIF test above runs first and this one looks through
+    // the compatible brands before claiming a generic file.
+    if (HEIF_BRANDS.some((brand) => at(bytes, 8, brand))) {
+      return contains(bytes, "avif") ? "avif" : "heic";
+    }
     // Canon's CR3 is an ISO base media file, not a TIFF. It is recognised so
     // that it does not reach ffmpeg as a video, which is what its container
     // otherwise makes it look like.

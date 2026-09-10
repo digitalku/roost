@@ -272,6 +272,14 @@ is listed here, so the order stays visible instead of becoming folklore.
   facet's menu, and Eagle's Any/All rule on the tags — which needed nothing added to the grammar,
   because the two shapes the splitter already told apart are the two rules.
   `scripts/check-filters.mjs` holds it to §4.4 in a real window, 33 checks
+- ☑ **HEIC photographs** — 2026-09-10, ADR-0040, from the failure list naming the
+  files behind `36 could not be drawn`: iPhone photographs, which Roost was handing to ffmpeg as if
+  they were video. Built and measured the same day — `heic` in the format vocabulary with the ten
+  brands a camera writes, a fifth `heif` capability through the system's `heif-dec`, parked as
+  `missing:libheif` with the install command for the distribution in hand, and
+  `roost://render/<hash>` for the preview pane, which could show neither HEIC nor RAW nor TIFF and
+  had been that way since M4. `scripts/check-heic.mjs` holds it in a real window — twice, the second
+  time with the decoder pointed at nothing
 - ☑ **What could not be drawn, as a list** — 2026-09-10, from the user reading *"36 could not be
   drawn"* in their own library and asking for something they could act on. `UI_SPEC.md` §3.13: the
   status bar's count opens a dialog grouped by fault, each group carrying the sentence, the

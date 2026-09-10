@@ -2,6 +2,7 @@ import type { WireDeriveStatus } from "@roost/contract";
 import { useCallback, useEffect, useState } from "react";
 import { invoke, onEvent } from "./bridge.js";
 import { DeriveFailures } from "./DeriveFailures.js";
+import { CAPABILITY_OF_REASON } from "./deriveReason.js";
 
 /**
  * What the derive queue is doing, in the status bar (`ROADMAP.md` M4).
@@ -79,32 +80,38 @@ export function DeriveStatus({ status, onRetry }: DeriveStatusProps): React.JSX.
     return <span className="status-job">Deriving… {working.toLocaleString()} to go</span>;
   }
 
-  // Something is parked on a tool this machine does not have. That is the one
-  // case the user can act on, so it is the one that gets a button.
-  const missing = status.reasons.find((reason) => reason.reason.startsWith("missing:"));
-  const capability = status.capabilities.find((entry) => !entry.available);
-  if (missing !== undefined && capability !== undefined) {
+  if (status.failed > 0) {
     return (
-      <button
-        type="button"
-        className="status-job"
-        onClick={() => onRetry(missing.reason)}
-        title={`${missing.count.toLocaleString()} waiting · ${missing.reason}`}
-      >
-        {capability.detail} · Try again
-      </button>
+      <Stalled
+        state="failed"
+        label={`${status.failed.toLocaleString()} could not be drawn`}
+        capabilities={status.capabilities}
+        onRetry={onRetry}
+      />
     );
   }
 
-  if (status.failed > 0) return <Failed count={status.failed} onRetry={onRetry} />;
-
-  // Parked on a format nothing here draws — a zip, a BMP. Said once, quietly,
-  // and with no button: there is nothing to try again.
   if (status.blocked > 0) {
+    // Something parked on a tool this machine does not have is the one case a
+    // person can act on, so it is what the line says when there is one — the
+    // capability's own sentence rather than a count. Everything else parked is
+    // a format nothing here draws, and that is a number.
+    const missing = status.reasons.find(
+      (reason) => CAPABILITY_OF_REASON[reason.reason] !== undefined,
+    );
+    const capability = status.capabilities.find(
+      (entry) =>
+        !entry.available &&
+        entry.name === (missing === undefined ? "" : CAPABILITY_OF_REASON[missing.reason]),
+    );
+
     return (
-      <span className="status-job" title={status.reasons.map((r) => r.reason).join(", ")}>
-        {status.blocked.toLocaleString()} without a preview
-      </span>
+      <Stalled
+        state="blocked"
+        label={capability?.detail ?? `${status.blocked.toLocaleString()} without a preview`}
+        capabilities={status.capabilities}
+        onRetry={onRetry}
+      />
     );
   }
 
@@ -112,20 +119,26 @@ export function DeriveStatus({ status, onRetry }: DeriveStatusProps): React.JSX.
 }
 
 /**
- * Work that was tried and did not survive.
+ * Work with no picture, and the list that says which files and why.
  *
- * It **opens the list** rather than retrying (`UI_SPEC.md` §3.13). A button
- * that only retried was answering a question nobody had asked: a person looking
- * at "36 could not be drawn" wants to know which thirty-six and why, and
- * pressing Try again on a folder of renamed files produces the same thirty-six
- * a minute later with nothing learned. Retrying is still one click away, inside
- * the dialog, next to what it would be retrying.
+ * It **opens the list** rather than acting (`UI_SPEC.md` §3.13). A button that
+ * only retried was answering a question nobody had asked: a person looking at
+ * "36 could not be drawn" wants to know which thirty-six and why, and pressing
+ * Try again on a folder of damaged files produces the same thirty-six a minute
+ * later with nothing learned. The same is true one degree further along for
+ * parked work — "19 without a preview" is a number whose whole content is the
+ * reasons behind it. Acting is still one click away, inside the dialog, next to
+ * the thing it would act on.
  */
-function Failed({
-  count,
+function Stalled({
+  state,
+  label,
+  capabilities,
   onRetry,
 }: {
-  readonly count: number;
+  readonly state: "failed" | "blocked";
+  readonly label: string;
+  readonly capabilities: WireDeriveStatus["capabilities"];
   readonly onRetry: (reason?: string) => void;
 }): React.JSX.Element {
   const [showing, setShowing] = useState(false);
@@ -136,11 +149,18 @@ function Failed({
         type="button"
         className="status-job"
         onClick={() => setShowing(true)}
-        title="See what failed, and why"
+        title={state === "failed" ? "See what failed, and why" : "See what has no preview, and why"}
       >
-        {count.toLocaleString()} could not be drawn
+        {label}
       </button>
-      {showing && <DeriveFailures onRetry={() => onRetry()} onClose={() => setShowing(false)} />}
+      {showing && (
+        <DeriveFailures
+          state={state}
+          capabilities={capabilities}
+          onRetry={onRetry}
+          onClose={() => setShowing(false)}
+        />
+      )}
     </>
   );
 }

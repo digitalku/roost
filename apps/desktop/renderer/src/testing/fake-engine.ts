@@ -147,8 +147,10 @@ export interface FakeEngineOptions {
   readonly eagleReport?: Partial<WireEagleReport>;
   /** What `derive:status` and `derive:retry` answer with. */
   readonly deriveStatus?: WireDeriveStatus;
-  /** What `derive:failures` answers with, over an empty list. */
+  /** What `derive:failures` answers with for `failed`, over an empty list. */
   readonly deriveFailures?: Partial<WireDeriveFailures>;
+  /** What it answers with for `blocked` — work parked rather than broken. */
+  readonly deriveBlocked?: Partial<WireDeriveFailures>;
   /**
    * What `app:about` answers with, over a packaged build's answer.
    *
@@ -228,6 +230,9 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     name: card.name,
     ext: card.ext,
     kind: "image",
+    // A JPEG unless a test says otherwise, which is the case the pane takes for
+    // granted: the original goes straight into an `<img>`.
+    browserDrawable: true,
     posterMs: null,
     size: card.size,
     width: card.width,
@@ -1010,12 +1015,16 @@ export class FakeEngine {
         );
 
       case "derive:failures": {
-        const groups = this.#options.deriveFailures?.groups ?? [];
+        // One fixture per state, because a test about parked work and a test
+        // about failures are never the same test.
+        const asked =
+          request.state === "blocked" ? this.#options.deriveBlocked : this.#options.deriveFailures;
+        const groups = asked?.groups ?? [];
         const counted = groups.reduce((sum, group) => sum + group.count, 0);
         return ok({
-          total: this.#options.deriveFailures?.total ?? counted,
-          read: this.#options.deriveFailures?.read ?? counted,
-          hidden: this.#options.deriveFailures?.hidden ?? 0,
+          total: asked?.total ?? counted,
+          read: asked?.read ?? counted,
+          hidden: asked?.hidden ?? 0,
           groups,
         });
       }

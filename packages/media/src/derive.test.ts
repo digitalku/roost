@@ -9,6 +9,7 @@ import { derive } from "./derive.js";
 import { GRID_SIZE } from "./serving.js";
 import { gradient } from "./synth.js";
 import { makeFont } from "./testing/font-fixture.js";
+import { canMakeHeic, makeHeic } from "./testing/heic-fixture.js";
 import { makePdf } from "./testing/pdf-fixture.js";
 import { makeRaw } from "./testing/raw-fixture.js";
 
@@ -25,6 +26,9 @@ const hasFfmpeg = await run("ffmpeg", ["-version"]).then(
   () => true,
   () => false,
 );
+
+/** Whether this machine has libheif, which is what HEIC needs (ADR-0040). */
+const hasLibheif = await canMakeHeic();
 
 describe("deriving what a file is worth", () => {
   let dir: string;
@@ -252,6 +256,52 @@ describe("deriving what a file is worth", () => {
       expect(media?.available).toBe(true);
       expect(media?.detail).toContain("ffmpeg");
     });
+  });
+
+  it.skipIf(!hasLibheif)("assembles a HEIC through libheif, tiles and all", async () => {
+    const path = await makeHeic(dir);
+
+    const outcome = await derive(path, [GRID_SIZE]);
+
+    // The dimensions are the **assembled** picture's. A HEIC holds tiles and a
+    // rotation, and neither of those numbers is the photograph's (ADR-0040).
+    expect(outcome).toMatchObject({ ok: true, metadata: { width: 320, height: 240 } });
+    if (outcome.ok) expect(outcome.thumbnails[0]?.size).toBe(GRID_SIZE);
+  });
+
+  it("blocks a HEIC on a machine with no libheif, rather than failing it", async () => {
+    // Parked and not failed, because nothing is wrong with the file: the
+    // decoder is patent-encumbered and cannot ship inside Roost (ADR-0040), so
+    // this is the same shape as a missing ffmpeg and it is released the same
+    // way — by installing the thing and pressing Try again.
+    vi.resetModules();
+    vi.stubEnv("ROOST_HEIF_DEC", join(dir, "no-such-heif-dec"));
+
+    try {
+      const fresh = await import("./derive.js");
+      const capability = await import("./capability.js");
+      const path = join(dir, "photo.heic");
+      // Enough bytes to sniff as HEIC; nothing decodes them, which is the point.
+      await writeFile(
+        path,
+        Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from("ftypheic"), Buffer.alloc(52)]),
+      );
+
+      expect(await fresh.derive(path, [GRID_SIZE])).toEqual({
+        ok: false,
+        reason: "missing:libheif",
+      });
+
+      const heif = (await capability.capabilities()).find((entry) => entry.name === "heif");
+      expect(heif?.available).toBe(false);
+      expect(heif?.detail).toBe("install libheif for HEIC photographs");
+      // And a command to run, chosen for whatever this machine is.
+      expect(heif?.install).toBeTruthy();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      await refreshCapabilities();
+    }
   });
 
   it("blocks video on a machine with no ffmpeg, and says which tool is missing", async () => {

@@ -104,6 +104,46 @@ const clickButton = (label) => `
   [...document.querySelectorAll(".dialog button")]
     .find((button) => button.textContent === ${JSON.stringify(label)})?.click()`;
 
+/**
+ * What, if anything, hangs out of the window — and what it was.
+ *
+ * The state this check is already in is the one that found the defect on
+ * 2026-09-10: the failure count is the only line in the status bar that is a
+ * `button`, a button takes `--control-height` from the element rule, and the
+ * bar's content box is that height *minus its own top border*. Half a pixel
+ * over the bottom of the window was enough for Chromium to draw a second
+ * scrollbar down the right edge — outside the inspector's — and to let the
+ * whole layout be dragged up under a status bar that stayed where it was.
+ *
+ * It reads `scrollHeight` rather than whether a bar is on screen, because the
+ * viewport is clipped (`app.css`): the frame is what must fit, and hiding the
+ * symptom must not pass for fixing it. The names come back with it, since
+ * "3px" on its own is a puzzle rather than a report.
+ */
+const overflowExpression = `
+  (() => {
+    const frame = document.documentElement;
+    const culprits = [];
+    const walk = (element) => {
+      for (const child of element.children) {
+        const style = getComputedStyle(child);
+        const box = child.getBoundingClientRect();
+        if (box.height > 0 && (box.bottom > frame.clientHeight + 0.4 || box.right > frame.clientWidth + 0.4)) {
+          culprits.push(child.tagName.toLowerCase() + "." + (child.className || "?"));
+        }
+        // A scroller holds its own overflow; only what is laid out against the
+        // frame can push the frame around.
+        if (style.overflowX === "visible" && style.overflowY === "visible") walk(child);
+      }
+    };
+    walk(document.body);
+    return {
+      over: frame.scrollHeight - frame.clientHeight,
+      wide: frame.scrollWidth - frame.clientWidth,
+      culprits: culprits.slice(0, 6),
+    };
+  })()`;
+
 try {
   section("The status bar");
   const status = await cdp.settle(buttonExpression, (text) => text?.includes("could not be drawn"));
@@ -111,6 +151,14 @@ try {
     "it counts what failed, and does not offer a retry it cannot explain",
     status === `${BROKEN} could not be drawn`,
     `status=${JSON.stringify(status)}`,
+  );
+
+  section("The window, which is not a page");
+  const frame = await cdp.evaluate(overflowExpression);
+  check(
+    "nothing hangs out of the frame, so the window has no scrollbar of its own",
+    frame.over === 0 && frame.wide === 0,
+    `${frame.over}px below and ${frame.wide}px past the right, from ${frame.culprits.join(", ")}`,
   );
 
   section("The list");

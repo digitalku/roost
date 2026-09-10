@@ -94,17 +94,24 @@ function decoderBuild(): DecoderBuild {
 }
 
 /**
- * Pixel dimensions from a file's header, without decoding it.
+ * Pixel dimensions from a header, without decoding the picture.
+ *
+ * Takes a source rather than a path because a HEIC's dimensions are a property
+ * of the picture libheif *assembles*, which never exists as a file (ADR-0040):
+ * the container holds forty-eight tiles and a rotation, and none of those
+ * numbers is the photograph's.
  *
  * `undefined` rather than an error when the header cannot be read: an asset
  * whose dimensions are unknown imports perfectly well and simply has no cell
  * shape to reserve until it has a thumbnail.
  */
 export async function readDimensions(
-  path: string,
+  source: PixelSource | string,
 ): Promise<{ width: number; height: number } | undefined> {
   try {
-    const { width, height } = await sharp(path, { failOn: "error" }).metadata();
+    const { width, height } = await openSource(
+      typeof source === "string" ? { path: source } : source,
+    ).metadata();
     if (typeof width !== "number" || typeof height !== "number") return undefined;
     return { width, height };
   } catch {

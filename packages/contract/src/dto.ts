@@ -566,6 +566,17 @@ export interface WireAssetDetail {
    * would disagree the first time a format is added.
    */
   readonly kind: AssetKind;
+  /**
+   * Whether an `<img>` can show the asset's own bytes (ADR-0040 §7).
+   *
+   * `false` for HEIC, RAW and TIFF: Roost imports all three and Chromium
+   * decodes none of them, so the pane asks `roost://render/<hash>` for a
+   * rendition instead of loading the original. Decided by the engine from the
+   * same format table `kind` comes from, for the same reason — a second copy of
+   * Chromium's decoder list in the renderer would disagree the first time a
+   * format is added.
+   */
+  readonly browserDrawable: boolean;
   readonly size: number;
   readonly width: number | null;
   readonly height: number | null;
@@ -657,6 +668,17 @@ export interface WireCapability {
   readonly version: string | null;
   /** One line for a person: which build is loaded, or what to install. */
   readonly detail: string;
+  /**
+   * The command that would install it on this machine, or `null` when it is
+   * already here (ADR-0040 §5).
+   *
+   * A separate field from `detail` because the two are read at different
+   * lengths and in different places: the status bar has room for a sentence,
+   * and a shell command belongs somewhere it can be copied rather than
+   * truncated. Chosen from `/etc/os-release` in the engine — the renderer has
+   * no filesystem and could not work out which distribution it is on.
+   */
+  readonly install: string | null;
 }
 
 /** Why derived work is parked, and how much of it. */

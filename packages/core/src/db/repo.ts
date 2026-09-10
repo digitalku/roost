@@ -141,14 +141,13 @@ export interface JobReason {
 }
 
 /**
- * One asset a derive was tried on and did not survive, with the file it is
- * about.
+ * One asset a derive did not produce a picture for, with the file it is about.
  *
  * The name is here because a hash is not something a person can look for. What
  * this answers is "which of my files, and what went wrong with them" — a count
  * alone leaves somebody with nothing to open.
  */
-export interface FailedJob {
+export interface StalledJob {
   readonly hash: ContentHash;
   readonly name: string;
   readonly ext: string;
@@ -1418,22 +1417,27 @@ export class Repo {
   }
 
   /**
-   * Failed jobs, with the file each one is about, oldest first.
+   * Jobs stuck in one state, with the file each one is about, oldest first.
+   *
+   * Both halves of "no picture" are read the same way and shown in the same
+   * list: `failed` is something that went wrong and `blocked` is something this
+   * machine cannot do yet, and a person looking at an empty cell is owed the
+   * same answer either way.
    *
    * Capped by the caller rather than paged: this answers a list somebody reads
-   * and groups, and a library where a hundred thousand derives failed has one
-   * thing wrong with it rather than a hundred thousand. `jobReasons` counts
+   * and groups, and a library where a hundred thousand derives are stuck has
+   * one thing wrong with it rather than a hundred thousand. `jobReasons` counts
    * every one of them, and that count is what the caller reports.
    */
-  failedJobs(kind: JobKind, limit: number): FailedJob[] {
+  jobsIn(kind: JobKind, state: JobState, limit: number): StalledJob[] {
     return this.#s(
       `SELECT j.hash AS hash, a.orig_name AS name, a.ext AS ext,
               j.attempts AS attempts, coalesce(j.reason, '') AS reason
          FROM jobs j JOIN assets a ON a.hash = j.hash
-        WHERE j.kind = ? AND j.state = 'failed'
+        WHERE j.kind = ? AND j.state = ?
         ORDER BY j.id
         LIMIT ?`,
-    ).all(kind, limit) as FailedJob[];
+    ).all(kind, state, limit) as StalledJob[];
   }
 
   /** Every asset hash in the index, for comparing a rebuild against the original. */

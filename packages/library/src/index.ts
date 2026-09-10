@@ -142,6 +142,7 @@ export {
   type QueueStatus,
   queueStatus,
   type RunOptions,
+  releaseNowSupported,
   retryBlocked,
   retryFailed,
   runDerives,

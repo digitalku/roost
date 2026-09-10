@@ -156,6 +156,7 @@ export class AssetServer {
     if (route.value.kind === "thumb") return this.#serveThumb(open, route.value);
     if (route.value.kind === "page") return this.#servePage(open, route.value);
     if (route.value.kind === "subtitle") return this.#serveSubtitle(open, route.value);
+    if (route.value.kind === "render") return this.#serveRender(open, route.value);
     return this.#serveOriginal(open, route.value, request);
   }
 
@@ -203,6 +204,53 @@ export class AssetServer {
       log.debug("could not render a page", {
         hash: route.hash,
         page: route.index,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return new Response(null, { status: 404, headers: { "cache-control": "max-age=5" } });
+    }
+  }
+
+  /**
+   * A picture for an asset a browser cannot draw (ADR-0040 §7).
+   *
+   * HEIC, RAW and TIFF all import, all get thumbnails, and all used to open as
+   * an empty pane: the pane loads the asset's own bytes into an `<img>`, and
+   * Chromium decodes none of the three. This renders one on demand — the same
+   * exception `#servePage` takes, for the same reason, and with the same escape
+   * hatch: the decoder is imported **here**, so a window that never opens one of
+   * these three never loads sharp at all.
+   *
+   * Not cached as `immutable` like a thumbnail. It is content-addressed and its
+   * bytes are stable, but a rendition is expensive to keep and cheap to make
+   * again — a HEIC is ~200 ms — so it is left to the ordinary cache.
+   */
+  async #serveRender(
+    open: OpenLibrary,
+    route: Extract<Route, { kind: "render" }>,
+  ): Promise<Response> {
+    const record = open.index.findOriginal(route.hash);
+    if (record === undefined) return new Response(null, { status: 404 });
+
+    const path = await this.locate(route.hash);
+    if (path === undefined) return new Response(null, { status: 404 });
+
+    try {
+      const { renderForBrowser } = await import("@roost/media");
+      const rendition = await renderForBrowser(path, formatFromExtension(record.ext));
+
+      return new Response(new Uint8Array(rendition.bytes), {
+        headers: {
+          "content-type": rendition.mediaType,
+          "content-length": String(rendition.bytes.byteLength),
+          "cache-control": "public, max-age=3600",
+        },
+      });
+    } catch (error) {
+      // A RAW with no embedded preview, a HEIC on a machine with no libheif, a
+      // file that is not what its name says. A missing picture, not a broken
+      // window — and the pane falls back to the thumbnail it already has.
+      log.debug("could not render a preview", {
+        hash: route.hash,
         reason: error instanceof Error ? error.message : String(error),
       });
       return new Response(null, { status: 404, headers: { "cache-control": "max-age=5" } });

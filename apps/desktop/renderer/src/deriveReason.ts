@@ -14,6 +14,21 @@
  * with the original underneath it.
  */
 
+/**
+ * Which backend a parked reason is waiting for.
+ *
+ * The reason names the **tool** and the capability names the **backend**, and
+ * they are not the same word: `missing:ffmpeg` parks on `media` and
+ * `missing:libheif` on `heif` (ADR-0040). Pairing them by position — the first
+ * parked reason against the first unavailable capability — worked while only
+ * one backend could be missing, and started naming the wrong tool the moment a
+ * second one could.
+ */
+export const CAPABILITY_OF_REASON: Readonly<Record<string, string>> = {
+  "missing:ffmpeg": "media",
+  "missing:libheif": "heif",
+};
+
 /** A failure said in the interface's own words. */
 export interface Explanation {
   /** What went wrong. One line, no jargon. */
@@ -25,11 +40,47 @@ export interface Explanation {
 /**
  * The table, first match wins, so the order is part of the meaning.
  *
- * The damaged-file and missing-file patterns come **before** the ffmpeg one:
- * ffmpeg reports both of those in its own voice, and "ffmpeg could not read
- * this" is the least useful of the three answers.
+ * The queue's **own** reasons come first and are anchored: `missing:libheif`
+ * and `unsupported:unknown` are strings Roost writes rather than something a
+ * backend said, so they match exactly and never by accident. After them come
+ * the backends' own words, where the damaged-file and missing-file patterns sit
+ * **before** the ffmpeg one — ffmpeg reports both of those in its own voice,
+ * and "ffmpeg could not read this" is the least useful of the three answers.
  */
 const PATTERNS: readonly (Explanation & { readonly match: RegExp })[] = [
+  {
+    // Parked on a decoder that is not here (ADR-0040). The command to install
+    // it comes from the engine, which is the only side that knows what this
+    // machine runs, and the dialog draws it under the sentence.
+    match: /^missing:libheif$/,
+    line: "HEIC photographs need libheif",
+    hint: "Apple's photographs are HEVC, which is patented — so the decoder is the system's rather than something Roost can ship.",
+  },
+  {
+    match: /^missing:ffmpeg$/,
+    line: "Videos and audio need ffmpeg",
+    hint: "Roost uses the ffmpeg already on the machine and never bundles one (ADR-0017).",
+  },
+  {
+    match: /^missing:original$/,
+    line: "The original file is not where it was",
+    hint: "A referenced asset points at a file outside the library. Reconnect the drive it is on, and this releases itself.",
+  },
+  {
+    match: /^unsupported:text$/,
+    line: "Nothing here draws a text file yet",
+    hint: "It imported, it is searchable, and it opens in whatever owns it — only the picture is missing.",
+  },
+  {
+    match: /^unsupported:unknown$/,
+    line: "Roost does not recognise this kind of file",
+    hint: "Nothing in the first 64 bytes matched a format it knows. The file is kept exactly as it is and opens externally.",
+  },
+  {
+    match: /^unsupported:/,
+    line: "Nothing in this build draws this format",
+    hint: "Not a fault: the file is in the library, and only a preview is missing.",
+  },
   {
     match: /unsupported image format|unsupported picture|unknown image format|bad extension/,
     line: "Not the kind of file its name says",

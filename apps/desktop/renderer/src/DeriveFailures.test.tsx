@@ -52,6 +52,32 @@ async function open(
   return { engine, user };
 }
 
+/**
+ * The same list, opened from the other half of "no picture".
+ *
+ * `blocked` is work this machine cannot do as it stands — a format nothing here
+ * draws, or a decoder nobody installed (ADR-0040) — and it reached the same
+ * dialog on 2026-09-10, when the user's own library showed "19 without a
+ * preview" and the window had no way to say which nineteen.
+ */
+async function openParked(
+  parked: Partial<WireDeriveFailures>,
+  status: Partial<WireDeriveStatus> = {},
+  retried: (string | undefined)[] = [],
+): Promise<ReturnType<typeof userEvent.setup>> {
+  const engine = new FakeEngine({ deriveBlocked: { total: 19, ...parked } });
+  install(engine);
+  const user = userEvent.setup();
+  render(
+    <DeriveStatus
+      status={{ ...EMPTY, blocked: 19, ...status }}
+      onRetry={(reason) => retried.push(reason)}
+    />,
+  );
+  await user.click(screen.getByRole("button"));
+  return user;
+}
+
 describe("what could not be drawn", () => {
   it("opens the list rather than retrying blindly", async () => {
     const retried: (string | undefined)[] = [];
@@ -122,6 +148,61 @@ describe("what could not be drawn", () => {
     expect(engine.copied).toContain("VipsJpeg: premature end of JPEG image");
     expect(engine.copied).toContain("IMG_0421.jpg");
     expect(await screen.findByRole("button", { name: "Copied" })).toBeDefined();
+  });
+
+  it("opens the parked list too, and explains what a format nobody draws is", async () => {
+    // The user's own library, on the day this was built: seventeen text files
+    // and one photograph, and a status bar that could only say "19".
+    await openParked({
+      groups: [
+        {
+          reason: "unsupported:unknown",
+          count: 17,
+          attempts: 1,
+          samples: [{ hash: "c".repeat(64), name: "panduan.txt", ext: "txt" }],
+        },
+      ],
+    });
+
+    expect(await screen.findByRole("heading", { name: "19 without a preview" })).toBeDefined();
+    expect(screen.getByText("Roost does not recognise this kind of file")).toBeDefined();
+    expect(screen.getByText("panduan.txt")).toBeDefined();
+    // Nothing to retry: parked work is waiting on the world, not on another go.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("prints the command for a backend that is missing, and offers that one retry", async () => {
+    const retried: (string | undefined)[] = [];
+    const user = await openParked(
+      {
+        total: 4,
+        groups: [{ reason: "missing:libheif", count: 4, attempts: 1, samples: [] }],
+      },
+      {
+        blocked: 4,
+        reasons: [{ reason: "missing:libheif", count: 4 }],
+        capabilities: [
+          {
+            name: "heif",
+            available: false,
+            version: null,
+            detail: "install libheif for HEIC photographs",
+            install: "sudo dnf install libheif-tools libheif-freeworld",
+          },
+        ],
+      },
+      retried,
+    );
+
+    expect(await screen.findByText("HEIC photographs need libheif")).toBeDefined();
+    // The command, spelled for this machine by the engine — the renderer has no
+    // filesystem and could not know what distribution it is on (ADR-0040 §5).
+    expect(screen.getByText("sudo dnf install libheif-tools libheif-freeworld")).toBeDefined();
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    // That reason and no other: releasing everything would also retry the
+    // formats this build genuinely cannot draw.
+    expect(retried).toEqual(["missing:libheif"]);
   });
 
   it("says when it grouped only part of a very broken library", async () => {

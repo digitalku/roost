@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { fallbackFromRendition } from "../thumbnail.js";
 
 /**
  * A picture, at whatever size somebody wants to look at it (`UI_SPEC.md` §7).
@@ -349,6 +350,10 @@ export function Picture({
           src={src}
           alt={detail.name}
           draggable={false}
+          // A rendition that could not be made steps down to the thumbnail
+          // Roost already has, rather than to Chromium's broken-image glyph
+          // (ADR-0040 §7).
+          onError={fallbackFromRendition}
           onLoad={(event) =>
             setNatural({
               width: event.currentTarget.naturalWidth,

@@ -6,6 +6,7 @@ import {
   importInto,
   Library,
   queueStatus,
+  releaseNowSupported,
   retryBlocked,
   runDerives,
 } from "@roost/library";
@@ -107,6 +108,13 @@ describe("the derive queue", () => {
 
     const failures = deriveFailures(library);
     expect(failures.total).toBe(2);
+    // The blocked half is read the same way and is empty here, which is the
+    // check that `total` follows the state it was asked for rather than always
+    // counting failures.
+    expect(deriveFailures(library, { state: "blocked" })).toMatchObject({
+      total: 0,
+      groups: [],
+    });
     expect(failures.hidden).toBe(0);
     // One row, not two: both files broke the same way, and a list that
     // repeated the message per file would be the count again in longer form.
@@ -120,6 +128,31 @@ describe("the derive queue", () => {
     // The message is the backend's own, with nothing from this test in it: no
     // temporary directory, which is what would otherwise split the group.
     expect(failures.groups[0]?.reason).not.toContain(dir);
+  });
+
+  it("releases work parked on a format this build has since learned to draw", async () => {
+    // The state every library with an iPhone photograph in it was in the day
+    // HEIC gained a backend (ADR-0040 §6): parked behind a reason that had
+    // stopped being true, with nothing in the window able to release it.
+    await importInto(library, [source]);
+    await runDerives(library, { sizes: [GRID_SIZE] });
+    const hash = library.db.repo.allHashes()[0];
+    if (hash === undefined) throw new Error("nothing was imported");
+    library.db.repo.enqueueJob("derive", hash, 10, 1_700_000_000);
+    const [claim] = library.db.repo.claimJobs("derive", 1);
+    if (claim === undefined) throw new Error("nothing was claimed");
+    library.db.repo.blockJob(claim.id, "unsupported:heic");
+
+    // `heic` is drawn by this build, so it goes back in the queue…
+    expect(releaseNowSupported(library)).toBe(1);
+    expect(queueStatus(library)).toMatchObject({ ready: 1, blocked: 0 });
+
+    // …while a format nothing here draws stays parked, which is what keeps the
+    // sweep convergent rather than retrying a zip on every open.
+    const [again] = library.db.repo.claimJobs("derive", 1);
+    library.db.repo.blockJob(again?.id ?? 0, "unsupported:zip");
+    expect(releaseNowSupported(library)).toBe(0);
+    expect(queueStatus(library).blocked).toBe(1);
   });
 
   it("reports progress as it commits, not at the end", async () => {
