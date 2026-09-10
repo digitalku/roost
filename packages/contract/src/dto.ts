@@ -680,6 +680,45 @@ export interface WireDeriveStatus {
   readonly capabilities: readonly WireCapability[];
 }
 
+/** One of the files a derive could not draw. */
+export interface WireDeriveFailureSample {
+  readonly hash: string;
+  readonly name: string;
+  readonly ext: string;
+}
+
+/** Files whose derive failed for what is recognisably the same reason. */
+export interface WireDeriveFailureGroup {
+  /**
+   * The backend's own message, with the parts that differ from file to file
+   * taken out — paths and hashes. Grouped on this, and shown as it is: the
+   * window turns it into a sentence for a person, and keeps this underneath so
+   * a bug report has the real words.
+   */
+  readonly reason: string;
+  readonly count: number;
+  /** The most tries any file in the group has had. */
+  readonly attempts: number;
+  readonly samples: readonly WireDeriveFailureSample[];
+}
+
+/**
+ * What could not be drawn, and why (`UI_SPEC.md` §3.13).
+ *
+ * A count on its own is not something anybody can act on: it says a number of
+ * files are missing previews without saying which, or what went wrong. This is
+ * the answer behind that number.
+ */
+export interface WireDeriveFailures {
+  /** Every failed job, including any beyond `read`. */
+  readonly total: number;
+  /** How many rows were actually grouped. Below `total` only at scale. */
+  readonly read: number;
+  /** Failures in groups too small to be worth a row of their own. */
+  readonly hidden: number;
+  readonly groups: readonly WireDeriveFailureGroup[];
+}
+
 /**
  * How far the derive queue has got.
  *

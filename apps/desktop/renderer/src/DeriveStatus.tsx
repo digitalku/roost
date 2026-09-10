@@ -1,6 +1,7 @@
 import type { WireDeriveStatus } from "@roost/contract";
 import { useCallback, useEffect, useState } from "react";
 import { invoke, onEvent } from "./bridge.js";
+import { DeriveFailures } from "./DeriveFailures.js";
 
 /**
  * What the derive queue is doing, in the status bar (`ROADMAP.md` M4).
@@ -95,13 +96,7 @@ export function DeriveStatus({ status, onRetry }: DeriveStatusProps): React.JSX.
     );
   }
 
-  if (status.failed > 0) {
-    return (
-      <button type="button" className="status-job" onClick={() => onRetry()}>
-        {status.failed.toLocaleString()} could not be drawn · Try again
-      </button>
-    );
-  }
+  if (status.failed > 0) return <Failed count={status.failed} onRetry={onRetry} />;
 
   // Parked on a format nothing here draws — a zip, a BMP. Said once, quietly,
   // and with no button: there is nothing to try again.
@@ -114,4 +109,38 @@ export function DeriveStatus({ status, onRetry }: DeriveStatusProps): React.JSX.
   }
 
   return null;
+}
+
+/**
+ * Work that was tried and did not survive.
+ *
+ * It **opens the list** rather than retrying (`UI_SPEC.md` §3.13). A button
+ * that only retried was answering a question nobody had asked: a person looking
+ * at "36 could not be drawn" wants to know which thirty-six and why, and
+ * pressing Try again on a folder of renamed files produces the same thirty-six
+ * a minute later with nothing learned. Retrying is still one click away, inside
+ * the dialog, next to what it would be retrying.
+ */
+function Failed({
+  count,
+  onRetry,
+}: {
+  readonly count: number;
+  readonly onRetry: (reason?: string) => void;
+}): React.JSX.Element {
+  const [showing, setShowing] = useState(false);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="status-job"
+        onClick={() => setShowing(true)}
+        title="See what failed, and why"
+      >
+        {count.toLocaleString()} could not be drawn
+      </button>
+      {showing && <DeriveFailures onRetry={() => onRetry()} onClose={() => setShowing(false)} />}
+    </>
+  );
 }

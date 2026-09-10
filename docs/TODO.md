@@ -416,6 +416,34 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟢 **`--dry-run` opens no Roost library**, so it answers "what is in this Eagle library" before
   there is anywhere to put it. It is the only subcommand of `import` that does not need one.
 
+### What could not be drawn (2026-09-10)
+- ☑ ~~**"36 could not be drawn" opens a list instead of retrying.**~~ Asked for from the user's own
+  library: *"ada keterangan 36 could not be drawn. apakah bisa buat lebih informatif?"* The number
+  was true and useless — which files, what fault, and whether a retry would change anything were all
+  unanswered, and the button's only offer was to run the same failures past the same backends again.
+  `UI_SPEC.md` §3.13. `derive:failures` reads every failed row and groups it; the dialog draws a row
+  per fault with the files named under it, `Copy list`, and `Try again`. New: `repo.failedJobs`,
+  `deriveFailures`/`normaliseReason` in `@roost/library`, `WireDeriveFailures`,
+  `DeriveFailures.tsx`, `deriveReason.ts`, `scripts/check-failures.mjs`. 23 more tests, 1223 in the
+  workspace.
+- ☑ ~~**The grouping normalises the message, or thirty-six videos are thirty-six groups.**~~ Every
+  backend that shells out names the file it was handed, so `GROUP BY reason` over one fault returns
+  one row per file. Paths and content hashes are elided; **numbers are kept**, because an exit code
+  is what such a message is about — `exited with 137` is a kill and `exited with 1` is a refusal.
+- ☑ ~~**Try again no longer declines silently after three attempts.**~~ `requeueFailed` caps at
+  three tries, which is right for the sweep that offers work again on its own and wrong for a button
+  somebody just pressed: a library whose failures had been retried three times had a *Try again*
+  that did nothing and said nothing. A retry that came from a person is now uncapped, and the group
+  says how many times it has already been tried so the button is a known quantity.
+- 🟢 **The blocked line still has no list.** *"3 without a preview"* stays a plain span: those are
+  formats nothing in this build draws, and a list of them would be a list of correct outcomes. If a
+  reason ever needs naming there, `derive:failures` is the shape to copy — it takes a state.
+- 🟢 **A failure cannot be reached from the grid.** The list names files; it does not select them,
+  because there is no term for "has no thumbnail" and inventing one is a grammar change
+  (`DATA_MODEL.md` §1). Worth doing if somebody wants to trash or re-import the whole set at once —
+  `is:undrawn` is the obvious spelling, and it would have to compile to a `thumbs` anti-join rather
+  than to anything about the queue, which is derived state a rebuild empties.
+
 ### Chrome the pictures have to live with (2026-09-07)
 - ☑ ~~**The scrollbar is drawn rather than inherited.**~~ `UI_SPEC.md` §2.5. Chromium's own was a
   15px bar with a stepper at each end, and the one widget in the window that ignored `data-theme`.

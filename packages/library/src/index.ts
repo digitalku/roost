@@ -130,9 +130,15 @@ export {
   rankedStages,
 } from "./import.js";
 export {
+  type DeriveFailureGroup,
+  type DeriveFailureSample,
+  type DeriveFailures,
   type DeriveReport,
+  deriveFailures,
   enqueueDerives,
   enqueueMissing,
+  type FailureOptions,
+  normaliseReason,
   type QueueStatus,
   queueStatus,
   type RunOptions,

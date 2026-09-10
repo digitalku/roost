@@ -272,6 +272,15 @@ is listed here, so the order stays visible instead of becoming folklore.
   facet's menu, and Eagle's Any/All rule on the tags — which needed nothing added to the grammar,
   because the two shapes the splitter already told apart are the two rules.
   `scripts/check-filters.mjs` holds it to §4.4 in a real window, 33 checks
+- ☑ **What could not be drawn, as a list** — 2026-09-10, from the user reading *"36 could not be
+  drawn"* in their own library and asking for something they could act on. `UI_SPEC.md` §3.13: the
+  status bar's count opens a dialog grouped by fault, each group carrying the sentence, the
+  backend's own message, and the files it happened to. No ADR — nothing here is user-visible state,
+  no schema, no journal op — but two things in it are decisions worth the record: the grouping is on
+  a **normalised** message, because ffmpeg names the file it was handed and thirty broken videos
+  would otherwise be thirty groups of one; and **Try again ignores the attempts cap**, which is what
+  the sweep uses and what had been quietly making the old button do nothing at all.
+  `scripts/check-failures.mjs` holds it in a real window, 9 checks
 - ☑ **Trash** — 2026-09-01, ADR-0022. Also listed under M6, which is where the Trash place was
   first promised
 - ☑ **Marquee selection** — 2026-09-01, the last of `UI_SPEC.md` §6's grid gestures

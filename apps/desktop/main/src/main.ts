@@ -216,6 +216,7 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "asset:copyPath",
   "asset:copyFiles",
   "clipboard:paste",
+  "clipboard:copyText",
   "link:open",
   // The window has no menu bar on Linux or Windows (ADR-0028), so Quit arrives
   // as a request like everything else the renderer can ask for.
@@ -232,6 +233,10 @@ async function answerHere(
   if (request.type === "asset:copyPath") return copyPaths(request.hashes);
   if (request.type === "asset:copyFiles") return copyFiles(request.hashes);
   if (request.type === "clipboard:paste") return paste(engine, request.mode);
+  if (request.type === "clipboard:copyText") {
+    clipboard.writeText(request.text);
+    return true;
+  }
   if (request.type === "link:open") return openLink(request.url);
   if (request.type === "app:about") return about();
   if (request.type === "app:quit") {

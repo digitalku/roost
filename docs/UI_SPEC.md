@@ -920,6 +920,65 @@ be reached at all. It sits in the picker's frame rather than in its panel, so it
 the panel swaps between opening a library and making one. Quiet on purpose: a credit that competes
 with **Open library…** is an advert.
 
+### 3.13 What could not be drawn
+
+The status bar counts three states of the derive queue (§8), and one of them is a number nobody
+can act on: *"36 could not be drawn"* says that thirty-six files have no preview without saying
+which files, what went wrong, or whether pressing anything would change it. Clicking it **opens the
+list**; it no longer retries on the spot.
+
+```
+┌────────────────────────────────────────────────────────┐
+│  36 could not be drawn                                 │
+│  These files are in the library — it is their previews │
+│  that are missing.                                     │
+│                                                        │
+│  ▾ The file is damaged or incomplete              20   │
+│      The bytes stop before the picture does — usually  │
+│      an interrupted copy or download.                  │
+│      Input file has corrupt header:                    │
+│      · IMG_0421.jpg                                    │
+│      · scan-3.png            …and 18 more              │
+│  ▸ ffmpeg could not read this file                10   │
+│  ▸ Roost could not draw this file                  6   │
+│                                                        │
+│      [ Copy list ]     [ Try again ]     [ Close ]     │
+└────────────────────────────────────────────────────────┘
+```
+
+**Grouped by fault, because the answer is usually one answer.** Thirty-six failures are rarely
+thirty-six problems: they are a folder of renamed files, or a drive unplugged halfway through an
+import. The grouping happens in the engine and it groups on a **normalised** message — every
+backend that shells out names the file it was handed, so `ffmpeg: /photos/a.mov: Invalid data found
+when processing input` and the next thirty are one fault written thirty ways. Paths and content
+hashes come out; **numbers stay**, because an exit code is what such a message is about.
+
+**Two voices, and the order between them is the point.** The heading is this build's reading of the
+message — *"The file is damaged or incomplete"* — and under it, small and monospaced, is what the
+backend actually said. The translation lives in the renderer (`deriveReason.ts`) and is stored
+nowhere: it is a sentence in the interface's voice, and a backend that rewords its errors must not
+mean a migration. A message the table does not recognise still gets a row, reading *"Roost could not
+draw this file"* with the original underneath — which is the state a real library reaches more often
+than it should, since sharp reports a truncated file as `Input file has corrupt header:` and nothing
+else.
+
+**The files are named**, up to eight per group, with *"…and N more"* for the rest. A name is the
+only part of this a person can go and look at.
+
+**Try again ignores how many times a job has already been tried.** The queue stops offering a
+failure again after three attempts, which is right for the sweep that runs on its own and wrong for
+a button: before this, a library whose failures had been retried three times had a *Try again* that
+did nothing at all, silently. A retry asked for by a person is a deliberate act and gets one; the
+group says *"Tried 3 times already."* so the button is a known quantity rather than a hope.
+
+**Copy list** puts the whole thing on the clipboard as text — the backend's messages, not this
+file's translations, and every name the engine sampled. It goes through main like everything else
+the renderer cannot do for itself (invariant 11).
+
+The blocked line — *"3 without a preview"* — is unchanged and stays a plain span. Nothing failed
+there: those are formats nothing in this build draws, and a list of them would be a list of
+correct outcomes.
+
 ## 4. Navigation
 
 ### 4.1 What the sidebar contains
@@ -1670,11 +1729,13 @@ media collection, and a format Roost cannot draw should not be a dead end.
 
 Every surface owes four states, and the empty one is where most applications get lazy.
 
-**A cell with no thumbnail is a state too.** Three things look identical in a grid — work that
-has not been done yet, a format nothing in this build draws, and a video waiting for an ffmpeg
-nobody installed — so the status bar names which one it is: *"Deriving… 42 to go"*, *"3 without a
-preview"*, or the capability's own line with a **Try again** beside it. Only the third has a
-button, because it is the only one a person can act on.
+**A cell with no thumbnail is a state too.** Four things look identical in a grid — work that
+has not been done yet, a format nothing in this build draws, a video waiting for an ffmpeg nobody
+installed, and a file that was tried and would not decode — so the status bar names which one it
+is: *"Deriving… 42 to go"*, *"3 without a preview"*, the capability's own line with a **Try again**
+beside it, or *"36 could not be drawn"*. The last two are the ones a person can act on, and they
+are the two that are buttons: the capability's retries on the spot, because installing ffmpeg is
+the whole of the fix; the failures **open the list** (§3.13), because a count is not a diagnosis.
 
 **Empty.** Heading, one sentence explaining *why it is empty*, at most one action.
 - No library open → the picker, with "Create library" and "Open library".

@@ -1,7 +1,14 @@
 import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { importInto, Library, queueStatus, retryBlocked, runDerives } from "@roost/library";
+import {
+  deriveFailures,
+  importInto,
+  Library,
+  queueStatus,
+  retryBlocked,
+  runDerives,
+} from "@roost/library";
 import { GRID_SIZE, gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -77,6 +84,42 @@ describe("the derive queue", () => {
     const again = await runDerives(library, { sizes: [GRID_SIZE] });
     expect(again.derived).toBe(1);
     expect(library.stats().thumbnails).toBe(4);
+  });
+
+  it("groups what failed, and names the files it happened to", async () => {
+    // A PNG header with nothing behind it: the format is recognised, the
+    // backend is present, and the decode throws — which is a failure rather
+    // than a parked job, and the one the status bar counts.
+    // Different lengths, because identical bytes are one asset: dedup is
+    // structural here, and two copies of the same broken file would import as
+    // one and fail once.
+    const broken = (n: number): Buffer =>
+      Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.alloc(64 + n),
+      ]);
+    await writeFile(join(source, "image-1.png"), broken(1));
+    await writeFile(join(source, "image-2.png"), broken(2));
+    await importInto(library, [source], { mode: "referenced" });
+
+    const report = await runDerives(library, { sizes: [GRID_SIZE] });
+    expect(report.failed).toBe(2);
+
+    const failures = deriveFailures(library);
+    expect(failures.total).toBe(2);
+    expect(failures.hidden).toBe(0);
+    // One row, not two: both files broke the same way, and a list that
+    // repeated the message per file would be the count again in longer form.
+    expect(failures.groups).toHaveLength(1);
+    expect(failures.groups[0]?.count).toBe(2);
+    expect(failures.groups[0]?.attempts).toBe(1);
+    expect(failures.groups[0]?.samples.map((sample) => sample.name).sort()).toEqual([
+      "image-1.png",
+      "image-2.png",
+    ]);
+    // The message is the backend's own, with nothing from this test in it: no
+    // temporary directory, which is what would otherwise split the group.
+    expect(failures.groups[0]?.reason).not.toContain(dir);
   });
 
   it("reports progress as it commits, not at the end", async () => {

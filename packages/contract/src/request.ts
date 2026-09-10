@@ -24,6 +24,7 @@ import type {
   WireAssetDetail,
   WireCreated,
   WireCursor,
+  WireDeriveFailures,
   WireDeriveStatus,
   WireEagleReport,
   WireEagleSurvey,
@@ -593,6 +594,22 @@ export type Request =
    */
   | { readonly type: "derive:retry"; readonly reason: string | null }
   /**
+   * What could not be drawn, and why (`UI_SPEC.md` §3.13).
+   *
+   * Asked only when somebody opens the list: the status bar needs a count, and
+   * this reads every failed row to group them. A window that asked for it
+   * beside `derive:status` would pay for a list nobody had looked at.
+   */
+  | { readonly type: "derive:failures" }
+  /**
+   * Puts a block of text on the clipboard. Answered by main.
+   *
+   * The renderer has no clipboard of its own (invariant 11), and this is the
+   * one thing it needs to put there that is not an asset: a list of what failed,
+   * for a bug report or a shell loop.
+   */
+  | { readonly type: "clipboard:copyText"; readonly text: string }
+  /**
    * Ask the user for something to import. Answered by main.
    *
    * `what` picks the dialog rather than filtering one: `files` opens a file
@@ -724,6 +741,9 @@ export interface Responses {
   "derive:status": WireDeriveStatus;
   /** The status after the retry, so one round trip answers "and now?". */
   "derive:retry": WireDeriveStatus;
+  "derive:failures": WireDeriveFailures;
+  /** `false` when there was nothing to copy. */
+  "clipboard:copyText": boolean;
   /** `null` when the user cancelled; an empty array is not a thing a dialog returns. */
   "dialog:chooseImport": readonly string[] | null;
   /** The chosen subtitles, or `null` if the dialog was cancelled. */
@@ -1203,6 +1223,15 @@ export const REQUEST_VALIDATORS: {
     const reason = readNullable(source, "reason", readNonEmpty);
     if (!reason.ok) return reason;
     return ok({ type: "derive:retry", reason: reason.value });
+  },
+
+  "derive:failures": () => ok({ type: "derive:failures" }),
+
+  "clipboard:copyText": (source) => {
+    // Non-empty: putting an empty string on the clipboard silently destroys
+    // whatever was there, which is never what a button meant.
+    const text = readNonEmpty(source, "text");
+    return text.ok ? ok({ type: "clipboard:copyText", text: text.value }) : text;
   },
 
   "dialog:chooseImport": (source) => {

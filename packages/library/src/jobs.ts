@@ -143,6 +143,147 @@ export function queueStatus(library: Library): QueueStatus {
   };
 }
 
+/** One of the files a derive could not draw. */
+export interface DeriveFailureSample {
+  readonly hash: string;
+  readonly name: string;
+  readonly ext: string;
+}
+
+/** Files whose derive failed for what is recognisably the same reason. */
+export interface DeriveFailureGroup {
+  /** The message, with the parts that differ from file to file taken out. */
+  readonly reason: string;
+  readonly count: number;
+  /** The most tries any file in the group has had. */
+  readonly attempts: number;
+  /** A few of the files, so the reason has something to point at. */
+  readonly samples: readonly DeriveFailureSample[];
+}
+
+/**
+ * What failed and why, for somebody who has to fix it.
+ *
+ * `total` counts every failed job; `read` is how many rows the grouping
+ * actually looked at, and the two differ only in a library where something has
+ * gone wrong at scale. `hidden` is what fell outside the groups returned —
+ * failures whose messages were too varied to be worth a row each.
+ */
+export interface DeriveFailures {
+  readonly total: number;
+  readonly read: number;
+  readonly hidden: number;
+  readonly groups: readonly DeriveFailureGroup[];
+}
+
+export interface FailureOptions {
+  /** How many failed rows to read. */
+  readonly rows?: number;
+  /** How many groups to return, largest first. */
+  readonly groups?: number;
+  /** How many files to name per group. */
+  readonly samples?: number;
+}
+
+/**
+ * The rows read before the grouping gives up.
+ *
+ * Two thousand is far more than anybody reads and far less than a library's
+ * worth: past this, the answer is "something is wrong with the machine", and
+ * one more page of the same message does not change it.
+ */
+const FAILURE_ROWS = 2_000;
+
+/** Groups returned. Distinct reasons are few; this is the guard, not the norm. */
+const FAILURE_GROUPS = 20;
+
+/** Files named per group. Enough to recognise a pattern, short enough to read. */
+const FAILURE_SAMPLES = 8;
+
+/**
+ * Groups failed derives by what went wrong, with a few of the files in each.
+ *
+ * Grouped here rather than in SQL because the messages are **not** identical
+ * even when the fault is: ffmpeg puts the file's own path in its complaint, so
+ * `GROUP BY reason` over thirty broken videos returns thirty groups of one.
+ * {@link normaliseReason} is what turns those into one row.
+ */
+export function deriveFailures(library: Library, options: FailureOptions = {}): DeriveFailures {
+  const rows = library.db.repo.failedJobs("derive", options.rows ?? FAILURE_ROWS);
+  const wanted = options.samples ?? FAILURE_SAMPLES;
+
+  const groups = new Map<
+    string,
+    { count: number; attempts: number; samples: DeriveFailureSample[] }
+  >();
+  for (const row of rows) {
+    const reason = normaliseReason(row.reason);
+    const group = groups.get(reason) ?? { count: 0, attempts: 0, samples: [] };
+    group.count += 1;
+    group.attempts = Math.max(group.attempts, row.attempts);
+    if (group.samples.length < wanted) {
+      group.samples.push({ hash: row.hash, name: row.name, ext: row.ext });
+    }
+    groups.set(reason, group);
+  }
+
+  const ordered = [...groups]
+    .map(([reason, group]) => ({ reason, ...group }))
+    .sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason));
+  const kept = ordered.slice(0, options.groups ?? FAILURE_GROUPS);
+
+  return {
+    total:
+      library.db.repo.jobCounts().find((c) => c.kind === "derive" && c.state === "failed")?.count ??
+      0,
+    read: rows.length,
+    hidden: ordered.slice(kept.length).reduce((sum, group) => sum + group.count, 0),
+    groups: kept,
+  };
+}
+
+/**
+ * The part of a failure message that is about the *kind* of failure.
+ *
+ * Two things are taken out, and only two. **Paths**, because every backend that
+ * shells out names the file it was given — `ffmpeg: /photos/a.mov: Invalid data
+ * found when processing input` is the same fault as the next thirty, and a
+ * grouping that kept the path would report each of them separately. And **long
+ * hex runs**, which are content hashes by another name.
+ *
+ * Numbers are deliberately kept: an exit code and a pixel limit are what the
+ * message is *about*, and folding `exited with 137` into `exited with 1` would
+ * hide the difference between a crash and a refusal.
+ */
+export function normaliseReason(raw: string): string {
+  const line = raw.split("\n").find((candidate) => candidate.trim() !== "") ?? "";
+
+  const words: string[] = [];
+  for (const word of line.trim().split(/\s+/)) {
+    const opaque = looksLikePath(word) || /^[0-9a-f]{32,}$/i.test(word.replace(/[^0-9a-f]/gi, ""));
+    // Consecutive elisions collapse: a message naming an input and an output
+    // should read "… to …", not turn into two adjacent holes.
+    if (opaque && words.at(-1) === ELISION) continue;
+    words.push(opaque ? ELISION : word);
+  }
+
+  const text = words.join(" ").trim();
+  if (text === "") return "The backend said nothing";
+  return text.length > REASON_LIMIT ? `${text.slice(0, REASON_LIMIT).trimEnd()}…` : text;
+}
+
+/** What a path is replaced by. A hole, not a lie about what was there. */
+const ELISION = "…";
+
+/** Long enough for a sentence, short enough for one line of a dialog. */
+const REASON_LIMIT = 160;
+
+function looksLikePath(word: string): boolean {
+  const bare = word.replace(/^[("'[]+/, "").replace(/[)"'\],:;.]+$/, "");
+  if (bare.length < 2) return false;
+  return bare.startsWith("/") || bare.startsWith("./") || /^[A-Za-z]:[\\/]/.test(bare);
+}
+
 /**
  * Releases work parked on a capability, now that it may exist.
  *

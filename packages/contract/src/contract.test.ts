@@ -132,6 +132,8 @@ describe("validating a request", () => {
       "eagle:import",
       "derive:status",
       "derive:retry",
+      "derive:failures",
+      "clipboard:copyText",
       "dialog:chooseImport",
       "dialog:chooseSubtitle",
       "dialog:chooseEagle",

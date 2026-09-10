@@ -938,6 +938,78 @@ button:disabled {
   margin-left: calc(var(--space-5) * -1);
 }
 
+/* ── What could not be drawn (`UI_SPEC.md` §3.13) ──────────────────────────── */
+
+/* Scrolls rather than grows: one group is three lines and eight names, and a
+   library with six distinct faults would otherwise be taller than the window. */
+.failure-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: min(22rem, 50vh);
+  overflow-y: auto;
+}
+
+.failure-group {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.failure-group > summary {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  justify-content: space-between;
+  cursor: default;
+}
+
+.failure-line {
+  font-weight: 600;
+}
+
+/* The count is what the eye goes to when the dialog opens: which of these is
+   most of the thirty-six. */
+.failure-count {
+  flex: none;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.failure-hint {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+}
+
+/* The backend's own words. Monospaced because they are a machine's, and never
+   the first thing read — the sentence above says what they mean. */
+.failure-reason {
+  margin: var(--space-2) 0 0;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.failure-aside {
+  margin: var(--space-2) 0 0;
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
+}
+
+.failure-files {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-5);
+  color: var(--text-muted);
+}
+
+.failure-rest {
+  list-style: none;
+  margin-left: calc(var(--space-5) * -1);
+  color: var(--text-subtle);
+}
+
 /* Not the danger ramp: nothing is being destroyed, these are items the import
    will pass over. */
 .eagle-warning {

@@ -140,6 +140,22 @@ export interface JobReason {
   readonly count: number;
 }
 
+/**
+ * One asset a derive was tried on and did not survive, with the file it is
+ * about.
+ *
+ * The name is here because a hash is not something a person can look for. What
+ * this answers is "which of my files, and what went wrong with them" — a count
+ * alone leaves somebody with nothing to open.
+ */
+export interface FailedJob {
+  readonly hash: ContentHash;
+  readonly name: string;
+  readonly ext: string;
+  readonly attempts: number;
+  readonly reason: string;
+}
+
 /** Everything the detail view shows about one asset. */
 /**
  * What a selection of several assets shares, and what it does not.
@@ -1399,6 +1415,25 @@ export class Repo {
          FROM jobs WHERE state = ?
         GROUP BY reason ORDER BY count DESC, reason`,
     ).all(state) as JobReason[];
+  }
+
+  /**
+   * Failed jobs, with the file each one is about, oldest first.
+   *
+   * Capped by the caller rather than paged: this answers a list somebody reads
+   * and groups, and a library where a hundred thousand derives failed has one
+   * thing wrong with it rather than a hundred thousand. `jobReasons` counts
+   * every one of them, and that count is what the caller reports.
+   */
+  failedJobs(kind: JobKind, limit: number): FailedJob[] {
+    return this.#s(
+      `SELECT j.hash AS hash, a.orig_name AS name, a.ext AS ext,
+              j.attempts AS attempts, coalesce(j.reason, '') AS reason
+         FROM jobs j JOIN assets a ON a.hash = j.hash
+        WHERE j.kind = ? AND j.state = 'failed'
+        ORDER BY j.id
+        LIMIT ?`,
+    ).all(kind, limit) as FailedJob[];
   }
 
   /** Every asset hash in the index, for comparing a rebuild against the original. */

@@ -45,6 +45,7 @@ import {
   type DeriveReport,
   deleteFolder,
   deleteSubtitle,
+  deriveFailures,
   type EagleReport,
   type EagleSurvey,
   emptyTrash,
@@ -426,10 +427,18 @@ export class EngineHost {
       case "derive:status":
         return this.#deriveStatus();
 
+      case "derive:failures":
+        return deriveFailures(this.#require());
+
       case "derive:retry": {
         const library = this.#require();
         retryBlocked(library, request.reason ?? undefined);
-        retryFailed(library);
+        // Every failure, however many times it has already been tried. The
+        // attempts cap belongs to the sweep that offers work again on its own;
+        // a person who has just read what went wrong and pressed the button has
+        // asked for this one, and a button that silently declined would be the
+        // same dead end it is replacing.
+        retryFailed(library, Number.MAX_SAFE_INTEGER);
         // The queue is worked in the background rather than awaited: the button
         // that sent this should not sit disabled through a thousand videos, and
         // the window learns what happened from `job:progress` like any other
@@ -445,6 +454,7 @@ export class EngineHost {
         return exportAssets(this.#require(), hashes(request.hashes), request.destination);
 
       case "clipboard:paste":
+      case "clipboard:copyText":
       case "link:open":
       case "dialog:chooseImport":
       case "dialog:chooseSubtitle":

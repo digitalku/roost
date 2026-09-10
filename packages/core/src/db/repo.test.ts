@@ -670,6 +670,33 @@ describe("the derive queue", () => {
     expect(db.repo.claimJobs("derive", 1)[0]?.attempts).toBe(2);
   });
 
+  it("names the files a derive failed on, and how often each was tried", () => {
+    // A count is not something anybody can act on: the dialog that reports
+    // failures groups them, and it needs the file each one is about to do it.
+    enqueueAll();
+    const claims = db.repo.claimJobs("derive", 3);
+    db.repo.failJob(claims[0]?.id ?? 0, "sharp: unsupported image format");
+    db.repo.failJob(claims[1]?.id ?? 0, "sharp: unsupported image format");
+
+    expect(db.repo.failedJobs("derive", 10)).toEqual([
+      {
+        hash: hashOf(1),
+        name: "asset-1.png",
+        ext: "png",
+        attempts: 1,
+        reason: "sharp: unsupported image format",
+      },
+      {
+        hash: hashOf(2),
+        name: "asset-2.png",
+        ext: "png",
+        attempts: 1,
+        reason: "sharp: unsupported image format",
+      },
+    ]);
+    expect(db.repo.failedJobs("derive", 1)).toHaveLength(1);
+  });
+
   it("re-queuing something urgent moves it ahead of what it was behind", () => {
     db.repo.enqueueJob("derive", hashOf(1), JOB_PRIORITY.backfill, 1_700_000_000);
     db.repo.enqueueJob("derive", hashOf(2), JOB_PRIORITY.backfill, 1_700_000_001);

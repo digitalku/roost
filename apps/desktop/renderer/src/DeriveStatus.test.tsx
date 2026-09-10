@@ -71,9 +71,12 @@ describe("what the status bar says about derived work", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("offers a retry for work that failed", () => {
+  it("offers the list for work that failed, not a blind retry", () => {
+    // What the button opens is tested in `DeriveFailures.test.tsx`; what
+    // matters here is that the status bar carries the count and a way in.
     show({ failed: 2 });
 
     expect(screen.getByRole("button").textContent).toContain("2 could not be drawn");
+    expect(screen.getByRole("button").title).toBe("See what failed, and why");
   });
 });

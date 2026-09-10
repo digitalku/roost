@@ -14,6 +14,7 @@ import type {
   WireAssetDetail,
   WireComment,
   WireCursor,
+  WireDeriveFailures,
   WireDeriveStatus,
   WireEagleReport,
   WireEagleSurvey,
@@ -146,6 +147,8 @@ export interface FakeEngineOptions {
   readonly eagleReport?: Partial<WireEagleReport>;
   /** What `derive:status` and `derive:retry` answer with. */
   readonly deriveStatus?: WireDeriveStatus;
+  /** What `derive:failures` answers with, over an empty list. */
+  readonly deriveFailures?: Partial<WireDeriveFailures>;
   /**
    * What `app:about` answers with, over a packaged build's answer.
    *
@@ -300,6 +303,9 @@ const EMPTY_STATS: LibraryStats = {
 export class FakeEngine {
   /** Every request the component made, in order. */
   readonly seen: Request[] = [];
+
+  /** The last text `clipboard:copyText` was given, or `undefined` for none. */
+  copied: string | undefined;
 
   readonly #options: FakeEngineOptions;
   readonly #libraries = new Map<string, FakeLibrary>();
@@ -1002,6 +1008,21 @@ export class FakeEngine {
             capabilities: [],
           },
         );
+
+      case "derive:failures": {
+        const groups = this.#options.deriveFailures?.groups ?? [];
+        const counted = groups.reduce((sum, group) => sum + group.count, 0);
+        return ok({
+          total: this.#options.deriveFailures?.total ?? counted,
+          read: this.#options.deriveFailures?.read ?? counted,
+          hidden: this.#options.deriveFailures?.hidden ?? 0,
+          groups,
+        });
+      }
+
+      case "clipboard:copyText":
+        this.copied = request.text;
+        return ok(true);
 
       /*
        * A **deliberately small** stand-in for `@roost/search`'s own reading and
