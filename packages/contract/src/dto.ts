@@ -488,6 +488,16 @@ export interface WireSettings {
    * blown up, so a 320×240 clip is 320×240 in a pane ten times its size.
    */
   readonly fitVideoToWindow: boolean;
+  /**
+   * How loud the player is, and whether it is silenced (ADR-0024 §9).
+   *
+   * A whole percent, 0–100, rather than the element's own 0–1 — the slider and
+   * the keyboard both move in percent, and this is the number a person reads if
+   * they open `settings.json`. Muting travels with it: giving back the volume
+   * and not the silence is the same surprise pointing the other way.
+   */
+  readonly mediaVolume: number;
+  readonly mediaMuted: boolean;
 }
 
 /** A query read as somewhere to look plus what the bar narrowed it to. */

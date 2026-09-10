@@ -64,11 +64,18 @@ describe("the command line", () => {
     ).toBe(EXIT.usage);
     expect(badMode.warn.join("\n")).toContain("managed or referenced");
 
+    // A path that is not there and a directory that is there and holds no
+    // library are different mistakes, and the message has to say which: the
+    // first is usually a typo or an unmounted drive.
     const missing = capture();
     expect(await run(["stats", "-L", join(dir, "not-a-library")], missing.streams)).toBe(
       EXIT.failed,
     );
-    expect(missing.warn.join("\n")).toContain("[not_a_library]");
+    expect(missing.warn.join("\n")).toContain("[library_not_found]");
+
+    const plain = capture();
+    expect(await run(["stats", "-L", dir], plain.streams)).toBe(EXIT.failed);
+    expect(plain.warn.join("\n")).toContain("[not_a_library]");
   });
 
   it("carries a library through init, import, stats, thumb, and rebuild", async () => {

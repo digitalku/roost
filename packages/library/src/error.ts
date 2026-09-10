@@ -18,6 +18,24 @@ export class NotALibraryError extends RoostError {
 }
 
 /**
+ * The directory itself is not there.
+ *
+ * Separate from `NotALibraryError` because the two send a reader in opposite
+ * directions, and the picker's recent list is where the difference shows: a
+ * library on a removable drive is not damaged when the drive is unplugged, and
+ * telling somebody it holds no `library.json` invites them to go looking for
+ * the damage. The cost is one `stat` on a path that has already failed.
+ */
+export class LibraryNotFoundError extends RoostError {
+  readonly code = "library_not_found";
+
+  constructor(path: string) {
+    const advice = "if it is on a removable drive, check that the drive is connected";
+    super(`${path} is not there — ${advice}`, { path });
+  }
+}
+
+/**
  * The directory does not look like an Eagle library (ADR-0032).
  *
  * Checked before anything is read, because the alternative is a survey that

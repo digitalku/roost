@@ -957,10 +957,25 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   real window** — an Electron instance from an earlier session held the single-instance lock, so
   every attempt to drive a fresh one exited immediately, which is `main.ts:65` working exactly as
   written. The component and the wiring have tests; the pixels are unverified.
+  - ☑ ~~**A row marked Missing could not be clicked.**~~ Fixed 2026-09-10: the mark is a `stat`
+    taken when the list was read, and the commonest reason for it is an unplugged drive — so the
+    row now asks again, and a failed retry re-reads the list rather than leaving the row looking
+    opened. `library_not_found` tells "the path is not there" from "this folder holds no library".
+  - 🟢 **Re-read the list when the window regains focus.** A drive plugged in while the picker is
+    on screen leaves its rows struck through until something asks again. Offered on 2026-09-10 and
+    not taken: the retry covers the case it was for, and this is the tidier half.
   - 🟢 **The CLI does not record into it.** Deliberate but not obviously right: `roost init`
     creating a library is a deliberate act and belongs on the list, while `roost query` in a
     script rewriting a state file is not. If it lands, the rule is "init and open record; reads
     do not".
+- ☑ ~~**The player opened at full volume, every time.**~~ Fixed 2026-09-10 (ADR-0024 §9,
+  **proposed**): a media element starts at `volume = 1` and the pane makes a new one per asset, so
+  the level and the mute now come from `settings.json` and go on in the element's ref callback —
+  before an `autoPlay` clip whose bytes are cached can be heard. Held in `preview/sound.ts` rather
+  than in the window's state, because a slider drag is a change per pixel.
+  - 🟢 **Nothing else uses the store yet.** If a second window-wide media preference appears
+    (a remembered playback rate is the obvious candidate, and was not asked for), it belongs there
+    rather than in another singleton.
 - ☑ ~~**`settings.json` in the library** (ADR-0019).~~ Built 2026-09-08, when ADR-0036 needed the
   first setting there was. `packages/library/src/settings.ts` is ADR-0019's three rules and nothing
   else: reads tolerate absence, damage, unknown keys and wrong types by falling back per setting;

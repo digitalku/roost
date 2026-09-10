@@ -204,8 +204,8 @@ export class EngineHost {
           this.onChanged?.();
         }
         // Everything else here is a preference about how the window draws what
-        // it already has — the video's fit (ADR-0024 §8), the order, the view,
-        // the zoom — so none of them is announced: no query answers
+        // it already has — the video's fit (ADR-0024 §8), the volume, the
+        // order, the view, the zoom — so none of them is announced: no query answers
         // differently, and the window that sent it is already drawing the new
         // state. The keys are applied in one write rather than one each,
         // because a menu can change two at once (choosing `random` rolls a
@@ -214,6 +214,8 @@ export class EngineHost {
           ...(request.fitVideoToWindow !== undefined && {
             fitVideoToWindow: request.fitVideoToWindow,
           }),
+          ...(request.mediaVolume !== undefined && { mediaVolume: request.mediaVolume }),
+          ...(request.mediaMuted !== undefined && { mediaMuted: request.mediaMuted }),
           ...(request.sortKey !== undefined && { sortKey: request.sortKey }),
           ...(request.sortDescending !== undefined && { sortDescending: request.sortDescending }),
           ...(request.shuffleSeed !== undefined && { shuffleSeed: request.shuffleSeed }),

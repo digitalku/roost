@@ -67,6 +67,33 @@ describe("reading settings", () => {
     expect((await readSettings(dir)).gridZoom).toBe(DEFAULT_SETTINGS.gridZoom);
   });
 
+  it("starts at full volume, which is where a media element starts", async () => {
+    // A library nobody has changed the volume in behaves exactly as it did
+    // before this setting existed (ADR-0024 §9).
+    expect(DEFAULT_SETTINGS.mediaVolume).toBe(100);
+    expect(DEFAULT_SETTINGS.mediaMuted).toBe(false);
+  });
+
+  it("clamps a hand-edited volume into what the element will accept", async () => {
+    // `HTMLMediaElement.volume` throws outside its own 0–1, so a number typed
+    // into this file by hand must not survive as far as the assignment.
+    await write('{ "mediaVolume": 400 }');
+    expect((await readSettings(dir)).mediaVolume).toBe(100);
+    await write('{ "mediaVolume": -20 }');
+    expect((await readSettings(dir)).mediaVolume).toBe(0);
+    await write('{ "mediaVolume": "loud" }');
+    expect((await readSettings(dir)).mediaVolume).toBe(DEFAULT_SETTINGS.mediaVolume);
+  });
+
+  it("keeps the volume and the silence together", async () => {
+    await write('{ "mediaVolume": 30, "mediaMuted": true }');
+    expect(await readSettings(dir)).toEqual({
+      ...DEFAULT_SETTINGS,
+      mediaVolume: 30,
+      mediaMuted: true,
+    });
+  });
+
   it("takes a view it has never heard of at its word", async () => {
     // The vocabulary is the window's (ADR-0039 §7): this file checks the shape
     // and the renderer decides whether it knows the word.

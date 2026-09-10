@@ -1,10 +1,11 @@
 import type { WireAssetDetail, WireSubtitle } from "@roost/contract";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../bridge.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { Picture, type PictureHandle } from "./Picture.js";
 import { playhead } from "./playhead.js";
+import { sound } from "./sound.js";
 import { Transport } from "./Transport.js";
 
 /**
@@ -442,9 +443,47 @@ function Player({
   const [element, setElement] = useState<HTMLVideoElement | HTMLAudioElement | null>(null);
   const stage = useRef<HTMLDivElement>(null);
 
+  /**
+   * The volume the library remembers, put on before anything can be heard
+   * (ADR-0024 §9).
+   *
+   * In the ref callback rather than in an effect, and that is the whole reason
+   * this is not two lines of `useEffect`: the element is `autoPlay`, an effect
+   * runs after paint, and a clip whose data is already cached would be audible
+   * at full volume for those frames. The callback runs during the commit that
+   * creates the element, before it can have loaded anything.
+   *
+   * Its identity has to be stable — a fresh function each render would be a
+   * detach and a re-attach, which is a remount of the transport for nothing.
+   */
+  const attach = useCallback((node: HTMLVideoElement | HTMLAudioElement | null) => {
+    if (node !== null) {
+      const { volume, muted } = sound.current();
+      node.volume = volume / 100;
+      node.muted = muted;
+    }
+    setElement(node);
+  }, []);
+
   // Registered for the inspector's comment list to seek and for the pane's own
   // keys to drive, both of which are outside this subtree (`playhead.ts`).
   useEffect(() => (element === null ? undefined : playhead.attach(element)), [element]);
+
+  /*
+   * Whatever the element says about its own loudness, back to the store — the
+   * slider, the mute button and the `m` key all reach the element and none of
+   * them reaches here. The store drops a value that has not changed, which is
+   * what keeps applying the remembered volume above from being reported back as
+   * a change.
+   */
+  useEffect(() => {
+    if (element === null) return undefined;
+    const report = (): void => {
+      sound.changed({ volume: Math.round(element.volume * 100), muted: element.muted });
+    };
+    element.addEventListener("volumechange", report);
+    return () => element.removeEventListener("volumechange", report);
+  }, [element]);
 
   /*
    * Only what can be served without an external tool: ASS and an embedded
@@ -513,13 +552,7 @@ function Player({
           // The tracks below are the captions, and there are as many as the
           // asset has — often none, and never a literal the rule can see.
           // biome-ignore lint/a11y/useMediaCaption: see above
-          <audio
-            ref={setElement}
-            className="preview-audio"
-            src={src}
-            crossOrigin="anonymous"
-            autoPlay
-          >
+          <audio ref={attach} className="preview-audio" src={src} crossOrigin="anonymous" autoPlay>
             {tracks.map((track) => (
               <Caption key={track.hash} track={track} />
             ))}
@@ -527,7 +560,7 @@ function Player({
         ) : (
           // biome-ignore lint/a11y/useMediaCaption: see above
           <video
-            ref={setElement}
+            ref={attach}
             className="preview-media"
             src={src}
             /* Not decoration and not caution: a caption track is fetched with

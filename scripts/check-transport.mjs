@@ -125,6 +125,7 @@ const transportExpression = `
       duration: video.duration,
       paused: video.paused,
       muted: video.muted,
+      volume: video.volume,
       // The panel's field, because the pane's head stopped carrying a name on
       // 2026-09-06 — the inspector had it all along.
       name: document.querySelector(".inspector-name")?.value ?? null,
@@ -676,6 +677,55 @@ try {
     "and the bytes behind it are there, drawn before the reply came back",
     painted > 0,
     `${painted}px`,
+  );
+
+  section("The volume the library remembers (ADR-0024 §9)");
+  /*
+   * The half no component test reaches: the pane makes a **new element per
+   * asset**, and a new element starts at full volume unless something puts the
+   * remembered one on it. happy-dom can be told a video exists; only a window
+   * mounts the second one for real, and only a real run writes the file.
+   */
+  await cdp.evaluate(key(".grid", "Enter"));
+  const reopened = await cdp.settle(transportExpression, (t) => t !== null);
+  if (reopened.muted) await press("Unmute");
+  await cdp.settle(transportExpression, (t) => t !== null && t.muted === false);
+
+  // Through the slider, in the steps it actually moves in: 5% a press.
+  await cdp.evaluate('document.querySelector(".transport-volume .transport-thumb").focus()');
+  for (let step = 0; step < 4; step += 1) {
+    await cdp.evaluate(key(".transport-volume .transport-thumb", "ArrowDown"));
+  }
+  const turnedDown = await cdp.settle(
+    transportExpression,
+    (t) => t !== null && Math.abs(t.volume - 0.8) < 0.01,
+  );
+  check(
+    "the volume slider's arrows move it in fives",
+    Math.abs(turnedDown.volume - 0.8) < 0.01,
+    `volume=${turnedDown.volume}`,
+  );
+
+  const wasShowing = turnedDown.name;
+  await cdp.evaluate(key(".preview", "ArrowRight"));
+  const nextAsset = await cdp.settle(
+    transportExpression,
+    (t) => t !== null && t.name !== null && t.name !== wasShowing,
+  );
+  check(
+    "the next asset's own element opens where the last one was left",
+    Math.abs(nextAsset.volume - 0.8) < 0.01,
+    `${JSON.stringify(wasShowing)} → ${JSON.stringify(nextAsset.name)} at volume=${nextAsset.volume}`,
+  );
+
+  // And on the disk, as a whole percent — the settle is the 400ms the write
+  // waits for the gesture to stop.
+  await sleep(900);
+  const saved = JSON.parse(await readFile(join(root, "settings.json"), "utf8"));
+  check(
+    "and it is written to the library, in percent",
+    saved.mediaVolume === 80 && saved.mediaMuted === false,
+    JSON.stringify({ mediaVolume: saved.mediaVolume, mediaMuted: saved.mediaMuted }),
   );
 
   report();

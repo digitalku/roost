@@ -71,6 +71,16 @@ export interface FakeEngineOptions {
   /** Libraries that already exist, by path. */
   readonly existing?: readonly FakeLibrary[];
   /**
+   * Directories that are there and hold no library.
+   *
+   * The engine draws this distinction in `readManifest`, and the picker depends
+   * on it: a folder chosen in a dialog is `not_a_library`, while a path on a
+   * drive that is not mounted is `library_not_found`. A fake with one failure
+   * for both would let the picker pass while telling somebody a library they
+   * have not lost is damaged.
+   */
+  readonly plainDirectories?: readonly string[];
+  /**
    * What the picker's recent list starts with.
    *
    * Opening a library here appends to it, exactly as the engine does, so a test
@@ -333,6 +343,8 @@ export class FakeEngine {
     this.settings = options.settings ?? {
       showSubfolderContents: false,
       fitVideoToWindow: false,
+      mediaVolume: 100,
+      mediaMuted: false,
       sortKey: "added",
       sortDescending: true,
       shuffleSeed: 0,
@@ -405,6 +417,16 @@ export class FakeEngine {
   /** Whether a library exists at `root` in this fake filesystem. */
   has(root: string): boolean {
     return this.#libraries.has(root);
+  }
+
+  /**
+   * A library appears at `root` — a removable drive being plugged in.
+   *
+   * The only way a test can make an unavailable recent row available, which is
+   * the case the row's retry exists for.
+   */
+  attach(library: FakeLibrary): void {
+    this.#libraries.set(library.root, library);
   }
 
   /**
@@ -515,9 +537,11 @@ export class FakeEngine {
       case "library:open": {
         const found = this.#libraries.get(request.path);
         if (found === undefined) {
-          return problem("not_a_library", `${request.path} is not a Roost library`, {
-            path: request.path,
-          });
+          return (this.#options.plainDirectories ?? []).includes(request.path)
+            ? problem("not_a_library", `${request.path} is not a Roost library`, {
+                path: request.path,
+              })
+            : problem("library_not_found", `${request.path} is not there`, { path: request.path });
         }
         this.#open = summarize(found);
         this.#remember(this.#open);
@@ -554,7 +578,12 @@ export class FakeEngine {
         return ok(this.#open ?? null);
 
       case "recent:list":
-        return ok(this.#recent);
+        // Availability is answered from this fake's filesystem rather than
+        // from what the entry was constructed with, because the engine answers
+        // it with a `stat` taken at read time: an entry whose library has since
+        // appeared comes back available, and one whose library never existed
+        // comes back missing however the test spelled it.
+        return ok(this.#recent.map((entry) => ({ ...entry, available: this.has(entry.root) })));
 
       case "recent:forget":
         this.#recent = this.#recent.filter((entry) => entry.root !== request.root);

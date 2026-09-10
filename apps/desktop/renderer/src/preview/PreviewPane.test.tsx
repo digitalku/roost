@@ -1,9 +1,10 @@
 import type { AssetKind, WireAssetDetail, WireComment } from "@roost/contract";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeEngine, fakeDetail, install } from "../testing/fake-engine.js";
 import { PreviewPane } from "./PreviewPane.js";
+import { sound } from "./sound.js";
 
 const HASH = fakeDetail(1).hash;
 
@@ -974,6 +975,77 @@ describe("a font", () => {
  * kinds get the button, what it reports, and that pressing it hands the answer
  * to the library rather than keeping it.
  */
+/**
+ * The volume the library remembers (ADR-0024 §9).
+ *
+ * The store is a singleton, so each test seeds it and puts it back.
+ */
+describe("how loud the player starts", () => {
+  const showPlayer = (kind: AssetKind, ext: string) => {
+    install(new FakeEngine({ details: [fakeDetail(1, { kind, ext, name: `one.${ext}` })] }));
+    render(
+      <PreviewPane
+        hash={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
+      />,
+    );
+  };
+
+  const element = async (tag: "video" | "audio"): Promise<HTMLMediaElement> => {
+    await waitFor(() => expect(document.querySelector(tag)).not.toBeNull());
+    const found = document.querySelector(tag);
+    if (found === null) throw new Error("no player");
+    return found as HTMLMediaElement;
+  };
+
+  afterEach(() => sound.remember({ volume: 100, muted: false }));
+
+  it("opens at the volume that was left, not at full", async () => {
+    sound.remember({ volume: 30, muted: false });
+    showPlayer("video", "mp4");
+    // The element's own scale is 0–1; the preference is a percent, because that
+    // is what the slider and `settings.json` are written in.
+    expect((await element("video")).volume).toBeCloseTo(0.3);
+  });
+
+  it("opens silent when it was left silent", async () => {
+    sound.remember({ volume: 60, muted: true });
+    showPlayer("video", "mp4");
+    const video = await element("video");
+    expect(video.muted).toBe(true);
+    // The volume is kept underneath the mute, so unmuting gives back what it
+    // was rather than full.
+    expect(video.volume).toBeCloseTo(0.6);
+  });
+
+  it("does the same for audio, which has the same transport", async () => {
+    sound.remember({ volume: 45, muted: false });
+    showPlayer("audio", "mp3");
+    expect((await element("audio")).volume).toBeCloseTo(0.45);
+  });
+
+  it("remembers what the element says, as a whole percent", async () => {
+    showPlayer("video", "mp4");
+    const video = await element("video");
+
+    video.volume = 0.255;
+    video.dispatchEvent(new Event("volumechange"));
+    // Rounded here rather than at the far end: the file holds percent, and a
+    // slider drag would otherwise write a different long float per pixel.
+    expect(sound.current()).toEqual({ volume: 26, muted: false });
+
+    video.muted = true;
+    video.dispatchEvent(new Event("volumechange"));
+    expect(sound.current()).toEqual({ volume: 26, muted: true });
+  });
+});
+
 describe("fitting a video to the window", () => {
   const showKind = (kind: AssetKind, ext: string, fit: boolean, onFit = vi.fn()) => {
     const engine = new FakeEngine({ details: [fakeDetail(1, { kind, ext, name: `one.${ext}` })] });

@@ -252,6 +252,33 @@ describe("validating a change of preferences", () => {
       reason: "settings:write: fitVideoToWindow: expected a boolean",
     });
   });
+
+  it("bounds the volume on both sides, because the element does", () => {
+    // A percent (ADR-0024 §9). `HTMLMediaElement.volume` throws outside 0–1, so
+    // a window that sent 400 would be a window that cannot play the next file
+    // it opens — which makes this the cheapest place to refuse it.
+    expect(checkRequest({ type: "settings:write", mediaVolume: 0, mediaMuted: true })).toEqual({
+      ok: true,
+      value: { type: "settings:write", mediaMuted: true, mediaVolume: 0 },
+    });
+    expect(checkRequest({ type: "settings:write", mediaVolume: 100 })).toEqual({
+      ok: true,
+      value: { type: "settings:write", mediaVolume: 100 },
+    });
+    expect(checkRequest({ type: "settings:write", mediaVolume: 101 })).toEqual({
+      ok: false,
+      reason: "settings:write: mediaVolume: expected 0 to 100",
+    });
+    expect(checkRequest({ type: "settings:write", mediaVolume: -1 })).toEqual({
+      ok: false,
+      reason: "settings:write: mediaVolume: expected 0 to 100",
+    });
+    // Whole percent: a float is where the slider's own 0–1 would leak in.
+    expect(checkRequest({ type: "settings:write", mediaVolume: 0.5 })).toEqual({
+      ok: false,
+      reason: "settings:write: mediaVolume: expected a safe integer",
+    });
+  });
 });
 
 describe("validating a thumbnail moment", () => {

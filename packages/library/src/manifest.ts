@@ -1,7 +1,12 @@
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { IoError } from "@roost/core";
-import { AlreadyALibraryError, LibraryTooNewError, NotALibraryError } from "./error.js";
+import {
+  AlreadyALibraryError,
+  LibraryNotFoundError,
+  LibraryTooNewError,
+  NotALibraryError,
+} from "./error.js";
 
 /** `library.json` — what makes a directory a Roost library. */
 export const MANIFEST_FILE = "library.json";
@@ -41,7 +46,12 @@ export async function readManifest(root: string): Promise<Manifest> {
   try {
     text = await readFile(path, "utf8");
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new NotALibraryError(root);
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") {
+      // Which of the two is missing decides what the reader is told: a
+      // directory that is not there is usually a drive that is not mounted,
+      // and "no library.json" would send them looking for damage instead.
+      throw (await exists(root)) ? new NotALibraryError(root) : new LibraryNotFoundError(root);
+    }
     throw new IoError("read", path, cause);
   }
 
@@ -110,5 +120,14 @@ export async function discoverLibrary(start: string): Promise<string | undefined
     const parent = dirname(current);
     if (parent === current) return undefined;
     current = parent;
+  }
+}
+
+/** Whether the directory is there at all. */
+async function exists(root: string): Promise<boolean> {
+  try {
+    return (await stat(root)).isDirectory();
+  } catch {
+    return false;
   }
 }

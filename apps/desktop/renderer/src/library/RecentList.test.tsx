@@ -76,21 +76,31 @@ describe("the recent list", () => {
     expect(onOpen).toHaveBeenCalledWith("/home/you/Holiday.roost");
   });
 
-  it("shows a library that has gone, marked and unopenable", async () => {
-    // Hiding it would read as the application having forgotten. It stays, says
-    // "Missing", and refuses to be opened.
+  it("shows a library that has gone, marked and still worth clicking", async () => {
+    // Hiding it would read as the application having forgotten. It stays and
+    // says "Missing" — and it still asks, because the commonest reason for the
+    // mark is a drive that was unplugged when the list was read and is plugged
+    // in by the time somebody reaches for the row.
     const { user, onOpen, onForget } = show([entry({ available: false })]);
 
     expect(screen.getByText("Missing")).toBeDefined();
-    const open = screen.getByRole("button", { name: "Open Holiday" });
-    expect(open.hasAttribute("disabled")).toBe(true);
+    const open = screen.getByRole("button", { name: "Try Holiday again" });
+    expect(open.hasAttribute("disabled")).toBe(false);
     await user.click(open);
-    expect(onOpen).not.toHaveBeenCalled();
+    expect(onOpen).toHaveBeenCalledWith("/home/you/Holiday.roost");
 
-    // But it can still be taken off the list, which is the whole reason for
-    // showing it rather than dropping it.
+    // And it can still be taken off the list, which is the other half of why it
+    // is shown rather than dropped.
     await user.click(screen.getByRole("button", { name: "Forget Holiday" }));
     expect(onForget).toHaveBeenCalledWith("/home/you/Holiday.roost");
+  });
+
+  it("refuses even a missing row while the window is busy", async () => {
+    // A retry is an open like any other, so it queues behind nothing: two in
+    // flight would be two libraries opening into one window.
+    const { user, onOpen } = show([entry({ available: false })], true);
+    await user.click(screen.getByRole("button", { name: "Try Holiday again" }));
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("pins and unpins, and says which state the control is in", async () => {

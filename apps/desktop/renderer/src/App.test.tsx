@@ -1,9 +1,10 @@
 import type { SidebarFolderRow } from "@roost/contract";
 import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App.js";
 import { ASSET_DRAG_TYPE } from "./dnd.js";
+import { sound } from "./preview/sound.js";
 import { FakeEngine, fakeAsset, fakeDetail, install } from "./testing/fake-engine.js";
 
 /**
@@ -102,7 +103,10 @@ describe("opening a library", () => {
   });
 
   it("reports the engine's own code when the folder is not a library", async () => {
-    const { user } = start({ openLibraryDialog: "/home/you/Documents" });
+    const { user } = start({
+      openLibraryDialog: "/home/you/Documents",
+      plainDirectories: ["/home/you/Documents"],
+    });
 
     await user.click(await screen.findByRole("button", { name: "Open library…" }));
 
@@ -630,6 +634,8 @@ describe("the library view", () => {
       settings: {
         showSubfolderContents: false,
         fitVideoToWindow: false,
+        mediaVolume: 100,
+        mediaMuted: false,
         sortKey: "name",
         sortDescending: false,
         shuffleSeed: 0,
@@ -665,6 +671,8 @@ describe("the library view", () => {
       settings: {
         showSubfolderContents: false,
         fitVideoToWindow: false,
+        mediaVolume: 100,
+        mediaMuted: false,
         sortKey: "added",
         sortDescending: true,
         shuffleSeed: 0,
@@ -1743,6 +1751,88 @@ describe("the preview, in the window", () => {
 });
 
 /**
+ * The volume the library remembers (ADR-0024 §9).
+ *
+ * The window is what joins the two halves: the store hands a new element its
+ * loudness (`PreviewPane.test.tsx` covers that end) and this writes whatever
+ * the element changes back to `settings.json`.
+ */
+describe("the volume a library remembers", () => {
+  const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+  const open = async (mediaVolume: number, mediaMuted: boolean) => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      settings: {
+        showSubfolderContents: false,
+        fitVideoToWindow: false,
+        mediaVolume,
+        mediaMuted,
+        sortKey: "added",
+        sortDescending: true,
+        shuffleSeed: 0,
+        gridView: "icons",
+        matchImageProportions: true,
+        gridZoom: 240,
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("button", { name: "Menu" });
+    return engine;
+  };
+
+  const writes = (engine: FakeEngine): number =>
+    engine.seen.filter((request) => request.type === "settings:write").length;
+
+  afterEach(() => sound.remember({ volume: 100, muted: false }));
+
+  it("hands the library's own loudness to the player, and writes what it changes", async () => {
+    const engine = await open(25, true);
+    await waitFor(() => expect(sound.current()).toEqual({ volume: 25, muted: true }));
+    // Reading it wrote nothing: a seed that announced itself would write the
+    // value it had just read, once per library opened.
+    expect(writes(engine)).toBe(0);
+
+    sound.changed({ volume: 60, muted: false });
+    await waitFor(() =>
+      expect(engine.settings).toMatchObject({ mediaVolume: 60, mediaMuted: false }),
+    );
+  });
+
+  it("writes once at each end of a drag, not once per pixel of it", async () => {
+    // A slider drag emits a `volumechange` per pixel. The first is written
+    // straight away — so a mute pressed just before the window closes is kept —
+    // and the last when the gesture settles; everything between is dropped.
+    const engine = await open(100, false);
+    for (const volume of [70, 69, 68, 67, 66]) sound.changed({ volume, muted: false });
+
+    await waitFor(() => expect(engine.settings).toMatchObject({ mediaVolume: 70 }));
+    expect(writes(engine)).toBe(1);
+
+    await waitFor(() => expect(engine.settings).toMatchObject({ mediaVolume: 66 }), {
+      timeout: 2000,
+    });
+    expect(writes(engine)).toBe(2);
+  });
+
+  it("gives the next library its own, and forgets the last one's", async () => {
+    const engine = await open(15, false);
+    await waitFor(() => expect(sound.current()).toEqual({ volume: 15, muted: false }));
+
+    const user = userEvent.setup();
+    await closeLibrary(user);
+    // A closed library takes its volume with it: what the picker hands the next
+    // player is where a media element starts on its own.
+    await waitFor(() => expect(sound.current()).toEqual({ volume: 100, muted: false }));
+    expect(engine.settings.mediaVolume).toBe(15);
+  });
+});
+
+/**
  * The picker's recent list, end to end through the fake bridge.
  *
  * `RecentList.test.tsx` covers the component in isolation; this covers the
@@ -1751,8 +1841,9 @@ describe("the preview, in the window", () => {
  */
 describe("the recent list on the picker", () => {
   const start = (options: ConstructorParameters<typeof FakeEngine>[0] = {}) => {
-    install(new FakeEngine(options));
-    return { user: userEvent.setup(), ...render(<App />) };
+    const engine = new FakeEngine(options);
+    install(engine);
+    return { engine, user: userEvent.setup(), ...render(<App />) };
   };
 
   const HOLIDAY = "/home/you/Holiday Photos.roost";
@@ -1817,6 +1908,40 @@ describe("the recent list on the picker", () => {
     await user.click(await screen.findByRole("menuitem", { name: /Quit/ }));
 
     expect(engine.seen.some((request) => request.type === "app:quit")).toBe(true);
+  });
+
+  it("asks again when a missing row is clicked, and opens once the drive is back", async () => {
+    // The case this exists for: the list was read while the drive was
+    // unplugged, so the row is struck through and says "Missing" — and the
+    // person's next move is to plug the drive in and click it. The mark is a
+    // `stat` from a moment ago, not a fact about the library.
+    const { engine, user } = start({
+      recent: [
+        {
+          root: HOLIDAY,
+          name: "Holiday Photos",
+          id: "abc",
+          openedAt: Math.floor(Date.now() / 1000) - 86_400,
+          pinned: false,
+          available: false,
+        },
+      ],
+      stats: { assets: 1234 },
+    });
+
+    const row = await screen.findByRole("button", { name: "Try Holiday Photos again" });
+    await user.click(row);
+
+    // Still not there: the reason says so, and the row is re-read rather than
+    // left looking as though the click had worked.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("[library_not_found]");
+    expect(await screen.findByText("Missing")).toBeDefined();
+
+    engine.attach({ root: HOLIDAY, name: "Holiday Photos" });
+    await user.click(screen.getByRole("button", { name: "Try Holiday Photos again" }));
+
+    expect(await screen.findByRole("button", { name: "Menu" })).toBeDefined();
   });
 
   it("takes a row off the list when it is forgotten", async () => {

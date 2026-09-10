@@ -51,6 +51,7 @@ import { isTyping } from "./keyboard.js";
 import { RecentList } from "./library/RecentList.js";
 import { NewFileDialog } from "./NewFileDialog.js";
 import { PreviewPane } from "./preview/PreviewPane.js";
+import { type Loudness, sound } from "./preview/sound.js";
 import { useReclaim } from "./reclaim.js";
 import { SearchField } from "./search/SearchField.js";
 import { useExpansion } from "./sidebar/expansion.js";
@@ -68,6 +69,8 @@ import { Sidebar } from "./sidebar/Sidebar.js";
 const DEFAULT_SETTINGS: WireSettings = {
   showSubfolderContents: false,
   fitVideoToWindow: false,
+  mediaVolume: 100,
+  mediaMuted: false,
   sortKey: "added",
   sortDescending: true,
   shuffleSeed: 0,
@@ -75,6 +78,16 @@ const DEFAULT_SETTINGS: WireSettings = {
   matchImageProportions: true,
   gridZoom: DEFAULT_ZOOM,
 };
+
+/**
+ * How long a volume gesture has to be still before it is written (ADR-0024 §9).
+ *
+ * Long enough that a slider drag is one write at each end of it, short enough
+ * that letting go and closing the window keeps the value. Not measured and not
+ * worth measuring: the cost it guards against is a file write, and any number
+ * in this neighbourhood removes it.
+ */
+const VOLUME_SETTLE_MS = 400;
 
 /** The order a menu draws while the library is still being asked for its own. */
 const DEFAULT_ORDER: WireSort = { key: "added", descending: true, seed: 0 };
@@ -686,13 +699,65 @@ function LibraryView({
     void (async () => {
       const outcome = await invoke({ type: "settings:read" });
       if (!current) return;
-      if (outcome.ok) setSettings(outcome.value);
+      if (outcome.ok) {
+        setSettings(outcome.value);
+        // The loudness is the store's from here on, not this component's
+        // (`sound.ts`): it changes on a slider drag, and a preference that
+        // re-rendered the window per pixel would be paid for by the grid
+        // behind the preview.
+        sound.remember({ volume: outcome.value.mediaVolume, muted: outcome.value.mediaMuted });
+      }
       setKnown(true);
     })();
     return () => {
       current = false;
+      // A library takes its loudness with it, whether it is being closed or
+      // swapped: until the next one answers, a player starts where a media
+      // element starts on its own.
+      sound.remember({ volume: DEFAULT_SETTINGS.mediaVolume, muted: DEFAULT_SETTINGS.mediaMuted });
     };
   }, [root]);
+
+  /**
+   * The remembered volume, written as the player changes it (ADR-0024 §9).
+   *
+   * **Leading, then trailing.** Dragging the slider emits a `volumechange` per
+   * pixel, and a write each would be a hundred reads and rewrites of one file
+   * for one gesture; waiting for the drag to stop and only then writing would
+   * lose a mute pressed a moment before the window closed. So the first change
+   * of a burst is written straight away and the last is written when the burst
+   * settles, and everything between them is dropped.
+   *
+   * The reply is not applied. It is the whole of `settings.json` as the engine
+   * now holds it, and a reply to a write from the middle of a drag would arrive
+   * after two more — the store is already ahead of it.
+   */
+  useEffect(() => {
+    let pending: Loudness | undefined;
+    let settling: ReturnType<typeof setTimeout> | undefined;
+
+    const write = (): void => {
+      const next = pending;
+      pending = undefined;
+      if (next === undefined) return;
+      void invoke({ type: "settings:write", mediaVolume: next.volume, mediaMuted: next.muted });
+    };
+
+    const stop = sound.onChange((loudness) => {
+      pending = loudness;
+      if (settling !== undefined) return;
+      write();
+      settling = setTimeout(() => {
+        settling = undefined;
+        write();
+      }, VOLUME_SETTLE_MS);
+    });
+
+    return () => {
+      stop();
+      if (settling !== undefined) clearTimeout(settling);
+    };
+  }, []);
 
   /**
    * The view menu's state, read out of the library's settings.

@@ -317,9 +317,16 @@ gives: this list is what *finds* a library, so it cannot live inside one.
 
 - **Pinned first, then most recently opened.** Twelve unpinned entries are kept; a pinned entry is
   never evicted, which is how somebody says "this one always".
-- **A library that has gone is shown and marked, not hidden.** Struck through, unopenable, with
-  its own way to be forgotten. A list that quietly shrinks reads as the application having
+- **A library that has gone is shown and marked, not hidden.** Struck through, saying "Missing",
+  with its own way to be forgotten. A list that quietly shrinks reads as the application having
   forgotten, and leaves the reader unsure whether they imagined the library or lost it.
+- **A missing row still asks.** The mark is a `stat` taken when the list was read, not a property
+  of the library, and the commonest reason for it is a removable drive: somebody sees "Missing",
+  plugs the drive in, and clicks the row. It was refused until 2026-09-10 — the one moment the
+  answer had just changed was the one moment the row would not ask. A click that fails re-reads the
+  list, so the row is re-marked from the new answer rather than left looking as though it worked,
+  and the reason distinguishes **a path that is not there** (`library_not_found` — check the drive)
+  from **a directory holding no `library.json`** (`not_a_library` — the wrong folder).
 - **Nothing at all on a first run.** No heading, no empty box (§8) — the picker is then exactly
   what it was before this existed.
 - Relative times are coarse on purpose: "Yesterday", "3 days ago", and a date past a week. The
@@ -1549,7 +1556,7 @@ did.
 | Timeline | A `role="slider"` whose `aria-valuetext` is a timecode, never a count of milliseconds. Arrow keys move a tenth of a second, which is the precision a comment's moment carries |
 | Buffered ranges | Drawn from `video.buffered`, behind the played range — the difference between a slow file and a broken one |
 | Elapsed / duration | Monospace and tabular, so the digits do not dance. **To the second**, both of them: a comment's moment carries a tenth because somebody chose it, and a playhead only passes through. The elapsed is floored — at 16:12.6 you are in the twelfth second — and the total is rounded, which is the same number the inspector's Duration row shows |
-| Volume and mute | `M`, and a slider that is also a slider to a screen reader |
+| Volume and mute | `M`, and a slider that is also a slider to a screen reader. **Both are remembered by the library** (ADR-0024 §9): a player opens where the last one was left, not at full volume, and a silenced one opens silent |
 | Fullscreen | On the **player's box**, not on the video: sending the video alone takes the controls off the screen with it |
 | Picture-in-picture | Video only. Audio has no picture |
 | **Comment marks** | One per **timed** comment, at its moment. Click to seek, hover for the text, and each names its moment and its words to a screen reader |
@@ -1614,6 +1621,14 @@ changed, which is what lets a key pressed on the pane and a button pressed in th
 same player without either knowing about the other. The position is the one exception — no event
 reports it often enough to scrub with — so it is sampled in an animation frame **while playing**,
 and on the element's own events when it is still.
+
+**The loudness is the exception on the way in.** An element starts at full volume every time one is
+made, and the pane makes a new one per asset, so the level and the mute are seeded from the library
+(`settings.json`, as a whole percent) and put on in the element's ref callback — before an `autoPlay`
+clip whose bytes are cached can be heard. Everything after that is still the element's: the slider,
+the button and `M` all reach it, and what it announces is what gets remembered. It is held in a
+store beside `playhead` rather than in the window's state, because a slider drag emits a change per
+pixel and the grid behind the preview must not re-render for a number it does not draw.
 
 The transport is drawn whether or not anything is on the timeline, so writing the first comment
 does not move the picture it is about.

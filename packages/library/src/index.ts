@@ -98,6 +98,7 @@ export {
   InvalidMomentError,
   InvalidRatingError,
   LibraryBusyError,
+  LibraryNotFoundError,
   LibraryTooNewError,
   NotALibraryError,
   NotAnEagleLibraryError,

@@ -308,7 +308,10 @@ is listed here, so the order stays visible instead of becoming folklore.
   the bar is ours, the marks are on the timeline, frame stepping runs off the probed rate with a
   counter from `requestVideoFrameCallback`, and a frame can be pinned as the thumbnail —
   migration 0009, a `poster_set` op, `roost poster`, and two rows in the context menu.
-  `scripts/check-transport.mjs` holds the lot to `UI_SPEC.md` §10 in a real window — 35 checks.
+  `scripts/check-transport.mjs` holds the lot to `UI_SPEC.md` §10 in a real window — 52 checks,
+  the last three of them the **remembered volume** (§9, proposed 2026-09-10): the pane makes a new
+  element per asset and a new element starts at full volume, so the level and the mute are seeded
+  from `settings.json` and put on before an `autoPlay` clip can be heard.
   Stage 3 is a decision of its own
 
 ## M5 — Discovery features ☐
@@ -495,7 +498,7 @@ not draw, all settled before any of them was written against:
 | --- | --- | --- |
 | What `Delete` means | Trash, and trash is a `trashed_at` column (migration 0007) with `trash` and `restore` journal ops. A trashed asset keeps everything and stops matching every query but `is:trashed`. **Nothing is ever emptied on a timer** — permanent removal is `remove`, which is what "Empty trash" and "Delete permanently" send | ADR-0022 |
 
-| Where settings live | `settings.json` inside `<Name>.roost`, which is the default; `stateDir()` and `configDir()` hold only what cannot live in a library — the recent list that finds one, window geometry, and the theme the picker is drawn in. **Built 2026-09-08**, with *Show subfolder contents* as its first setting and *Fit to window* as its second | ADR-0019, ADR-0036, ADR-0024 §8 |
+| Where settings live | `settings.json` inside `<Name>.roost`, which is the default; `stateDir()` and `configDir()` hold only what cannot live in a library — the recent list that finds one, window geometry, and the theme the picker is drawn in. **Built 2026-09-08**, with *Show subfolder contents* as its first setting and *Fit to window* as its second; the player's volume and mute joined them on 2026-09-10 | ADR-0019, ADR-0036, ADR-0024 §8, ADR-0024 §9 |
 | Windows | Several windows onto one library. Several libraries at once is refused for now, and the work it would need is named | ADR-0020 |
 
 | UI primitives | `radix-ui` 1.6.7, measured against three alternatives. Native `Menu.popup()` was recommended first, on the user's request for the OS's own menus, and reversed by finding that Electron draws its own menu on Linux — the only platform v1 ships | ADR-0021 |

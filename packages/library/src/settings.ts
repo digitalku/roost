@@ -55,6 +55,21 @@ export interface Settings {
    */
   readonly fitVideoToWindow: boolean;
   /**
+   * How loud the player is, and whether it is silenced (ADR-0024 §9).
+   *
+   * A **whole percent, 0–100**, rather than the element's own 0–1: the slider
+   * is drawn in percent, the keyboard moves it in percent, and a preference
+   * that reads `80` in a file somebody may open by hand is worth more than the
+   * eleventh decimal place of a float.
+   *
+   * Muting is remembered with it, at the user's choosing on 2026-09-10.
+   * Remembering the volume alone would give back a player that is at 30% and
+   * audible when it was left silent, which is the same surprise this exists to
+   * remove — pointing the other way.
+   */
+  readonly mediaVolume: number;
+  readonly mediaMuted: boolean;
+  /**
    * The order the grid is in, and which shuffle `random` means (ADR-0039).
    *
    * Here rather than in the window because a library is a kind of thing: a
@@ -102,9 +117,16 @@ export interface Settings {
  */
 const ZOOM_RANGE = { min: 32, max: 1024 } as const;
 
+/** Percent. Clamped rather than rejected, for the same reason the zoom is. */
+const VOLUME_RANGE = { min: 0, max: 100 } as const;
+
 export const DEFAULT_SETTINGS: Settings = {
   showSubfolderContents: false,
   fitVideoToWindow: false,
+  // Full, which is where a media element starts on its own: a library nobody
+  // has touched the volume in behaves exactly as it did before this existed.
+  mediaVolume: 100,
+  mediaMuted: false,
   sortKey: DEFAULT_SORT.key,
   sortDescending: DEFAULT_SORT.descending,
   shuffleSeed: DEFAULT_SORT.seed,
@@ -128,6 +150,8 @@ export async function readSettings(root: string): Promise<Settings> {
       DEFAULT_SETTINGS.showSubfolderContents,
     ),
     fitVideoToWindow: boolish(raw["fitVideoToWindow"], DEFAULT_SETTINGS.fitVideoToWindow),
+    mediaVolume: numberish(raw["mediaVolume"], DEFAULT_SETTINGS.mediaVolume, VOLUME_RANGE),
+    mediaMuted: boolish(raw["mediaMuted"], DEFAULT_SETTINGS.mediaMuted),
     sortKey: sortKeyish(raw["sortKey"]),
     sortDescending: boolish(raw["sortDescending"], DEFAULT_SETTINGS.sortDescending),
     shuffleSeed: numberish(raw["shuffleSeed"], DEFAULT_SETTINGS.shuffleSeed, {

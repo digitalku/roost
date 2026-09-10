@@ -195,6 +195,8 @@ export type Request =
       readonly type: "settings:write";
       readonly showSubfolderContents?: boolean;
       readonly fitVideoToWindow?: boolean;
+      readonly mediaVolume?: number;
+      readonly mediaMuted?: boolean;
       readonly sortKey?: SortKey;
       readonly sortDescending?: boolean;
       readonly shuffleSeed?: number;
@@ -851,6 +853,8 @@ export const REQUEST_VALIDATORS: {
     const patch: {
       showSubfolderContents?: boolean;
       fitVideoToWindow?: boolean;
+      mediaVolume?: number;
+      mediaMuted?: boolean;
       sortKey?: SortKey;
       sortDescending?: boolean;
       shuffleSeed?: number;
@@ -862,6 +866,7 @@ export const REQUEST_VALIDATORS: {
     for (const key of [
       "showSubfolderContents",
       "fitVideoToWindow",
+      "mediaMuted",
       "sortDescending",
       "matchImageProportions",
     ] as const) {
@@ -892,6 +897,16 @@ export const REQUEST_VALIDATORS: {
       if (!value.ok) return value;
       if (value.value < 0) return bad(`${key}: expected zero or more`);
       patch[key] = value.value;
+    }
+
+    // Percent, and bounded on both sides: the element takes 0–1 and throws on
+    // anything outside it, so a window sending 400 would be a window that
+    // cannot play the next video it opens.
+    if (source["mediaVolume"] !== undefined) {
+      const value = readInteger(source, "mediaVolume");
+      if (!value.ok) return value;
+      if (value.value < 0 || value.value > 100) return bad("mediaVolume: expected 0 to 100");
+      patch.mediaVolume = value.value;
     }
 
     return ok({ type: "settings:write", ...patch });

@@ -7,10 +7,18 @@ import type { WireRecentLibrary } from "@roost/contract";
  * nothing built one, so the only way back into a library was a native folder
  * dialog — every time, including the first thing every morning.
  *
- * **A library that has gone is shown, not hidden.** It is drawn dimmed and
- * cannot be opened, with its own way to be forgotten. Dropping it silently
- * would read as the application having forgotten it, and leave somebody
- * wondering whether they imagined the library or merely lost it.
+ * **A library that has gone is shown, not hidden.** It is drawn dimmed, with
+ * its own way to be forgotten. Dropping it silently would read as the
+ * application having forgotten it, and leave somebody wondering whether they
+ * imagined the library or merely lost it.
+ *
+ * **And it is still clickable.** It was unopenable until 2026-09-10, which was
+ * wrong for the reason that produces most of these rows: a library on a
+ * removable drive. Somebody sees "Missing", plugs the drive in, and clicks the
+ * row — and the one moment the answer has just changed was the one moment the
+ * row refused to ask. The check behind the mark is a `stat` taken when the list
+ * was read, not a fact about the library, so a click re-asks and the row is
+ * re-marked from the answer.
  */
 
 export interface RecentListProps {
@@ -46,12 +54,12 @@ export function RecentList({
             <button
               type="button"
               className="recent-open"
-              disabled={busy || !entry.available}
+              disabled={busy}
               // The name, not the name plus the path: an accessible name is
               // read aloud, and a full filesystem path read one character at a
               // time is noise. The path is still on screen and in the tooltip.
-              aria-label={`Open ${entry.name}`}
-              title={entry.root}
+              aria-label={entry.available ? `Open ${entry.name}` : `Try ${entry.name} again`}
+              title={entry.available ? entry.root : `${entry.root}\nMissing — click to try again`}
               onClick={() => onOpen(entry.root)}
             >
               <span className="recent-name">{entry.name}</span>

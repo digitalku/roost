@@ -188,8 +188,10 @@ describe("the engine's message loop", () => {
 
   it("carries a library error's own code across the wire", async () => {
     // The code is the whole reason `WireProblem` exists: `structuredClone`
-    // discards the subclass, so a bare Error would arrive without it.
-    const reply = await ask(3, { type: "library:open", path: join(dir, "not-a-library") });
+    // discards the subclass, so a bare Error would arrive without it. `dir` is
+    // there and holds no library, which is the error this asserts; a path that
+    // is not there at all is a different code, below.
+    const reply = await ask(3, { type: "library:open", path: dir });
 
     expect(reply).toEqual({
       id: 3,
@@ -197,7 +199,25 @@ describe("the engine's message loop", () => {
       problem: {
         code: "not_a_library",
         message: expect.stringContaining("not a Roost library"),
-        detail: { path: join(dir, "not-a-library") },
+        detail: { path: dir },
+      },
+    });
+  });
+
+  it("tells a path that is gone from a directory that is not a library", async () => {
+    // The picker's recent list is where this lands: a library on a drive that
+    // is not mounted is not damaged, and saying it holds no library.json sends
+    // the reader looking for damage that is not there.
+    const gone = join(dir, "not-a-library");
+    const reply = await ask(4, { type: "library:open", path: gone });
+
+    expect(reply).toEqual({
+      id: 4,
+      ok: false,
+      problem: {
+        code: "library_not_found",
+        message: expect.stringContaining("is not there"),
+        detail: { path: gone },
       },
     });
   });
