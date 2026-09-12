@@ -20,7 +20,9 @@ import { UnsupportedPlatformError } from "../model/index.js";
  * cannot live there without either failing to write or interleaving two
  * machines' output into one file.
  *
- * Linux follows the XDG Base Directory specification. Other platforms raise
+ * Linux follows the XDG Base Directory specification, and Windows the known
+ * folders: `%APPDATA%` for what may roam between a user's machines, and
+ * `%LOCALAPPDATA%` for what must not (ADR-0041). Every other platform raises
  * {@link UnsupportedPlatformError} rather than guessing, so a port is a
  * deliberate act and never a silently wrong directory.
  */
@@ -28,29 +30,40 @@ import { UnsupportedPlatformError } from "../model/index.js";
 /** The name every user-visible path is built under. */
 export const APP_NAME = "roost";
 
-/** `$XDG_CONFIG_HOME/roost`, or `~/.config/roost`. User-editable settings. */
+/**
+ * `$XDG_CONFIG_HOME/roost`, or `~/.config/roost`; `%APPDATA%\roost\config` on
+ * Windows. User-editable settings.
+ */
 export function configDir(): string {
-  return base("XDG_CONFIG_HOME", ".config");
-}
-
-/** `$XDG_DATA_HOME/roost`, or `~/.local/share/roost`. Data worth backing up. */
-export function dataDir(): string {
-  return base("XDG_DATA_HOME", ".local/share");
+  return base("XDG_CONFIG_HOME", ".config", "APPDATA", "config");
 }
 
 /**
- * `$XDG_STATE_HOME/roost`, or `~/.local/state/roost`.
+ * `$XDG_DATA_HOME/roost`, or `~/.local/share/roost`; `%APPDATA%\roost\data` on
+ * Windows. Data worth backing up.
+ */
+export function dataDir(): string {
+  return base("XDG_DATA_HOME", ".local/share", "APPDATA", "data");
+}
+
+/**
+ * `$XDG_STATE_HOME/roost`, or `~/.local/state/roost`;
+ * `%LOCALAPPDATA%\roost\state` on Windows — Local rather than Roaming, because
+ * {@link lockDir} lives under it and a lock file records a pid.
  *
  * State that should persist between runs but is not worth backing up: window
  * geometry, the recent-libraries list, logs.
  */
 export function stateDir(): string {
-  return base("XDG_STATE_HOME", ".local/state");
+  return base("XDG_STATE_HOME", ".local/state", "LOCALAPPDATA", "state");
 }
 
-/** `$XDG_CACHE_HOME/roost`, or `~/.cache/roost`. Safe to delete at any time. */
+/**
+ * `$XDG_CACHE_HOME/roost`, or `~/.cache/roost`; `%LOCALAPPDATA%\roost\cache` on
+ * Windows. Safe to delete at any time.
+ */
 export function cacheDir(): string {
-  return base("XDG_CACHE_HOME", ".cache");
+  return base("XDG_CACHE_HOME", ".cache", "LOCALAPPDATA", "cache");
 }
 
 /** Where log files go: `stateDir()/logs`. */
@@ -70,7 +83,11 @@ export function lockDir(): string {
   return join(stateDir(), "locks");
 }
 
-function base(variable: string, fallback: string): string {
+function base(variable: string, fallback: string, knownFolder: string, leaf: string): string {
+  if (process.platform === "win32") {
+    return resolveKnownFolder(process.env[knownFolder], knownFolder, leaf);
+  }
+
   if (process.platform !== "linux") {
     // Compiles and runs everywhere so portability rot appears in CI the day it
     // does, but refuses to invent a layout for a platform nobody has designed
@@ -102,4 +119,34 @@ export function resolveXdg(
     throw new UnsupportedPlatformError("resolving an XDG directory without HOME");
   }
   return join(home, fallback, APP_NAME);
+}
+
+/**
+ * The Windows rule, separated from the environment for the same reason
+ * {@link resolveXdg} is.
+ *
+ * The role is the leaf rather than the root, because Windows has two roots and
+ * this module has four directories to place: `%APPDATA%\roost` serving as both
+ * config and data would give two of them one directory, and two roles sharing a
+ * namespace collide the first time both want a file of the same name
+ * (ADR-0041 §2).
+ *
+ * There is no fallback when the variable is missing. `%APPDATA%` and
+ * `%LOCALAPPDATA%` are set on every Windows installation, so an absent one is a
+ * broken environment rather than a configuration to accommodate — and inventing
+ * a directory is the thing this module exists not to do. A relative value is
+ * refused for the reason XDG gives for ignoring one: it would put user data
+ * somewhere different depending on where the process happened to start.
+ *
+ * Exported for its test alone.
+ */
+export function resolveKnownFolder(
+  root: string | undefined,
+  variable: string,
+  leaf: string,
+): string {
+  if (root === undefined || root === "" || !isAbsolute(root)) {
+    throw new UnsupportedPlatformError(`resolving a known folder without ${variable}`);
+  }
+  return join(root, APP_NAME, leaf);
 }

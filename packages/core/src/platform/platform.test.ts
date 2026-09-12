@@ -5,25 +5,44 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { UnsupportedPlatformError } from "../model/index.js";
 import { tmpfsDir } from "../testing/mounts.js";
 import { reflinkSupported } from "./caps.js";
-import { APP_NAME, cacheDir, configDir, dataDir, logDir, resolveXdg, stateDir } from "./dirs.js";
+import {
+  APP_NAME,
+  cacheDir,
+  configDir,
+  dataDir,
+  logDir,
+  resolveKnownFolder,
+  resolveXdg,
+  stateDir,
+} from "./dirs.js";
 import { acquireLockAt, lockPathFor } from "./lock.js";
 
 const onLinux = process.platform === "linux";
+const onWindows = process.platform === "win32";
 
 describe("XDG directories", () => {
+  // The rule is the assertion, not the separator: `join` is what the code under
+  // test uses, and spelling these out with `/` would fail on Windows for a
+  // reason that has nothing to do with XDG.
   it("prefers an absolute value from the environment", () => {
-    expect(resolveXdg("/custom/config", "/home/u", ".config")).toBe("/custom/config/roost");
+    expect(resolveXdg("/custom/config", "/home/u", ".config")).toBe(
+      join("/custom/config", APP_NAME),
+    );
   });
 
   it("ignores a relative value, as the specification requires", () => {
     // Honouring it would put user data somewhere different depending on the
     // working directory the process happened to start in.
-    expect(resolveXdg("relative/path", "/home/u", ".config")).toBe("/home/u/.config/roost");
+    expect(resolveXdg("relative/path", "/home/u", ".config")).toBe(
+      join("/home/u", ".config", APP_NAME),
+    );
   });
 
   it("falls back under HOME when the variable is unset or empty", () => {
-    expect(resolveXdg(undefined, "/home/u", ".local/state")).toBe("/home/u/.local/state/roost");
-    expect(resolveXdg("", "/home/u", ".cache")).toBe("/home/u/.cache/roost");
+    expect(resolveXdg(undefined, "/home/u", ".local/state")).toBe(
+      join("/home/u", ".local/state", APP_NAME),
+    );
+    expect(resolveXdg("", "/home/u", ".cache")).toBe(join("/home/u", ".cache", APP_NAME));
   });
 
   it("refuses rather than guessing when there is no HOME either", () => {
@@ -37,10 +56,45 @@ describe("XDG directories", () => {
     expect(logDir().endsWith(`${APP_NAME}/logs`)).toBe(true);
   });
 
-  it.runIf(!onLinux)("refuses to invent a layout for a platform nobody designed for", () => {
-    // Runs on the CI matrix, so portability rot appears the day it does rather
-    // than at the first port.
-    expect(() => configDir()).toThrow(UnsupportedPlatformError);
+  it.runIf(!onLinux && !onWindows)(
+    "refuses to invent a layout for a platform nobody designed for",
+    () => {
+      // Runs on the CI matrix, so portability rot appears the day it does rather
+      // than at the first port.
+      expect(() => configDir()).toThrow(UnsupportedPlatformError);
+    },
+  );
+});
+
+describe("Windows known folders", () => {
+  it("puts the role under the application name, not beside it", () => {
+    // Two roots, four directories: `%APPDATA%\roost` serving as both config and
+    // data would give two of them one namespace (ADR-0041 §2).
+    expect(resolveKnownFolder("C:\\Users\\u\\AppData\\Roaming", "APPDATA", "config")).toBe(
+      join("C:\\Users\\u\\AppData\\Roaming", APP_NAME, "config"),
+    );
+  });
+
+  it("refuses rather than guessing when the variable is missing or relative", () => {
+    // Absent is a broken environment, not a configuration to accommodate; a
+    // relative value would move user data with the working directory.
+    expect(() => resolveKnownFolder(undefined, "APPDATA", "config")).toThrow(
+      UnsupportedPlatformError,
+    );
+    expect(() => resolveKnownFolder("", "LOCALAPPDATA", "state")).toThrow(UnsupportedPlatformError);
+    expect(() => resolveKnownFolder("AppData\\Local", "LOCALAPPDATA", "state")).toThrow(
+      UnsupportedPlatformError,
+    );
+  });
+
+  it.runIf(onWindows)("splits what roams from what must not", () => {
+    // `lockDir()` is under `stateDir()` and a lock file records a pid, which
+    // means nothing on any machine but the one that issued it.
+    expect(configDir()).toBe(join(String(process.env["APPDATA"]), APP_NAME, "config"));
+    expect(dataDir()).toBe(join(String(process.env["APPDATA"]), APP_NAME, "data"));
+    expect(stateDir()).toBe(join(String(process.env["LOCALAPPDATA"]), APP_NAME, "state"));
+    expect(cacheDir()).toBe(join(String(process.env["LOCALAPPDATA"]), APP_NAME, "cache"));
+    expect(logDir()).toBe(join(stateDir(), "logs"));
   });
 });
 
@@ -84,8 +138,10 @@ describe("the instance lock", () => {
     expect((await acquireLockAt(scratch())).kind).toBe("acquired");
   });
 
-  it("reports a lock held by another live process as busy", async () => {
-    // Process 1 exists on every Linux system and is not us.
+  it.runIf(onLinux)("reports a lock held by another live process as busy", async () => {
+    // Process 1 exists on every Linux system and is not us. Windows has no
+    // equivalent constant — pid 4 is `System`, which a normal process cannot
+    // query — so the evidence is Linux's, not the behaviour.
     await writeFile(scratch(), "1");
     const outcome = await acquireLockAt(scratch());
     expect(outcome).toEqual({ kind: "busy", pid: 1 });

@@ -19,12 +19,23 @@ import { join } from "node:path";
  * `HOME` is deliberately left alone: `dirs.ts` reads it only when an XDG
  * variable is absent, and a test that needs the real home for something else
  * should not have it moved out from under it.
+ *
+ * Windows needs the same protection and a different pair of variables, because
+ * the layout there is the known folders rather than XDG (ADR-0041 §2). Nothing
+ * about the danger changes with the platform — only the name of the thing that
+ * would be written into.
  */
 
 const scratch = mkdtempSync(join(tmpdir(), "roost-test-xdg-"));
 
 for (const variable of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"]) {
   process.env[variable] = join(scratch, variable.slice(4).toLowerCase());
+}
+
+if (process.platform === "win32") {
+  for (const variable of ["APPDATA", "LOCALAPPDATA"]) {
+    process.env[variable] = join(scratch, variable.toLowerCase());
+  }
 }
 
 process.on("exit", () => {
