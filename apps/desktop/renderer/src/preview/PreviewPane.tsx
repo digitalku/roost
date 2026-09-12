@@ -2,6 +2,7 @@ import type { WireAssetDetail, WireSubtitle } from "@roost/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../bridge.js";
+import { counted } from "../format.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { Picture, type PictureHandle } from "./Picture.js";
 import { playhead } from "./playhead.js";
@@ -400,7 +401,7 @@ function Pages({
           Previous
         </button>
         <span className="preview-page-count">
-          {(shown + 1).toLocaleString()} / {pages.toLocaleString()}
+          {counted(shown + 1)} / {counted(pages)}
         </span>
         <button type="button" disabled={shown >= pages - 1} onClick={() => onTurn(1)}>
           Next

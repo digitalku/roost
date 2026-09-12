@@ -7,7 +7,7 @@ import type {
 import { ContextMenu } from "radix-ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
-import { bytes } from "../format.js";
+import { bytes, counted } from "../format.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { duration } from "../timecode.js";
 import { Comments } from "./Comments.js";
@@ -770,7 +770,7 @@ function Selection({
 }): React.JSX.Element {
   return (
     <aside className="inspector" aria-label="Inspector">
-      <h2 className="inspector-count">{summary.count.toLocaleString()} assets</h2>
+      <h2 className="inspector-count">{counted(summary.count)} assets</h2>
 
       <Rating
         value={summary.rating}
@@ -993,7 +993,7 @@ function Metadata({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
       ? []
       : ([["Dimensions", `${detail.width} × ${detail.height}`]] as const)),
     ...(detail.durationMs === null ? [] : ([["Duration", duration(detail.durationMs)]] as const)),
-    ...(detail.pageCount === null ? [] : ([["Pages", detail.pageCount.toLocaleString()]] as const)),
+    ...(detail.pageCount === null ? [] : ([["Pages", counted(detail.pageCount)]] as const)),
     // Whatever the format's own backend reported. The order is the vocabulary's
     // rather than the map's, so a font always reads family-then-style and two
     // assets of the same kind line up.

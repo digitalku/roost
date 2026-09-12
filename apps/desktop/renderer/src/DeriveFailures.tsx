@@ -3,6 +3,7 @@ import { Dialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { invoke } from "./bridge.js";
 import { CAPABILITY_OF_REASON, explainFailure } from "./deriveReason.js";
+import { counted } from "./format.js";
 
 /**
  * What could not be drawn, and why (`UI_SPEC.md` §3.13).
@@ -110,13 +111,12 @@ export function DeriveFailures({
               ))}
               {failures.hidden > 0 && (
                 <p className="failure-aside">
-                  …and {failures.hidden.toLocaleString()} more, in reasons too varied to group.
+                  …and {counted(failures.hidden)} more, in reasons too varied to group.
                 </p>
               )}
               {failures.read < failures.total && (
                 <p className="failure-aside">
-                  Grouped from the first {failures.read.toLocaleString()} of{" "}
-                  {failures.total.toLocaleString()}.
+                  Grouped from the first {counted(failures.read)} of {counted(failures.total)}.
                 </p>
               )}
             </div>
@@ -177,7 +177,7 @@ function Group({
     <details className="failure-group" open={open}>
       <summary>
         <span className="failure-line">{explained.line}</span>
-        <span className="failure-count">{group.count.toLocaleString()}</span>
+        <span className="failure-count">{counted(group.count)}</span>
       </summary>
       {explained.hint !== undefined && <p className="failure-hint">{explained.hint}</p>}
       {install !== undefined && (
@@ -197,20 +197,20 @@ function Group({
           out to group them. Small, monospaced, and never the first thing read. */}
       <p className="failure-reason">{group.reason}</p>
       {group.attempts > 1 && (
-        <p className="failure-aside">Tried {group.attempts.toLocaleString()} times already.</p>
+        <p className="failure-aside">Tried {counted(group.attempts)} times already.</p>
       )}
       <ul className="failure-files">
         {group.samples.map((sample) => (
           <li key={sample.hash}>{sample.name}</li>
         ))}
-        {rest > 0 && <li className="failure-rest">…and {rest.toLocaleString()} more</li>}
+        {rest > 0 && <li className="failure-rest">…and {counted(rest)} more</li>}
       </ul>
     </details>
   );
 }
 
 function title(total: number, state: "failed" | "blocked"): string {
-  const count = total.toLocaleString();
+  const count = counted(total);
   if (state === "blocked") {
     return total === 1 ? "1 file without a preview" : `${count} without a preview`;
   }

@@ -214,6 +214,15 @@ byte counts, and RQL.
 Numbers that are compared vertically — sizes, dimensions, dates in the list view — use
 tabular figures.
 
+**A count is grouped in English, not in the machine's locale.** `counted()` in `format.ts` is
+the one place that does it, pinned to `en-US`; `toLocaleString()` with no argument is what it
+replaced. The interface has one language (`CLAUDE.md` §2) and the thousands separator is part of
+it: an English sentence reading *"1.234 assets"* on a machine set to Indonesian says one and a
+bit. It is also what makes the rendering assertable — three renderer tests had been pinning the
+en-US spelling and passing only because CI runs in it, which is how this was found. **A date is
+not covered by this** and still follows the machine, deliberately: the order of a day and a
+month is not a separator, and nobody has decided it.
+
 ### 2.4 Motion
 
 `--ease-out` for entrances, `--ease-in-out` for state changes, and two durations: `--dur-fast`

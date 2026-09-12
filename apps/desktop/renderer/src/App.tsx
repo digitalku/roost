@@ -28,6 +28,7 @@ import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Credit } from "./Credit.js";
 import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
 import { FilterBar } from "./filter/FilterBar.js";
+import { counted } from "./format.js";
 import { AssetContextMenu } from "./grid/AssetContextMenu.js";
 import { Grid } from "./grid/Grid.js";
 import {
@@ -479,11 +480,11 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
       progress === undefined
         ? "Importing…"
         : progress.thumbnails > 0
-          ? `Thumbnails… ${progress.thumbnails.toLocaleString()} of ${progress.imported.toLocaleString()}`
+          ? `Thumbnails… ${counted(progress.thumbnails)} of ${counted(progress.imported)}`
           : // The denominator is the total where one is known — an Eagle import
             // counted its items before it began (ADR-0032) — and otherwise what
             // the walk has found so far, which is the honest upper bound.
-            `Importing… ${done.toLocaleString()} of ${(progress.total ?? progress.scanned).toLocaleString()}`;
+            `Importing… ${counted(done)} of ${counted(progress.total ?? progress.scanned)}`;
     return <span className="status-job">{said}</span>;
   }
 
@@ -507,22 +508,22 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
 
   const report = outcome.report;
   const parts = [
-    `${report.imported.toLocaleString()} imported`,
+    `${counted(report.imported)} imported`,
     ...(report.duplicates + report.partialDuplicates > 0
       ? // Not a failure: identical bytes have one address (invariant 1), so
         // re-importing a folder is the ordinary case.
-        [`${(report.duplicates + report.partialDuplicates).toLocaleString()} already here`]
+        [`${counted(report.duplicates + report.partialDuplicates)} already here`]
       : []),
     ...(report.subtitles > 0
       ? // An attachment nobody asked for by name, made from a filename
         // (ADR-0025 §3) — so the run says it happened.
-        [`${report.subtitles.toLocaleString()} captioned`]
+        [`${counted(report.subtitles)} captioned`]
       : []),
     ...(report.subtitlesUnattached > 0
-      ? [`${report.subtitlesUnattached.toLocaleString()} subtitles unattached`]
+      ? [`${counted(report.subtitlesUnattached)} subtitles unattached`]
       : []),
     ...(report.failed.length + report.partialCollisions > 0
-      ? [`${(report.failed.length + report.partialCollisions).toLocaleString()} failed`]
+      ? [`${counted(report.failed.length + report.partialCollisions)} failed`]
       : []),
   ];
 
@@ -546,20 +547,20 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
  */
 function eagleSaid(report: WireEagleReport): string[] {
   return [
-    `${report.assets.toLocaleString()} from Eagle`,
-    ...(report.duplicates > 0 ? [`${report.duplicates.toLocaleString()} already here`] : []),
-    ...(report.collapsed > 0 ? [`${report.collapsed.toLocaleString()} merged by content`] : []),
+    `${counted(report.assets)} from Eagle`,
+    ...(report.duplicates > 0 ? [`${counted(report.duplicates)} already here`] : []),
+    ...(report.collapsed > 0 ? [`${counted(report.collapsed)} merged by content`] : []),
     ...(report.preserved > 0
       ? // Eagle fills what is empty and never overwrites (ADR-0032 §8). Without
         // this line, an import that left a note alone and one that found no
         // note look identical afterwards.
-        [`${report.preserved.toLocaleString()} kept as they were`]
+        [`${counted(report.preserved)} kept as they were`]
       : []),
-    ...(report.folders > 0 ? [`${report.folders.toLocaleString()} folders`] : []),
-    ...(report.comments > 0 ? [`${report.comments.toLocaleString()} comments`] : []),
-    ...(report.subtitles > 0 ? [`${report.subtitles.toLocaleString()} captioned`] : []),
-    ...(report.trashed > 0 ? [`${report.trashed.toLocaleString()} trashed`] : []),
-    ...(report.failed.length > 0 ? [`${report.failed.length.toLocaleString()} failed`] : []),
+    ...(report.folders > 0 ? [`${counted(report.folders)} folders`] : []),
+    ...(report.comments > 0 ? [`${counted(report.comments)} comments`] : []),
+    ...(report.subtitles > 0 ? [`${counted(report.subtitles)} captioned`] : []),
+    ...(report.trashed > 0 ? [`${counted(report.trashed)} trashed`] : []),
+    ...(report.failed.length > 0 ? [`${counted(report.failed.length)} failed`] : []),
   ];
 }
 
@@ -598,10 +599,8 @@ const EMPTY_TRASH = "The trash is empty.";
 /** `1,234 assets · 3 selected`, with the second half only when there is one. */
 function summaryLine(assets: number | undefined, selected: number): string {
   const total =
-    assets === undefined
-      ? "counting…"
-      : `${assets.toLocaleString()} ${assets === 1 ? "asset" : "assets"}`;
-  return selected === 0 ? total : `${total} · ${selected.toLocaleString()} selected`;
+    assets === undefined ? "counting…" : `${counted(assets)} ${assets === 1 ? "asset" : "assets"}`;
+  return selected === 0 ? total : `${total} · ${counted(selected)} selected`;
 }
 
 /**

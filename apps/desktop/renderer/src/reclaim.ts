@@ -1,7 +1,7 @@
 import type { WireProblem } from "@roost/contract";
 import { useMemo } from "react";
 import { invoke } from "./bridge.js";
-import { bytes } from "./format.js";
+import { bytes, counted } from "./format.js";
 import type { ConfirmRequest } from "./grid/trash-actions.js";
 
 /**
@@ -43,7 +43,7 @@ export function useReclaim({ onNote, onProblem, onConfirm }: ReclaimOptions): ()
 
         onConfirm({
           title: `Reclaim ${bytes(size)}?`,
-          body: `${objects.toLocaleString()} ${objects === 1 ? "file" : "files"} under originals/ belong to no asset in this library. Deleting them frees ${bytes(size)} and cannot be undone: an orphan is not in the journal, so no rebuild brings it back.`,
+          body: `${counted(objects)} ${objects === 1 ? "file" : "files"} under originals/ belong to no asset in this library. Deleting them frees ${bytes(size)} and cannot be undone: an orphan is not in the journal, so no rebuild brings it back.`,
           confirmLabel: "Reclaim",
           run: () => {
             void invoke({ type: "library:reclaim" }).then((done) => {

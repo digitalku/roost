@@ -8,6 +8,7 @@ import type {
 import { STARS } from "@roost/contract";
 import { DropdownMenu } from "radix-ui";
 import { useCallback, useRef, useState } from "react";
+import { counted } from "../format.js";
 
 /**
  * The three filters over the grid: tags, rating, file type (ADR-0035).
@@ -426,7 +427,7 @@ function Choice({
       <span className="menu-label">
         {value.stars === null ? value.label : <Stars filled={value.stars} label={value.label} />}
       </span>
-      {value.count !== null && <span className="menu-count">{value.count.toLocaleString()}</span>}
+      {value.count !== null && <span className="menu-count">{counted(value.count)}</span>}
     </DropdownMenu.CheckboxItem>
   );
 }

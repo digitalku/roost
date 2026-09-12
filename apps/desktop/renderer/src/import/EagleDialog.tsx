@@ -2,7 +2,7 @@ import type { WireEagleSurvey, WireProblem } from "@roost/contract";
 import { Dialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { invoke } from "../bridge.js";
-import { bytes } from "../format.js";
+import { bytes, counted } from "../format.js";
 
 /**
  * What importing an Eagle library would do, before it does it
@@ -121,8 +121,8 @@ function EagleSummary({ survey }: { readonly survey: WireEagleSurvey }): React.J
   return (
     <div className="eagle-summary">
       <p className="dialog-body">
-        Eagle {survey.version} · {survey.items.toLocaleString()}{" "}
-        {survey.items === 1 ? "item" : "items"} · {bytes(survey.bytes)}
+        Eagle {survey.version} · {counted(survey.items)} {survey.items === 1 ? "item" : "items"} ·{" "}
+        {bytes(survey.bytes)}
       </p>
       {holds.length > 0 && <p className="eagle-line">{holds.join(" · ")}</p>}
 
@@ -182,5 +182,5 @@ function EagleSummary({ survey }: { readonly survey: WireEagleSurvey }): React.J
 /** A count and its noun, or nothing at all when the count is zero. */
 function line(count: number, one: string, many: string): string | undefined {
   if (count === 0) return undefined;
-  return `${count.toLocaleString()} ${count === 1 ? one : many}`;
+  return `${counted(count)} ${count === 1 ? one : many}`;
 }

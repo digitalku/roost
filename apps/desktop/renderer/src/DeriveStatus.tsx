@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke, onEvent } from "./bridge.js";
 import { DeriveFailures } from "./DeriveFailures.js";
 import { CAPABILITY_OF_REASON } from "./deriveReason.js";
+import { counted } from "./format.js";
 
 /**
  * What the derive queue is doing, in the status bar (`ROADMAP.md` M4).
@@ -77,14 +78,14 @@ export function DeriveStatus({ status, onRetry }: DeriveStatusProps): React.JSX.
 
   const working = status.ready + status.running;
   if (working > 0) {
-    return <span className="status-job">Deriving… {working.toLocaleString()} to go</span>;
+    return <span className="status-job">Deriving… {counted(working)} to go</span>;
   }
 
   if (status.failed > 0) {
     return (
       <Stalled
         state="failed"
-        label={`${status.failed.toLocaleString()} could not be drawn`}
+        label={`${counted(status.failed)} could not be drawn`}
         capabilities={status.capabilities}
         onRetry={onRetry}
       />
@@ -108,7 +109,7 @@ export function DeriveStatus({ status, onRetry }: DeriveStatusProps): React.JSX.
     return (
       <Stalled
         state="blocked"
-        label={capability?.detail ?? `${status.blocked.toLocaleString()} without a preview`}
+        label={capability?.detail ?? `${counted(status.blocked)} without a preview`}
         capabilities={status.capabilities}
         onRetry={onRetry}
       />

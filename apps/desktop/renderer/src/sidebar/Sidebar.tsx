@@ -9,6 +9,7 @@ import {
   FOLDER_DRAG_TYPE,
 } from "../dnd.js";
 import { type DrawnRow, found } from "../folders.js";
+import { counted } from "../format.js";
 import type { Expansion } from "./expansion.js";
 
 /**
@@ -648,7 +649,7 @@ const Row = memo(function Row({
           <span className="sidebar-spoken-name">{name}</span>
         </span>
       )}
-      {count !== null && <span className="sidebar-count">{count.toLocaleString()}</span>}
+      {count !== null && <span className="sidebar-count">{counted(count)}</span>}
     </button>
   );
 });

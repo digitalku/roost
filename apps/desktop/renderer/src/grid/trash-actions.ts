@@ -1,7 +1,7 @@
 import type { WireProblem } from "@roost/contract";
 import { useMemo } from "react";
 import { invoke } from "../bridge.js";
-import { bytes } from "../format.js";
+import { bytes, counted } from "../format.js";
 
 /**
  * Trashing, restoring, and deleting a selection (ADR-0022).
@@ -146,7 +146,7 @@ function deleted(count: number, freed: number): string {
 
 /** "1 asset" or "12 assets" — the CLI's phrasing, so the two frontends agree. */
 export function assets(count: number): string {
-  return count === 1 ? "1 asset" : `${count.toLocaleString()} assets`;
+  return count === 1 ? "1 asset" : `${counted(count)} assets`;
 }
 
 function capitalise(text: string): string {

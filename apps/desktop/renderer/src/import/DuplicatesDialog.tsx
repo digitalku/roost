@@ -1,4 +1,5 @@
 import { Dialog } from "radix-ui";
+import { counted } from "../format.js";
 import type { DuplicateQuestion } from "./useImport.js";
 
 /**
@@ -56,7 +57,7 @@ export function DuplicatesDialog({
           <Dialog.Title className="dialog-title">
             {question.total === 1
               ? "1 file was already in this library"
-              : `${question.total.toLocaleString()} files were already in this library`}
+              : `${counted(question.total)} files were already in this library`}
           </Dialog.Title>
           <p className="dialog-body">
             {/* Said plainly, because a grid that did not grow looks like an
@@ -69,7 +70,7 @@ export function DuplicatesDialog({
             {rows.map((row) => (
               <li key={row.key}>{row.name}</li>
             ))}
-            {rest > 0 && <li className="duplicate-rest">…and {rest.toLocaleString()} more</li>}
+            {rest > 0 && <li className="duplicate-rest">…and {counted(rest)} more</li>}
           </ul>
           <div className="dialog-actions">
             <Dialog.Close asChild>

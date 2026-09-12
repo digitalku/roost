@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
+import { counted } from "../format.js";
 import { isTyping } from "../keyboard.js";
 
 /**
@@ -163,7 +164,7 @@ export function SearchField({ query, onApply, matches }: SearchFieldProps): Reac
       {problem === undefined ? (
         matches !== undefined && (
           <output className="search-matches">
-            {matches.toLocaleString()} {matches === 1 ? "match" : "matches"}
+            {counted(matches)} {matches === 1 ? "match" : "matches"}
           </output>
         )
       ) : (
