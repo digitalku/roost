@@ -24,6 +24,12 @@ index.db
 index.db-wal
 index.db-shm
 
+# Except the one `index.db` that is evidence rather than scratch: it was written
+# by `../roost-old` and this build cannot reproduce it, which is the whole point
+# of it. The blanket rule above had left it untracked, and a deletion on
+# 2026-09-12 took it with nothing to restore it from.
+!packages/core/src/db/__fixtures__/rust-written-index/index.db
+
 # Screenshots dropped here to show the running app in conversation. They are a
 # few megabytes each and describe one moment of a UI that keeps changing.
 /screenshot/

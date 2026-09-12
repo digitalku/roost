@@ -150,10 +150,18 @@ describe("writing settings", () => {
     expect(kept).toEqual({ colourLabels: ["red"], showSubfolderContents: false });
   });
 
-  it("says so rather than throwing when it cannot write", async () => {
-    // A library on read-only media or a network share that has gone away must
-    // not produce an error dialog when somebody changes a checkbox.
-    await chmod(dir, 0o500);
-    expect(await writeSettings(dir, { showSubfolderContents: true })).toBe(false);
-  });
+  // Linux's, because of how it takes the permission away: Node's `chmod` on
+  // Windows sets the read-only attribute of a *file* and does nothing at all to
+  // a directory, so the write would succeed and the test would report the
+  // opposite of what it checks. The behaviour is every platform's; only the way
+  // of arranging the failure is not.
+  it.runIf(process.platform === "linux")(
+    "says so rather than throwing when it cannot write",
+    async () => {
+      // A library on read-only media or a network share that has gone away must
+      // not produce an error dialog when somebody changes a checkbox.
+      await chmod(dir, 0o500);
+      expect(await writeSettings(dir, { showSubfolderContents: true })).toBe(false);
+    },
+  );
 });

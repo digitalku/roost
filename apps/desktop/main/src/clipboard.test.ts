@@ -2,22 +2,29 @@ import { describe, expect, it } from "vitest";
 import { isHttpUrl, pastedName, pathsFromUriList } from "./clipboard.js";
 
 describe("reading file paths off the clipboard", () => {
+  // What a URI list holds is a *path*, and the spelling of one is the
+  // platform's: `file:///home/one/a.png` names nothing Windows can open, and
+  // `fileURLToPath` refuses it rather than inventing a drive. None of the rules
+  // under test are the platform's — comments, GNOME's operation line, the
+  // percent-decoding, the root — so the data moves and the assertions do not.
+  const onWindows = process.platform === "win32";
+  const dir = onWindows ? "file:///C:/one" : "file:///home/one";
+  const at = (name: string) => (onWindows ? `C:\\one\\${name}` : `/home/one/${name}`);
+
   it("reads the standard list, comments and all", () => {
-    const list = "# from a file manager\nfile:///home/one/a.png\nfile:///home/one/b.png\n";
-    expect(pathsFromUriList(list)).toEqual(["/home/one/a.png", "/home/one/b.png"]);
+    const list = `# from a file manager\n${dir}/a.png\n${dir}/b.png\n`;
+    expect(pathsFromUriList(list)).toEqual([at("a.png"), at("b.png")]);
   });
 
   it("skips GNOME's operation line, which is not a file", () => {
     // `x-special/gnome-copied-files` starts with `copy` or `cut`. A parser that
     // took every line would import a file called "copy".
-    expect(pathsFromUriList("copy\nfile:///home/one/a.png")).toEqual(["/home/one/a.png"]);
-    expect(pathsFromUriList("cut\nfile:///home/one/a.png")).toEqual(["/home/one/a.png"]);
+    expect(pathsFromUriList(`copy\n${dir}/a.png`)).toEqual([at("a.png")]);
+    expect(pathsFromUriList(`cut\n${dir}/a.png`)).toEqual([at("a.png")]);
   });
 
   it("decodes what a URI escaped", () => {
-    expect(pathsFromUriList("file:///home/one/two%20words.png")).toEqual([
-      "/home/one/two words.png",
-    ]);
+    expect(pathsFromUriList(`${dir}/two%20words.png`)).toEqual([at("two words.png")]);
   });
 
   it("drops anything that is not a file, rather than guessing", () => {
@@ -28,14 +35,18 @@ describe("reading file paths off the clipboard", () => {
   });
 
   it("skips one unreadable URI rather than failing the paste", () => {
-    expect(pathsFromUriList("file:\nfile:///home/one/a.png")).toEqual(["/home/one/a.png"]);
+    expect(pathsFromUriList(`file:\n${dir}/a.png`)).toEqual([at("a.png")]);
   });
 
   it("refuses the root, which an empty file URI resolves to", () => {
     // `file://` parses cleanly and yields `/`. Importing it is a walk of the
     // whole filesystem — never what a paste meant, and far too expensive to
     // find out by trying. Found by a test rather than by a user.
-    expect(pathsFromUriList("file://\nfile:///home/one/a.png")).toEqual(["/home/one/a.png"]);
+    //
+    // Refused by two different routes, which is worth knowing: the check in the
+    // parser answers for a POSIX root, and on Windows the same input never
+    // reaches it because a rootless `file:` URL has no drive to name.
+    expect(pathsFromUriList(`file://\n${dir}/a.png`)).toEqual([at("a.png")]);
     expect(pathsFromUriList("file:///")).toEqual([]);
   });
 });

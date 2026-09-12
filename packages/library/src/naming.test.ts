@@ -1,3 +1,4 @@
+import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { InvalidLibraryNameError } from "./error.js";
 import {
@@ -33,12 +34,11 @@ describe("what a library directory is called", () => {
   });
 
   it("puts a named library inside the location that was chosen", () => {
-    expect(libraryDirectory("/home/you/Pictures", "Holiday")).toBe(
-      "/home/you/Pictures/Holiday.roost",
-    );
-    expect(libraryDirectory("/home/you/Pictures", "  Holiday  ")).toBe(
-      "/home/you/Pictures/Holiday.roost",
-    );
+    // `join` rather than a literal: the separator belongs to the platform, and
+    // the assertion is the trimmed name and the suffix.
+    const inPictures = join("/home/you/Pictures", "Holiday.roost");
+    expect(libraryDirectory("/home/you/Pictures", "Holiday")).toBe(inPictures);
+    expect(libraryDirectory("/home/you/Pictures", "  Holiday  ")).toBe(inPictures);
   });
 
   it("refuses a name that would mean something to the filesystem", () => {
@@ -72,10 +72,13 @@ describe("what a library directory is called", () => {
   it("never lets a name climb out of the location it was given", () => {
     // The property behind the list above: whatever the name, the result stays
     // one level under the parent.
+    // Normalised, because `libraryDirectory` joins and a join rewrites the
+    // separators of what it was given.
+    const under = join("/home/you/Pictures") + sep;
     for (const name of ["Holiday", "Holiday Photos", "2026-08", "写真"]) {
       const made = libraryDirectory("/home/you/Pictures", name);
-      expect(made.startsWith("/home/you/Pictures/")).toBe(true);
-      expect(made.slice("/home/you/Pictures/".length)).not.toContain("/");
+      expect(made.startsWith(under)).toBe(true);
+      expect(made.slice(under.length)).not.toContain(sep);
     }
   });
 });

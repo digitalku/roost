@@ -230,23 +230,31 @@ describe("the engine's message loop", () => {
     }
   });
 
-  it("holds one library at a time, and lets go of the one it replaced", async () => {
-    const first = join(dir, "First.roost");
-    const second = join(dir, "Second.roost");
-    await ask(1, { type: "library:create", parent: dir, name: "First" });
-    expect(await openFilesUnder(first)).not.toEqual([]);
+  // Linux's, because {@link openFilesUnder} reads `/proc/self/fd` and nothing
+  // portable answers that question. The closing it checks for is every
+  // platform's — and on Windows an index left open is louder, not quieter,
+  // since the file cannot then be unlinked.
+  it.runIf(process.platform === "linux")(
+    "holds one library at a time, and lets go of the one it replaced",
+    async () => {
+      const first = join(dir, "First.roost");
+      const second = join(dir, "Second.roost");
+      await ask(1, { type: "library:create", parent: dir, name: "First" });
+      expect(await openFilesUnder(first)).not.toEqual([]);
 
-    await ask(2, { type: "library:create", parent: dir, name: "Second" });
+      await ask(2, { type: "library:create", parent: dir, name: "Second" });
 
-    expect(await ask(3, { type: "library:current" })).toMatchObject({
-      ok: true,
-      value: { root: second, name: "Second" },
-    });
-    // Not the lock, which is re-entrant within one process by design — the file
-    // handles. A library kept open holds its index and its journal, and the
-    // journal buffers, so "replaced" has to mean closed rather than forgotten.
-    expect(await openFilesUnder(first)).toEqual([]);
-  });
+      expect(await ask(3, { type: "library:current" })).toMatchObject({
+        ok: true,
+        value: { root: second, name: "Second" },
+      });
+      // Not the lock, which is re-entrant within one process by design — the
+      // file handles. A library kept open holds its index and its journal, and
+      // the journal buffers, so "replaced" has to mean closed rather than
+      // forgotten.
+      expect(await openFilesUnder(first)).toEqual([]);
+    },
+  );
 
   it("reports nothing open once it is closed", async () => {
     await ask(1, { type: "library:create", parent: dir, name: "Closed" });

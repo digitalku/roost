@@ -21,10 +21,23 @@ import {
 } from "@roost/library";
 import { gradient } from "@roost/media";
 
-/** A temporary directory and the promise that it goes away again. */
+/**
+ * A temporary directory and the promise that it goes away again.
+ *
+ * The retries are for Windows, where a closed window is not immediately a
+ * released file: the engine is a second process, and `index.db-shm` stays
+ * locked for as long as it takes that process to finish exiting. The removal
+ * runs after `window.close()` has already resolved, so this is teardown that has
+ * not caught up rather than a handle nobody is closing — which is why retrying
+ * is the right answer here and is *not* the answer where libvips has a file
+ * mapped for the life of the process (`TODO.md` §3).
+ */
 export async function scratch(prefix) {
   const dir = await mkdtemp(join(tmpdir(), `roost-${prefix}-`));
-  return { dir, dispose: () => rm(dir, { recursive: true, force: true }) };
+  return {
+    dir,
+    dispose: () => rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }),
+  };
 }
 
 /**
@@ -207,10 +220,40 @@ export async function eagleLibrary(dir, { name = "Sample" } = {}) {
  *
  * **Not ffmpeg's default encoder for `.mp4`**, which is MPEG-4 Part 2 here:
  * Chromium refuses it with error 4 and it reads exactly like a broken protocol
- * handler — the content type is right and the bytes are right. This build has
- * no `libx264` either, so `libopenh264` is the spelling that works. Any fixture
- * meant to be *played* has to say so explicitly (`TODO.md` §2).
+ * handler — the content type is right and the bytes are right. Any fixture
+ * meant to be *played* has to say H.264 explicitly (`TODO.md` §2).
+ *
+ * **Which H.264 encoder is not a constant**, which cost an hour on 2026-09-11.
+ * Fedora's `ffmpeg-free` has `libopenh264` and no `libx264`, because x264 is
+ * GPL and patent-encumbered; the Gyan build winget installs on Windows is the
+ * full GPL one and has `libx264` and no `libopenh264`. A name hardcoded for
+ * either machine fails on the other with *"Unknown encoder"*, which reads as a
+ * broken fixture rather than as a different ffmpeg.
  */
+let h264Encoder;
+
+async function h264() {
+  if (h264Encoder !== undefined) return h264Encoder;
+  const listed = await new Promise((resolve) => {
+    const proc = spawn("ffmpeg", ["-hide_banner", "-encoders"], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let out = "";
+    proc.stdout.on("data", (chunk) => {
+      out += chunk;
+    });
+    proc.on("error", () => resolve(""));
+    proc.on("exit", () => resolve(out));
+  });
+  // In preference order, and the last one is the fallback that is always
+  // present — worse pictures, but a clip rather than an error.
+  h264Encoder =
+    ["libx264", "libopenh264", "h264_mf"].find((name) =>
+      new RegExp(`\\b${name}\\b`).test(listed),
+    ) ?? "mpeg4";
+  return h264Encoder;
+}
+
 export async function videoClip(path, { seconds = 20, size = "320x240", rate = 10 } = {}) {
   await run("ffmpeg", [
     "-v",
@@ -220,7 +263,7 @@ export async function videoClip(path, { seconds = 20, size = "320x240", rate = 1
     "-i",
     `testsrc=size=${size}:rate=${rate}:duration=${seconds}`,
     "-c:v",
-    "libopenh264",
+    await h264(),
     "-pix_fmt",
     "yuv420p",
     path,

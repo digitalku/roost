@@ -8,6 +8,29 @@ import { probe } from "./probe.js";
 import { gradient, gradientPixels, SYNTHETIC_FORMATS } from "./synth.js";
 import { GRID_SIZE, generateThumbnails, PREVIEW_SIZE } from "./thumbnail.js";
 
+/**
+ * Removes a scratch directory, tolerating the one thing Windows will not allow.
+ *
+ * libvips keeps a file it has read **mapped for the life of the process**, and
+ * Windows refuses to unlink an open file — so an image this suite probed cannot
+ * be deleted by this suite afterwards. Retrying does not help: it is the
+ * operation cache holding it, not a moment of contention. The knob that would
+ * release it is `sharp.cache({ files: 0 })`, which is a performance change and
+ * therefore wants a measurement rather than a guess (`TODO.md` §3).
+ *
+ * Tolerated only here, in cleanup. The product meets the same limit in
+ * `Delete permanently` (ADR-0031), and that is not a place to swallow it.
+ */
+async function removeScratch(dir: string): Promise<void> {
+  try {
+    await rm(dir, { recursive: true, force: true });
+  } catch (error) {
+    const busy =
+      typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY";
+    if (!busy) throw error;
+  }
+}
+
 describe("probing a real file", () => {
   let dir: string;
 
@@ -16,7 +39,7 @@ describe("probing a real file", () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeScratch(dir);
   });
 
   const write = async (name: string, bytes: Buffer | Uint8Array): Promise<string> => {
@@ -63,7 +86,7 @@ describe("generating thumbnails", () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeScratch(dir);
   });
 
   const sample = async (

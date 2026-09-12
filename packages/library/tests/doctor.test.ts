@@ -152,6 +152,6 @@ describe("checking a library against itself", () => {
     // the store ever sharded differently, the walk and the lookup would still
     // agree with each other and both be wrong.
     const hash = library.db.repo.allHashes()[0] as ContentHash;
-    expect(objectPath(hash)).toContain(`/originals/${shardOf(hash)}/${hash}`);
+    expect(objectPath(hash)).toContain(join("originals", shardOf(hash), hash));
   });
 });

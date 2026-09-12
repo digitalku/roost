@@ -19,6 +19,24 @@ function capture(): {
   };
 }
 
+/**
+ * Removes the scratch library, tolerating the one thing Windows will not allow.
+ *
+ * An import thumbnails what it placed, and libvips keeps a file it has read
+ * mapped for the life of the process — so an original this run probed cannot be
+ * unlinked by this run afterwards (`TODO.md` §3). Tolerated in cleanup only;
+ * `Delete permanently` (ADR-0031) meets the same limit and must not swallow it.
+ */
+async function removeScratch(dir: string): Promise<void> {
+  try {
+    await rm(dir, { recursive: true, force: true });
+  } catch (error) {
+    const busy =
+      typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY";
+    if (!busy) throw error;
+  }
+}
+
 describe("the command line", () => {
   let dir: string;
 
@@ -27,7 +45,7 @@ describe("the command line", () => {
   });
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+    await removeScratch(dir);
   });
 
   it("prints help to stdout on request, and to stderr when nothing was asked", async () => {

@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { NotInObjectStoreError, parseContentHash } from "../model/index.js";
 import { tmpfsDir } from "../testing/mounts.js";
@@ -10,6 +10,7 @@ import { ReferencedStorage } from "./referenced.js";
 import { normalizeExt } from "./types.js";
 
 const HASH = parseContentHash(`3f${"a".repeat(62)}`);
+const onLinux = process.platform === "linux";
 const OTHER = parseContentHash(`b7${"c".repeat(62)}`);
 
 /**
@@ -56,18 +57,22 @@ describe("normalizeExt", () => {
 describe("ManagedStorage.locate", () => {
   const store = new ManagedStorage("/lib");
 
+  // The shard and the filename are the assertion; the separator between them is
+  // the platform's, and `locate` builds it with `join` like everything else.
+  const at = (...parts: string[]) => join("/lib", "originals", ...parts);
+
   it("shards on the first two characters, one level only", () => {
-    expect(store.locate(HASH, "jpg")).toBe(`/lib/originals/3f/${HASH}.jpg`);
+    expect(store.locate(HASH, "jpg")).toBe(at("3f", `${HASH}.jpg`));
   });
 
   it("normalises the extension into the filename", () => {
-    expect(store.locate(HASH, ".JPG")).toBe(`/lib/originals/3f/${HASH}.jpg`);
+    expect(store.locate(HASH, ".JPG")).toBe(at("3f", `${HASH}.jpg`));
   });
 
   it("uses the bare hash when there is no extension, with no trailing dot", () => {
     // A trailing dot would round-trip through iterAll as an empty extension on
     // a differently-named file, which is a different address for one asset.
-    expect(store.locate(HASH, "")).toBe(`/lib/originals/3f/${HASH}`);
+    expect(store.locate(HASH, "")).toBe(at("3f", HASH));
   });
 });
 
@@ -144,29 +149,37 @@ describe("ManagedStorage, on a real filesystem", () => {
     }
   });
 
-  it("falls to a plain copy across filesystems, and never calls it a reflink", async (ctx) => {
-    // A tmpfs mount rather than `os.tmpdir()`: `$TMPDIR` can point at the same
-    // filesystem the library is on, and then this test skips itself and reads
-    // as coverage it is not providing.
-    const crossDir = await tmpfsDir("roost-cross-");
-    try {
-      if ((await stat(crossDir)).dev === (await stat(lib)).dev) {
-        // Only one filesystem here, so there is nothing to cross. Skipped
-        // rather than silently returning: a test that passes without asserting
-        // anything reads as coverage it does not provide.
-        ctx.skip();
+  // Linux's, because the way it finds a second filesystem is `/proc/mounts`.
+  // The rung it exercises is not Linux's — every platform falls to a plain copy
+  // across a device boundary — but nothing portable can produce one on demand,
+  // and inventing a Windows path here would assert against a second drive that
+  // most machines do not have.
+  it.runIf(onLinux)(
+    "falls to a plain copy across filesystems, and never calls it a reflink",
+    async (ctx) => {
+      // A tmpfs mount rather than `os.tmpdir()`: `$TMPDIR` can point at the same
+      // filesystem the library is on, and then this test skips itself and reads
+      // as coverage it is not providing.
+      const crossDir = await tmpfsDir("roost-cross-");
+      try {
+        if ((await stat(crossDir)).dev === (await stat(lib)).dev) {
+          // Only one filesystem here, so there is nothing to cross. Skipped
+          // rather than silently returning: a test that passes without asserting
+          // anything reads as coverage it does not provide.
+          ctx.skip();
+        }
+
+        const file = join(crossDir, "cross.bin");
+        await writeFile(file, "cross");
+        const hash = parseContentHash(`33${"f".repeat(62)}`);
+
+        const placed = await store.put(file, hash, "bin");
+        expect(placed.linkMethod).toBe("copy");
+      } finally {
+        await rm(crossDir, { recursive: true, force: true });
       }
-
-      const file = join(crossDir, "cross.bin");
-      await writeFile(file, "cross");
-      const hash = parseContentHash(`33${"f".repeat(62)}`);
-
-      const placed = await store.put(file, hash, "bin");
-      expect(placed.linkMethod).toBe("copy");
-    } finally {
-      await rm(crossDir, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 
   it("removes what it placed, and removing it twice is still success", async () => {
     const file = join(src, "gone.bin");
@@ -238,7 +251,7 @@ describe("ManagedStorage.iterAll", () => {
   it("ignores a file sitting directly in originals/, which is not a shard", async () => {
     await writeFile(join(store.originalsDir(), `${HASH}.jpg`), "misplaced");
 
-    expect((await collect()).every((f) => f.path.includes("/3f/"))).toBe(true);
+    expect((await collect()).every((f) => f.path.includes(`${sep}3f${sep}`))).toBe(true);
   });
 });
 

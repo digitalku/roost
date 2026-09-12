@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,13 @@ describe("opening a library the Rust implementation wrote", () => {
   beforeEach(async () => {
     // Copied rather than opened in place: opening sets `journal_mode = WAL`,
     // which writes to the file.
+    // Said plainly, because a bare ENOENT from the copy below reads as a broken
+    // test rather than as a missing artefact this build cannot regenerate: the
+    // file is written by `../roost-old`, and that is what makes it evidence.
+    if (!existsSync(RUST_INDEX)) {
+      throw new Error(`${RUST_INDEX} is missing — see the fixture's README for what writes it`);
+    }
+
     dir = await mkdtemp(join(tmpdir(), "roost-cross-"));
     path = join(dir, "index.db");
     await copyFile(RUST_INDEX, path);

@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { stateDir } from "@roost/core";
 import {
   forgetLibrary,
   listRecent,
@@ -40,16 +41,26 @@ describe("the recent-libraries list", () => {
   const remember = (path: string, name: string) =>
     rememberLibrary({ root: path, name, id: name.toLowerCase() });
 
+  /**
+   * The variable that moves {@link stateDir}, which is the platform's own:
+   * XDG on Linux and a known folder on Windows (ADR-0041 §2). Redirecting only
+   * the XDG one left every test on Windows sharing a single real list, and they
+   * accumulated into each other.
+   */
+  const VARIABLE = process.platform === "win32" ? "LOCALAPPDATA" : "XDG_STATE_HOME";
+
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "roost-recent-"));
-    state = join(root, "state");
-    previous = process.env["XDG_STATE_HOME"];
-    process.env["XDG_STATE_HOME"] = state;
+    previous = process.env[VARIABLE];
+    process.env[VARIABLE] = join(root, "state");
+    // Asked for rather than assembled, because where the root leads differs by
+    // platform and this is the directory the module will actually write to.
+    state = stateDir();
   });
 
   afterEach(async () => {
-    if (previous === undefined) delete process.env["XDG_STATE_HOME"];
-    else process.env["XDG_STATE_HOME"] = previous;
+    if (previous === undefined) delete process.env[VARIABLE];
+    else process.env[VARIABLE] = previous;
     await rm(root, { recursive: true, force: true });
   });
 
@@ -159,6 +170,7 @@ describe("the recent-libraries list", () => {
     // The state directory is a file, so every write under it fails. Recording
     // happens *after* a library is open, and a window that refused to show one
     // because of this would trade the thing for the note about the thing.
+    await mkdir(dirname(state), { recursive: true });
     await writeFile(state, "not a directory", "utf8");
 
     const path = await makeLibrary("Unrecordable");

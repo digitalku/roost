@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GRID_SIZE, mediaTypeOf, PREVIEW_SIZE, THUMBNAIL_SIZES } from "./serving.js";
 
@@ -19,7 +18,11 @@ describe("the decoder-free serving surface", () => {
     // window. sharp `dlopen`s libvips there, and M3 accepts on cold start.
     // Run in a fresh process because this one has already loaded sharp for the
     // other tests in this package — asserting it here would prove nothing.
-    const built = fileURLToPath(new URL("../dist/serving.js", import.meta.url));
+    // A `file:` URL rather than a path: the ESM loader takes only `file:` and
+    // `data:` specifiers, and on Windows a path is neither — it fails to parse,
+    // the probe exits 1, and the assertion below reads that as the very leak it
+    // was written to catch.
+    const built = new URL("../dist/serving.js", import.meta.url).href;
     const probe = spawnSync(
       process.execPath,
       [
