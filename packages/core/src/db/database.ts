@@ -40,12 +40,21 @@ export class Db {
    */
   static open(path: string): Db {
     const db = new BetterSqlite3(path);
-    // WAL is a persistent property of the file, but setting it is cheap and
-    // makes an externally created or copied database safe to use. It is a
-    // no-op on `:memory:`, where SQLite reports `memory` instead.
-    db.pragma("journal_mode = WAL");
-    configure(db);
-    applyMigrations(db);
+    try {
+      // WAL is a persistent property of the file, but setting it is cheap and
+      // makes an externally created or copied database safe to use. It is a
+      // no-op on `:memory:`, where SQLite reports `memory` instead.
+      db.pragma("journal_mode = WAL");
+      configure(db);
+      applyMigrations(db);
+    } catch (error) {
+      // Nothing else can close it: the `Db` that would own the connection is
+      // never constructed, so the handle would be held until the process ends.
+      // `SchemaTooNewError` is a path a person reaches from the picker and then
+      // retries, so "until the process ends" means the rest of the session.
+      db.close();
+      throw error;
+    }
     return new Db(db, path);
   }
 

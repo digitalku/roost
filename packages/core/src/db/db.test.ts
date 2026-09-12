@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -181,6 +182,27 @@ describe("migrations", () => {
     raw.close();
 
     expect(() => Db.open(path)).toThrow(UnreadableSchemaVersionError);
+  });
+
+  it("closes the connection when it refuses to open, rather than holding the file", () => {
+    // The `Db` that would own the connection is never constructed when `open`
+    // throws, so nothing else can close it. Asserted through the sidecars,
+    // because SQLite removes `-wal` and `-shm` when the last connection to a
+    // file goes — which makes this checkable on every platform rather than only
+    // on the one where a leak is loud. Windows is that one: it refuses to
+    // unlink an open file, and the temporary directory could not be cleaned up.
+    const path = join(dir, "index.db");
+
+    const first = Db.open(path);
+    first.close();
+
+    const raw = new BetterSqlite3(path);
+    raw.prepare("UPDATE meta SET value = '99' WHERE key = 'schema_version'").run();
+    raw.close();
+
+    expect(() => Db.open(path)).toThrow(SchemaTooNewError);
+    expect(existsSync(`${path}-wal`)).toBe(false);
+    expect(existsSync(`${path}-shm`)).toBe(false);
   });
 
   it("leaves nothing half-applied when a migration fails", () => {
