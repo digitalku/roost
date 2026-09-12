@@ -644,6 +644,20 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   library at once. The journal is append-only, so that collision is a conflicted copy and lost
   lines. A short section in `SETUP.md`. Nobody has hit it — the user's machines keep separate
   libraries — which is exactly why it should be written before somebody does.
+- 🟡 **The Start Menu shortcut declares no `AppUserModelID`.** Linux's half of this is deliberate
+  and measured — `StartupWMClass=electron`, so the window groups under its own icon — and Windows
+  has no equivalent anywhere: `setAppUserModelId` appears nowhere in the tree. Windows derives an
+  ID from the target path when a shortcut declares none, and that target is `electron.exe`, so a
+  pinned shortcut and the running window are liable to be two taskbar buttons. The fix is
+  two-sided — `app.setAppUserModelId()` in main, and `System.AppUserModel.ID` on the `.lnk`, which
+  `WScript.Shell` cannot write and `IPropertyStore` can. **Measure it against a real window before
+  writing it down**, the way `StartupWMClass` was: an unpackaged Electron has surprised this
+  repository on exactly this question once already.
+- 🟡 **A launcher goes stale when the checkout moves.** Every path in the desktop entry and in the
+  shortcut is absolute, and `pnpm refresh` never touches either, so renaming or moving the
+  directory leaves a menu item whose only symptom is that clicking it does nothing. Rewriting the
+  launcher at the end of a refresh **when one already exists** is idempotent and closes it; writing
+  one that was never asked for is not, so the check is for the file rather than for the platform.
 
 ### Engine (M1)
 - ☑ ~~**A journal file not named `YYYY-MM.jsonl` is invisible to replay.**~~ `roost doctor`
