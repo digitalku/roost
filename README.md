@@ -224,7 +224,7 @@ but recovering from a bad build means going forward to a fixed one, not back to 
 | [Roadmap](docs/ROADMAP.md) | Milestones and acceptance criteria |
 | [Setup](docs/SETUP.md) | Development environment |
 | [Benchmarks](docs/BENCHMARKS.md) | Measured performance, and what each run revealed |
-| [TODO](docs/TODO.md) | The working list, in priority order |
+| [TODO](docs/TODO.md) | The working list, in priority order — [closed items](docs/todo-done.md) are kept beside it |
 | [Session log](docs/SESSION_LOG.md) | What each working session did, decided, and deferred — recent sessions, with [the rest](docs/sessions/) archived by month |
 | [Decisions](docs/adr/) | Architecture decision records |
 
