@@ -42,8 +42,11 @@ format your metadata is kept in.
 
 ## Install
 
-There is no package yet — Linux packaging is M6 — so Roost is installed by building this
-repository. On Fedora:
+There is no package yet — packaging is M6 — so Roost is installed by building this repository,
+and updated by pulling it. Linux is the platform Roost is *for* and the only one tested end to
+end; Windows builds and runs the same checkout, with the differences its own section names.
+
+### On Fedora
 
 ```bash
 sudo dnf install -y nodejs npm gcc-c++ make python3 vips-devel \
@@ -62,6 +65,40 @@ failures. `ffmpeg` is optional — without it video and audio are still indexed,
 thumbnailed, and `roost thumb --retry-blocked` picks that work up once it arrives (ADR-0017).
 `ffmpeg-free` is Fedora's build and covers everything except HEVC; the section below is about the
 formats it and libvips deliberately leave out.
+
+### On Windows
+
+```powershell
+winget install Git.Git
+winget install OpenJS.NodeJS.LTS
+winget install Microsoft.VCRedist.2015+.x64      # administrator
+corepack enable                                  # administrator
+
+git clone <this repo>
+cd roost
+pnpm install --ignore-scripts
+pnpm start
+```
+
+Four things are worth knowing, all of them measured on a clean machine rather than assumed.
+
+- **The Visual C++ runtime is not optional and does not announce itself.** Without it the hashing
+  module reports *"Cannot find native binding"* — which blames a bug in npm and is wrong — and
+  Biome dies with exit `3221225781`, which is `STATUS_DLL_NOT_FOUND`. Neither message says *DLL*.
+- **`pnpm install` needs `--ignore-scripts` for now**, because pnpm insists on rebuilding a
+  native module that already ships a binary for every platform. `pnpm refresh` passes the flag
+  for you afterwards, so this is the only command that carries it by hand.
+- **Electron's binary is fetched on the first launch** (~100 MB, once) rather than during the
+  install, which is what skipping those scripts costs. Nothing else here needs a compiler.
+- **A terminal opened before an installer finished has the old `PATH` forever.** A process
+  inherits it once and never re-reads it, so `node` answering *"not recognized"* after a
+  successful install means the window, not the install.
+
+The test suite runs here and the window opens, imports, searches and previews. Two things are
+known to be unproven rather than known to work: **`Delete permanently`** meets a file libvips
+still holds open — Windows will not unlink one, and Linux never notices — and the `check-*.mjs`
+scripts, which drive a real window, have almost all only ever been run on Linux. The decoders
+below come from somewhere other than `dnf`.
 
 ### Formats that need a decoder from the system
 
@@ -95,6 +132,21 @@ pair, and Roost checks for the decoder rather than for the binary.
 The engine runs `heif-dec` and `ffmpeg` from its own `PATH`, which is the container's and not the
 host's.
 
+**On Windows, one of the two has an answer.** ffmpeg is a user-scope install that needs no
+administrator, and it brings HEVC with it:
+
+```powershell
+winget install Gyan.FFmpeg
+```
+
+It appends its own directory to the user `PATH` and says to restart the shell, which means the
+Roost that was already running still cannot see it — close the window and open it again.
+
+**HEIC has no verified package here.** Roost asks `heif-dec` for these photographs (ADR-0040) and
+nothing in winget ships it; MSYS2's `mingw-w64-ucrt-x86_64-libheif` is the likely source and has
+not been tried, so treat it as untested rather than as instructions. Until it is, iPhone
+photographs import and search on Windows and are listed as not drawn.
+
 Check what arrived:
 
 ```bash
@@ -113,10 +165,15 @@ straight away from the status bar's **Try again**.
 node scripts/install-launcher.mjs
 ```
 
-That writes `~/.local/share/applications/roost.desktop` — an entry pointing at this checkout,
-carrying the name and the icon. Deleting that file is how it is removed. It launches the build
-rather than producing one, so `pnpm start` has to have run at least once; the script refuses to
-write an entry that would point at nothing.
+One command on both platforms, and it writes whatever that platform's menu reads: a
+`roost.desktop` entry under `~/.local/share/applications` on Linux, and a `Roost` shortcut in the
+Start Menu on Windows — `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Roost.lnk`, the user's
+own, so nothing here wants an administrator. Both carry the name and the icon, both point at this
+checkout by absolute path, and deleting the file is how either is removed.
+
+It launches the build rather than producing one, so `pnpm start` has to have run at least once;
+the script refuses to write an entry that would point at nothing. On Windows, right-click the
+Start Menu item to pin it to Start or to the taskbar.
 
 **If the checkout is inside a container** — a distrobox, say — the entry lands in the container's
 own menu, which no desktop draws. Export it once, from inside the container:
@@ -135,7 +192,18 @@ pnpm refresh
 ```
 
 `git pull --ff-only`, then install and build — `--ff-only` so a machine that only consumes this
-repository stops rather than quietly acquiring a merge commit. Launch as usual afterwards.
+repository stops rather than quietly acquiring a merge commit. Launch as usual afterwards; the
+launcher points at the build, so an update reaches it with nothing else to do.
+
+It is one command on both platforms and does the platform's extra work itself: on Windows it
+skips the build scripts the install cannot run and then fetches Electron's binary deliberately,
+which is the step that would otherwise be silently missing after a version bump.
+
+**It pulls, so the machine needs to be able to reach the repository.** This one is private, and a
+clone that was copied onto a machine rather than made on it usually cannot: `git pull` answers
+*"Host key verification failed"* or asks for a password nobody has. Cloning over HTTPS lets Git
+for Windows' credential manager hold the token; cloning over SSH wants a key on each machine.
+Either is a one-time setup per computer, and `pnpm refresh` is the only command afterwards.
 
 **An update migrates the library forward and there is no way back.** The newer build applies its
 migrations to `index.db`; the older one then refuses that library rather than migrating it down. No

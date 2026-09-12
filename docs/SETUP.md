@@ -39,6 +39,63 @@ sudo dnf install -y nodejs npm gcc-c++ make python3 \
 corepack enable
 ```
 
+### On Windows
+
+Linux is the platform Roost is *for* (`CONCEPT.md` §3.5) and nothing below changes that. What
+this section describes is a machine the work can be done on: as of 2026-09-11 `pnpm verify`
+passes on Windows 11 — 91 files, 1234 tests, 23 skipped — and ADR-0041 gives `dirs.ts` a layout
+there, so the engine and the CLI run rather than refuse.
+
+```powershell
+winget install OpenJS.NodeJS.LTS
+winget install Microsoft.VCRedist.2015+.x64      # administrator
+corepack enable                                  # administrator
+```
+
+Four things are worth knowing before the first `pnpm install`, all of them measured on a clean
+machine rather than assumed:
+
+- **The Visual C++ runtime is not optional and does not announce itself.** Without it
+  `@napi-rs/blake-hash` reports *"Cannot find native binding"* — napi-rs's own message, which
+  blames a bug in npm's optional dependencies and is wrong — and `biome ci` dies with exit
+  `3221225781`, which is `0xC0000135`, `STATUS_DLL_NOT_FOUND`. Neither says *DLL*.
+- **`corepack enable` needs an administrator shell**, because it writes shims into
+  `C:\Program Files\nodejs`. Running pnpm as `corepack pnpm` instead works for every direct
+  command and then fails inside `pnpm verify`, which calls `pnpm` four times of its own.
+- **`pnpm install` needs `--ignore-scripts` for now.** `TODO.md` §3 has the reason and the
+  decision it is waiting on. Nothing here needs a compiler otherwise: `better-sqlite3` and
+  `sharp` both load from binaries they ship, and `scripts/build-sharp.mjs` skips a platform that
+  wants the prebuilt. `pnpm refresh` passes the flag itself (§4), so the first install is the
+  only place it is typed by hand.
+- **A terminal opened before an installer finished has the old `PATH` forever.** A process
+  inherits it once and never re-reads it, so `node -v` answering *"not recognized"* after a
+  successful install means the window, not the install.
+
+```powershell
+pnpm install --force --ignore-scripts            # `--force` when the tree came from another platform
+node --experimental-strip-types scripts/probe-native.ts
+```
+
+The probe is what confirms the three native modules are the Windows ones. A `node_modules`
+copied from a Linux checkout is not usable: pnpm's links are written there as plain files
+carrying the Linux target path, so Node reads one as JavaScript and reports *"Invalid or
+unexpected token"* for every native module. `--force` makes pnpm lay the tree down again, and
+it is the safe way to do it.
+
+**Do not delete `node_modules` by hand to fix that.** `node_modules\@roost\<name>` is a junction
+to `packages\<name>`, and both obvious tools follow a junction into its target instead of
+removing the link: `robocopy /MIR` does unless given `/XJ`, and so does `Remove-Item -Recurse`
+under Windows PowerShell 5.1. Either one empties the source tree it points at — measured here on
+2026-09-12, 337 files deleted. If a removal really is needed, `cmd /c rmdir /s /q node_modules`
+removes junctions as links.
+
+`--ignore-scripts` has one consequence beyond the native modules: Electron's own `postinstall`
+never runs, so its binary is absent and `pnpm dev` downloads it (~100 MB) the first time it is
+started. That is one download, not one per run.
+
+The twelve `check-*.mjs` scripts have never been run on Windows and are not covered by any of
+this.
+
 ### Why `sharp` is built from source on Linux
 
 `pnpm install` runs `scripts/build-sharp.mjs` from `postinstall`, and on Linux that compiles
@@ -220,9 +277,21 @@ Roost is not packaged yet — that is M6 — so everyday use is this checkout. T
 behave like an installed application anyway.
 
 ```bash
-node scripts/install-launcher.mjs    # writes $XDG_DATA_HOME/applications/roost.desktop
+node scripts/install-launcher.mjs    # the platform's menu entry
 pnpm refresh                         # git pull --ff-only, install, build
 ```
+
+**Both commands are the same on Windows and do something different there**, which is the point
+of them being commands rather than instructions. `install-launcher` writes
+`$XDG_DATA_HOME/applications/roost.desktop` on Linux and
+`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Roost.lnk` on Windows — the user's own Start
+Menu, never the machine's, because nothing here needs an administrator. A `.lnk` is a COM object
+rather than a file format, so it is written by asking Windows Script Host through PowerShell; the
+two things that look like alternatives are not, since a `.cmd` leaves a console window behind the
+application for as long as it runs and a `.url` carries neither arguments nor an icon. The icon
+is `assets/brand/roost.ico`, which `scripts/build-brand.mjs` writes beside the PNGs: a shortcut
+cannot point at a `.png`, and Windows picks a different member of an `.ico` for the Start Menu,
+the taskbar and Alt+Tab.
 
 **The desktop entry launches the built output and never builds.** It runs the `electron` binary
 from `node_modules` directly, by absolute path, so it depends on nothing being on `PATH` — a
@@ -235,6 +304,21 @@ launcher installed before the first build refuses to write rather than pointing 
 repository should never quietly acquire a merge commit; `--ff-only` stops and says so instead.
 It builds both halves, which is exactly what `pnpm start` does before opening the window, so
 after a refresh the entry and the terminal run the same code.
+
+**It is a script rather than a chain of `&&`, because Windows needs two questions asked.** The
+install there takes `--ignore-scripts` (§1), and skipping those scripts means Electron's own
+`postinstall` never runs — so after a version bump the `dist` in `node_modules` is the *previous*
+Electron and nothing says so, since `require("electron")` asks only whether a file is there.
+`scripts/refresh.mjs` therefore runs `electron/install.js` itself on Windows, which checks the
+version it finds and exits immediately when it matches. `pnpm start` became a script for the same
+kind of reason: the Wayland flag belongs to Linux alone, and a shell chain has nowhere to ask
+which platform it is on or to hand the window the commit About should name (ADR-0038 §5.1).
+
+**Pulling needs the machine to be able to reach the repository**, which a checkout that was
+copied onto a machine rather than cloned on it usually cannot: `git pull` answers *"Host key
+verification failed"* or asks for a password nobody has. That is a per-machine setup — an SSH key,
+or an HTTPS clone whose token Git for Windows' credential manager holds — and it is not something
+`pnpm refresh` can paper over.
 
 **An update migrates the library forward, and there is no way back.** Opening a library on a
 newer build applies the numbered migrations to `index.db`; the older build then refuses that

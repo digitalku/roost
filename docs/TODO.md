@@ -1550,6 +1550,14 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
 - 🟢 **A Windows build is a port of two modules, not of the application** — asked about
   2026-09-05, and written down here so the answer is not re-derived. `ROADMAP.md` M7 keeps
   Windows unscheduled; nothing below is work for now.
+  - **Partly overtaken on 2026-09-11**, when the work moved to a Windows machine and
+    `pnpm verify` was made to pass there: 91 files, 1234 tests, 23 skipped. **ADR-0041** ports
+    `platform/dirs.ts` to the known folders and is *proposed*, not accepted. Two claims below did
+    not survive contact. `reveal.ts` has **no runtime caller at all** — `asset:reveal` and
+    `asset:openExternally` are answered in main by Electron's `shell`, which is portable, and the
+    CLI never calls it — so the port is one module and a dead one. And `build-sharp.mjs` already
+    skips a non-Linux platform; only the `start` script's Linux flag was real, and `dev.mjs` now
+    passes it on Linux alone. What the port still has no answer for is below.
   - **The build machine is not the obstacle, and the project does not move to one.** A CI job on
     a Windows runner packages what the Linux checkout builds. Cross-building from Linux under
     wine is the wrong road for this repository, because of the native modules: `sharp` and
@@ -1571,6 +1579,48 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
     prebuilt, and `--ozone-platform-hint=auto` in the `start` script is a Linux flag.
   - Packaging targets, signing, and whether ffmpeg is bundled are an ADR of their own when the
     milestone arrives — the same question M6 answers for Linux, asked again.
+- 🔴 **The `roost-old`-written `index.db` fixture is gone, and nothing here can rebuild it.**
+  `packages/core/src/db/__fixtures__/rust-written-index/index.db` was destroyed on 2026-09-12 by
+  the `node_modules` deletion described in `SETUP.md` §1, and it was never recoverable from git:
+  `.gitignore` carried a blanket `index.db` rule, so the one `index.db` in this repository that is
+  *evidence* had been untracked all along. The rule now has an exception for exactly that path, and
+  `cross-implementation.test.ts` says what is missing instead of reporting a bare ENOENT — but the
+  two tests in it fail until the file comes back. **It cannot be regenerated here by construction**:
+  its whole claim is that a file this build did not write opens without migration at
+  `schema_version` 5 (see the fixture's README). It has to come from `../roost-old`, or from a
+  backup of this checkout. Everything it guards — that migrations 0001–0005 are the same
+  migrations, that no column has been renamed out from under a library written by the Rust build —
+  is unguarded until then.
+
+- 🟡 **libvips keeps the file it read mapped, and Windows will not unlink an open file.** Measured
+  2026-09-11: a webp probed by `@roost/media` cannot be deleted by the same process afterwards, and
+  retrying does not help — the operation cache holds it for the life of the process. Two test
+  cleanups tolerate it (`media.test.ts`, `cli/tests/cli.test.ts`) and the product knows nothing
+  about it. **`Delete permanently` (ADR-0031) is the path that would meet it**, and so would a
+  `save` that supersedes an asset. The knob is `sharp.cache({ files: 0 })`, which is a performance
+  change and therefore wants a measurement rather than a guess (`CLAUDE.md` §8). Invisible on Linux.
+- 🔴 **ADR-0042's implementation is not in the working tree.** Found 2026-09-13: the ADR and
+  `scripts/check-install.mjs` are here, and nothing they describe is — no `installer.ts`, no
+  `installOffer`, no `adoptUserPath`, no `capability:install` in the contract, main, the engine or
+  the renderer, and `packages/media/src/install.ts` still keys only on `/etc/os-release`, so
+  Windows gets the fallback sentence the ADR exists to remove. Session 69 records it as built and
+  passing 9 checks against a real window, which makes this a loss rather than a plan; the likely
+  culprit is the `node_modules` removal of 2026-09-12 that followed junctions into `packages/`
+  (`SETUP.md` §1), and the same session's `packages/` work that *did* survive is uncommitted.
+  Until it is rebuilt, `check-install.mjs` cannot run at all.
+- 🟡 **`pnpm install` fails on Windows unless build scripts are skipped.** `allowBuilds` in
+  `pnpm-workspace.yaml` makes pnpm run an implicit `node-gyp rebuild` for `better-sqlite3` — which
+  ships `prebuilds/` for every platform and sets `"gypfile": false` precisely to stop that, so on
+  Windows it demands Python and MSVC to build a binary it already has. `--ignore-scripts` is the
+  workaround in use, and `scripts/refresh.mjs` passes it there so that a machine which only uses
+  Roost never meets this — at the cost of also skipping Electron's `postinstall`, which that
+  script then runs itself. **Removing the entry would fix the install everywhere and change which
+  binary Linux loads**, from a source build to the shipped prebuild, which is exactly the class of
+  silent substitution ADR-0013 exists about. Not a decision to take on one platform's evidence.
+- 🟢 **`pnpm` has to be on `PATH` for `pnpm verify` to work**, because the script calls `pnpm`
+  four times. Running it through `corepack pnpm` without `corepack enable` gets past every direct
+  command and fails inside `verify` with *"'pnpm' is not recognized"*, which reads as a repository
+  problem and is not one. `corepack enable` needs an administrator shell on Windows.
 
 ### The window's own scrollbar (2026-09-10)
 

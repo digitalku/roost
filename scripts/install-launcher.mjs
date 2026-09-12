@@ -1,17 +1,20 @@
 /**
- * Writes the desktop entry that puts Roost in the application menu.
+ * Writes the launcher that puts Roost in the application menu.
  *
  *   node scripts/install-launcher.mjs
  *
  * Roost is not packaged yet — that is M6 — so the way to use it every day is
- * this checkout. A desktop entry is most of the difference between a checkout
- * and an application: the icon, the name, and a click that needs no terminal.
+ * this checkout. A menu entry is most of the difference between a checkout and
+ * an application: the icon, the name, and a click that needs no terminal. It is
+ * a desktop entry on Linux and a Start Menu shortcut on Windows, and both point
+ * at the same two absolute paths.
  *
- * **The entry launches the built output and never builds.** A menu click that
- * ran `tsc -b` first would spend a couple of seconds on it and, when it failed,
+ * **The launcher launches the built output and never builds.** A click that ran
+ * `tsc -b` first would spend a couple of seconds on it and, when it failed,
  * would have nowhere to print the error. Bringing a checkout up to date is
  * `pnpm refresh`, deliberately a separate and visible step.
  */
+import { spawnSync } from "node:child_process";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -19,10 +22,11 @@ import { fileURLToPath } from "node:url";
 
 const root = new URL("../", import.meta.url);
 
-/** The launched program, the window's script, and the icon it opens with. */
+/** The launched program, the window's script, and the icons it opens with. */
 const ELECTRON = await electronBinary();
 const ENTRY = fileURLToPath(new URL("apps/desktop/main/dist/main.js", root));
 const ICON = fileURLToPath(new URL("assets/brand/icon-512.png", root));
+const ICO = fileURLToPath(new URL("assets/brand/roost.ico", root));
 
 /**
  * `roost.desktop`, and the name matters beyond tidiness: `distrobox-export
@@ -30,13 +34,28 @@ const ICON = fileURLToPath(new URL("assets/brand/icon-512.png", root));
  */
 const FILE = "roost.desktop";
 
+/** What the shortcut is called in the Start Menu, and so what it is found as. */
+const LINK = "Roost.lnk";
+
 await main();
 
 async function main() {
   if (!(await exists(ENTRY))) {
     fail(`no build at ${ENTRY}\nRun \`pnpm start\` once (or \`pnpm refresh\`) and try again.`);
   }
+  if (!(await exists(ELECTRON))) {
+    fail(`no electron at ${ELECTRON}\nRun \`pnpm install\` and try again.`);
+  }
 
+  if (process.platform === "linux") return await desktopEntry();
+  if (process.platform === "win32") return await startMenuShortcut();
+  // macOS is the platform `dirs.ts` refuses (ADR-0041), so there is nothing for
+  // a launcher there to open.
+  fail(`no launcher for ${process.platform}; run \`pnpm start\` from this checkout instead`);
+}
+
+/** Linux: an entry under `$XDG_DATA_HOME/applications`. */
+async function desktopEntry() {
   const dir = join(
     process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share"),
     "applications",
@@ -86,6 +105,69 @@ function entry() {
 }
 
 /**
+ * Windows: a shortcut in the user's own Start Menu.
+ *
+ * **A `.lnk` is a COM object rather than a file format to assemble by hand**,
+ * so this asks Windows Script Host — through the PowerShell every Windows ships
+ * — to create it. The two things that look like alternatives are not: a `.cmd`
+ * puts a console window behind the application and leaves it there for as long
+ * as it runs, and a `.url` carries neither arguments nor an icon.
+ *
+ * It goes in the *user's* Start Menu (`%APPDATA%`) and never the machine's,
+ * because nothing here needs an administrator and a launcher that asked for one
+ * would be a launcher most people could not install.
+ */
+async function startMenuShortcut() {
+  const dir = join(
+    process.env["APPDATA"] ?? join(homedir(), "AppData", "Roaming"),
+    "Microsoft",
+    "Windows",
+    "Start Menu",
+    "Programs",
+  );
+  const path = join(dir, LINK);
+  await mkdir(dir, { recursive: true });
+
+  // `roost.ico` is committed beside the PNGs, but a checkout older than it
+  // should still get a shortcut — wearing Electron's own icon, which at least
+  // does not lie about what is being launched.
+  const icon = (await exists(ICO)) ? ICO : ELECTRON;
+
+  const script = [
+    "$shell = New-Object -ComObject WScript.Shell",
+    `$link = $shell.CreateShortcut(${literal(path)})`,
+    `$link.TargetPath = ${literal(ELECTRON)}`,
+    // One argument, quoted for the command line rather than for PowerShell:
+    // `main.js` is inside this checkout, and a checkout can sit in a directory
+    // whose name has a space in it.
+    `$link.Arguments = ${literal(`"${ENTRY}"`)}`,
+    `$link.WorkingDirectory = ${literal(fileURLToPath(root))}`,
+    `$link.IconLocation = ${literal(icon)}`,
+    `$link.Description = ${literal("A local-first digital asset manager")}`,
+    "$link.Save()",
+  ].join("\n");
+
+  // The script arrives on stdin rather than in the command line, which is what
+  // keeps a path holding a quote or a semicolon from becoming syntax.
+  const powershell = spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", "-"],
+    { input: script, encoding: "utf8" },
+  );
+  if (powershell.error) fail(`could not run powershell: ${powershell.error.message}`);
+  if (powershell.status !== 0) {
+    fail(`powershell refused to write the shortcut:\n${powershell.stderr.trim()}`);
+  }
+
+  console.log(`wrote ${path}`);
+  console.log(`      ${ELECTRON}`);
+  console.log(
+    "\nIt is in the Start Menu as Roost; right-click it there to pin it to Start or to the" +
+      "\ntaskbar. Deleting that file is how it is removed.",
+  );
+}
+
+/**
  * A value for `Exec`, which is not shell quoting.
  *
  * The desktop entry spec reserves its own set of characters and escapes them
@@ -94,6 +176,15 @@ function entry() {
  */
 function quote(value) {
   return `"${value.replace(/(["`$\\])/g, "\\$1")}"`;
+}
+
+/**
+ * A PowerShell single-quoted string, which is the one kind that expands
+ * nothing. A Windows path is full of backslashes and may carry a `$`, and both
+ * are live inside double quotes; a quote of its own is doubled.
+ */
+function literal(value) {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 /**
