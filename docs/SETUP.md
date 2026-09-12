@@ -69,7 +69,12 @@ machine rather than assumed:
   only place it is typed by hand.
 - **A terminal opened before an installer finished has the old `PATH` forever.** A process
   inherits it once and never re-reads it, so `node -v` answering *"not recognized"* after a
-  successful install means the window, not the install.
+  successful install means the window, not the install. **A terminal inside an editor or an
+  application inherits that application's environment**, so opening a second tab there changes
+  nothing — the application itself has to be restarted, or the command run from a shell started
+  since the install. `[Environment]::GetEnvironmentVariable('PATH','Machine')` is the way to tell
+  the two apart: if `C:\Program Files\nodejs\` is in there, the installation is fine and the
+  window is stale.
 
 ```powershell
 pnpm install --force --ignore-scripts            # `--force` when the tree came from another platform
