@@ -1599,6 +1599,15 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
   about it. **`Delete permanently` (ADR-0031) is the path that would meet it**, and so would a
   `save` that supersedes an asset. The knob is `sharp.cache({ files: 0 })`, which is a performance
   change and therefore wants a measurement rather than a guess (`CLAUDE.md` §8). Invisible on Linux.
+- 🟡 **`roost import` says nothing when a path it was given does not exist.** Measured 2026-09-13:
+  `roost import C:\definitely\not\here` prints *"Imported 0 of 0 files scanned"* and exits **0**,
+  for a file and a directory alike. `discover()` skipping a source it cannot read is deliberate and
+  right — one unreadable directory in a list of ten must not lose the other nine — but nothing
+  above it tells the person that the path they typed was that source. The fix belongs at the top of
+  the import rather than in the walk: stat the named sources first, name the ones that are not
+  there, and exit **2** when none of them is, which is what that code means (`SETUP.md` §3). It is
+  easy to meet by accident, because `pnpm --filter @roost/cli start -- import assets/brand`
+  resolves the relative path against `packages/cli` rather than the directory it was typed in.
 - 🔴 **ADR-0042's implementation is not in the working tree.** Found 2026-09-13: the ADR and
   `scripts/check-install.mjs` are here, and nothing they describe is — no `installer.ts`, no
   `installOffer`, no `adoptUserPath`, no `capability:install` in the contract, main, the engine or
