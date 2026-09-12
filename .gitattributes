@@ -1,0 +1,22 @@
+# Line endings, and the files that must not have any applied to them.
+#
+# Git for Windows ships with `core.autocrlf=true`, so without this file a clone
+# made there rewrites every text file to CRLF on checkout. Biome formats to LF
+# and `biome ci` compares against what it would write, so that clone fails the
+# lint of every file it holds, for a reason nothing in the diff shows. The
+# working tree is LF on every platform.
+* text=auto eol=lf
+
+# Content-addressed fixtures written by the Rust implementation. The bytes *are*
+# the test — a hash is what the assertion compares — so Git must copy them
+# through unexamined rather than trust its own text detection.
+packages/core/src/storage/__fixtures__/rust-written-library/originals/** -text
+packages/core/src/journal/__fixtures__/rust-written-journal/*.jsonl -text
+
+# Assets, and the SQLite databases a test may write beside them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gz binary
+*.db binary
