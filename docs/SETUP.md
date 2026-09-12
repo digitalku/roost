@@ -10,14 +10,15 @@ Correct it in the same change if M0 lands differently.
 
 ## 1. Prerequisites
 
-| Requirement | Version | Why |
-| --- | --- | --- |
-| Node.js | 22 LTS | The system runtime for the CLI and for tests. **Not** Electron's Node, which is 24.18.1 at Electron 43 — `packages/` targets the lower of the two (ADR-0011 §5) |
-| pnpm | 10+ | Workspace manager of record. `corepack enable` is enough |
-| git | any | |
-| A C++ toolchain | `gcc-c++`, `make`, `python3` | `sharp` is built from source on Linux, always — see below |
-| libvips headers | `vips-devel` 8.15+ | What that source build links against (ADR-0013). **Linux only, and not optional there** |
-| Electron runtime libs | nss, gtk3, libX11, alsa | Needed to open a window, not to run tests |
+| Requirement | Version | Platform | Why |
+| --- | --- | --- | --- |
+| Node.js | 22 LTS | Both | The system runtime for the CLI and for tests. **Not** Electron's Node, which is 24.18.1 at Electron 43 — `packages/` targets the lower of the two (ADR-0011 §5) |
+| pnpm | 10+ | Both | Workspace manager of record. `corepack enable` is enough |
+| git | any | Both | |
+| A C++ toolchain | `gcc-c++`, `make`, `python3` | **Linux** | `sharp` is built from source there, always — see below |
+| libvips headers | `vips-devel` 8.15+ | **Linux** | What that source build links against (ADR-0013). Not optional |
+| Electron runtime libs | nss, gtk3, libX11, alsa | **Linux** | Needed to open a window, not to run tests |
+| Visual C++ runtime | 2015+ x64 | **Windows** | What the three native modules link against. Absent, they report a missing binding rather than a missing DLL — see below |
 
 Optional, and each one degrades gracefully when absent:
 
@@ -187,15 +188,32 @@ pnpm install
 pnpm verify           # typecheck, lint, CSS tokens, tests — everything CI runs
 ```
 
-`pnpm verify` is the gate. Run it before finishing a session; if it passes, CI will too.
+**On Windows the install takes a flag**, for the reason §1 gives — pnpm would otherwise rebuild
+a native module that already ships a binary, and demand a compiler for it:
+
+```powershell
+pnpm install --ignore-scripts
+pnpm verify
+```
+
+`pnpm verify` is the gate on both. Run it before finishing a session; if it passes, CI will too.
 
 `pnpm install` is where native modules are resolved. Three of them matter — `better-sqlite3`,
 `sharp`, and `@napi-rs/blake-hash` (ADR-0009) — and all three publish prebuilt binaries upstream.
 Reflink needs no module at all: `COPYFILE_FICLONE_FORCE` is in Node already (ADR-0012). If a prebuild
-exists for the current Electron ABI, nothing compiles and the install is fast. If one does not,
-the install falls back to building from source — which works here, because the C++ toolchain is
-present. On a machine where it is not, that failure reads like a download error rather than a
+exists for the current Electron ABI, nothing compiles and the install is fast.
+
+**On Linux one of the three compiles anyway**: `postinstall` builds `sharp` from source against
+the system's libvips, because the prebuilt segfaults inside Electron (ADR-0013). Anything else
+missing a prebuild falls back to a source build too — which works here, because the C++ toolchain
+is present. On a machine where it is not, that failure reads like a download error rather than a
 missing compiler, so check for `g++` before debugging the network.
+
+**On Windows nothing compiles at all**, which is what makes `--ignore-scripts` cheap: the three
+modules load the binaries they ship, and `build-sharp.mjs` skips the platform anyway. It costs one
+thing — Electron's own `postinstall` is skipped with them, so its binary (~100 MB) is fetched on
+the first `pnpm start` instead of during the install. That is one download, not one per run, and
+`pnpm refresh` does it deliberately afterwards (§4).
 
 ## 3. Everyday commands
 
@@ -229,6 +247,12 @@ libuv reads `UV_THREADPOOL_SIZE` once, before any of this code runs (`BENCHMARKS
 UV_THREADPOOL_SIZE=$(nproc) pnpm --filter @roost/cli start -- thumb
 ```
 
+```powershell
+# PowerShell has no inline environment prefix, so it is two statements
+$env:UV_THREADPOOL_SIZE = $env:NUMBER_OF_PROCESSORS
+pnpm --filter @roost/cli start -- thumb
+```
+
 `roost doctor` prints the pool the current process got, and says this when it is the default.
 
 Working against a library:
@@ -252,6 +276,17 @@ pnpm --filter @roost/cli start -- folder create Icons --parent Design
 pnpm --filter @roost/cli start -- smart create Wooden 'tag:wood rating:>=4'
 pnpm --filter @roost/cli start -- doctor --deep
 ```
+
+**Two of those lines are the shell's syntax rather than Roost's**, and PowerShell writes them
+differently — the variable, and `init`, which is the one command that takes the path as an
+argument instead of finding it:
+
+```powershell
+$env:ROOST_LIBRARY = "$HOME\RoostTest.roost"
+pnpm --filter @roost/cli start -- init $env:ROOST_LIBRARY
+```
+
+Everything after it reads the variable, so the rest of the block is typed the same on both.
 
 An asset is named by its full hash or by any prefix that matches one asset, so
 `roost show 010b3484` is enough. `roost query --hashes` prints one hash per line for exactly
@@ -371,8 +406,9 @@ makes a measurement here comparable to one recorded there rather than merely sim
   main's stdout; if it is not appearing, the engine died before it could log, which is what the
   exit-code handler is for.
 - **Logs** — structured JSON at debug level in `$XDG_STATE_HOME/roost/logs`
-  (`~/.local/state/roost/logs`). Warnings and errors also go to the terminal.
-  `ROOST_LOG=debug` raises the terminal level.
+  (`~/.local/state/roost/logs`), and `%LOCALAPPDATA%\roost\state\logs` on Windows — Local
+  rather than Roaming, because a log describes one machine (ADR-0041). Warnings and errors also
+  go to the terminal. `ROOST_LOG=debug` raises the terminal level.
 - **SQLite** — the library's `index.db` is an ordinary database. `sqlite3 index.db '.schema'`
   and `EXPLAIN QUERY PLAN` are the fastest way to answer a performance question, and deleting
   the file is safe by construction: `roost rebuild` replays it.
@@ -398,9 +434,10 @@ makes a measurement here comparable to one recorded there rather than merely sim
 - **Thumbnails do not survive a rebuild.** They derive from bytes, not from journal records.
   `roost rebuild` says so and tells you to run `roost thumb`.
 - **A library can be open in one process at a time.** The single-instance lock is advisory —
-  a PID file under `$XDG_STATE_HOME/roost/locks`, keyed by a BLAKE3 hash of the library's
-  canonical path. A Roost killed without releasing it leaves the file behind; deleting it is
-  safe once the process is really gone.
+  a PID file under `$XDG_STATE_HOME/roost/locks` (`%LOCALAPPDATA%\roost\state\locks` on
+  Windows, ADR-0041), keyed by a BLAKE3 hash of the library's canonical path. A Roost killed
+  without releasing it leaves the file behind; deleting it is safe once the process is really
+  gone.
   **`roost-old` and this build share that derivation**, deliberately and by test, so they lock
   each other out of the same library. That matters here: both repositories are checked out on
   this machine and both get pointed at the same test library.

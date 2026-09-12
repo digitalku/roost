@@ -443,18 +443,23 @@ which is a *smaller* excuse to be careless than Tauri was, not a bigger one: the
 compiling on macOS does not mean the trash implementation, the reveal-in-file-manager call, or
 the reflink probe do anything sensible there.
 
-- All OS-specific behaviour lives in `@roost/core`'s `platform` module: XDG
+- All OS-specific behaviour lives in `@roost/core`'s `platform` module: the
   config/data/state/cache directories, file-manager reveal, reflink capability probing, trash,
-  and a single-instance lock. Electron's `app.getPath` is *not* used for library-adjacent
-  paths — it has its own opinions, and the XDG layout is what a Linux user expects.
+  and a single-instance lock. Those directories are XDG on Linux and the two known folders on
+  Windows — `%APPDATA%\roost\{config,data}` for what may roam between a user's machines and
+  `%LOCALAPPDATA%\roost\{state,cache}` for what must not (ADR-0041). Electron's `app.getPath`
+  is *not* used for library-adjacent paths — it has its own opinions, and each platform's own
+  layout is what its users expect.
 - The single-instance lock is keyed by a hash of the library's canonical path and lives in
   `state_dir()/locks`, never inside the library: `STORAGE_SPEC.md` fixes the library layout at
   four entries, a pid is meaningless on another machine, and a read-only library must still
   open. The desktop app takes it when it opens a library; `roost rebuild` takes it too, being
   the one CLI command that rewrites a library whole. Ordinary reads and edits do not — two
   `roost tag` runs at once are a normal thing to want, and WAL is built for it.
-- Non-Linux targets throw `UnsupportedPlatformError` from the platform module rather than
-  guessing at a directory layout nobody has designed for. A port is then a deliberate act.
+- **macOS** throws `UnsupportedPlatformError` from the platform module rather than guessing at
+  a directory layout nobody has designed for. A port is a deliberate act, and Windows has had one
+  since ADR-0041 — a machine the work is done on rather than a target that is packaged, which is
+  why it resolves directories instead of refusing.
 - No `process.platform` checks sprinkled through business logic — only inside `platform`.
 - Paths are never assumed to be UTF-8-clean, case-insensitive, or `/`-separated. Node hands
   filenames back as strings with lone surrogates on Linux; anything that round-trips a path
@@ -464,9 +469,10 @@ the reflink probe do anything sensible there.
 
 Not in the library. `STORAGE_SPEC.md` publishes the library layout and is binding: a library
 holds `originals/`, `index.db`, `journal/`, and `library.json`, and nothing else. Logs go to
-`$XDG_STATE_HOME/roost/logs`. Two destinations, different jobs: the terminal carries warnings
-and errors so the person running a command sees what went wrong; the file carries structured
-JSON at debug level so a problem reported days later can still be investigated.
+`$XDG_STATE_HOME/roost/logs`, and to `%LOCALAPPDATA%\roost\state\logs` on Windows. Two
+destinations, different jobs: the terminal carries warnings and errors so the person running a
+command sees what went wrong; the file carries structured JSON at debug level so a problem
+reported days later can still be investigated.
 
 ## 7. Technology choices (summary; rationale in `docs/adr/`)
 
