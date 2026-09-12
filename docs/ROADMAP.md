@@ -369,7 +369,30 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Nothing open, as of 2026-09-09.** **ADR-0039 — sorting, a random order, and a view the library
+**Two open, as of 2026-09-11.** **ADR-0042 — installing a missing backend from the window,
+proposed**, from the user seeing the words `install ffmpeg` in a dialog on Windows and asking for
+one command, or a button. Both halves were true: the table in `install.ts` is keyed on
+`/etc/os-release` and Windows has none, so the dialog built to stop saying nothing useful was saying
+nothing useful. It decides that the command is shown everywhere with a **Copy command** beside it,
+and that **Install it** appears only where the command needs no password — winget's portable ffmpeg
+on Windows, and nothing on Linux, where every line begins with `sudo`. The interesting half is §5:
+this is the second thing Roost does that causes a network request, and the ADR says so plainly
+rather than reading invariant 7 in its own favour. Carrying an ffmpeg installer was considered and
+refused: distribution is distribution wherever the bytes land.
+
+Before it that day: **ADR-0041 — application directories on Windows, proposed.** It comes
+from the work moving to a Windows machine and the question of whether it can be done there. Two
+questions were tangled in that one: developing on Windows needed no decision and now works —
+`pnpm verify` passes, 91 files and 1234 tests — while *running* Roost there is a decision, because
+`platform/dirs.ts` refused every non-Linux platform on purpose and 33 of the 35 remaining failures
+came from that one refusal. The ADR gives Windows the known folders, keeps macOS refusing, and
+commits to a layout without committing to shipping: M7 still has Windows unscheduled, and
+packaging, signing and ffmpeg are untouched. Two things it found are in `TODO.md` §3 rather than in
+the ADR: libvips keeps a file it read mapped, which Windows will not let anything unlink, and
+`allowBuilds` makes pnpm build `better-sqlite3` from source although the package ships a prebuild
+for every platform.
+
+Before it, **nothing was open as of 2026-09-09.** **ADR-0039 — sorting, a random order, and a view the library
 remembers** was proposed and accepted that day, from the user asking for the sort the view menu had
 been promising with a disabled row since M3, plus a **random** order, the removal of **Group By**,
 and for the order and the view to be remembered the way *Show subfolder contents* is. Three answers

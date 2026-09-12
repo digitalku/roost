@@ -970,8 +970,18 @@ preview" — and both are numbers whose whole content is the reasons behind them
 buttons. What differs is what can be done: a failure offers one retry for everything, while a
 parked group offers one only where something could have arrived, and offers it **beside the thing
 it is waiting for**. A group parked on a missing backend carries the command that would supply it,
-in monospace, chosen for the distribution Roost is running on (ADR-0040 §5) — a string to read and
-run, never a button that installs anything.
+in monospace, chosen for the machine Roost is running on (ADR-0040 §5).
+
+**Under that command: up to three buttons** (ADR-0042). *Copy command* everywhere, because the next
+step is a terminal and retyping a package name is where this goes wrong. *Install it* only where
+the command needs no password — which today is winget's ffmpeg on Windows and nothing on Linux,
+where every line begins with `sudo` and a window asking for a root password would be teaching a
+habit worth nobody's convenience. *Try again* where an arrival could release the work. **The command
+stays visible whether or not the button is there**: somebody who would rather see what is about to
+happen to their machine should not have to take it on trust. While it runs, the button reads
+*Installing…* and is disabled; if the package manager refuses, its own output is shown verbatim
+under the row, because that is the half a bug report is pasted from. On success nothing is
+announced — the work is released, the previews appear, and the list behind the dialog is the answer.
 
 **Grouped by fault, because the answer is usually one answer.** Thirty-six failures are rarely
 thirty-six problems: they are a folder of renamed files, or a drive unplugged halfway through an
