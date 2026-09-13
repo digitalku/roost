@@ -1119,6 +1119,16 @@ one is a dead end, and it was the state of every new library until this changed.
 the caret with it. Only this section has one: Places is four rows, and a folder tree is the only
 part of the pane that grows to the hundred rows that prompted ADR-0033.
 
+**A third control in the heading shows the folder the grid is on** (ADR-0033 §7). It opens every
+branch above that row — ancestors only, never an expand-all — scrolls it into view with
+`block: "nearest"` so a row already visible does not move, and leaves the focus on it, because a
+scroll has nothing to point at. It clears a needle **only when the needle is hiding the row**: a
+search already showing it is one somebody is still using. It is **absent, not dead**, when the grid
+is not in a folder, which is the same rule as the magnifier over an empty section. It is the bill
+for the two decisions above it: closing every branch and filtering the tree both mean the current
+row is routinely somewhere nobody can see. Nothing reveals on its own — a pane that scrolled itself
+whenever the query changed would move under the hand of anybody typing in the search field.
+
 **A search keeps the tree's shape.** A match is drawn where it sits, every folder on the path down
 to it comes along as **context** — quieted, but still a real row that can be clicked and still a
 drop target — and everything else goes. What does *not* come along is a match's own subtree, which

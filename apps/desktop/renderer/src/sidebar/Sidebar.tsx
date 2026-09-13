@@ -1,6 +1,6 @@
 import type { SidebarFolderRow, SidebarRow, WireSidebar } from "@roost/contract";
 import { ContextMenu } from "radix-ui";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   carriesAssets,
   carriesFolder,
@@ -183,6 +183,68 @@ function Folders({
   };
 
   /**
+   * Where the folder on screen sits in the tree, or `-1` (ADR-0033 §7).
+   *
+   * An index rather than the row, because revealing it means walking back up
+   * the depth-first list to its ancestors — the wire carries no parent id, and
+   * §5 of this file's own doc comment is why.
+   */
+  const at = useMemo(() => rows.findIndex((row) => row.query === query), [rows, query]);
+
+  /** The list item drawn for it, so the reveal has somewhere to scroll to. */
+  const here = useRef<HTMLLIElement>(null);
+
+  /**
+   * Set by the button, read once the branches it opened have been drawn.
+   *
+   * Two steps, because the row it wants is not in the document yet: opening a
+   * branch is a state change in the window, and the effect below runs after the
+   * render that answers it.
+   */
+  const [revealing, setRevealing] = useState(false);
+
+  useEffect(() => {
+    if (!revealing) return;
+    setRevealing(false);
+    const node = here.current;
+    if (node === null) return;
+    // `nearest`, so a row already on screen does not jump the pane to centre
+    // it: the question was "which one is it", and moving the answer while it is
+    // being read is a worse answer.
+    node.scrollIntoView({ block: "nearest" });
+    // Focused as well as scrolled to, because a scroll has nothing to point at.
+    // The scroll above has already happened, so the browser's own is refused.
+    node.querySelector<HTMLElement>(".sidebar-row")?.focus({ preventScroll: true });
+  }, [revealing]);
+
+  /**
+   * **Show the folder on screen** — the heading's third control.
+   *
+   * Asked for on 2026-09-13: with the branches closed (§2) and a tree taller
+   * than the pane, the row marked as current is routinely somewhere nobody can
+   * see, and "which folder am I in" had only the search field to answer it —
+   * which is the wrong question, since the answer is already known.
+   */
+  const showCurrent = () => {
+    const row = rows[at];
+    if (row === undefined) return;
+    // Every ancestor, found by walking back for the next shallower row: the
+    // list is depth-first, so that is the parent by construction.
+    let depth = row.depth;
+    for (let back = at - 1; back >= 0 && depth > 0; back -= 1) {
+      const above = rows[back];
+      if (above === undefined || above.depth >= depth) continue;
+      expansion.reveal(above.folder);
+      depth = above.depth;
+    }
+    // A needle hides rows that do not match even when every branch is open
+    // (§6), so it is cleared — but only when it is actually in the way. A
+    // search that already shows the row is one somebody is still using.
+    if (!visible.some(({ row: drawnRow }) => drawnRow.query === query)) setNeedle("");
+    setRevealing(true);
+  };
+
+  /**
    * The row a drag is over, or `"top"` for the heading.
    *
    * Drawn rather than left to `:hover`, because a drag has no hover: the
@@ -230,6 +292,40 @@ function Folders({
       >
         Folders
         <span className="sidebar-heading-actions">
+          {/*
+            Drawn only while there is a folder to show, which is the same rule
+            as the magnifier's: a control whose only outcome is nothing is
+            worse than an absent one. It is first because it answers a question
+            about what is already on screen, where the other two act on the
+            tree.
+          */}
+          {at >= 0 && (
+            <button
+              type="button"
+              className="sidebar-add"
+              title="Show the folder on screen"
+              aria-label="Show the folder on screen"
+              onClick={showCurrent}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="3.25"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          )}
           {/*
             Drawn only where there is something to search. A magnifier over an
             empty section is a control whose only outcome is "nothing matches",
@@ -304,7 +400,9 @@ function Folders({
       )}
       <ul className="sidebar-list">
         {visible.map(({ row, hasChildren, isContext }) => (
-          <li key={row.id}>
+          // The one row the reveal scrolls to. On the item rather than on the
+          // branch inside it, which is a Radix trigger and has a ref of its own.
+          <li key={row.id} ref={row.query === query ? here : undefined}>
             <ContextMenu.Root>
               <ContextMenu.Trigger asChild>
                 {/*

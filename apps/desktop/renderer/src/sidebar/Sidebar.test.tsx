@@ -672,3 +672,73 @@ describe("cutting a name to the cap", () => {
     expect(elideName("🎬".repeat(MAX_NAME))).toBe("🎬".repeat(MAX_NAME));
   });
 });
+
+describe("showing the folder on screen", () => {
+  /** A tree deep enough that the folder in question starts out undrawn. */
+  const DEEP: WireSidebar = {
+    ...SIDEBAR,
+    folders: [
+      folderRow({ id: "folder:1", folder: 1, name: "testing", path: "testing", depth: 0 }),
+      folderRow({ id: "folder:2", folder: 2, name: "zaka", path: "testing/zaka", depth: 1 }),
+      folderRow({
+        id: "folder:3",
+        folder: 3,
+        name: "deeper",
+        path: "testing/zaka/deeper",
+        depth: 2,
+      }),
+      folderRow({ id: "folder:4", folder: 4, name: "elsewhere", path: "elsewhere", depth: 0 }),
+    ],
+  };
+
+  const show = () => screen.queryByRole("button", { name: "Show the folder on screen" });
+
+  it("is not drawn where nothing on screen is a folder", () => {
+    // The heading's other two controls act on the tree and are always useful;
+    // this one answers a question about the grid, and outside a folder there
+    // is no question.
+    render(<Pane sidebar={DEEP} query="" />);
+    expect(show()).toBeNull();
+    render(<Pane sidebar={DEEP} query="tag:wood" />);
+    expect(show()).toBeNull();
+  });
+
+  it("opens every branch above the folder the grid is showing", async () => {
+    // The case it exists for: the tree starts collapsed (ADR-0033 §2), so the
+    // row marked as current is not in the document at all.
+    const user = userEvent.setup();
+    render(<Pane sidebar={DEEP} query='folder:"testing/zaka/deeper"' />);
+    expect(screen.queryByRole("button", { name: /^deeper/ })).toBeNull();
+
+    await user.click(show() as HTMLElement);
+
+    const drawn = screen.getByRole("button", { name: /^deeper/ });
+    expect(drawn.getAttribute("aria-current")).toBe("true");
+    // Its ancestors came with it, and nothing else did: a reveal is not an
+    // expand-all.
+    expect(screen.getByRole("button", { name: /^zaka/ })).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^elsewhere/ })).not.toBeNull();
+    expect(document.activeElement).toBe(drawn);
+  });
+
+  it("clears a search that is hiding the row, and leaves one that is not", async () => {
+    const user = userEvent.setup();
+    render(<Pane sidebar={DEEP} query='folder:"testing/zaka"' />);
+
+    await user.click(screen.getByRole("button", { name: "Search folders" }));
+    const field = screen.getByRole("searchbox", { name: "Search folders" });
+    await user.type(field, "elsewhere");
+    expect(screen.queryByRole("button", { name: /^zaka/ })).toBeNull();
+
+    await user.click(show() as HTMLElement);
+    // The needle went, because it was in the way. The field stays: it is the
+    // same state a folder command leaves behind (§6).
+    expect(field).toHaveProperty("value", "");
+    expect(screen.getByRole("button", { name: /^zaka/ }).getAttribute("aria-current")).toBe("true");
+
+    // A needle that already shows the row is one somebody is still using.
+    await user.type(field, "zaka");
+    await user.click(show() as HTMLElement);
+    expect(field).toHaveProperty("value", "zaka");
+  });
+});

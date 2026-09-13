@@ -1039,6 +1039,111 @@ try {
     `chips=${JSON.stringify(filed.chips.map((chip) => chip.path))}`,
   );
 
+  section("Show the folder on screen (ADR-0033 §7)");
+  // Its own library and its own window. The tree above is four folders; what
+  // this is about is a tree taller than the pane, which is the only place the
+  // question "which folder am I in" is ever asked.
+  //
+  // The first window is closed first: Electron holds a single-instance lock,
+  // so a second process started beside it hands its command line to the first
+  // and exits.
+  await window.close();
+  const tall = await imageLibrary(dir, { count: 2, name: "Tall" });
+  await foldersInto(tall, [
+    ...Array.from({ length: 30 }, (_, index) => ({
+      name: `folder-${String(index).padStart(2, "0")}`,
+    })),
+    { name: "testing" },
+    { name: "zaka", parent: "testing" },
+  ]);
+  const taller = await launch({ library: tall });
+  try {
+    const rowsExpression = `
+        (() => {
+          const list = document.querySelector(".sidebar");
+          const pane = list.getBoundingClientRect();
+          const branches = [...document.querySelectorAll(".sidebar-branch")];
+          const current = branches.find(
+            (branch) => branch.querySelector('[aria-current="true"]') !== null,
+          );
+          const box = current?.getBoundingClientRect();
+          return {
+            drawn: branches.length,
+            names: branches.map((b) => b.querySelector(".sidebar-label")?.textContent ?? ""),
+            reveal: document.querySelector('[aria-label="Show the folder on screen"]') !== null,
+            current: current?.querySelector(".sidebar-label")?.textContent ?? null,
+            // Whether the row the pane marks is somewhere a person can see.
+            onScreen:
+              box === undefined ? false : box.top >= pane.top && box.bottom <= pane.bottom,
+            focused: document.activeElement?.textContent?.includes("zaka") ?? false,
+          };
+        })()`;
+    const rows = () => taller.cdp.evaluate(rowsExpression);
+
+    const clickRow = async (name) => {
+      const at = await taller.cdp.evaluate(`
+        (() => {
+          const row = [...document.querySelectorAll(".sidebar-branch")]
+            .find((b) => b.querySelector(".sidebar-label")?.textContent === ${JSON.stringify(name)});
+          if (row === undefined) return null;
+          // Brought into view first: this tree is taller than the pane, and a
+          // row scrolled off it has a box the pointer cannot be aimed at.
+          row.scrollIntoView({ block: "center" });
+          const r = row.querySelector(".sidebar-row").getBoundingClientRect();
+          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+        })()`);
+      if (at === null) throw new Error(`no row called ${name}`);
+      await taller.cdp.mouse.click(at.x, at.y);
+    };
+
+    const clickTwisty = async (name) => {
+      const at = await taller.cdp.evaluate(`
+        (() => {
+          const row = [...document.querySelectorAll(".sidebar-branch")]
+            .find((b) => b.querySelector(".sidebar-label")?.textContent === ${JSON.stringify(name)});
+          const el = row?.querySelector("button.sidebar-twisty");
+          if (!el) return null;
+          row.scrollIntoView({ block: "center" });
+          const r = el.getBoundingClientRect();
+          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+        })()`);
+      if (at === null) throw new Error(`${name} has no disclosure arrow`);
+      await taller.cdp.mouse.click(at.x, at.y);
+    };
+
+    await taller.cdp.settle(rowsExpression, (seen) => seen.drawn === 31);
+    check(
+      "nothing to show while the grid is not in a folder",
+      (await rows()).reveal === false,
+      "the control is absent, not dead",
+    );
+
+    // Open `testing`, click `zaka`, close `testing` again: the folder on screen
+    // is now one the pane is not drawing at all, which is exactly the state a
+    // person lands in after scrolling around a tall tree.
+    await clickTwisty("testing");
+    await taller.cdp.settle(rowsExpression, (seen) => seen.names.includes("zaka"));
+    await clickRow("zaka");
+    await taller.cdp.settle(rowsExpression, (seen) => seen.current === "zaka");
+    await clickTwisty("testing");
+    const hidden = await taller.cdp.settle(rowsExpression, (seen) => !seen.names.includes("zaka"));
+    check("the folder on screen can be a row the tree is not drawing", hidden.current === null);
+    check("and then the control is there", hidden.reveal === true);
+
+    // Scrolled to the top, so that opening the branch is not enough on its own:
+    // `testing` sorts after thirty siblings and is off the bottom of the pane.
+    await taller.cdp.evaluate(`document.querySelector(".sidebar").scrollTop = 0`);
+    await taller.cdp.evaluate(
+      `document.querySelector('[aria-label="Show the folder on screen"]').click()`,
+    );
+    const shown = await taller.cdp.settle(rowsExpression, (seen) => seen.current === "zaka");
+    check("one press opens its branch and marks it", shown.current === "zaka");
+    check("scrolls it to where it can be seen", shown.onScreen, `drawn=${shown.drawn}`);
+    check("and leaves the focus on it, so there is something to point at", shown.focused);
+  } finally {
+    await taller.close();
+  }
+
   report();
 } catch (error) {
   console.error(error);
