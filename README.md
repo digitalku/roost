@@ -19,7 +19,7 @@ Electron shell, TypeScript engine, React interface. Your files stay yours.
 > shell; this repository re-implements the engine in TypeScript on Electron and rebuilds the
 > interface from scratch. **The library format is carried over** — a library that
 > implementation wrote opens here, and a test proves it. The reverse stopped being a requirement
-> on 2026-08-29, when that project was discontinued: the schema has moved on since (it is at v13),
+> on 2026-08-29, when that project was discontinued: the schema has moved on since (it is at v14),
 > and nothing here is traded away to keep an abandoned build's approval.
 
 ## Why
@@ -93,6 +93,10 @@ Four things are worth knowing, all of them measured on a clean machine rather th
 - **A terminal opened before an installer finished has the old `PATH` forever.** A process
   inherits it once and never re-reads it, so `node` answering *"not recognized"* after a
   successful install means the window, not the install.
+
+**A Start Menu shortcut is one more command**, kept below with the Linux entry because it is the
+same one: [Put it in the application menu](#put-it-in-the-application-menu) writes `Roost.lnk`
+into your own Start Menu, icon and all.
 
 The test suite runs here and the window opens, imports, searches and previews. Two things are
 known to be unproven rather than known to work: **`Delete permanently`** meets a file libvips
