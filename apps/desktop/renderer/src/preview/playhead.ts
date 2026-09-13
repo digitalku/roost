@@ -87,8 +87,9 @@ class Playhead {
   /**
    * Seeks by a step, staying inside the medium.
    *
-   * What the preview's `J` and `L` are: the arrow keys step between assets, so
-   * coarse seeking needs keys of its own (`UI_SPEC.md` §9).
+   * What the preview's `J` and `L` are, and what the transport's two skip
+   * buttons are: the arrow keys step between assets, so coarse seeking needs
+   * keys of its own (`UI_SPEC.md` §9).
    */
   nudge(deltaMs: number): boolean {
     const media = this.#media;
@@ -148,6 +149,17 @@ class Playhead {
     for (const notify of this.#listeners) notify();
   }
 }
+
+/**
+ * How far the skip buttons and `J` / `L` move, in milliseconds.
+ *
+ * **One number for both**, and it is drawn on the buttons. Two controls that do
+ * the same thing by different amounts is the kind of difference nobody
+ * remembers which way round, and the button is the one that has to say what it
+ * does before it is pressed. Fifteen seconds at the user's word (2026-09-13),
+ * over the ten the keys carried alone.
+ */
+export const SKIP_MS = 15_000;
 
 export const playhead = new Playhead();
 

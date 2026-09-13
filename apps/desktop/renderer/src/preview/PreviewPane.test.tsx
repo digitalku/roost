@@ -583,14 +583,33 @@ describe("the transport", () => {
     expect(steps).toEqual([]);
   });
 
-  it("seeks ten seconds with J and L, because the arrows step assets", async () => {
+  it("seeks fifteen seconds with J and L, because the arrows step assets", async () => {
     const { user } = showVideo();
     const video = await player();
 
     await user.keyboard("l");
-    expect(video.currentTime).toBe(10);
+    // The same number the buttons carry: `SKIP_MS` is one constant.
+    expect(video.currentTime).toBe(15);
     await user.keyboard("j");
     // Clamped at the start rather than run negative.
+    expect(video.currentTime).toBe(0);
+  });
+
+  it("skips by the same amount from the buttons as from the keys", async () => {
+    // Asked for on 2026-09-13. One constant behind both, because two controls
+    // that do the same thing by different amounts is the difference nobody
+    // remembers which way round.
+    const { user } = showVideo();
+    const video = await player();
+
+    await user.click(screen.getByRole("button", { name: "Forward 15 seconds" }));
+    expect(video.currentTime).toBe(15);
+    // The position the transport seeks from is the one it has been told about,
+    // so the element has to say it moved — a real one does (`announce`).
+    announce(video, "seeked");
+
+    await user.click(screen.getByRole("button", { name: "Back 15 seconds" }));
+    // Clamped at the start rather than run negative, as `J` is.
     expect(video.currentTime).toBe(0);
   });
 

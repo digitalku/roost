@@ -2,7 +2,7 @@ import type { WireComment, WireSubtitle } from "@roost/contract";
 import { DropdownMenu, Slider } from "radix-ui";
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { clock, duration, timecode } from "../timecode.js";
-import { playhead } from "./playhead.js";
+import { playhead, SKIP_MS } from "./playhead.js";
 
 /**
  * The transport under a video or an audio file (`UI_SPEC.md` §7, ADR-0024).
@@ -444,6 +444,20 @@ export function Transport({
           </button>
         )}
 
+        {/* Either side of play, which is where every player people already use
+            puts them. The frame steps stay outside: the finer gesture is the
+            one somebody goes looking for, and the coarse one is the one they
+            reach for without looking. */}
+        <button
+          type="button"
+          className="transport-button"
+          aria-label={`Back ${SKIP_SECONDS} seconds`}
+          title={`Back ${SKIP_SECONDS} seconds`}
+          onClick={() => seek(at - SKIP_MS)}
+        >
+          <Skip back />
+        </button>
+
         <button
           type="button"
           className="transport-button"
@@ -452,6 +466,16 @@ export function Transport({
           onClick={play}
         >
           <Icon of={status.paused ? "play" : "pause"} />
+        </button>
+
+        <button
+          type="button"
+          className="transport-button"
+          aria-label={`Forward ${SKIP_SECONDS} seconds`}
+          title={`Forward ${SKIP_SECONDS} seconds`}
+          onClick={() => seek(at + SKIP_MS)}
+        >
+          <Skip back={false} />
         </button>
 
         {fps !== null && (
@@ -709,6 +733,39 @@ function Icon({ of }: { readonly of: keyof typeof PATHS }): React.JSX.Element {
     </svg>
   );
 }
+
+/**
+ * The skip icon: a circular arrow with the number inside it.
+ *
+ * **The number is drawn rather than left to the tooltip.** A bare arrow is the
+ * one control in this bar whose amount cannot be guessed — play is play and
+ * mute is mute, but an arrow could be a second or a minute — and a tooltip is
+ * not an answer for a button somebody is about to press.
+ *
+ * Stroked rather than filled, because a ring drawn as a fill is two arcs and a
+ * join, and this one has to sit beside `Icon`'s solid shapes without looking
+ * like a different set.
+ */
+function Skip({ back = false }: { readonly back?: boolean }): React.JSX.Element {
+  return (
+    <svg className="transport-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path
+        d={back ? "M8 3.4a4.6 4.6 0 1 0 4.6 4.6" : "M8 3.4a4.6 4.6 0 1 1-4.6 4.6"}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <path d={back ? "M9.9 1.5 6.9 3.4l3 1.9z" : "M6.1 1.5l3 1.9-3 1.9z"} fill="currentColor" />
+      <text x="8" y="10.9" textAnchor="middle" fontSize="6" fontWeight="600" fill="currentColor">
+        {SKIP_SECONDS}
+      </text>
+    </svg>
+  );
+}
+
+/** The same number the buttons seek by, for the words and for the drawing. */
+const SKIP_SECONDS = Math.round(SKIP_MS / 1000);
 
 const PATHS = {
   play: "M5 3.5v9l8-4.5-8-4.5z",

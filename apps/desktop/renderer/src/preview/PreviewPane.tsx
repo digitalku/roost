@@ -5,7 +5,7 @@ import { invoke } from "../bridge.js";
 import { counted } from "../format.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { Picture, type PictureHandle } from "./Picture.js";
-import { playhead } from "./playhead.js";
+import { playhead, SKIP_MS } from "./playhead.js";
 import { sound } from "./sound.js";
 import { Transport } from "./Transport.js";
 
@@ -83,9 +83,9 @@ function mediaKey(key: string): boolean {
     case "m":
       return playhead.toggleMute();
     case "j":
-      return playhead.nudge(-10_000);
+      return playhead.nudge(-SKIP_MS);
     case "l":
-      return playhead.nudge(10_000);
+      return playhead.nudge(SKIP_MS);
     default:
       // Frame stepping and the A-B loop, which need state the pane has no
       // reason to hold. `playhead.ts` says why they are delegated rather than
