@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hasHeicDecoder } from "./heif.js";
-import { installCommand } from "./install.js";
+import { installCommand, installOffer } from "./install.js";
 
 /**
  * Telling a libheif that can decode a photograph from one that cannot.
@@ -75,11 +75,40 @@ describe("what to tell somebody to install", () => {
 
   it("answers Windows from the platform, not from a file it cannot have", () => {
     // Verified: winget's is a user-scope install that wants no administrator.
-    expect(installCommand("media", {}, "win32")).toBe("winget install Gyan.FFmpeg");
+    expect(installCommand("media", {}, "win32")).toBe("winget install --id Gyan.FFmpeg");
     // And HEIC keeps the sentence, because nothing in winget ships `heif-dec`
     // and a command nobody has run is worse than no command.
     expect(installCommand("heif", {}, "win32")).toBe(
       "install libheif's tools and its HEVC decoder plugin",
+    );
+  });
+
+  it("offers an argv only where running it needs no password", () => {
+    // Windows, and ffmpeg alone: winget's package is a portable install that
+    // wants no administrator, which is the measurement the button rests on
+    // (ADR-0042 §2).
+    expect(installOffer("media", {}, "win32").argv).toEqual([
+      "winget",
+      "install",
+      "--id",
+      "Gyan.FFmpeg",
+      "--exact",
+      "--source",
+      "winget",
+      "--accept-package-agreements",
+      "--accept-source-agreements",
+      "--disable-interactivity",
+    ]);
+    // Nothing in winget ships `heif-dec`, so there is a sentence and no argv.
+    expect(installOffer("heif", {}, "win32").argv).toBeNull();
+    // And Linux has an argv nowhere, deliberately: every line begins with sudo.
+    expect(installOffer("media", { ID: "fedora" }, "linux").argv).toBeNull();
+    expect(installOffer("heif", { ID: "fedora" }, "linux").argv).toBeNull();
+  });
+
+  it("carries the same command an offer shows and a person would type", () => {
+    expect(installOffer("media", { ID: "fedora" }, "linux").command).toBe(
+      installCommand("media", { ID: "fedora" }, "linux"),
     );
   });
 

@@ -51,6 +51,7 @@ describe("what the status bar says about derived work", () => {
               version: null,
               detail: "install ffmpeg for video and audio previews",
               install: "sudo dnf swap ffmpeg-free ffmpeg --allowerasing",
+              installable: false,
             },
           ],
         }}
@@ -82,6 +83,7 @@ describe("what the status bar says about derived work", () => {
               version: null,
               detail: "install ffmpeg for video and audio previews",
               install: "sudo dnf swap ffmpeg-free ffmpeg --allowerasing",
+              installable: false,
             },
             {
               name: "heif",
@@ -89,6 +91,7 @@ describe("what the status bar says about derived work", () => {
               version: null,
               detail: "install libheif for HEIC photographs",
               install: "sudo dnf install libheif-tools libheif-freeworld",
+              installable: false,
             },
           ],
         }}

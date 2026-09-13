@@ -1,4 +1,10 @@
-import type { WireCapability, WireDeriveFailureGroup, WireDeriveFailures } from "@roost/contract";
+import type {
+  InstallableBackend,
+  WireCapability,
+  WireDeriveFailureGroup,
+  WireDeriveFailures,
+} from "@roost/contract";
+import { INSTALLABLE_BACKENDS } from "@roost/contract";
 import { Dialog } from "radix-ui";
 import { useEffect, useState } from "react";
 import { invoke } from "./bridge.js";
@@ -102,7 +108,7 @@ export function DeriveFailures({
                   key={group.reason}
                   group={group}
                   open={index === 0}
-                  install={installFor(group.reason, capabilities)}
+                  backend={installFor(group.reason, capabilities)}
                   {...(state === "blocked" ? {} : { onRetry: undefined })}
                   {...(state === "blocked" && group.reason.startsWith("missing:")
                     ? { onRetry: () => onRetry(group.reason) }
@@ -160,18 +166,60 @@ export function DeriveFailures({
 function Group({
   group,
   open,
-  install,
+  backend,
   onRetry,
 }: {
   readonly group: WireDeriveFailureGroup;
   readonly open: boolean;
-  /** The command that would supply the missing backend, where there is one. */
-  readonly install?: string | undefined;
+  /** The backend this group is waiting for, where it is waiting for one. */
+  readonly backend?: WireCapability | undefined;
   /** Offered only for work an arrival could release. */
   readonly onRetry?: (() => void) | undefined;
 }): React.JSX.Element {
   const explained = explainFailure(group.reason);
   const rest = group.count - group.samples.length;
+  const [copied, setCopied] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [said, setSaid] = useState<string | undefined>();
+
+  const command = backend?.install ?? undefined;
+  const name = installable(backend);
+
+  const copy = async (): Promise<void> => {
+    if (command === undefined) return;
+    const outcome = await invoke({ type: "clipboard:copyText", text: command });
+    setCopied(outcome.ok && outcome.value);
+  };
+
+  /**
+   * Runs it, and says what happened either way.
+   *
+   * The package manager's own words are shown rather than a sentence of ours:
+   * the reason somebody is reading this is that it did not go the way either of
+   * us expected, and "it failed" is not something to act on. A refusal is
+   * common and ordinary here — *already installed* is what a second click says.
+   */
+  const install = async (): Promise<void> => {
+    if (name === undefined) return;
+    setInstalling(true);
+    setSaid(undefined);
+    try {
+      const outcome = await invoke({ type: "capability:install", backend: name });
+      if (outcome.ok && outcome.value.installed) {
+        // Nothing is announced on success (`UI_SPEC.md` §3.13): the previews
+        // appearing is the answer, and the work is released through the same
+        // button a person would have pressed rather than a second path that
+        // could drift from it.
+        onRetry?.();
+      } else {
+        setSaid(outcome.ok ? outcome.value.detail : "The install could not be started.");
+      }
+    } catch {
+      setSaid("The install could not be started.");
+    } finally {
+      setInstalling(false);
+    }
+  };
 
   return (
     <details className="failure-group" open={open}>
@@ -180,17 +228,32 @@ function Group({
         <span className="failure-count">{counted(group.count)}</span>
       </summary>
       {explained.hint !== undefined && <p className="failure-hint">{explained.hint}</p>}
-      {install !== undefined && (
+      {command !== undefined && (
         <>
-          {/* The command, where a person can select it. Not a button that runs
-              anything: Roost has no terminal and installing software is not
-              something an image manager should be doing on somebody's behalf. */}
-          <p className="failure-install">{install}</p>
-          {onRetry !== undefined && (
-            <button type="button" className="failure-retry" onClick={onRetry}>
-              Try again
+          {/* The command, where a person can select it — and, where running it
+              needs no password, a button that runs it (ADR-0042). On Linux
+              every line begins with `sudo`, so there is no button and this is
+              the whole of the answer. */}
+          <p className="failure-install">{command}</p>
+          <div className="failure-install-actions">
+            <button type="button" onClick={() => void copy()}>
+              {copied ? "Copied" : "Copy command"}
             </button>
-          )}
+            {name !== undefined && (
+              <button type="button" onClick={() => void install()} disabled={installing}>
+                {installing ? "Installing…" : "Install it"}
+              </button>
+            )}
+            {onRetry !== undefined && (
+              <button type="button" onClick={onRetry}>
+                Try again
+              </button>
+            )}
+          </div>
+          {/* Verbatim, and only after a run: winget goes to the network before
+              it decides it has nothing to do, so the first thing this says is
+              usually the last thing anybody expected. */}
+          {said !== undefined && <p className="failure-install-output">{said}</p>}
         </>
       )}
       {/* The backend's own words, kept verbatim minus the paths the engine took
@@ -217,12 +280,27 @@ function title(total: number, state: "failed" | "blocked"): string {
   return total === 1 ? "1 file could not be drawn" : `${count} could not be drawn`;
 }
 
-/** The install command for a group parked on a backend, if it names one. */
-function installFor(reason: string, capabilities: readonly WireCapability[]): string | undefined {
+/** The backend a group is parked on, if it is parked on one that is missing. */
+function installFor(
+  reason: string,
+  capabilities: readonly WireCapability[],
+): WireCapability | undefined {
   const backend = CAPABILITY_OF_REASON[reason];
   if (backend === undefined) return undefined;
-  const found = capabilities.find((entry) => entry.name === backend && !entry.available);
-  return found?.install ?? undefined;
+  return capabilities.find((entry) => entry.name === backend && !entry.available);
+}
+
+/**
+ * The backend's name, where the engine said a button may be drawn.
+ *
+ * Narrowed against the contract's own list rather than cast: `name` arrives as
+ * a string, and this is the request that starts a process (ADR-0042 §4).
+ */
+function installable(backend: WireCapability | undefined): InstallableBackend | undefined {
+  if (backend === undefined || !backend.installable) return undefined;
+  return (INSTALLABLE_BACKENDS as readonly string[]).includes(backend.name)
+    ? (backend.name as InstallableBackend)
+    : undefined;
 }
 
 /**

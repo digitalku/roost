@@ -60,6 +60,13 @@ export {
   hashFile,
   PARTIAL_WINDOW_BYTES,
 } from "./hash.js";
+export {
+  type Installable,
+  type InstallOffer,
+  installCommand,
+  installOffer,
+} from "./install.js";
+export { adoptUserPath, type InstallOutcome, installBackend } from "./installer.js";
 export { type Probed, probe, sniffFile } from "./probe.js";
 export {
   type EmbeddedPreview,

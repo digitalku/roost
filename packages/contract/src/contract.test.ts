@@ -132,6 +132,7 @@ describe("validating a request", () => {
       "eagle:import",
       "derive:status",
       "derive:retry",
+      "capability:install",
       "derive:failures",
       "clipboard:copyText",
       "dialog:chooseImport",

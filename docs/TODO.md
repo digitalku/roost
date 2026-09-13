@@ -793,16 +793,19 @@ viewer, which needed no schema at all.
   easy to meet by accident, because `pnpm --filter @roost/cli start -- import assets/brand`
   resolves the relative path against `packages/cli` rather than the directory it was typed in.
 
-- 🔴 **ADR-0042's implementation is not in the working tree.** Found 2026-09-13: the ADR and
-  `scripts/check-install.mjs` are here, and nothing they describe is — no `installer.ts`, no
-  `installOffer`, no `adoptUserPath`, no `capability:install` in the contract, main, the engine or
-  the renderer. `packages/media/src/install.ts` names ffmpeg's Windows command since 2026-09-13,
-  but nothing turns that line into the offer the ADR is about, and HEIC has no command to name
-  there at all. Session 69 records it as built and passing 9 checks against a real window, which
-  makes this a loss rather than a plan; the likely culprit is the `node_modules` removal of
-  2026-09-12 that followed junctions into `packages/` (`SETUP.md` §1), and the same session's
-  `packages/` work that *did* survive is uncommitted. Until it is rebuilt, `check-install.mjs`
-  cannot run at all.
+- ☑ ~~**ADR-0042's implementation is not in the working tree.**~~ Found missing 2026-09-13 — the
+  ADR and `scripts/check-install.mjs` were here and nothing they described was, which session 69
+  records as built and passing 9 checks, making it a loss rather than a plan — and **rebuilt the
+  same day** from the ADR and from what the check script asserts: `installer.ts`, `InstallOffer`,
+  `adoptUserPath()`, `capability:install` through the contract, the engine and the renderer, and
+  `installable` on the wire. Its open child is below.
+- 🟡 **`scripts/check-install.mjs` has still never been run.** Not on Linux, where the rebuild was
+  not done, and not here: its fixture encodes a clip with a **real** ffmpeg before hiding it from
+  the engine, and this machine has none — which is the thing the button exists to install. So the
+  offer is covered by unit tests and by the ADR, and the round trip it is really about — renderer
+  to main's allowlist to the engine to a spawned process and back — is asserted nowhere yet. Run it
+  on a machine that has ffmpeg, which is also the only machine where its one click is a refusal
+  rather than an install.
 
 - 🟡 **`pnpm install` fails on Windows unless build scripts are skipped.** `allowBuilds` in
   `pnpm-workspace.yaml` makes pnpm run an implicit `node-gyp rebuild` for `better-sqlite3` — which

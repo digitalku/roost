@@ -3,7 +3,7 @@ import { documentVersion } from "./document.js";
 import { ffmpegVersion, ffprobeVersion } from "./ffmpeg.js";
 import type { Format } from "./format.js";
 import { heifVersion } from "./heif.js";
-import { installCommand } from "./install.js";
+import { installCommand, installOffer } from "./install.js";
 import { vectorVersion } from "./vector.js";
 
 /**
@@ -45,6 +45,15 @@ export interface Capability {
    * truncated.
    */
   readonly install: string | null;
+  /**
+   * Whether Roost may run that command itself (ADR-0042).
+   *
+   * Not derivable from `install`: on Linux there is a command and Roost may not
+   * run it, because every line begins with `sudo`. The two questions are two
+   * fields for that reason, and the window is told only this boolean — never
+   * anything it could turn into a command.
+   */
+  readonly installable: boolean;
   /** The formats this backend is responsible for. */
   readonly formats: readonly Format[];
 }
@@ -107,6 +116,7 @@ async function probe(): Promise<readonly Capability[]> {
     heifVersion(),
   ]);
   const decoder = decoderVersions();
+  const hasMedia = ffmpeg !== null && ffprobe !== null;
 
   return [
     {
@@ -115,6 +125,7 @@ async function probe(): Promise<readonly Capability[]> {
       version: `libvips ${decoder.libvips}`,
       detail: `sharp ${decoder.sharp}, ${decoder.build} build`,
       install: null,
+      installable: false,
       formats: CAPABILITY_FORMATS.images,
     },
     {
@@ -123,6 +134,7 @@ async function probe(): Promise<readonly Capability[]> {
       version: vectorVersion(),
       detail: "resvg in WebAssembly, with no filesystem access",
       install: null,
+      installable: false,
       formats: CAPABILITY_FORMATS.vectors,
     },
     {
@@ -131,19 +143,20 @@ async function probe(): Promise<readonly Capability[]> {
       version: documentVersion(),
       detail: "pdfium in WebAssembly, with no filesystem access",
       install: null,
+      installable: false,
       formats: CAPABILITY_FORMATS.documents,
     },
     {
       name: "media",
       // Both, not either: the metadata comes from one and the frame from the
       // other, and half of the pair is not a working backend.
-      available: ffmpeg !== null && ffprobe !== null,
+      available: hasMedia,
       version: ffmpeg,
-      detail:
-        ffmpeg !== null && ffprobe !== null
-          ? `ffmpeg ${ffmpeg}, ffprobe ${ffprobe}`
-          : "install ffmpeg for video and audio previews",
-      install: ffmpeg !== null && ffprobe !== null ? null : installCommand("media"),
+      detail: hasMedia
+        ? `ffmpeg ${ffmpeg}, ffprobe ${ffprobe}`
+        : "install ffmpeg for video and audio previews",
+      install: hasMedia ? null : installCommand("media"),
+      installable: !hasMedia && installOffer("media").argv !== null,
       formats: CAPABILITY_FORMATS.media,
     },
     {
@@ -155,6 +168,7 @@ async function probe(): Promise<readonly Capability[]> {
       version: heif,
       detail: heif !== null ? `libheif ${heif}` : "install libheif for HEIC photographs",
       install: heif !== null ? null : installCommand("heif"),
+      installable: heif === null && installOffer("heif").argv !== null,
       formats: CAPABILITY_FORMATS.heif,
     },
   ];

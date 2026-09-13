@@ -71,8 +71,66 @@ const FALLBACK: Readonly<Record<Installable, string>> = {
  */
 const WINDOWS: Readonly<Record<Installable, string>> = {
   heif: FALLBACK.heif,
-  media: "winget install Gyan.FFmpeg",
+  media: "winget install --id Gyan.FFmpeg",
 };
+
+/**
+ * What Roost may run, on the one platform where running it needs no password.
+ *
+ * A **constant** argument vector, spawned with `execFile` and never a shell
+ * (ADR-0042 §4). The window names a backend and nothing it sends reaches this
+ * array: there is no field here in which a program, a flag or a path could
+ * travel.
+ *
+ * Windows is the only entry, and that is the decision rather than a gap. Every
+ * line in `COMMANDS` begins with `sudo`, and a window that asked for a root
+ * password would be teaching people to type one into whatever asks.
+ *
+ * The flags are the difference between a command a person runs and one nothing
+ * is watching. winget asks about its source agreements on a first run and would
+ * sit there for the timeout behind `execFile`, so it is told the answers; and
+ * `--exact` keeps an id from matching something adjacent.
+ */
+const ARGV: Readonly<Partial<Record<Installable, readonly string[]>>> = {
+  media: [
+    "winget",
+    "install",
+    "--id",
+    "Gyan.FFmpeg",
+    "--exact",
+    "--source",
+    "winget",
+    "--accept-package-agreements",
+    "--accept-source-agreements",
+    "--disable-interactivity",
+  ],
+};
+
+/** A command to read, and — where Roost may run it — what running it is. */
+export interface InstallOffer {
+  /** The command, for a person to read, copy, or type. There is always one. */
+  readonly command: string;
+  /**
+   * What {@link import("./installer.js").installBackend} would spawn, or `null`
+   * where Roost may not run anything.
+   *
+   * Two fields rather than one because "there is a command" and "Roost may run
+   * it" have different answers on every platform (ADR-0042 §6).
+   */
+  readonly argv: readonly string[] | null;
+}
+
+/** What to show, and what a button may do, for a backend that is missing. */
+export function installOffer(
+  what: Installable,
+  release?: Record<string, string>,
+  platform: NodeJS.Platform = process.platform,
+): InstallOffer {
+  return {
+    command: installCommand(what, release, platform),
+    argv: platform === "win32" ? (ARGV[what] ?? null) : null,
+  };
+}
 
 /**
  * The command for this machine, or a plain sentence where none is known.

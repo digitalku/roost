@@ -140,7 +140,7 @@ host's.
 administrator, and it brings HEVC with it:
 
 ```powershell
-winget install Gyan.FFmpeg
+winget install --id Gyan.FFmpeg
 ```
 
 It appends its own directory to the user `PATH` and says to restart the shell, which means the

@@ -75,6 +75,7 @@ export {
   type WireFolderRename,
   type WireImportFailure,
   type WireImportReport,
+  type WireInstallOutcome,
   type WirePasted,
   type WireProblem,
   type WireRecentLibrary,
@@ -110,6 +111,8 @@ export {
 } from "./event.js";
 export {
   checkRequest,
+  INSTALLABLE_BACKENDS,
+  type InstallableBackend,
   isRequestType,
   MAX_PAGE_LIMIT,
   REQUEST_TYPES,

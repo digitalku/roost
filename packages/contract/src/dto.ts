@@ -679,6 +679,30 @@ export interface WireCapability {
    * no filesystem and could not work out which distribution it is on.
    */
   readonly install: string | null;
+  /**
+   * Whether a button may be drawn beside that command (ADR-0042).
+   *
+   * A boolean and nothing else: the window is told whether it may *ask*, never
+   * what would run. The command it displays is the engine's too, and displaying
+   * it is all the window does with it — which is what keeps a compromised
+   * renderer (invariant 11) from reaching a program, a flag, or a path.
+   */
+  readonly installable: boolean;
+}
+
+/** What running the install said, and what this machine can do now. */
+export interface WireInstallOutcome {
+  /** Whether the package manager exited clean. "Already installed" is `false`. */
+  readonly installed: boolean;
+  /** Its own words, progress bars removed. Shown verbatim, never translated. */
+  readonly detail: string;
+  /**
+   * The capabilities as they are **now**, re-probed after the run.
+   *
+   * Carried back so one round trip answers "and now?", the way `derive:retry`
+   * answers with the status it produced.
+   */
+  readonly capabilities: readonly WireCapability[];
 }
 
 /** Why derived work is parked, and how much of it. */

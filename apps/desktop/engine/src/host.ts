@@ -90,7 +90,7 @@ import {
   trashAssets,
   unsoundForReclaim,
 } from "@roost/library";
-import { capabilities, refreshCapabilities } from "@roost/media";
+import { capabilities, installBackend, refreshCapabilities } from "@roost/media";
 import {
   formatFromExtension,
   isBrowserDrawable,
@@ -460,6 +460,22 @@ export class EngineHost {
         return this.#deriveStatus();
       }
 
+      case "capability:install": {
+        // No library is required and none is touched: this is a fact about the
+        // machine, not about a collection. A window with nothing open can still
+        // be told what it is missing, and can still fix it.
+        const outcome = await installBackend(request.backend);
+        // Either way, and before answering: a refusal is often "already
+        // installed", which means the probe this process is holding is the
+        // thing that is wrong (ADR-0040 §6).
+        await refreshCapabilities();
+        return {
+          installed: outcome.installed,
+          detail: outcome.detail,
+          capabilities: await wireCapabilities(),
+        };
+      }
+
       case "assets:export":
         // No journal line: nothing about the library changed. An export reads
         // the store and writes outside it, which is the one direction that is
@@ -697,13 +713,7 @@ export class EngineHost {
       blocked: status.blocked,
       failed: status.failed,
       reasons: status.reasons.map((row) => ({ reason: row.reason, count: row.count })),
-      capabilities: (await capabilities()).map((capability) => ({
-        name: capability.name,
-        available: capability.available,
-        version: capability.version,
-        detail: capability.detail,
-        install: capability.install,
-      })),
+      capabilities: await wireCapabilities(),
     };
   }
 
@@ -1142,6 +1152,23 @@ function reportOf(report: ImportReport, thumbnails: number): WireImportReport {
 }
 
 /** The survey, with everything unbounded reduced to a count (ADR-0032 §6). */
+/**
+ * What this machine can draw, for the window.
+ *
+ * One mapping, read by the derive status and by the install that may have just
+ * changed the answer — a second copy would be a second chance to forget a field.
+ */
+async function wireCapabilities(): Promise<WireDeriveStatus["capabilities"]> {
+  return (await capabilities()).map((capability) => ({
+    name: capability.name,
+    available: capability.available,
+    version: capability.version,
+    detail: capability.detail,
+    install: capability.install,
+    installable: capability.installable,
+  }));
+}
+
 function wireSurvey(survey: EagleSurvey): WireEagleSurvey {
   return {
     version: survey.version,

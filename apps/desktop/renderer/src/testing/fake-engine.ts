@@ -22,6 +22,7 @@ import type {
   WireFiled,
   WireFolderRef,
   WireImportReport,
+  WireInstallOutcome,
   WirePasted,
   WireProblem,
   WireRecentLibrary,
@@ -145,6 +146,8 @@ export interface FakeEngineOptions {
   readonly eagleSurvey?: Partial<WireEagleSurvey>;
   /** What `eagle:import` reports. */
   readonly eagleReport?: Partial<WireEagleReport>;
+  /** What `capability:install` answers with, for a test about the button. */
+  readonly installOutcome?: WireInstallOutcome;
   /** What `derive:status` and `derive:retry` answer with. */
   readonly deriveStatus?: WireDeriveStatus;
   /** What `derive:failures` answers with for `failed`, over an empty list. */
@@ -1011,6 +1014,19 @@ export class FakeEngine {
             failed: 0,
             reasons: [],
             capabilities: [],
+          },
+        );
+
+      case "capability:install":
+        // Nothing is installed and nothing is spawned: a fake that ran a
+        // package manager would be a check script, not a unit test. What is
+        // being asserted here is the button — that it asks, and that it draws
+        // what came back.
+        return ok(
+          this.#options.installOutcome ?? {
+            installed: false,
+            detail: "Found an existing package already installed.",
+            capabilities: this.#options.deriveStatus?.capabilities ?? [],
           },
         );
 

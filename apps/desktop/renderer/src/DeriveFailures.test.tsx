@@ -78,6 +78,18 @@ async function openParked(
   return user;
 }
 
+/** A missing ffmpeg, with the one field these two tests are about. */
+function parked(over: { readonly installable: boolean }): WireDeriveStatus["capabilities"][number] {
+  return {
+    name: "media",
+    available: false,
+    version: null,
+    detail: "install ffmpeg for video and audio previews",
+    install: "winget install --id Gyan.FFmpeg",
+    ...over,
+  };
+}
+
 describe("what could not be drawn", () => {
   it("opens the list rather than retrying blindly", async () => {
     const retried: (string | undefined)[] = [];
@@ -188,6 +200,7 @@ describe("what could not be drawn", () => {
             version: null,
             detail: "install libheif for HEIC photographs",
             install: "sudo dnf install libheif-tools libheif-freeworld",
+            installable: false,
           },
         ],
       },
@@ -203,6 +216,54 @@ describe("what could not be drawn", () => {
     // That reason and no other: releasing everything would also retry the
     // formats this build genuinely cannot draw.
     expect(retried).toEqual(["missing:libheif"]);
+  });
+
+  it("offers to run it where the engine says it may, and names the backend", async () => {
+    const engine = new FakeEngine({
+      deriveBlocked: {
+        total: 4,
+        groups: [{ reason: "missing:ffmpeg", count: 4, attempts: 1, samples: [] }],
+      },
+      installOutcome: {
+        installed: false,
+        detail: "Found an existing package already installed.",
+        capabilities: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(
+      <DeriveStatus
+        status={{ ...EMPTY, blocked: 4, capabilities: [parked({ installable: true })] }}
+        onRetry={() => undefined}
+      />,
+    );
+    await user.click(screen.getByRole("button"));
+
+    await user.click(await screen.findByRole("button", { name: "Install it" }));
+
+    // A closed vocabulary and nothing else: the window never says what to run
+    // (ADR-0042 §4).
+    expect(engine.seen).toContainEqual({ type: "capability:install", backend: "media" });
+    // Verbatim, and a refusal is the ordinary answer to a second click.
+    expect(await screen.findByText("Found an existing package already installed.")).toBeDefined();
+  });
+
+  it("withholds the button where the command begins with sudo", async () => {
+    const retried: (string | undefined)[] = [];
+    await openParked(
+      {
+        total: 4,
+        groups: [{ reason: "missing:ffmpeg", count: 4, attempts: 1, samples: [] }],
+      },
+      { blocked: 4, capabilities: [parked({ installable: false })] },
+      retried,
+    );
+
+    // The command is still printed, and copying it is still offered: that is
+    // the whole of the answer on Linux, and it is a real one (ADR-0042 §3).
+    expect(await screen.findByRole("button", { name: "Copy command" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Install it" })).toBeNull();
   });
 
   it("says when it grouped only part of a very broken library", async () => {

@@ -33,6 +33,7 @@ import type {
   WireFiled,
   WireFolderDeleted,
   WireImportReport,
+  WireInstallOutcome,
   WirePasted,
   WireRecentLibrary,
   WireReclaimable,
@@ -594,6 +595,17 @@ export type Request =
    */
   | { readonly type: "derive:retry"; readonly reason: string | null }
   /**
+   * Install a backend this machine is missing, from its own package manager
+   * (ADR-0042).
+   *
+   * `backend` is a closed vocabulary of two, and that is the whole of what the
+   * window may say: the command and its arguments are constants in
+   * `@roost/media`, so there is no field here in which a program could travel.
+   * Asked only where `WireCapability.installable` said a button could be drawn;
+   * the engine refuses on every other platform rather than trusting that.
+   */
+  | { readonly type: "capability:install"; readonly backend: InstallableBackend }
+  /**
    * What has no picture, and why (`UI_SPEC.md` §3.13).
    *
    * `state` picks which half: `failed` is work that went wrong and can be tried
@@ -745,6 +757,7 @@ export interface Responses {
   "derive:status": WireDeriveStatus;
   /** The status after the retry, so one round trip answers "and now?". */
   "derive:retry": WireDeriveStatus;
+  "capability:install": WireInstallOutcome;
   "derive:failures": WireDeriveFailures;
   /** `false` when there was nothing to copy. */
   "clipboard:copyText": boolean;
@@ -1229,6 +1242,13 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "derive:retry", reason: reason.value });
   },
 
+  "capability:install": (source) => {
+    // Validated against the two-element list rather than against a string that
+    // looks safe: this is the request that starts a process (ADR-0042 §4).
+    const backend = readOneOf(source, "backend", INSTALLABLE_BACKENDS);
+    return backend.ok ? ok({ type: "capability:install", backend: backend.value }) : backend;
+  },
+
   "derive:failures": (source) => {
     const state = readOneOf(source, "state", STALLED_STATES);
     return state.ok ? ok({ type: "derive:failures", state: state.value }) : state;
@@ -1374,6 +1394,18 @@ function readSort(value: unknown): Checked<WireSort | null> {
 
 /** The two halves of "no picture", as `derive:failures` accepts them. */
 const STALLED_STATES = ["failed", "blocked"] as const;
+
+/**
+ * The backends a window may ask to have installed.
+ *
+ * Two, and both of them optional at runtime (ADR-0017, ADR-0040). The three
+ * that ship with Roost are absent on purpose: there is nothing to install, and
+ * a vocabulary that named them would invite a request that means nothing.
+ */
+export const INSTALLABLE_BACKENDS = ["media", "heif"] as const;
+
+/** One of {@link INSTALLABLE_BACKENDS}. */
+export type InstallableBackend = (typeof INSTALLABLE_BACKENDS)[number];
 
 export const REQUEST_TYPES = Object.keys(REQUEST_VALIDATORS) as RequestType[];
 
