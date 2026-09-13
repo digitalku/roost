@@ -247,6 +247,19 @@ describe("validating a change of preferences", () => {
     });
   });
 
+  it("carries which panes are drawn (ADR-0028 §6)", () => {
+    expect(
+      checkRequest({ type: "settings:write", showSidebar: false, showInspector: true }),
+    ).toEqual({
+      ok: true,
+      value: { type: "settings:write", showSidebar: false, showInspector: true },
+    });
+    expect(checkRequest({ type: "settings:write", showSidebar: 0 })).toEqual({
+      ok: false,
+      reason: "settings:write: showSidebar: expected a boolean",
+    });
+  });
+
   it("still checks a key that is there", () => {
     // "Absent" and "not a boolean" are different answers, and only the first of
     // them is a request.

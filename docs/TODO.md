@@ -498,6 +498,24 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 - 🟢 The app icon. `roost-old` shipped a flat generated square and never replaced it.
 
+### Showing and hiding the side panes (ADR-0028 §6, asked for 2026-09-13)
+
+- 🟡 **With the sidebar hidden and a file open, the `☰` is on screen nowhere.** The preview
+  replaces the content head with its own bar (`UI_SPEC.md` §7), and the button lives in whichever
+  of the two heads is drawn — so while both are away the menu is reachable only by `Escape` or
+  **Close**, which give the grid and the button back, or by `F9`. Not a dead end, and not
+  addressed: putting the `☰` in the preview's bar would be a fourth place it can appear.
+
+- 🟢 **Neither pane can be resized.** `UI_SPEC.md` §1 has promised 220–420px and 280–480px with a
+  drag since M3; the widths are still the two fixed numbers in `app.css`. Hiding one is the whole
+  of what the user can do about width today, which is the coarsest possible version of this.
+
+- 🟢 **`settings.json` is safe against one window, not two.** `writeSettings` now chains its
+  read-modify-writes per library (ADR-0028 §6.5), which removes the race a single window could lose
+  with two keystrokes. Two windows onto one library are two engine processes and two chains: the
+  last writer still wins the whole file. Nobody has seen it, and it wants a lock or a merge rather
+  than a bigger queue.
+
 ### Settings, windows, and the picker (ADR-0019 and ADR-0020, decided 2026-08-30)
 
 - ☑ ~~**The recent-libraries list, and with it the first application state file.**~~ Done

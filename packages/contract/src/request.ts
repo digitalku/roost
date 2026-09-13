@@ -207,6 +207,8 @@ export type Request =
       readonly gridView?: string;
       readonly matchImageProportions?: boolean;
       readonly gridZoom?: number;
+      readonly showSidebar?: boolean;
+      readonly showInspector?: boolean;
     }
   /**
    * Everything the inspector shows about one asset.
@@ -900,6 +902,8 @@ export const REQUEST_VALIDATORS: {
       gridView?: string;
       matchImageProportions?: boolean;
       gridZoom?: number;
+      showSidebar?: boolean;
+      showInspector?: boolean;
     } = {};
 
     for (const key of [
@@ -908,6 +912,8 @@ export const REQUEST_VALIDATORS: {
       "mediaMuted",
       "sortDescending",
       "matchImageProportions",
+      "showSidebar",
+      "showInspector",
     ] as const) {
       if (source[key] === undefined) continue;
       const on = readBoolean(source, key);

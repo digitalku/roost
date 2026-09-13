@@ -365,6 +365,8 @@ export class FakeEngine {
       gridView: "icons",
       matchImageProportions: true,
       gridZoom: 240,
+      showSidebar: true,
+      showInspector: true,
     };
     this.#nextFolderId = Math.max(0, ...this.folders.map((row) => row.folder)) + 1;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);

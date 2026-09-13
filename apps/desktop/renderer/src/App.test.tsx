@@ -1,4 +1,4 @@
-import type { SidebarFolderRow } from "@roost/contract";
+import type { SidebarFolderRow, WireSettings } from "@roost/contract";
 import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -642,6 +642,8 @@ describe("the library view", () => {
         gridView: "details",
         matchImageProportions: false,
         gridZoom: 400,
+        showSidebar: true,
+        showInspector: true,
       },
     });
     install(engine);
@@ -679,6 +681,8 @@ describe("the library view", () => {
         gridView: "gallery",
         matchImageProportions: true,
         gridZoom: 240,
+        showSidebar: true,
+        showInspector: true,
       },
     });
     install(engine);
@@ -1775,6 +1779,8 @@ describe("the volume a library remembers", () => {
         gridView: "icons",
         matchImageProportions: true,
         gridZoom: 240,
+        showSidebar: true,
+        showInspector: true,
       },
     });
     install(engine);
@@ -1960,5 +1966,123 @@ describe("the recent list on the picker", () => {
 
     await user.click(await screen.findByRole("button", { name: "Forget Holiday Photos" }));
     await waitFor(() => expect(screen.queryByText("Recent")).toBeNull());
+  });
+});
+
+describe("showing and hiding the side panes", () => {
+  const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+  const open = async (settings?: Partial<WireSettings>) => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 3 },
+      assets: Array.from({ length: 3 }, (_, i) => fakeAsset(i)),
+      ...(settings === undefined
+        ? {}
+        : {
+            settings: {
+              showSubfolderContents: false,
+              fitVideoToWindow: false,
+              mediaVolume: 100,
+              mediaMuted: false,
+              sortKey: "added",
+              sortDescending: true,
+              shuffleSeed: 0,
+              gridView: "icons",
+              matchImageProportions: true,
+              gridZoom: 240,
+              showSidebar: true,
+              showInspector: true,
+              ...settings,
+            },
+          }),
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("button", { name: "Menu" });
+    // The grid's first page lands after the preferences do (ADR-0039 §6), so a
+    // test that clicks a cell has to wait for one.
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(3));
+    return { engine, user };
+  };
+
+  const toggle = async (user: ReturnType<typeof userEvent.setup>, name: RegExp) => {
+    await user.click(await screen.findByRole("button", { name: "Menu" }));
+    await user.click(await screen.findByRole("menuitemcheckbox", { name }));
+  };
+
+  it("takes the sidebar away and keeps the menu that brings it back", async () => {
+    // The reason this pair needed any thought at all: the `☰` is drawn at the
+    // head of the sidebar, so a toggle that only hid the column would hide
+    // itself (ADR-0028 §6). It moves to the content head instead.
+    const { engine, user } = await open();
+    expect(screen.getByRole("navigation", { name: "Library" })).toBeDefined();
+
+    await toggle(user, /Show sidebar/);
+
+    await waitFor(() => expect(screen.queryByRole("navigation", { name: "Library" })).toBeNull());
+    // Still exactly one, and still reachable: the way back is not a shortcut
+    // somebody has to know.
+    expect(screen.getAllByRole("button", { name: "Menu" })).toHaveLength(1);
+    await waitFor(() => expect(engine.settings.showSidebar).toBe(false));
+
+    await toggle(user, /Show sidebar/);
+    expect(await screen.findByRole("navigation", { name: "Library" })).toBeDefined();
+    await waitFor(() => expect(engine.settings.showSidebar).toBe(true));
+  });
+
+  it("takes the inspector away and stops it asking about the selection", async () => {
+    const { engine, user } = await open();
+    expect(screen.getByRole("complementary", { name: "Inspector" })).toBeDefined();
+
+    await toggle(user, /Show inspector/);
+
+    await waitFor(() =>
+      expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull(),
+    );
+    await waitFor(() => expect(engine.settings.showInspector).toBe(false));
+
+    // Unmounted rather than hidden, so a click in the grid costs no request:
+    // a panel nobody can see has no business asking the engine about it. The
+    // count while it was open is what makes the second half mean anything.
+    const details = () => engine.seen.filter((request) => request.type === "asset:detail").length;
+    const before = details();
+    await user.click(screen.getAllByRole("option")[1] as HTMLElement);
+    await new Promise((settle) => setTimeout(settle, 20));
+    expect(details()).toBe(before);
+  });
+
+  it("asks for a detail while the inspector is open, which is what the last test denies", async () => {
+    // The control for it. Without this the assertion above would pass just as
+    // well on a window that never asked for a detail at all.
+    const { engine, user } = await open();
+    await user.click(screen.getAllByRole("option")[1] as HTMLElement);
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "asset:detail")).toBe(true),
+    );
+  });
+
+  it("opens with the panes the library was left with", async () => {
+    // The same rule as the view and the order (ADR-0019): a window that asked
+    // again on every open is one that forgot.
+    await open({ showSidebar: false, showInspector: false });
+    expect(screen.queryByRole("navigation", { name: "Library" })).toBeNull();
+    expect(screen.queryByRole("complementary", { name: "Inspector" })).toBeNull();
+    expect(await screen.findByRole("button", { name: "Menu" })).toBeDefined();
+  });
+
+  it("answers F9 and F4 with the menu shut", async () => {
+    // The accelerators the menu draws are bound on the window, not by it
+    // (`UI_SPEC.md` §9) — a label beside an item is not a binding.
+    const { engine } = await open();
+    fireEvent.keyDown(window, { key: "F9" });
+    await waitFor(() => expect(engine.settings.showSidebar).toBe(false));
+    fireEvent.keyDown(window, { key: "F4" });
+    await waitFor(() => expect(engine.settings.showInspector).toBe(false));
+    fireEvent.keyDown(window, { key: "F9" });
+    await waitFor(() => expect(engine.settings.showSidebar).toBe(true));
   });
 });

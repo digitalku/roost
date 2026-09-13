@@ -58,11 +58,11 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 
 | Region | Width | Collapsible | Notes |
 | --- | --- | --- | --- |
-| Sidebar head | with the sidebar | with it | Fixed height. The `☰` (ADR-0028) and the library's name. |
+| Sidebar head | with the sidebar | with it | Fixed height. The `☰` (ADR-0028) and the library's name. **The `☰` moves to the content head while the sidebar is hidden**, because it is the control that brings the sidebar back and a menu that hides itself has no way back (ADR-0028 §6). The name does not move with it: it belongs to the column that is gone, and the title bar carries it. |
 | Content head | with the content | no | Fixed height. Search is the widest thing in it, then the view control and **Add**. |
-| Sidebar | 220–420px, drag to resize | yes, `F9` | Remembers width and collapsed state per library. |
+| Sidebar | 220–420px, drag to resize | yes, `F9` or **Show sidebar** in the `☰` | Collapsed state is remembered per library, in `settings.json` (ADR-0019); the width is not yet draggable and so remembers nothing. Hidden means **not drawn**, not narrowed — the grid takes the room. |
 | Content | fills | no | Hosts exactly one of: icons, compact, details, preview. |
-| Inspector | 280–480px, drag to resize | yes, `F4` | **Always drawn.** An empty selection gets the empty state from §8, never a shell of disabled controls. Reserves a scrollbar gutter, as the grid does: how tall its content is depends on the asset, so without one the panel's fields shift sideways as the selection moves. |
+| Inspector | 280–480px, drag to resize | yes, `F4` or **Show inspector** in the `☰` | **Always drawn while it is shown**, and unmounted when it is not — it asks the engine for a detail or a summary on every change of selection, and a panel nobody can see should ask for nothing. An empty selection gets the empty state from §8, never a shell of disabled controls. Reserves a scrollbar gutter, as the grid does: how tall its content is depends on the asset, so without one the panel's fields shift sideways as the selection moves. |
 | Status bar | full | no | Counts on the left, background jobs on the right. |
 
 **There is no toolbar across the window: the three columns run from the top down.** The head of
@@ -88,8 +88,12 @@ changed it for these reasons.
 **There is no menu bar** (ADR-0028). Electron installs one by default — File · Edit · View ·
 Window — and it carried a Reload that throws away the query and the selection, a devtools toggle,
 and a Paste meaning something other than Roost's (§3.3). It is removed on Linux and Windows, and
-the commands that belong to the application live in the toolbar's `☰` instead: **Reclaim space…**,
-**Close library**, **About Roost…** and **Quit**, and nothing that already has a home. Reclaiming is there because it
+the commands that belong to the application live in the toolbar's `☰` instead: **Show sidebar**,
+**Show inspector**, **Reclaim space…**,
+**Close library**, **About Roost…** and **Quit**, and nothing that already has a home. The two
+checkboxes are first, and they are the only items in here used more than once: they say **what the
+window is made of**, which is why they are not in the view control — that menu says how the
+*results* are drawn, and every other item in it changes a cell (ADR-0028 §6). Reclaiming is there because it
 acts on the whole library rather than on anything selected (ADR-0031); it is not in the Trash
 place, because a permanent delete takes its own bytes with it and the trash is therefore not where
 an orphaned object comes from. It shows three different things: nothing to reclaim, a refusal with
@@ -1861,7 +1865,7 @@ becomes a preference in M6.
 | `Ctrl+F` / `/` | Focus search |
 | `Escape` | Clear search focus · close preview · close menu · clear selection, in that order |
 | `Ctrl+1` / `Ctrl+2` / `Ctrl+3` | Icons · Compact · Details (ADR-0018) |
-| `F9` / `F4` | Toggle sidebar · inspector |
+| `F9` / `F4` | Show or hide the sidebar · the inspector. Also **Show sidebar** and **Show inspector** in the `☰`, which is where the state is visible; the library remembers both (ADR-0028 §6). No typing guard — a function key is never a character, so hiding a pane works with a hand still in the search field |
 | `Ctrl+N` | New window onto the same library (ADR-0020) |
 | `Ctrl+O` | Open library |
 | `Ctrl+Q` | Quit. Bound in the shell rather than by a menu, which the window does not have (ADR-0028) |

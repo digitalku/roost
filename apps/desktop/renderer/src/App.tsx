@@ -78,6 +78,8 @@ const DEFAULT_SETTINGS: WireSettings = {
   gridView: "icons",
   matchImageProportions: true,
   gridZoom: DEFAULT_ZOOM,
+  showSidebar: true,
+  showInspector: true,
 };
 
 /**
@@ -991,12 +993,14 @@ function LibraryView({
   }, []);
 
   /**
-   * The view menu changed something, and the library remembers it (ADR-0039 §7).
+   * A preference the window draws itself changed, and the library remembers it
+   * (ADR-0039 §7, ADR-0028 §6).
    *
    * Held locally first for the same reason every other preference is: the
    * engine's answer is a round trip away, and a grid that waited for it would
-   * redraw twice. One writer for all four, because they are one menu and the
-   * difference between them is only which key it names.
+   * redraw twice. One writer for the view menu's four and the `☰`'s two,
+   * because the difference between them is only which key is named — none of
+   * them asks the library a new question, so none needs anything re-read.
    */
   const applyView = useCallback((patch: Partial<WireSettings>) => {
     setSettings((held) => ({ ...held, ...patch }));
@@ -1005,6 +1009,33 @@ function LibraryView({
       if (written.ok) setSettings(written.value);
     })();
   }, []);
+
+  /**
+   * `F9` and `F4` show and hide the two side panes (`UI_SPEC.md` §9).
+   *
+   * Named in the keyboard map since M3 and bound here rather than by the menu
+   * that offers them: the keys have to work while the menu is shut, and an
+   * accelerator drawn beside an item is a label, not a binding.
+   *
+   * **No typing guard**, unlike `Ctrl+1..3`. A function key is never a
+   * character, so there is no keystroke to take away from a field — and hiding
+   * a pane to see more of the grid is exactly the sort of thing somebody does
+   * with a hand still in the search field.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "F9" && event.key !== "F4") return;
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      event.preventDefault();
+      applyView(
+        event.key === "F9"
+          ? { showSidebar: !settings.showSidebar }
+          : { showInspector: !settings.showInspector },
+      );
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [applyView, settings.showSidebar, settings.showInspector]);
 
   /**
    * **Shuffle again** — the only thing that changes what `random` shows.
@@ -1607,6 +1638,29 @@ function LibraryView({
     [paging.assets, focused, selection],
   );
 
+  /*
+   * One menu, drawn in whichever head is on screen (ADR-0028 §6).
+   *
+   * An element rather than a component, because it is the *same* menu in two
+   * places and not two of them: an instance per head would be two open states
+   * to keep apart and, being a different element, would close and reopen when
+   * the sidebar it sits in goes away.
+   */
+  const appMenu = (
+    <AppMenu
+      sidebar={settings.showSidebar}
+      inspector={settings.showInspector}
+      onSidebar={(on) => applyView({ showSidebar: on })}
+      onInspector={(on) => applyView({ showInspector: on })}
+      onCloseLibrary={onClose}
+      onReclaim={reclaim}
+      onAbout={() => setAbout(true)}
+      onQuit={() => {
+        void invoke({ type: "app:quit" });
+      }}
+    />
+  );
+
   return (
     <div className="app app-library">
       <div className="workspace">
@@ -1616,38 +1670,38 @@ function LibraryView({
           (`UI_SPEC.md` §1). The library's name belongs to the library, which is
           what this column is; the search field belongs to the grid, which is
           what the middle column is.
+
+          Both side panes come and go from the `☰` and from `F9` / `F4`
+          (ADR-0028 §6). The column is not merely narrowed: a collapsed pane is
+          not drawn at all, which is what lets the flex row above size itself
+          from what is present rather than from a template naming three.
         */}
-        <div className="pane-sidebar">
-          <header className="bar bar-sidebar">
-            <AppMenu
-              onCloseLibrary={onClose}
-              onReclaim={reclaim}
-              onAbout={() => setAbout(true)}
-              onQuit={() => {
-                void invoke({ type: "app:quit" });
-              }}
-            />
-            <h1 className="bar-title">{opened.summary.name}</h1>
-          </header>
-          {/* Clicking a row replaces where the query looks and leaves the bar's
-              three filters standing (ADR-0035 §6), and the search field shows
-              the result — one source of truth for what is on screen, and it is
-              a string the user can read and edit. */}
-          {sidebar !== undefined && (
-            <Sidebar
-              sidebar={sidebar}
-              query={query}
-              onPick={pickQuery}
-              expansion={expansion}
-              onNewFolder={newFolder}
-              onRenameFolder={renameFolder}
-              onDeleteFolder={deleteFolder}
-              onDropAssets={dropOnFolder}
-              onMoveFolder={moveFolder}
-              onEmptyTrash={trashing.emptyTrash}
-            />
-          )}
-        </div>
+        {settings.showSidebar && (
+          <div className="pane-sidebar">
+            <header className="bar bar-sidebar">
+              {appMenu}
+              <h1 className="bar-title">{opened.summary.name}</h1>
+            </header>
+            {/* Clicking a row replaces where the query looks and leaves the
+                bar's three filters standing (ADR-0035 §6), and the search field
+                shows the result — one source of truth for what is on screen,
+                and it is a string the user can read and edit. */}
+            {sidebar !== undefined && (
+              <Sidebar
+                sidebar={sidebar}
+                query={query}
+                onPick={pickQuery}
+                expansion={expansion}
+                onNewFolder={newFolder}
+                onRenameFolder={renameFolder}
+                onDeleteFolder={deleteFolder}
+                onDropAssets={dropOnFolder}
+                onMoveFolder={moveFolder}
+                onEmptyTrash={trashing.emptyTrash}
+              />
+            )}
+          </div>
+        )}
 
         <div className="pane-content">
           {/*
@@ -1660,6 +1714,13 @@ function LibraryView({
           {!showingPreview && (
             <>
               <header className="bar">
+                {/* The `☰` moves here while the sidebar is away, because it is
+                    drawn at the head of the sidebar and hiding that column
+                    would otherwise hide the only way to bring it back
+                    (ADR-0028 §6). The library's name does not come with it: it
+                    belongs to the column that is gone, and the window's title
+                    bar already carries it. */}
+                {!settings.showSidebar && appMenu}
                 {/* The field is edited directly and the bar is derived from it, so
                   typing goes to `applyQuery` and every row and chip goes through
                   `pickQuery`, which keeps the filters standing (ADR-0035 §6). */}
@@ -1782,15 +1843,21 @@ function LibraryView({
         {/* The sidebar's rows are the two vocabularies the panel edits with —
             the window already holds every tag with its count and every folder
             with its id, so neither the suggestion nor the folder menu costs a
-            request. */}
-        <Inspector
-          hashes={selected}
-          generation={revision}
-          vocabulary={sidebar?.tags ?? NO_TAGS}
-          folders={sidebar?.folders ?? NO_FOLDERS}
-          onRenamed={paging.rename}
-          onPick={pickQuery}
-        />
+            request.
+
+            Unmounted rather than hidden when it is off: it fetches a detail or
+            a summary for whatever is selected, and a panel nobody can see has
+            no business asking the engine about every click in the grid. */}
+        {settings.showInspector && (
+          <Inspector
+            hashes={selected}
+            generation={revision}
+            vocabulary={sidebar?.tags ?? NO_TAGS}
+            folders={sidebar?.folders ?? NO_FOLDERS}
+            onRenamed={paging.rename}
+            onPick={pickQuery}
+          />
+        )}
       </div>
 
       {/* Mounted only while it is open, so the contents a paste handed it are

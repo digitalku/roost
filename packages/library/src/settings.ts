@@ -106,6 +106,17 @@ export interface Settings {
   readonly gridView: string;
   readonly matchImageProportions: boolean;
   readonly gridZoom: number;
+  /**
+   * Whether the sidebar and the inspector are drawn (ADR-0028 §6).
+   *
+   * Here rather than in the window for the reason the view is: a library is a
+   * kind of thing, and the arrangement that suits a folder of scans is not the
+   * one that suits the library everything lands in. Both default to on, so a
+   * library nobody has hidden a pane in opens as every build before this drew
+   * it.
+   */
+  readonly showSidebar: boolean;
+  readonly showInspector: boolean;
 }
 
 /**
@@ -133,6 +144,8 @@ export const DEFAULT_SETTINGS: Settings = {
   gridView: "icons",
   matchImageProportions: true,
   gridZoom: 160,
+  showSidebar: true,
+  showInspector: true,
 };
 
 /**
@@ -164,8 +177,27 @@ export async function readSettings(root: string): Promise<Settings> {
       DEFAULT_SETTINGS.matchImageProportions,
     ),
     gridZoom: numberish(raw["gridZoom"], DEFAULT_SETTINGS.gridZoom, ZOOM_RANGE),
+    showSidebar: boolish(raw["showSidebar"], DEFAULT_SETTINGS.showSidebar),
+    showInspector: boolish(raw["showInspector"], DEFAULT_SETTINGS.showInspector),
   };
 }
+
+/**
+ * The write in flight for each library, so the next one waits for it.
+ *
+ * A write is read-modify-write — it has to be, because ADR-0019 keeps the keys
+ * this build does not know — and two of them started together lose one: the
+ * second reads the file before the first has written it, and then writes that
+ * older object back over it. **The state in memory stays right, so nothing on
+ * screen says anything is wrong** and the setting comes back missing at the
+ * next open. Found on 2026-09-13 by `check-panes.mjs`, pressing `F9` and `F4`
+ * one after the other.
+ *
+ * Per library rather than one queue, and per process: a second window is a
+ * second engine, and nothing here pretends to make the file safe between two
+ * of them. What it removes is the race one window can lose on its own.
+ */
+const writing = new Map<string, Promise<boolean>>();
 
 /**
  * Writes `patch` over what is on disk, keeping every key this build does not
@@ -176,6 +208,18 @@ export async function readSettings(root: string): Promise<Settings> {
  * correct outcome for a library nobody can write to.
  */
 export async function writeSettings(root: string, patch: Partial<Settings>): Promise<boolean> {
+  // `write` never rejects, so the chain needs no catch to stay unbroken.
+  const mine = (writing.get(root) ?? Promise.resolve(true)).then(() => write(root, patch));
+  writing.set(root, mine);
+  const reached = await mine;
+  // Only the last one clears it, or a write still queued behind this one would
+  // be forgotten and start a second chain.
+  if (writing.get(root) === mine) writing.delete(root);
+  return reached;
+}
+
+/** One read-modify-write. Never throws. */
+async function write(root: string, patch: Partial<Settings>): Promise<boolean> {
   const raw = await readRaw(root);
   const next = { ...raw, ...patch };
   try {

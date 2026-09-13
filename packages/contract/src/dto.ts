@@ -514,6 +514,16 @@ export interface WireSettings {
    */
   readonly mediaVolume: number;
   readonly mediaMuted: boolean;
+  /**
+   * Whether the sidebar and the inspector are on screen (ADR-0028 §6).
+   *
+   * A pane that is hidden is hidden for this library rather than for the build:
+   * a folder of scans is looked through in a grid with nothing either side of
+   * it, and the library of everything wants its tree. Both start on, which is
+   * the window every earlier build drew.
+   */
+  readonly showSidebar: boolean;
+  readonly showInspector: boolean;
 }
 
 /** A query read as somewhere to look plus what the bar narrowed it to. */

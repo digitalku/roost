@@ -43,6 +43,15 @@ describe("reading settings", () => {
     expect(DEFAULT_SETTINGS.fitVideoToWindow).toBe(false);
   });
 
+  it("draws both side panes, which is the window every earlier build had", async () => {
+    // ADR-0028 §7. A library nobody has hidden a pane in opens as it always
+    // did, and a hand-written `false` is honoured per key like every other.
+    expect(DEFAULT_SETTINGS.showSidebar).toBe(true);
+    expect(DEFAULT_SETTINGS.showInspector).toBe(true);
+    await write('{ "showInspector": false }');
+    expect(await readSettings(dir)).toEqual({ ...DEFAULT_SETTINGS, showInspector: false });
+  });
+
   it("starts in the order the application had before it had a menu", async () => {
     // ADR-0039: `added` descending is what every library shows until somebody
     // asks for something else, and a new library must not open shuffled.
@@ -126,6 +135,24 @@ describe("writing settings", () => {
   it("writes what was asked and reads it back", async () => {
     expect(await writeSettings(dir, { showSubfolderContents: true })).toBe(true);
     expect(await readSettings(dir)).toEqual({ ...DEFAULT_SETTINGS, showSubfolderContents: true });
+  });
+
+  it("keeps both when two writes are started together", async () => {
+    // The regression `check-panes.mjs` found on 2026-09-13: `F9` then `F4` is
+    // two patches in flight at once, and a read-modify-write each meant the
+    // second read the file before the first had written it and put the older
+    // object back. Nothing on screen said so — the engine's own copy was right
+    // — and the setting came back missing at the next open.
+    const [first, second] = await Promise.all([
+      writeSettings(dir, { showSidebar: false }),
+      writeSettings(dir, { showInspector: false }),
+    ]);
+    expect([first, second]).toEqual([true, true]);
+    expect(await readSettings(dir)).toEqual({
+      ...DEFAULT_SETTINGS,
+      showSidebar: false,
+      showInspector: false,
+    });
   });
 
   it("writes one setting without disturbing the other", async () => {

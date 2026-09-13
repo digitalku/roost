@@ -213,7 +213,8 @@ export class EngineHost {
         }
         // Everything else here is a preference about how the window draws what
         // it already has — the video's fit (ADR-0024 §8), the volume, the
-        // order, the view, the zoom — so none of them is announced: no query answers
+        // order, the view, the zoom, which panes are drawn (ADR-0028 §6) — so
+        // none of them is announced: no query answers
         // differently, and the window that sent it is already drawing the new
         // state. The keys are applied in one write rather than one each,
         // because a menu can change two at once (choosing `random` rolls a
@@ -232,6 +233,8 @@ export class EngineHost {
             matchImageProportions: request.matchImageProportions,
           }),
           ...(request.gridZoom !== undefined && { gridZoom: request.gridZoom }),
+          ...(request.showSidebar !== undefined && { showSidebar: request.showSidebar }),
+          ...(request.showInspector !== undefined && { showInspector: request.showInspector }),
         };
         if (Object.keys(quiet).length > 0) await library.updateSettings(quiet);
         return library.settings;

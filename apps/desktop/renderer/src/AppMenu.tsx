@@ -15,6 +15,23 @@ import { DropdownMenu } from "radix-ui";
  * in two places and to trust neither.
  */
 export interface AppMenuProps {
+  /**
+   * Whether each side pane is on screen, and the two toggles for them
+   * (ADR-0028 §6, `UI_SPEC.md` §1).
+   *
+   * They are in here rather than in the view menu because they are about the
+   * **window**, not about the grid: ADR-0018's menu says how the results are
+   * drawn, and every other item in it changes a cell. Asked for on 2026-09-13.
+   *
+   * The sidebar's own toggle is the reason this menu is reachable from two
+   * places: the `☰` is drawn at the head of the sidebar, so hiding the sidebar
+   * would hide the only way back. `App` moves it to the content head while the
+   * sidebar is away.
+   */
+  readonly sidebar: boolean;
+  readonly inspector: boolean;
+  readonly onSidebar: (on: boolean) => void;
+  readonly onInspector: (on: boolean) => void;
   readonly onCloseLibrary: () => void;
   /**
    * Delete the objects nothing references (ADR-0031).
@@ -37,6 +54,10 @@ export interface AppMenuProps {
 }
 
 export function AppMenu({
+  sidebar,
+  inspector,
+  onSidebar,
+  onInspector,
   onCloseLibrary,
   onReclaim,
   onAbout,
@@ -59,6 +80,34 @@ export function AppMenu({
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="menu" sideOffset={4} align="start" collisionPadding={8}>
+          {/*
+            First, and the only pair in here that is used more than once: the
+            accelerators are the ones `UI_SPEC.md` §9 has named since M3 and
+            they are bound on the window, not by this menu — a menu item is not
+            a keybinding, and the keys have to work while the menu is shut.
+          */}
+          <DropdownMenu.CheckboxItem
+            className="menu-item"
+            checked={sidebar}
+            onCheckedChange={onSidebar}
+          >
+            <span className="menu-mark">{sidebar ? "✓" : ""}</span>
+            <span className="menu-label">Show sidebar</span>
+            <span className="menu-accelerator">F9</span>
+          </DropdownMenu.CheckboxItem>
+
+          <DropdownMenu.CheckboxItem
+            className="menu-item"
+            checked={inspector}
+            onCheckedChange={onInspector}
+          >
+            <span className="menu-mark">{inspector ? "✓" : ""}</span>
+            <span className="menu-label">Show inspector</span>
+            <span className="menu-accelerator">F4</span>
+          </DropdownMenu.CheckboxItem>
+
+          <DropdownMenu.Separator className="menu-separator" />
+
           <DropdownMenu.Item className="menu-item" onSelect={onReclaim}>
             <span className="menu-mark" />
             <span className="menu-label">Reclaim space…</span>
