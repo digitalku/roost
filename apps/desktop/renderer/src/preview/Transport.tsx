@@ -444,20 +444,6 @@ export function Transport({
           </button>
         )}
 
-        {/* Either side of play, which is where every player people already use
-            puts them. The frame steps stay outside: the finer gesture is the
-            one somebody goes looking for, and the coarse one is the one they
-            reach for without looking. */}
-        <button
-          type="button"
-          className="transport-button"
-          aria-label={`Back ${SKIP_SECONDS} seconds`}
-          title={`Back ${SKIP_SECONDS} seconds`}
-          onClick={() => seek(at - SKIP_MS)}
-        >
-          <Skip back />
-        </button>
-
         <button
           type="button"
           className="transport-button"
@@ -466,16 +452,6 @@ export function Transport({
           onClick={play}
         >
           <Icon of={status.paused ? "play" : "pause"} />
-        </button>
-
-        <button
-          type="button"
-          className="transport-button"
-          aria-label={`Forward ${SKIP_SECONDS} seconds`}
-          title={`Forward ${SKIP_SECONDS} seconds`}
-          onClick={() => seek(at + SKIP_MS)}
-        >
-          <Skip back={false} />
         </button>
 
         {fps !== null && (
@@ -489,6 +465,29 @@ export function Transport({
             <Icon of="stepOn" />
           </button>
         )}
+
+        {/* The two together rather than either side of play (at the user's
+            word, 2026-09-13): they are one gesture with two directions, and a
+            pair reads as one control where a split reads as two. */}
+        <button
+          type="button"
+          className="transport-button"
+          aria-label={`Back ${SKIP_SECONDS} seconds`}
+          title={`Back ${SKIP_SECONDS} seconds`}
+          onClick={() => seek(at - SKIP_MS)}
+        >
+          <Skip back />
+        </button>
+
+        <button
+          type="button"
+          className="transport-button"
+          aria-label={`Forward ${SKIP_SECONDS} seconds`}
+          title={`Forward ${SKIP_SECONDS} seconds`}
+          onClick={() => seek(at + SKIP_MS)}
+        >
+          <Skip back={false} />
+        </button>
 
         <span className="transport-time">
           {clock(at)}
