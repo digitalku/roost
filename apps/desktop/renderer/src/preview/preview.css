@@ -288,6 +288,21 @@
   display: none;
 }
 
+/* What the window could not play, and why. Beside the picture rather than over
+   it: a message on top of a black rectangle reads as part of the video, and
+   this one is about the video. */
+.preview-media-problem {
+  flex: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+  text-wrap: balance;
+}
+
 .preview-player .preview-media {
   min-height: 0;
 }

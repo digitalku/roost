@@ -447,7 +447,38 @@ function Player({
   readonly onFit: (on: boolean) => void;
 }): React.JSX.Element {
   const [element, setElement] = useState<HTMLVideoElement | HTMLAudioElement | null>(null);
+  const [problem, setProblem] = useState<string | undefined>();
   const stage = useRef<HTMLDivElement>(null);
+
+  /*
+   * A new asset is a new question. Without this, the answer to the last one
+   * would still be on screen over a clip that plays.
+   *
+   * `src` is a trigger rather than something the body reads, which is exactly
+   * what the rule below counts as an extra dependency.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
+  useEffect(() => setProblem(undefined), [src]);
+
+  /**
+   * What the element says when it cannot play what it was given.
+   *
+   * A picture that fails falls back to its thumbnail; a video has nothing to
+   * fall back to, and until this existed it left an empty rectangle with a
+   * transport bar under it and no word anywhere about why (reported 2026-09-13).
+   *
+   * **The thumbnail arriving is not evidence that this will play.** The
+   * thumbnail is drawn by the system's ffmpeg (ADR-0017) and this is decoded by
+   * Chromium, which ships a narrower list of codecs — so the two disagree, and
+   * the disagreement looks like a bug in the pane.
+   */
+  const failed = (event: React.SyntheticEvent<HTMLMediaElement>): void => {
+    const code = event.currentTarget.error?.code;
+    // `MEDIA_ERR_ABORTED` is what a load being replaced looks like, and the
+    // pane replaces one every time the selection moves.
+    if (code === undefined || code === 1) return;
+    setProblem(mediaProblem(code, detail));
+  };
 
   /**
    * The volume the library remembers, put on before anything can be heard
@@ -558,7 +589,14 @@ function Player({
           // The tracks below are the captions, and there are as many as the
           // asset has — often none, and never a literal the rule can see.
           // biome-ignore lint/a11y/useMediaCaption: see above
-          <audio ref={attach} className="preview-audio" src={src} crossOrigin="anonymous" autoPlay>
+          <audio
+            ref={attach}
+            className="preview-audio"
+            src={src}
+            crossOrigin="anonymous"
+            autoPlay
+            onError={failed}
+          >
             {tracks.map((track) => (
               <Caption key={track.hash} track={track} />
             ))}
@@ -576,6 +614,7 @@ function Player({
                every `roost://` response carries `access-control-allow-origin`. */
             crossOrigin="anonymous"
             autoPlay
+            onError={failed}
           >
             {tracks.map((track) => (
               <Caption key={track.hash} track={track} />
@@ -583,6 +622,9 @@ function Player({
           </video>
         )}
       </div>
+      {/* Outside the picture, because audio hides that box entirely and an
+          unplayable sound file has the same nothing to say about itself. */}
+      {problem !== undefined && <p className="preview-media-problem">{problem}</p>}
       <Transport
         media={element}
         stage={stage}
@@ -595,6 +637,32 @@ function Player({
       {fitControl}
     </div>
   );
+}
+
+/**
+ * A media element's failure, said in the interface's voice.
+ *
+ * The codes are `MediaError`'s and they are genuinely different questions: 2 is
+ * about the bytes and points at `roost://`, 3 and 4 are about the decoder and
+ * point at the file. Naming the codec is what makes the common one actionable —
+ * *"this window cannot play hevc"* is something a person can act on, and "the
+ * video could not be played" is not.
+ */
+function mediaProblem(code: number, detail: WireAssetDetail): string {
+  const codec = detail.props["video.codec"] ?? detail.props["audio.codec"];
+  const named = codec === undefined ? "this file" : `${codec} files`;
+  switch (code) {
+    case 2:
+      // Not the decoder: the bytes never arrived. A library on a drive that has
+      // gone away reaches here, and so would a bug in the protocol handler.
+      return "The file could not be read from the library.";
+    case 3:
+      return `The picture stops partway through — ${named} decoded this far and no further.`;
+    default:
+      // 4, `MEDIA_ERR_SRC_NOT_SUPPORTED`, and the common one: the thumbnail was
+      // drawn by the system's ffmpeg and this window has a narrower list.
+      return `This window cannot play ${named}. The thumbnail was made by ffmpeg, which decodes more than the window does.`;
+  }
 }
 
 /**

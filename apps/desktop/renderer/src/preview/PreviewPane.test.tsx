@@ -46,6 +46,18 @@ describe("the preview pane", () => {
     steps = [];
   });
 
+  /**
+   * A media element failing, the way one does.
+   *
+   * `error` is read-only and jsdom never sets it, so the code is defined onto
+   * the element before the event is dispatched — which is the whole of what the
+   * handler reads.
+   */
+  const fail = (media: HTMLMediaElement, code: number): void => {
+    Object.defineProperty(media, "error", { configurable: true, value: { code } });
+    media.dispatchEvent(new Event("error"));
+  };
+
   it("asks for a rendition where a browser cannot read the file itself", async () => {
     // HEIC, RAW and TIFF all import and none of them can go into an `<img>`
     // (ADR-0040 §7). Before this they opened as an empty pane: a thumbnail in
@@ -132,6 +144,39 @@ describe("the preview pane", () => {
     );
     const sent = engine.seen.find((request) => request.type === "asset:addSubtitle");
     expect(sent).toMatchObject({ hash: HASH, paths: ["/home/you/holiday.srt"] });
+  });
+
+  it("says why a video is blank, and names the codec so it can be acted on", async () => {
+    // Reported 2026-09-13: the thumbnail arrived and the pane was empty. A
+    // picture that fails falls back to its thumbnail; a video has nothing to
+    // fall back to, and said nothing at all.
+    show("video", "mp4", { props: { "video.codec": "hevc" } });
+    const video = await waitFor(() => {
+      const found = document.querySelector("video");
+      if (found === null) throw new Error("no video yet");
+      return found;
+    });
+
+    // `MEDIA_ERR_SRC_NOT_SUPPORTED`, which is what a codec this window has no
+    // decoder for looks like from here.
+    fail(video, 4);
+
+    expect(await screen.findByText(/cannot play hevc files/)).toBeDefined();
+  });
+
+  it("says nothing when a load is replaced, which happens on every step", async () => {
+    show("video", "mp4", { props: { "video.codec": "h264" } });
+    const video = await waitFor(() => {
+      const found = document.querySelector("video");
+      if (found === null) throw new Error("no video yet");
+      return found;
+    });
+
+    // `MEDIA_ERR_ABORTED`. The pane replaces a load every time the selection
+    // moves, and a message for that would be a message for nothing.
+    fail(video, 1);
+
+    expect(screen.queryByText(/cannot play/)).toBeNull();
   });
 
   it("renders a video under a transport of ours, not the browser's bar", async () => {

@@ -1780,6 +1780,21 @@ Where the rendition cannot be made — a machine with no libheif, a RAW with no 
 the route answers 404 and the pane shows what it always shows for a file it cannot draw: the
 thumbnail, the metadata, and **Open externally**. Never a broken-image glyph.
 
+### 7.2 A video the window cannot play
+
+**A thumbnail is not a promise that the pane can play it.** The thumbnail is drawn by the system's
+ffmpeg (ADR-0017) and the pane hands the file's own bytes to Chromium, which ships a narrower list
+of codecs — HEVC the obvious one. So the two disagree, and the disagreement looked like a bug in the
+pane: reported on 2026-09-13 as a grid full of thumbnails and a preview that opened blank.
+
+A picture that fails falls back to its thumbnail; a video has nothing to fall back to, so it says
+what happened instead — one line under the picture, over the transport. **The codec is named**,
+because *"this window cannot play hevc files"* is something a person can act on and *"the video
+could not be played"* is not. The three cases a media element can report are three different
+questions and are not run together: the bytes never arrived (which is about `roost://`, not the
+file), the decode stopped partway, or there is no decoder for it at all. A load that was merely
+replaced — which happens on every step through the grid — says nothing.
+
 ## 8. States
 
 Every surface owes four states, and the empty one is where most applications get lazy.
