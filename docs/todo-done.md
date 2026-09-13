@@ -1078,3 +1078,18 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
   named region sized to its frame; the window scrolling is always a defect, never a view. The
   clip hides the symptom and `check-failures.mjs` asserts on `scrollHeight`, which still counts
   what overflows, so the cause stays visible (`UI_SPEC.md` §2.5).
+
+### Showing and hiding the side panes (ADR-0028 §6, asked for 2026-09-13)
+
+- ☑ ~~**With the sidebar hidden and a file open, the `☰` is on screen nowhere.** The preview
+  replaces the content head with its own bar (`UI_SPEC.md` §7), and the button lives in whichever
+  of the two heads is drawn — so while both are away the menu is reachable only by `Escape` or
+  **Close**, which give the grid and the button back, or by `F9`. Not a dead end, and not
+  addressed: putting the `☰` in the preview's bar would be a fourth place it can appear.~~ Closed
+  the same day, 2026-09-13, by the user finding it in a real window and saying so with a
+  screenshot. It is the fourth place, and the reasoning above was wrong about what that costs:
+  the rule was never "at most three heads", it is **one button in whichever head is on screen** —
+  and `check-panes.mjs` asserts the count rather than the list. The pane takes a `menu` prop
+  instead of building one, because it is the same element, and the pane **takes focus back** when
+  the button arrives or leaves: bringing the sidebar back from that menu unmounts the element
+  Radix handed focus to, and focus on `<body>` is `Escape` and the arrow keys dead.

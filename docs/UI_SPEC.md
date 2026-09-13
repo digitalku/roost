@@ -58,7 +58,7 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 
 | Region | Width | Collapsible | Notes |
 | --- | --- | --- | --- |
-| Sidebar head | with the sidebar | with it | Fixed height. The `☰` (ADR-0028) and the library's name. **The `☰` moves to the content head while the sidebar is hidden**, because it is the control that brings the sidebar back and a menu that hides itself has no way back (ADR-0028 §6). The name does not move with it: it belongs to the column that is gone, and the title bar carries it. |
+| Sidebar head | with the sidebar | with it | Fixed height. The `☰` (ADR-0028) and the library's name. **The `☰` is drawn in whichever head is on screen** — this one, the content head while the sidebar is hidden, or the preview's own bar when that has replaced the content head (§7) — because it is the control that brings the sidebar back, and a menu that hides itself has no way back (ADR-0028 §6). Never two at once. The name does not travel with it: it belongs to the column that is gone, and the title bar carries it. |
 | Content head | with the content | no | Fixed height. Search is the widest thing in it, then the view control and **Add**. |
 | Sidebar | 220–420px, drag to resize | yes, `F9` or **Show sidebar** in the `☰` | Collapsed state is remembered per library, in `settings.json` (ADR-0019); the width is not yet draggable and so remembers nothing. Hidden means **not drawn**, not narrowed — the grid takes the room. |
 | Content | fills | no | Hosts exactly one of: icons, compact, details, preview. |
@@ -1587,9 +1587,18 @@ the start of it** for whatever is on screen to draw its own controls into. Today
 picture's zoom. The two ends say two different things — one changes what is being looked at, the
 other how — and the slot is a real element first in the row rather than a shuffled order, so what
 the eye reads left to right is what the Tab key walks through. It takes no room at all when it is
-empty. The sidebar and the inspector stay, because both are still about the thing on screen. The
+empty. The sidebar and the inspector stay if they are shown, because both are still about the
+thing on screen. The
 field is unmounted rather than emptied: the query it was showing comes back when the preview
 closes.
+
+**The `☰` is drawn in this head when the sidebar is hidden** (ADR-0028 §6), before the slot and at
+the start of the row — the corner it occupies in the other two heads, so it does not move as a
+preview opens. It is there only then: with the sidebar shown the button is at that column's head,
+and a preview is not a place to repeat a control already on screen. Bringing the sidebar back from
+it moves the button away mid-gesture, so **the pane takes focus back** whenever the button arrives
+or leaves; without that, focus lands on `<body>` and `Escape`, the arrows and the media keys are
+dead until something is clicked.
 
 **The head carries no filename.** It did until 2026-09-06, while the inspector three inches to the
 right carried the same name in an editable field — and the pane cannot be open with nothing

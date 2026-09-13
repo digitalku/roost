@@ -2074,6 +2074,30 @@ describe("showing and hiding the side panes", () => {
     expect(await screen.findByRole("button", { name: "Menu" })).toBeDefined();
   });
 
+  it("keeps the ☰ on screen with a file open and no sidebar behind it", async () => {
+    // Found by the user on 2026-09-13, in a real window: the preview replaces
+    // the content head with its own bar, so with the sidebar hidden there was
+    // no head left holding the button — and no way back to the sidebar but a
+    // key nothing on screen names.
+    const { user } = await open({ showSidebar: false });
+    await user.click(screen.getAllByRole("option")[1] as HTMLElement);
+    await user.keyboard("{Enter}");
+    await screen.findByRole("dialog");
+
+    const menu = screen.getAllByRole("button", { name: "Menu" });
+    expect(menu).toHaveLength(1);
+    expect(menu[0]?.closest(".preview-bar")).not.toBeNull();
+
+    // And it does what it is there for, with the file still open.
+    await toggle(user, /Show sidebar/);
+    expect(await screen.findByRole("navigation", { name: "Library" })).toBeDefined();
+    expect(screen.getByRole("dialog")).toBeDefined();
+    // One button, back in the sidebar's head rather than drawn in both.
+    const moved = screen.getAllByRole("button", { name: "Menu" });
+    expect(moved).toHaveLength(1);
+    expect(moved[0]?.closest(".bar-sidebar")).not.toBeNull();
+  });
+
   it("answers F9 and F4 with the menu shut", async () => {
     // The accelerators the menu draws are bound on the window, not by it
     // (`UI_SPEC.md` §9) — a label beside an item is not a binding.

@@ -143,6 +143,20 @@
   display: none;
 }
 
+/*
+ * The `☰`, drawn here only while the sidebar is hidden (ADR-0028 §6).
+ *
+ * At the start of the row, where it is in the other two heads, so it does not
+ * move as a preview opens. The row packs to the end, so something has to absorb
+ * the free space: the slot beside it does that already when the kind put
+ * controls in it, and this takes the job over when the slot is empty and
+ * therefore not drawn at all — without it the button would slide across the
+ * window and land beside Close for a picture and not for a video.
+ */
+.preview-bar:has(> .preview-bar-tools:empty) > .app-menu-trigger {
+  margin-right: auto;
+}
+
 /* The zoom controls, at the head of the pane rather than at its foot (2026-09-07,
    at the user's word). The picture gets the strip they were standing on back,
    and the pane's controls are all in one row. */

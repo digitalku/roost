@@ -1792,6 +1792,11 @@ function LibraryView({
                 onStep={step}
                 fitVideo={settings.fitVideoToWindow}
                 onFitVideo={applyFitVideo}
+                // The third head the `☰` can be drawn in, and the reason it is
+                // a prop: with the sidebar hidden the preview's bar is the
+                // only one on screen, so without this the menu — and the way
+                // to bring the sidebar back — is nowhere (ADR-0028 §6).
+                {...(settings.showSidebar ? {} : { menu: appMenu })}
               />
             </AssetContextMenu>
           ) : paging.assets.length === 0 && paging.done ? (

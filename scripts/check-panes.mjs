@@ -38,6 +38,15 @@ const layoutExpression = `
       inSidebarHead: triggers.some((node) => node.closest(".bar-sidebar") !== null),
       inContentHead: triggers.some((node) => node.closest(".pane-content > .bar") !== null),
       grid: frame === null ? 0 : Math.round(frame.getBoundingClientRect().width),
+      // The third head a preview puts on screen in place of the grid's.
+      preview: document.querySelector(".preview") !== null,
+      inPreviewBar: triggers.some((node) => node.closest(".preview-bar") !== null),
+      // Hard against the start of its row, wherever it is drawn: a button that
+      // moves across the window as a preview opens is a different button.
+      atStart:
+        triggers.length === 1
+          ? Math.round(triggers[0].getBoundingClientRect().left) < 80
+          : false,
     };
   })()`;
 
@@ -140,6 +149,36 @@ try {
     "F4 brings the inspector back",
     (await cdp.settle(layoutExpression, (seen) => seen.inspector === true)).inspector === true,
   );
+
+  section("a file open, with no sidebar behind it");
+  // The gap the user found on 2026-09-13: the preview replaces the content
+  // head with its own bar, so with the sidebar hidden there was no head left
+  // holding the ☰ — and no way back to the sidebar but a key nothing says.
+  await pick("Show sidebar");
+  await cdp.settle(layoutExpression, (seen) => seen.sidebar === false);
+  const cell = await cdp.evaluate(`(() => {
+    const el = document.querySelector(".cell");
+    if (el === null) return null;
+    const box = el.getBoundingClientRect();
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  })()`);
+  // Clicked, then `Enter`: the same two gestures a person uses, and a `Return`
+  // is one event where a double-click is four.
+  await cdp.mouse.click(cell.x, cell.y);
+  await cdp.keyboard.press("Enter");
+  const open = await cdp.settle(layoutExpression, (seen) => seen.preview === true);
+  check("the ☰ is drawn in the preview's own bar", open.triggers === 1 && open.inPreviewBar);
+  check("and still at the start of the row", open.atStart);
+  // Which is the whole point: the sidebar can be brought back from here.
+  await pick("Show sidebar");
+  const restored = await cdp.settle(layoutExpression, (seen) => seen.sidebar === true);
+  check("the sidebar comes back from it, with the file still open", restored.preview === true);
+  check(
+    "and the ☰ is back at the head of the sidebar, not repeated in the bar",
+    restored.triggers === 1 && restored.inSidebarHead,
+  );
+  await cdp.keyboard.press("Escape");
+  await cdp.settle(layoutExpression, (seen) => seen.preview === false);
 
   section("a library opens with the panes it was left with (ADR-0019)");
   // Left hidden, then read back from the file before the window is closed: a

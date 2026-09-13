@@ -56,6 +56,19 @@ export interface PreviewPaneProps {
    */
   readonly fitVideo: boolean;
   readonly onFitVideo: (on: boolean) => void;
+  /**
+   * The application's `☰`, when there is nowhere else to draw it (ADR-0028 §6).
+   *
+   * The button lives in the head of whichever column is on screen, and with the
+   * sidebar hidden this head is the only one there is: the pane replaces the
+   * grid's bar with its own. Handed in rather than built here, because it is
+   * the *same* element the other two heads draw — an instance of its own would
+   * be a second open state.
+   *
+   * `undefined` while the sidebar is showing, which is where the button then
+   * is: a preview is not a place to repeat a control already on screen.
+   */
+  readonly menu?: React.ReactNode;
 }
 
 /**
@@ -103,6 +116,7 @@ export function PreviewPane({
   onStep,
   fitVideo,
   onFitVideo,
+  menu,
 }: PreviewPaneProps): React.JSX.Element {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [page, setPage] = useState(0);
@@ -159,9 +173,20 @@ export function PreviewPane({
   // The pane takes focus when it opens: it is the thing the keyboard is now
   // for, and a preview that needs a click before the arrow keys work is a
   // preview nobody drives with the keyboard.
+  //
+  // And again when the `☰` arrives or leaves (ADR-0028 §6). Bringing the
+  // sidebar back from that menu moves the button to the sidebar's head, so the
+  // element the menu handed focus back to is unmounted a moment later and focus
+  // lands on `<body>` — where `Escape`, the arrows and the media keys are all
+  // dead until something in the pane is clicked.
+  const hasMenu = menu !== undefined;
   useEffect(() => {
+    // Read here rather than only listed below: what this effect answers to is
+    // the *change*, and a dependency the body never mentions is one the linter
+    // offers to delete — taking the focus with it.
+    void hasMenu;
     pane.current?.focus();
-  }, []);
+  }, [hasMenu]);
 
   return (
     <div
@@ -226,6 +251,10 @@ export function PreviewPane({
         Removed at the user's request on 2026-09-06.
       */}
       <header className="preview-bar">
+        {/* Before the kind's own tools, because it is the window's rather than
+            this file's — and in the same corner it occupies in the other two
+            heads, so it does not move as a preview opens (ADR-0028 §6). */}
+        {menu}
         {/* First in the row and first in the tab order; empty for a kind with
             nothing to put here, and then it takes no room at all. */}
         <div className="preview-bar-tools" ref={setTools} />
