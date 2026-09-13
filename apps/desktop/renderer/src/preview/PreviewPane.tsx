@@ -296,14 +296,13 @@ function Stage({
   readonly fitVideo: boolean;
   readonly onFitVideo: (on: boolean) => void;
 }): React.JSX.Element {
-  // A rendition where a browser cannot read the file itself — HEIC, RAW, TIFF
-  // (ADR-0040 §7). Everything else is the original, which is what makes a video
-  // seek and an SVG stay a vector.
-  const src = detail.browserDrawable
-    ? `roost://original/${detail.hash}`
-    : `roost://render/${detail.hash}`;
+  const original = `roost://original/${detail.hash}`;
 
   if (detail.kind === "image") {
+    // A rendition where a browser cannot read the file itself — HEIC, RAW, TIFF
+    // (ADR-0040 §7). Everything else is the original, which is what makes an SVG
+    // stay a vector.
+    const src = detail.browserDrawable ? original : `roost://render/${detail.hash}`;
     // An SVG renders through the same `<img>`, which is what sandboxes it:
     // scripts in an image do not run, and neither do external references.
     // Keyed on the hash like every other kind here, which is also what puts the
@@ -315,11 +314,23 @@ function Stage({
   }
 
   if (detail.kind === "video" || detail.kind === "audio") {
+    /*
+     * Always the original, and never a rendition.
+     *
+     * **`browserDrawable` is an answer about an `<img>`**, and it is false for
+     * every video and audio format there is — so asking it here sent a `<video>`
+     * to `roost://render/<hash>`, which answers *"no rendition for mp4"* with a
+     * 404. Every video and every sound in the library opened blank from the day
+     * ADR-0040 §7 arrived (2026-09-10) until this was found on 2026-09-13. The
+     * tests missed it because `fakeDetail` says `browserDrawable: true` for
+     * everything, so the one shape that reaches this line was the one shape
+     * never tried.
+     */
     return (
       <Player
         key={detail.hash}
         detail={detail}
-        src={src}
+        src={original}
         tools={tools}
         fit={fitVideo}
         onFit={onFitVideo}
@@ -447,7 +458,7 @@ function Player({
   readonly onFit: (on: boolean) => void;
 }): React.JSX.Element {
   const [element, setElement] = useState<HTMLVideoElement | HTMLAudioElement | null>(null);
-  const [problem, setProblem] = useState<string | undefined>();
+  const [problem, setProblem] = useState<{ line: string; said: string } | undefined>();
   const stage = useRef<HTMLDivElement>(null);
 
   /*
@@ -477,7 +488,15 @@ function Player({
     // `MEDIA_ERR_ABORTED` is what a load being replaced looks like, and the
     // pane replaces one every time the selection moves.
     if (code === undefined || code === 1) return;
-    setProblem(mediaProblem(code, detail));
+    setProblem({
+      line: mediaProblem(code, detail),
+      // The element's own words under ours, as the failures list does it
+      // (§3.13): the sentence is a reading of the code and the code is coarse —
+      // *Format error* is what both a codec nobody has and a 404 look like from
+      // here, and only the second one is a bug in Roost. Keeping the original
+      // is what turned "cannot play h264" into a wrong path in one glance.
+      said: event.currentTarget.error?.message ?? "",
+    });
   };
 
   /**
@@ -624,7 +643,12 @@ function Player({
       </div>
       {/* Outside the picture, because audio hides that box entirely and an
           unplayable sound file has the same nothing to say about itself. */}
-      {problem !== undefined && <p className="preview-media-problem">{problem}</p>}
+      {problem !== undefined && (
+        <div className="preview-media-problem">
+          <p>{problem.line}</p>
+          {problem.said !== "" && <p className="preview-media-said">{problem.said}</p>}
+        </div>
+      )}
       <Transport
         media={element}
         stage={stage}
@@ -659,9 +683,11 @@ function mediaProblem(code: number, detail: WireAssetDetail): string {
     case 3:
       return `The picture stops partway through — ${named} decoded this far and no further.`;
     default:
-      // 4, `MEDIA_ERR_SRC_NOT_SUPPORTED`, and the common one: the thumbnail was
-      // drawn by the system's ffmpeg and this window has a narrower list.
-      return `This window cannot play ${named}. The thumbnail was made by ffmpeg, which decodes more than the window does.`;
+      // 4, `MEDIA_ERR_SRC_NOT_SUPPORTED`. Two different faults arrive here and
+      // the code cannot tell them apart, so the sentence names both rather than
+      // picking one: the window's decoder list is narrower than ffmpeg's, and a
+      // route that answered 404 looks exactly the same from an element.
+      return `This window could not play ${named} — either it has no decoder for it, or the file could not be read from the library.`;
   }
 }
 

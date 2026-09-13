@@ -303,6 +303,20 @@
   text-wrap: balance;
 }
 
+.preview-media-problem p {
+  margin: 0;
+}
+
+/* The element's own words under ours, small and monospaced — the same two
+   voices, in the same order, as a row in the failures list (UI_SPEC.md §3.13). */
+.preview-media-said {
+  margin-top: var(--space-1);
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
 .preview-player .preview-media {
   min-height: 0;
 }

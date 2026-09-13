@@ -1780,6 +1780,14 @@ Where the rendition cannot be made — a machine with no libheif, a RAW with no 
 the route answers 404 and the pane shows what it always shows for a file it cannot draw: the
 thumbnail, the metadata, and **Open externally**. Never a broken-image glyph.
 
+**`browserDrawable` decides this for an `<img>` and for nothing else.** It is false for every video
+and audio format there is — they are not things an `<img>` draws — so a pane that consulted it
+before choosing a source sent every `<video>` to `roost://render/<hash>`, which has no rendition for
+an mp4 and answers 404. A player and a picture ask different questions of the same field, and from
+2026-09-10 until it was found on 2026-09-13 every video and every sound in a library opened blank.
+A video and a sound take the original, always: it is what makes seeking work, and there is no
+rendition of a film.
+
 ### 7.2 A video the window cannot play
 
 **A thumbnail is not a promise that the pane can play it.** The thumbnail is drawn by the system's
@@ -1788,12 +1796,18 @@ of codecs — HEVC the obvious one. So the two disagree, and the disagreement lo
 pane: reported on 2026-09-13 as a grid full of thumbnails and a preview that opened blank.
 
 A picture that fails falls back to its thumbnail; a video has nothing to fall back to, so it says
-what happened instead — one line under the picture, over the transport. **The codec is named**,
-because *"this window cannot play hevc files"* is something a person can act on and *"the video
-could not be played"* is not. The three cases a media element can report are three different
-questions and are not run together: the bytes never arrived (which is about `roost://`, not the
-file), the decode stopped partway, or there is no decoder for it at all. A load that was merely
-replaced — which happens on every step through the grid — says nothing.
+what happened instead — one line under the picture, over the transport, **and the element's own
+words under that**: the same two voices, in the same order, as a row in the failures list (§3.13).
+The codec is named, because *"this window could not play hevc files"* is something a person can act
+on and *"the video could not be played"* is not.
+
+**The second voice is not decoration, and the first thing it caught proves it.** `MediaError` has
+three codes for more than three faults: a codec with no decoder and a route that answered 404 are
+*the same code*, and only one of them is a bug in Roost. The message this pane was built to give
+blamed the codec — the element's own *Format error* under it is what pointed at the request
+instead, and the request turned out to be asking `roost://render/<hash>` for a video (§7.1). So the
+sentence for that code names both faults rather than choosing, and the original line stays under it.
+A load that was merely replaced — which happens on every step through the grid — says nothing.
 
 ## 8. States
 

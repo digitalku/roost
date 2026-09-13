@@ -146,6 +146,23 @@ describe("the preview pane", () => {
     expect(sent).toMatchObject({ hash: HASH, paths: ["/home/you/holiday.srt"] });
   });
 
+  it("plays the original even though no browser can draw an mp4 in an <img>", async () => {
+    // The bug behind "the preview opens blank", found 2026-09-13 in the log:
+    // `browserDrawable` answers about an `<img>` and is false for every video
+    // there is, so the pane was asking `roost://render/<hash>` — which replies
+    // "no rendition for mp4" with a 404, and a 404 is a video that will not
+    // play. Every video and every sound in the library, since ADR-0040 §7.
+    show("video", "mp4", { browserDrawable: false });
+    await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
+
+    expect(document.querySelector("video")?.getAttribute("src")).toBe(`roost://original/${HASH}`);
+  });
+
+  it("still asks for a rendition where the <img> is the thing that cannot read it", async () => {
+    show("image", "heic", { browserDrawable: false });
+    expect((await screen.findByRole("img")).getAttribute("src")).toBe(`roost://render/${HASH}`);
+  });
+
   it("says why a video is blank, and names the codec so it can be acted on", async () => {
     // Reported 2026-09-13: the thumbnail arrived and the pane was empty. A
     // picture that fails falls back to its thumbnail; a video has nothing to
@@ -161,7 +178,7 @@ describe("the preview pane", () => {
     // decoder for looks like from here.
     fail(video, 4);
 
-    expect(await screen.findByText(/cannot play hevc files/)).toBeDefined();
+    expect(await screen.findByText(/could not play hevc files/)).toBeDefined();
   });
 
   it("says nothing when a load is replaced, which happens on every step", async () => {
@@ -176,7 +193,7 @@ describe("the preview pane", () => {
     // moves, and a message for that would be a message for nothing.
     fail(video, 1);
 
-    expect(screen.queryByText(/cannot play/)).toBeNull();
+    expect(screen.queryByText(/could not play/)).toBeNull();
   });
 
   it("renders a video under a transport of ours, not the browser's bar", async () => {
