@@ -50,6 +50,8 @@ import type {
 import {
   IMPORT_SUBJECTS,
   type ImportSubject,
+  INSTALLABLE_BACKENDS,
+  type InstallableBackend,
   SORT_KEYS,
   type SortKey,
   STARS,
@@ -1394,18 +1396,6 @@ function readSort(value: unknown): Checked<WireSort | null> {
 
 /** The two halves of "no picture", as `derive:failures` accepts them. */
 const STALLED_STATES = ["failed", "blocked"] as const;
-
-/**
- * The backends a window may ask to have installed.
- *
- * Two, and both of them optional at runtime (ADR-0017, ADR-0040). The three
- * that ship with Roost are absent on purpose: there is nothing to install, and
- * a vocabulary that named them would invite a request that means nothing.
- */
-export const INSTALLABLE_BACKENDS = ["media", "heif"] as const;
-
-/** One of {@link INSTALLABLE_BACKENDS}. */
-export type InstallableBackend = (typeof INSTALLABLE_BACKENDS)[number];
 
 export const REQUEST_TYPES = Object.keys(REQUEST_VALIDATORS) as RequestType[];
 

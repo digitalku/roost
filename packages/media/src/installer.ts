@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { logger } from "@roost/core";
 import { type Installable, installOffer } from "./install.js";
 
@@ -23,7 +23,17 @@ const log = logger("install");
 const INSTALL_TIMEOUT_MS = 10 * 60_000;
 
 /** The most of a package manager's chatter to carry back. */
-const MAX_OUTPUT_BYTES = 64 * 1024;
+const MAX_OUTPUT_LINES = 200;
+
+/**
+ * A line that was animation rather than speech.
+ *
+ * winget draws its download with block characters and dots. Kept out of both
+ * the running report and the final text, where it would be the same bar a
+ * hundred times over — the lines that carry a size or a percentage survive,
+ * because those have a digit in them.
+ */
+const BAR = /^[^\p{L}\p{N}]+$/u;
 
 /** What running it did, in the package manager's own words. */
 export interface InstallOutcome {
@@ -42,11 +52,19 @@ export interface InstallOutcome {
 /**
  * Installs a backend, where the platform allows it.
  *
+ * `onLine` is handed every line the package manager writes, as it writes it: an
+ * install takes minutes and a disabled button is not a progress report
+ * (ADR-0042 §9). It is optional because the CLI and the tests have nowhere to
+ * draw one.
+ *
  * Never throws for an install that failed — a package manager refusing is an
  * answer and belongs on screen. It throws only for the one case that is a
  * programming error: asking on a platform whose offer carries no argv.
  */
-export async function installBackend(what: Installable): Promise<InstallOutcome> {
+export async function installBackend(
+  what: Installable,
+  onLine?: (line: string) => void,
+): Promise<InstallOutcome> {
   const offer = installOffer(what);
   const [program, ...args] = offer.argv ?? [];
   if (program === undefined) {
@@ -54,7 +72,7 @@ export async function installBackend(what: Installable): Promise<InstallOutcome>
   }
 
   log.info("installing", { backend: what, program });
-  const result = await run(program, args);
+  const result = await run(program, args, onLine);
   log.info("install finished", { backend: what, installed: result.installed });
 
   // Only on success, and only then: the whole point is that the `PATH` a
@@ -121,45 +139,73 @@ function key(entry: string): string {
 }
 
 /**
- * Runs a program and brings back what it said, whatever it exited with.
+ * Runs a program, reporting as it goes, and says what it said in the end.
  *
- * `execFile` with an argument array and no shell, as ADR-0017 requires of every
+ * `spawn` with an argument array and no shell, as ADR-0017 requires of every
  * external tool — with more force here than there, because this one writes to
- * the machine rather than reading a video.
+ * the machine rather than reading a video. `spawn` rather than `execFile`
+ * because a buffered run has nothing to report until it is over, which for a
+ * hundred and fifty megabytes is the whole of the wait.
  */
-async function run(program: string, args: readonly string[]): Promise<InstallOutcome> {
+async function run(
+  program: string,
+  args: readonly string[],
+  onLine?: (line: string) => void,
+): Promise<InstallOutcome> {
   return new Promise((resolve) => {
-    execFile(
-      program,
-      [...args],
-      { timeout: INSTALL_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true },
-      (error, stdout, stderr) => {
-        const said = readable(`${stdout}${stderr}`);
-        if (error === null) {
-          resolve({ installed: true, detail: said });
-          return;
-        }
-        // A program that could not be started says nothing at all, and "it
-        // failed" with an empty box under it is not an answer.
-        resolve({ installed: false, detail: said === "" ? error.message : said });
-      },
-    );
-  });
-}
+    const child = spawn(program, [...args], { windowsHide: true });
+    const kept: string[] = [];
+    let pending = "";
+    let settled = false;
 
-/**
- * A package manager's output, without the parts that were animation.
- *
- * winget draws progress by rewriting one line with carriage returns and block
- * characters. Pasted into a dialog that is the same bar a hundred times over,
- * so only what followed the last `\r` of a line is kept, and a line that was
- * nothing but a bar is dropped.
- */
-function readable(output: string): string {
-  return output
-    .split(/\r?\n/)
-    .map((line) => (line.split("\r").at(-1) ?? "").trim())
-    .filter((line) => line !== "" && !/^[\s█▒░▓■\-\\|/.]+$/.test(line))
-    .join("\n")
-    .trim();
+    const timer = setTimeout(() => {
+      settled = true;
+      child.kill();
+      resolve({ installed: false, detail: `timed out after ${INSTALL_TIMEOUT_MS} ms` });
+    }, INSTALL_TIMEOUT_MS);
+
+    /*
+     * A carriage return ends a line here, as much as a newline does: a package
+     * manager draws its progress by rewriting one line, so treating `\r` as
+     * nothing would mean one enormous line arriving at the end — which is the
+     * buffered behaviour this exists to replace.
+     */
+    const take = (chunk: Buffer): void => {
+      pending += chunk.toString("utf8");
+      const parts = pending.split(/\r\n|\r|\n/);
+      pending = parts.pop() ?? "";
+      for (const part of parts) {
+        const line = part.trim();
+        if (line === "" || BAR.test(line)) continue;
+        // Bounded, and de-duplicated: a bar redrawn a thousand times is a
+        // thousand lines, and only the last of them was ever worth keeping.
+        if (kept.at(-1) !== line) {
+          kept.push(line);
+          if (kept.length > MAX_OUTPUT_LINES) kept.shift();
+          onLine?.(line);
+        }
+      }
+    };
+
+    child.stdout.on("data", take);
+    child.stderr.on("data", take);
+
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // A program that could not be started says nothing at all, and "it
+      // failed" with an empty box under it is not an answer.
+      resolve({ installed: false, detail: error.message });
+    });
+
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (pending.trim() !== "" && !BAR.test(pending.trim())) kept.push(pending.trim());
+      const said = kept.join("\n").trim();
+      resolve({ installed: code === 0, detail: said === "" ? `exited with ${code}` : said });
+    });
+  });
 }

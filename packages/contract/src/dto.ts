@@ -23,6 +23,22 @@
  */
 export const LIBRARY_SUFFIX = ".roost";
 
+/**
+ * The backends a window may ask to have installed (ADR-0042).
+ *
+ * Two, and both of them optional at runtime (ADR-0017, ADR-0040). The three
+ * that ship with Roost are absent on purpose: there is nothing to install, and
+ * a vocabulary that named them would invite a request that means nothing.
+ *
+ * Here rather than beside the request that carries it, because the event the
+ * install emits names a backend too and the two files may not import each
+ * other.
+ */
+export const INSTALLABLE_BACKENDS = ["media", "heif"] as const;
+
+/** One of {@link INSTALLABLE_BACKENDS}. */
+export type InstallableBackend = (typeof INSTALLABLE_BACKENDS)[number];
+
 /** Whether an asset's bytes were copied into the library or left where they are. */
 export const STORAGE_MODES = ["managed", "referenced"] as const;
 export type StorageMode = (typeof STORAGE_MODES)[number];

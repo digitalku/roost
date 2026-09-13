@@ -588,6 +588,20 @@ describe("validating an envelope", () => {
     });
   });
 
+  it("takes a line of install progress, and only for a backend that has one", () => {
+    expect(
+      checkEvent({ type: "install:progress", backend: "media", line: "12.0 MB / 150 MB" }),
+    ).toEqual({
+      ok: true,
+      value: { type: "install:progress", backend: "media", line: "12.0 MB / 150 MB" },
+    });
+    // The same closed vocabulary the request is validated against: this event
+    // names a backend, and `images` is not one anybody can install.
+    expect(checkEvent({ type: "install:progress", backend: "images", line: "x" }).ok).toBe(false);
+    // A blank line is the package manager drawing rather than saying.
+    expect(checkEvent({ type: "install:progress", backend: "media", line: " " }).ok).toBe(false);
+  });
+
   it("validates an event the same way", () => {
     expect(checkEventEnvelope({ event: { type: "library:changed" } }).ok).toBe(true);
     expect(checkEvent({ type: "library:exploded" })).toEqual({

@@ -1,5 +1,16 @@
-import { bad, type Checked, isRecord, ok, readInteger, readNullable, within } from "./checked.js";
-import type { DeriveProgress, ImportProgress } from "./dto.js";
+import {
+  bad,
+  type Checked,
+  isRecord,
+  ok,
+  readInteger,
+  readNonEmpty,
+  readNullable,
+  readOneOf,
+  within,
+} from "./checked.js";
+import type { DeriveProgress, ImportProgress, InstallableBackend } from "./dto.js";
+import { INSTALLABLE_BACKENDS } from "./dto.js";
 
 /**
  * What the engine says without being asked.
@@ -31,7 +42,25 @@ export type Event =
    * Separate from `import:progress` because the two overlap: an import can
    * finish while its thumbnails are still being made, and the window says so.
    */
-  | ({ readonly type: "job:progress" } & DeriveProgress);
+  | ({ readonly type: "job:progress" } & DeriveProgress)
+  /**
+   * What the package manager is saying, while it says it (ADR-0042 §9).
+   *
+   * An install is the one thing Roost starts that takes minutes and reports
+   * nothing until it ends: `winget` fetches its sources, then a hundred and
+   * fifty megabytes, and a button reading *Installing…* for all of it is
+   * indistinguishable from a button that has hung. So the tool's own output is
+   * carried a line at a time, and the window draws the latest one.
+   *
+   * **A line, not a percentage.** Parsing a package manager's progress would be
+   * a guess about a format nobody promised, and it would be wrong quietly. The
+   * line is passed through as it was written.
+   */
+  | {
+      readonly type: "install:progress";
+      readonly backend: InstallableBackend;
+      readonly line: string;
+    };
 
 export type EventType = Event["type"];
 export type EventOf<T extends EventType> = Extract<Event, { type: T }>;
@@ -78,6 +107,15 @@ export const EVENT_VALIDATORS: {
       blocked: counts["blocked"] ?? 0,
       failed: counts["failed"] ?? 0,
     });
+  },
+
+  "install:progress": (source) => {
+    const backend = readOneOf(source, "backend", INSTALLABLE_BACKENDS);
+    if (!backend.ok) return backend;
+    // Non-empty: a blank line is the package manager drawing, not saying.
+    const line = readNonEmpty(source, "line");
+    if (!line.ok) return line;
+    return ok({ type: "install:progress", backend: backend.value, line: line.value });
   },
 };
 

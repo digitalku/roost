@@ -4,6 +4,7 @@ import type {
   AssetPage,
   DeriveProgress,
   ImportProgress,
+  InstallableBackend,
   LibraryStats,
   LibrarySummary,
   QueryCheck,
@@ -464,7 +465,9 @@ export class EngineHost {
         // No library is required and none is touched: this is a fact about the
         // machine, not about a collection. A window with nothing open can still
         // be told what it is missing, and can still fix it.
-        const outcome = await installBackend(request.backend);
+        const outcome = await installBackend(request.backend, (line) => {
+          this.onInstallProgress?.(request.backend, line);
+        });
         // Either way, and before answering: a refusal is often "already
         // installed", which means the probe this process is holding is the
         // thing that is wrong (ADR-0040 §6).
@@ -716,6 +719,15 @@ export class EngineHost {
       capabilities: await wireCapabilities(),
     };
   }
+
+  /**
+   * Called with each line a running install writes. Set by `serve`.
+   *
+   * A line rather than a fraction: a package manager's progress is its own
+   * business, and parsing it would be a guess about a format nobody promised
+   * (ADR-0042 §9).
+   */
+  onInstallProgress: ((backend: InstallableBackend, line: string) => void) | undefined;
 
   /** Called while an import runs. Set by `serve`, like {@link onChanged}. */
   onProgress: ((progress: ImportProgress) => void) | undefined;

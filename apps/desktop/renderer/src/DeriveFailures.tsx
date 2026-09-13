@@ -7,7 +7,7 @@ import type {
 import { INSTALLABLE_BACKENDS } from "@roost/contract";
 import { Dialog } from "radix-ui";
 import { useEffect, useState } from "react";
-import { invoke } from "./bridge.js";
+import { invoke, onEvent } from "./bridge.js";
 import { CAPABILITY_OF_REASON, explainFailure } from "./deriveReason.js";
 import { counted } from "./format.js";
 
@@ -185,6 +185,21 @@ function Group({
   const command = backend?.install ?? undefined;
   const name = installable(backend);
 
+  /*
+   * The package manager's own words, as it says them (ADR-0042 §9).
+   *
+   * Subscribed only while a run is in flight: an install is minutes long, and a
+   * button that reads *Installing…* for all of it is indistinguishable from one
+   * that has hung. The latest line replaces the last, because that is what the
+   * tool itself is doing to its own terminal.
+   */
+  useEffect(() => {
+    if (!installing) return;
+    return onEvent((event) => {
+      if (event.type === "install:progress" && event.backend === name) setSaid(event.line);
+    });
+  }, [installing, name]);
+
   const copy = async (): Promise<void> => {
     if (command === undefined) return;
     const outcome = await invoke({ type: "clipboard:copyText", text: command });
@@ -209,7 +224,8 @@ function Group({
         // Nothing is announced on success (`UI_SPEC.md` §3.13): the previews
         // appearing is the answer, and the work is released through the same
         // button a person would have pressed rather than a second path that
-        // could drift from it.
+        // could drift from it. The last line of progress goes with it.
+        setSaid(undefined);
         onRetry?.();
       } else {
         setSaid(outcome.ok ? outcome.value.detail : "The install could not be started.");

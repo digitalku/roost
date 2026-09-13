@@ -39,6 +39,8 @@ export {
   IMPORT_SUBJECTS,
   type ImportProgress,
   type ImportSubject,
+  INSTALLABLE_BACKENDS,
+  type InstallableBackend,
   isGridView,
   isSortKey,
   LIBRARY_SUFFIX,
@@ -111,8 +113,6 @@ export {
 } from "./event.js";
 export {
   checkRequest,
-  INSTALLABLE_BACKENDS,
-  type InstallableBackend,
   isRequestType,
   MAX_PAGE_LIMIT,
   REQUEST_TYPES,

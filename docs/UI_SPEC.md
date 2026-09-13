@@ -979,9 +979,13 @@ where every line begins with `sudo` and a window asking for a root password woul
 habit worth nobody's convenience. *Try again* where an arrival could release the work. **The command
 stays visible whether or not the button is there**: somebody who would rather see what is about to
 happen to their machine should not have to take it on trust. While it runs, the button reads
-*Installing…* and is disabled; if the package manager refuses, its own output is shown verbatim
-under the row, because that is the half a bug report is pasted from. On success nothing is
-announced — the work is released, the previews appear, and the list behind the dialog is the answer.
+*Installing…* and is disabled, and **under it the package manager's latest line**, replaced as it
+arrives — an install fetches a hundred and fifty megabytes, and a disabled button held for three
+minutes is indistinguishable from one that has hung. It is the tool's own line and never a parsed
+percentage: a package manager's progress format is nobody's promise, and a wrong reading of it
+would be wrong silently. If it refuses, its output stays there verbatim, because that is the half a
+bug report is pasted from. On success nothing is announced — the line goes, the work is released,
+the previews appear, and the list behind the dialog is the answer.
 
 **Grouped by fault, because the answer is usually one answer.** Thirty-six failures are rarely
 thirty-six problems: they are a folder of renamed files, or a drive unplugged halfway through an
