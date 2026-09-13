@@ -644,6 +644,8 @@ describe("the library view", () => {
         gridZoom: 400,
         showSidebar: true,
         showInspector: true,
+        sidebarWidth: 240,
+        inspectorWidth: 280,
       },
     });
     install(engine);
@@ -683,6 +685,8 @@ describe("the library view", () => {
         gridZoom: 240,
         showSidebar: true,
         showInspector: true,
+        sidebarWidth: 240,
+        inspectorWidth: 280,
       },
     });
     install(engine);
@@ -1781,6 +1785,8 @@ describe("the volume a library remembers", () => {
         gridZoom: 240,
         showSidebar: true,
         showInspector: true,
+        sidebarWidth: 240,
+        inspectorWidth: 280,
       },
     });
     install(engine);
@@ -1994,6 +2000,8 @@ describe("showing and hiding the side panes", () => {
               gridZoom: 240,
               showSidebar: true,
               showInspector: true,
+              sidebarWidth: 240,
+              inspectorWidth: 280,
               ...settings,
             },
           }),

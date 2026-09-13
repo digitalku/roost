@@ -117,6 +117,16 @@ export interface Settings {
    */
   readonly showSidebar: boolean;
   readonly showInspector: boolean;
+  /**
+   * How wide each of them is, in CSS pixels (`UI_SPEC.md` §1).
+   *
+   * The bounds are the spec's and they are enforced here as well as in the
+   * window, for the reason the zoom's are: this file reads whatever somebody
+   * typed into `settings.json`, and a column two pixels wide has no edge left
+   * to grab.
+   */
+  readonly sidebarWidth: number;
+  readonly inspectorWidth: number;
 }
 
 /**
@@ -130,6 +140,10 @@ const ZOOM_RANGE = { min: 32, max: 1024 } as const;
 
 /** Percent. Clamped rather than rejected, for the same reason the zoom is. */
 const VOLUME_RANGE = { min: 0, max: 100 } as const;
+
+/** What each side pane may be dragged to, in CSS pixels (`UI_SPEC.md` §1). */
+const SIDEBAR_RANGE = { min: 220, max: 420 } as const;
+const INSPECTOR_RANGE = { min: 280, max: 480 } as const;
 
 export const DEFAULT_SETTINGS: Settings = {
   showSubfolderContents: false,
@@ -146,6 +160,8 @@ export const DEFAULT_SETTINGS: Settings = {
   gridZoom: 160,
   showSidebar: true,
   showInspector: true,
+  sidebarWidth: 240,
+  inspectorWidth: 280,
 };
 
 /**
@@ -179,6 +195,12 @@ export async function readSettings(root: string): Promise<Settings> {
     gridZoom: numberish(raw["gridZoom"], DEFAULT_SETTINGS.gridZoom, ZOOM_RANGE),
     showSidebar: boolish(raw["showSidebar"], DEFAULT_SETTINGS.showSidebar),
     showInspector: boolish(raw["showInspector"], DEFAULT_SETTINGS.showInspector),
+    sidebarWidth: numberish(raw["sidebarWidth"], DEFAULT_SETTINGS.sidebarWidth, SIDEBAR_RANGE),
+    inspectorWidth: numberish(
+      raw["inspectorWidth"],
+      DEFAULT_SETTINGS.inspectorWidth,
+      INSPECTOR_RANGE,
+    ),
   };
 }
 

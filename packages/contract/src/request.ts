@@ -209,6 +209,8 @@ export type Request =
       readonly gridZoom?: number;
       readonly showSidebar?: boolean;
       readonly showInspector?: boolean;
+      readonly sidebarWidth?: number;
+      readonly inspectorWidth?: number;
     }
   /**
    * Everything the inspector shows about one asset.
@@ -904,6 +906,8 @@ export const REQUEST_VALIDATORS: {
       gridZoom?: number;
       showSidebar?: boolean;
       showInspector?: boolean;
+      sidebarWidth?: number;
+      inspectorWidth?: number;
     } = {};
 
     for (const key of [
@@ -936,7 +940,7 @@ export const REQUEST_VALIDATORS: {
       patch.gridView = view.value;
     }
 
-    for (const key of ["shuffleSeed", "gridZoom"] as const) {
+    for (const key of ["shuffleSeed", "gridZoom", "sidebarWidth", "inspectorWidth"] as const) {
       if (source[key] === undefined) continue;
       const value = readInteger(source, key);
       if (!value.ok) return value;

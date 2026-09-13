@@ -180,11 +180,8 @@ export function PreviewPane({
   // lands on `<body>` — where `Escape`, the arrows and the media keys are all
   // dead until something in the pane is clicked.
   const hasMenu = menu !== undefined;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the menu arriving or leaving is the trigger
   useEffect(() => {
-    // Read here rather than only listed below: what this effect answers to is
-    // the *change*, and a dependency the body never mentions is one the linter
-    // offers to delete — taking the focus with it.
-    void hasMenu;
     pane.current?.focus();
   }, [hasMenu]);
 

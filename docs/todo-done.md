@@ -1093,3 +1093,17 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
   instead of building one, because it is the same element, and the pane **takes focus back** when
   the button arrives or leaves: bringing the sidebar back from that menu unmounts the element
   Radix handed focus to, and focus on `<body>` is `Escape` and the arrow keys dead.
+
+- ☑ ~~**Neither pane can be resized.** `UI_SPEC.md` §1 has promised 220–420px and 280–480px with a
+  drag since M3; the widths are still the two fixed numbers in `app.css`. Hiding one is the whole
+  of what the user can do about width today, which is the coarsest possible version of this.~~ Done
+  the same day, 2026-09-13, on the user asking whether it would be complicated. It was not: the
+  grid has watched its own box with a `ResizeObserver` since M3, so no layout code was needed —
+  the width is a custom property on the row the columns sit in, written straight to the DOM while
+  the pointer is down and sent to the engine once, at the end. `PaneResizer` is a `separator` and
+  so takes the arrow keys; a double-click resets. Two settings keys, bounded in the engine as well
+  as in the window. Two things it taught: `setPointerCapture` throws for a synthetic pointer
+  (`Grid.tsx` already knew, and the listeners are on the window so the gesture survives either
+  way), and a gesture must continue from **what is drawn** rather than from the prop, which is a
+  round trip behind while a commit is in flight — found as a flake in `check-panes.mjs` before any
+  person could have hit it.

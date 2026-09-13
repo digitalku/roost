@@ -500,9 +500,6 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 ### Showing and hiding the side panes (ADR-0028 §6, asked for 2026-09-13)
 
-- 🟢 **Neither pane can be resized.** `UI_SPEC.md` §1 has promised 220–420px and 280–480px with a
-  drag since M3; the widths are still the two fixed numbers in `app.css`. Hiding one is the whole
-  of what the user can do about width today, which is the coarsest possible version of this.
 
 - 🟢 **`settings.json` is safe against one window, not two.** `writeSettings` now chains its
   read-modify-writes per library (ADR-0028 §6.5), which removes the race a single window could lose

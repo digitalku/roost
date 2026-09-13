@@ -51,6 +51,7 @@ import { Inspector } from "./inspector/Inspector.js";
 import { isTyping } from "./keyboard.js";
 import { RecentList } from "./library/RecentList.js";
 import { NewFileDialog } from "./NewFileDialog.js";
+import { INSPECTOR, PaneResizer, SIDEBAR } from "./PaneResizer.js";
 import { PreviewPane } from "./preview/PreviewPane.js";
 import { type Loudness, sound } from "./preview/sound.js";
 import { useReclaim } from "./reclaim.js";
@@ -80,6 +81,8 @@ const DEFAULT_SETTINGS: WireSettings = {
   gridZoom: DEFAULT_ZOOM,
   showSidebar: true,
   showInspector: true,
+  sidebarWidth: SIDEBAR.fallback,
+  inspectorWidth: INSPECTOR.fallback,
 };
 
 /**
@@ -1302,6 +1305,14 @@ function LibraryView({
     return () => window.removeEventListener("keydown", onKey);
   }, [openFolder, selected, clearSelection, noteResult, dropRows]);
 
+  /**
+   * The row the three columns sit in, which is what carries their widths.
+   *
+   * Handed to each resizer so that a drag writes one custom property here
+   * rather than re-rendering everything below it (`PaneResizer`).
+   */
+  const workspace = useRef<HTMLDivElement>(null);
+
   /** Which folder branches are open. Held here so a new one can be revealed. */
   const expansion = useExpansion();
   const reveal = expansion.reveal;
@@ -1663,7 +1674,26 @@ function LibraryView({
 
   return (
     <div className="app app-library">
-      <div className="workspace">
+      <div
+        className="workspace"
+        ref={workspace}
+        /*
+          The two widths are custom properties on the row rather than a `style`
+          on each pane, so that a drag can write one without going through
+          React — an event per pixel through `setState` would re-render the
+          grid's tree for a number it does not read (`PaneResizer`).
+
+          The cast is React's missing index signature for custom properties,
+          not a claim about the values: both keys are literals here and both
+          values are strings.
+        */
+        style={
+          {
+            "--sidebar-width": `${settings.sidebarWidth}px`,
+            "--inspector-width": `${settings.inspectorWidth}px`,
+          } as React.CSSProperties
+        }
+      >
         {/*
           The sidebar runs to the top of the window and carries its own head,
           rather than starting under a toolbar that spans everything
@@ -1701,6 +1731,19 @@ function LibraryView({
               />
             )}
           </div>
+        )}
+        {settings.showSidebar && (
+          <PaneResizer
+            pane="Sidebar"
+            token="--sidebar-width"
+            side="before"
+            width={settings.sidebarWidth}
+            min={SIDEBAR.min}
+            max={SIDEBAR.max}
+            fallback={SIDEBAR.fallback}
+            surface={workspace}
+            onCommit={(next) => applyView({ sidebarWidth: next })}
+          />
         )}
 
         <div className="pane-content">
@@ -1854,14 +1897,27 @@ function LibraryView({
             a summary for whatever is selected, and a panel nobody can see has
             no business asking the engine about every click in the grid. */}
         {settings.showInspector && (
-          <Inspector
-            hashes={selected}
-            generation={revision}
-            vocabulary={sidebar?.tags ?? NO_TAGS}
-            folders={sidebar?.folders ?? NO_FOLDERS}
-            onRenamed={paging.rename}
-            onPick={pickQuery}
-          />
+          <>
+            <PaneResizer
+              pane="Inspector"
+              token="--inspector-width"
+              side="after"
+              width={settings.inspectorWidth}
+              min={INSPECTOR.min}
+              max={INSPECTOR.max}
+              fallback={INSPECTOR.fallback}
+              surface={workspace}
+              onCommit={(next) => applyView({ inspectorWidth: next })}
+            />
+            <Inspector
+              hashes={selected}
+              generation={revision}
+              vocabulary={sidebar?.tags ?? NO_TAGS}
+              folders={sidebar?.folders ?? NO_FOLDERS}
+              onRenamed={paging.rename}
+              onPick={pickQuery}
+            />
+          </>
         )}
       </div>
 

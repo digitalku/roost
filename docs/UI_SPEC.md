@@ -60,10 +60,22 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 | --- | --- | --- | --- |
 | Sidebar head | with the sidebar | with it | Fixed height. The `☰` (ADR-0028) and the library's name. **The `☰` is drawn in whichever head is on screen** — this one, the content head while the sidebar is hidden, or the preview's own bar when that has replaced the content head (§7) — because it is the control that brings the sidebar back, and a menu that hides itself has no way back (ADR-0028 §6). Never two at once. The name does not travel with it: it belongs to the column that is gone, and the title bar carries it. |
 | Content head | with the content | no | Fixed height. Search is the widest thing in it, then the view control and **Add**. |
-| Sidebar | 220–420px, drag to resize | yes, `F9` or **Show sidebar** in the `☰` | Collapsed state is remembered per library, in `settings.json` (ADR-0019); the width is not yet draggable and so remembers nothing. Hidden means **not drawn**, not narrowed — the grid takes the room. |
+| Sidebar | 220–420px, drag to resize | yes, `F9` or **Show sidebar** in the `☰` | Both the width and the collapsed state are remembered per library, in `settings.json` (ADR-0019). Hidden means **not drawn**, not narrowed — the grid takes the room. |
 | Content | fills | no | Hosts exactly one of: icons, compact, details, preview. |
-| Inspector | 280–480px, drag to resize | yes, `F4` or **Show inspector** in the `☰` | **Always drawn while it is shown**, and unmounted when it is not — it asks the engine for a detail or a summary on every change of selection, and a panel nobody can see should ask for nothing. An empty selection gets the empty state from §8, never a shell of disabled controls. Reserves a scrollbar gutter, as the grid does: how tall its content is depends on the asset, so without one the panel's fields shift sideways as the selection moves. |
+| Inspector | 280–480px, drag to resize | yes, `F4` or **Show inspector** in the `☰` | Width remembered per library, like the sidebar's. **Always drawn while it is shown**, and unmounted when it is not — it asks the engine for a detail or a summary on every change of selection, and a panel nobody can see should ask for nothing. An empty selection gets the empty state from §8, never a shell of disabled controls. Reserves a scrollbar gutter, as the grid does: how tall its content is depends on the asset, so without one the panel's fields shift sideways as the selection moves. |
 | Status bar | full | no | Counts on the left, background jobs on the right. |
+
+**The seam between two columns is the handle.** A drag moves it; the hit area hangs either side of
+the line so that a 1px border is not a 1px target, and it is **never resized by a state** — a strip
+that narrowed under the pointer would shrink out from under the hand on it. `Home`-less on purpose:
+a **double-click** puts the pane back to the width the library started at, which is what a file
+manager does with the same seam. It is a `separator` and takes focus, so `←` and `→` move it by 16px
+each, always in the direction the *pane* grows rather than the direction the seam does — for the
+inspector those are opposite, and an arrow that widened the column it is pushing into would be the
+key lying about itself. A width reaches the library once, when the gesture ends: while the pointer
+is down the number is written straight to the row's `--sidebar-width` / `--inspector-width` and
+nothing re-renders, because a drag emits an event per pixel and the grid does not read the number
+at all — it reflows from watching its own box.
 
 **There is no toolbar across the window: the three columns run from the top down.** The head of
 each column belongs to that column — the menu and the library's name sit above the sidebar because

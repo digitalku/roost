@@ -137,8 +137,99 @@ body {
  * at all when nothing is focused (UI_SPEC.md §3).
  */
 .workspace {
+  /*
+   * The two side panes' widths, overwritten by `App` from `settings.json` and,
+   * during a drag, by `PaneResizer` writing straight to this element — an
+   * event per pixel must not become a React render (`CLAUDE.md` §8). Declared
+   * here so the columns have a width before either of those happens, and so
+   * the token check has something to find.
+   */
+  --sidebar-width: 240px;
+  --inspector-width: 280px;
+
   display: flex;
   min-height: 0;
+}
+
+/*
+ * The seam between two columns, as something to drag (`UI_SPEC.md` §1).
+ *
+ * It takes no width in the row: the line it sits on is the sidebar's own right
+ * border and the inspector's left, and a resizer that added a pixel of its own
+ * would draw a second line beside them. The hit area is the strip below,
+ * hanging either side of that border — a 1px target is a target nobody hits.
+ */
+.pane-resizer {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 0;
+  width: 0;
+  /*
+   * It is an `<hr>`, which brings three things of its own from the user-agent
+   * stylesheet. The border and the margins are removed because the line on
+   * screen is the pane's and this element is only the handle — and
+   * `overflow: hidden`, which is the one that matters: this box is zero pixels
+   * wide, so it clips away the strip below and the seam becomes ungrabbable
+   * without anything looking wrong. Found by `check-panes.mjs`, which drags it.
+   */
+  overflow: visible;
+  margin: 0;
+  border: 0;
+}
+
+.pane-resizer::before,
+.pane-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  content: "";
+}
+
+/* The hit area. Centred on the border rather than starting at it, so the seam
+   is as easy to grab from the grid's side as from the pane's — and **never
+   resized by a state**: a strip that narrowed on `:hover` would shrink out
+   from under the pointer that was hovering it. */
+.pane-resizer::after {
+  left: -3px;
+  width: 7px;
+  cursor: col-resize;
+}
+
+/*
+ * The line, lit under the pointer and while it is being dragged.
+ *
+ * Its own box rather than a change to the strip above or to the pane's border:
+ * one would move the target, the other would move the columns by a pixel.
+ * `data-dragging` rather than `:hover`, because the pointer is somewhere over
+ * the grid for most of a drag.
+ */
+.pane-resizer::before {
+  left: 0;
+  width: 1px;
+  background: transparent;
+}
+
+.pane-resizer:hover::before,
+.pane-resizer:focus-visible::before,
+.pane-resizer[data-dragging]::before {
+  background: var(--border-focus);
+}
+
+.pane-resizer:focus-visible {
+  outline: none;
+}
+
+/*
+ * While a drag is going on.
+ *
+ * `col-resize` for the whole window, because the pointer leaves the strip
+ * immediately and a cursor that snapped back to an arrow would read as the
+ * drag having been dropped. Nothing selects: without this, dragging left over
+ * the sidebar paints a selection across every folder name it passes.
+ */
+.workspace[data-resizing] {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .pane-sidebar,
@@ -149,7 +240,7 @@ body {
 }
 
 .pane-sidebar {
-  flex: 0 0 240px;
+  flex: 0 0 var(--sidebar-width);
 }
 
 .pane-content {
@@ -165,7 +256,7 @@ body {
 }
 
 .workspace > .inspector {
-  flex: 0 0 280px;
+  flex: 0 0 var(--inspector-width);
 }
 
 /*

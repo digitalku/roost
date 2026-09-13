@@ -524,6 +524,17 @@ export interface WireSettings {
    */
   readonly showSidebar: boolean;
   readonly showInspector: boolean;
+  /**
+   * How wide each of them is, in CSS pixels (`UI_SPEC.md` §1).
+   *
+   * Bounded by the engine — 220–420 and 280–480 — because a hand-edited
+   * `settings.json` should not be able to leave somebody with a two-pixel
+   * column and no way to grab its edge. Clamped rather than refused, like the
+   * grid's zoom: a width a little outside the range is a build that changed its
+   * bounds, and forgetting the preference over that is worse.
+   */
+  readonly sidebarWidth: number;
+  readonly inspectorWidth: number;
 }
 
 /** A query read as somewhere to look plus what the bar narrowed it to. */

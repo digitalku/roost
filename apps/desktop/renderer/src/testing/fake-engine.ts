@@ -367,6 +367,8 @@ export class FakeEngine {
       gridZoom: 240,
       showSidebar: true,
       showInspector: true,
+      sidebarWidth: 240,
+      inspectorWidth: 280,
     };
     this.#nextFolderId = Math.max(0, ...this.folders.map((row) => row.folder)) + 1;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);

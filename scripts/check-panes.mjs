@@ -38,6 +38,14 @@ const layoutExpression = `
       inSidebarHead: triggers.some((node) => node.closest(".bar-sidebar") !== null),
       inContentHead: triggers.some((node) => node.closest(".pane-content > .bar") !== null),
       grid: frame === null ? 0 : Math.round(frame.getBoundingClientRect().width),
+      // What each column is actually drawn at, which is the only number that
+      // says a width was applied rather than merely written down.
+      sidebarWidth: Math.round(
+        document.querySelector(".pane-sidebar")?.getBoundingClientRect().width ?? 0,
+      ),
+      inspectorWidth: Math.round(
+        document.querySelector(".inspector")?.getBoundingClientRect().width ?? 0,
+      ),
       // The third head a preview puts on screen in place of the grid's.
       preview: document.querySelector(".preview") !== null,
       inPreviewBar: triggers.some((node) => node.closest(".preview-bar") !== null),
@@ -149,6 +157,111 @@ try {
     "F4 brings the inspector back",
     (await cdp.settle(layoutExpression, (seen) => seen.inspector === true)).inspector === true,
   );
+
+  section("dragging the seam (`UI_SPEC.md` §1)");
+  // A real pointer, because that is the half a component test cannot have: the
+  // capture, the layout that answers it, and the grid reflowing behind it.
+  const seam = async (label) => {
+    const at = await cdp.evaluate(`(() => {
+      const el = document.querySelector('[aria-label=${JSON.stringify(`${label} width`)}]');
+      if (el === null) return null;
+      const box = el.getBoundingClientRect();
+      return { x: box.left, y: box.top + box.height / 2 };
+    })()`);
+    if (at === null) throw new Error(`no ${label} seam`);
+    return at;
+  };
+
+  const drag = async (label, by) => {
+    const at = await seam(label);
+    await cdp.mouse.move(at.x, at.y);
+    await cdp.mouse.down(at.x, at.y);
+    // Several moves rather than one: a drag is a stream of them, and a handler
+    // that only works when the pointer teleports is a handler that works on
+    // nothing. Also what would show a per-pixel re-render as a stutter.
+    for (const step of [0.25, 0.5, 0.75, 1]) {
+      await cdp.mouse.move(at.x + by * step, at.y, { buttons: 1 });
+    }
+    await cdp.mouse.up(at.x + by, at.y);
+  };
+
+  // Measured once it has stopped moving. The window draws the default width
+  // and then the library's, one round trip later, so a baseline taken on the
+  // first sample is a baseline that can be wrong by the difference.
+  const still = async () => {
+    let last = -1;
+    for (let left = 40; left > 0; left -= 1) {
+      const seen = await cdp.evaluate(layoutExpression);
+      if (seen.sidebar && seen.sidebarWidth === last) return seen;
+      last = seen.sidebarWidth;
+      await sleep(50);
+    }
+    throw new Error("the sidebar never stopped moving");
+  };
+
+  const wide = await still();
+  await drag("Sidebar", 90);
+  const dragged = await cdp.settle(
+    layoutExpression,
+    (seen) => seen.sidebarWidth > wide.sidebarWidth + 60,
+  );
+  check(
+    "the sidebar follows the pointer",
+    dragged.sidebarWidth === wide.sidebarWidth + 90,
+    `${wide.sidebarWidth}px → ${dragged.sidebarWidth}px`,
+  );
+  check(
+    "and the grid gives up exactly what the sidebar took",
+    dragged.grid === wide.grid - 90,
+    `${wide.grid}px → ${dragged.grid}px`,
+  );
+
+  // Past the end, which is where a drag goes when somebody wants a pane gone.
+  await drag("Sidebar", 400);
+  const stopped = await cdp.settle(layoutExpression, (seen) => seen.sidebarWidth === 420);
+  check("it stops at the bound rather than eating the grid", stopped.sidebarWidth === 420);
+  // The strip must be the same size at rest and under the pointer: a hit area
+  // that narrows on hover shrinks out from under the pointer hovering it.
+  const strip = await cdp.evaluate(`(() => {
+    const el = document.querySelector('[aria-label="Sidebar width"]');
+    const box = el.getBoundingClientRect();
+    const at = { x: box.left, y: box.top + box.height / 2 };
+    const width = (state) => {
+      const style = getComputedStyle(el, "::after");
+      return { state, width: style.width, hit: document.elementFromPoint(at.x, at.y)?.className };
+    };
+    return width("hovered");
+  })()`);
+  check(
+    "the seam is still grabbable while the pointer is on it",
+    strip.width === "7px" && strip.hit === "pane-resizer",
+    JSON.stringify(strip),
+  );
+
+  await drag("Inspector", -60);
+  const widened = await cdp.settle(layoutExpression, (seen) => seen.inspectorWidth > 280);
+  check(
+    "the inspector grows leftwards, which is the way its own edge moves",
+    widened.inspectorWidth === 340,
+    `${widened.inspectorWidth}px`,
+  );
+
+  const both = await written(
+    root,
+    (held) => held.sidebarWidth === 420 && held.inspectorWidth === 340,
+  );
+  check(
+    "settings.json holds both widths",
+    both.sidebarWidth === 420 && both.inspectorWidth === 340,
+    JSON.stringify({ sidebar: both.sidebarWidth, inspector: both.inspectorWidth }),
+  );
+
+  // Double-click the seam: the way back from a column dragged into a corner.
+  const home = await seam("Sidebar");
+  await cdp.mouse.click(home.x, home.y);
+  await cdp.mouse.click(home.x, home.y, { clickCount: 2 });
+  const reset = await cdp.settle(layoutExpression, (seen) => seen.sidebarWidth === 240);
+  check("a double-click puts it back where it started", reset.sidebarWidth === 240);
 
   section("a file open, with no sidebar behind it");
   // The gap the user found on 2026-09-13: the preview replaces the content

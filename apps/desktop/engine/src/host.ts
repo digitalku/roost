@@ -235,6 +235,8 @@ export class EngineHost {
           ...(request.gridZoom !== undefined && { gridZoom: request.gridZoom }),
           ...(request.showSidebar !== undefined && { showSidebar: request.showSidebar }),
           ...(request.showInspector !== undefined && { showInspector: request.showInspector }),
+          ...(request.sidebarWidth !== undefined && { sidebarWidth: request.sidebarWidth }),
+          ...(request.inspectorWidth !== undefined && { inspectorWidth: request.inspectorWidth }),
         };
         if (Object.keys(quiet).length > 0) await library.updateSettings(quiet);
         return library.settings;
