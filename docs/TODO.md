@@ -796,12 +796,13 @@ viewer, which needed no schema at all.
 - 🔴 **ADR-0042's implementation is not in the working tree.** Found 2026-09-13: the ADR and
   `scripts/check-install.mjs` are here, and nothing they describe is — no `installer.ts`, no
   `installOffer`, no `adoptUserPath`, no `capability:install` in the contract, main, the engine or
-  the renderer, and `packages/media/src/install.ts` still keys only on `/etc/os-release`, so
-  Windows gets the fallback sentence the ADR exists to remove. Session 69 records it as built and
-  passing 9 checks against a real window, which makes this a loss rather than a plan; the likely
-  culprit is the `node_modules` removal of 2026-09-12 that followed junctions into `packages/`
-  (`SETUP.md` §1), and the same session's `packages/` work that *did* survive is uncommitted.
-  Until it is rebuilt, `check-install.mjs` cannot run at all.
+  the renderer. `packages/media/src/install.ts` names ffmpeg's Windows command since 2026-09-13,
+  but nothing turns that line into the offer the ADR is about, and HEIC has no command to name
+  there at all. Session 69 records it as built and passing 9 checks against a real window, which
+  makes this a loss rather than a plan; the likely culprit is the `node_modules` removal of
+  2026-09-12 that followed junctions into `packages/` (`SETUP.md` §1), and the same session's
+  `packages/` work that *did* survive is uncommitted. Until it is rebuilt, `check-install.mjs`
+  cannot run at all.
 
 - 🟡 **`pnpm install` fails on Windows unless build scripts are skipped.** `allowBuilds` in
   `pnpm-workspace.yaml` makes pnpm run an implicit `node-gyp rebuild` for `better-sqlite3` — which

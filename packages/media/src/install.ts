@@ -7,7 +7,8 @@ import { readFileSync } from "node:fs";
  * "Install libheif" is not an instruction anybody can follow — the package is
  * called something different everywhere, and on Fedora the piece that matters
  * is not in the distribution at all. So the line names a command, and the
- * command is chosen from `/etc/os-release` rather than guessed.
+ * command is chosen from `/etc/os-release` — or, on Windows, from the platform
+ * itself — rather than guessed.
  *
  * **Nothing here fetches anything** (invariant 7): this is a string for a
  * person to read and run themselves, in a terminal Roost does not have.
@@ -55,13 +56,42 @@ const FALLBACK: Readonly<Record<Installable, string>> = {
 };
 
 /**
+ * Windows, where the answer is the platform rather than a distribution.
+ *
+ * There is no `/etc/os-release` here, so every Windows machine was given the
+ * fallback — and for ffmpeg the answer is known and verified: winget's
+ * `Gyan.FFmpeg` is a user-scope install that wants no administrator and brings
+ * HEVC with it. It appends its own directory to the user `PATH`, which a
+ * running window cannot be made to re-read, so **Try again** will not see it
+ * until Roost is opened again.
+ *
+ * **HEIC keeps the fallback deliberately.** Nothing in winget ships
+ * `heif-dec`, MSYS2's package has not been tried, and naming a command that
+ * might not exist is what the fallback is there to avoid.
+ */
+const WINDOWS: Readonly<Record<Installable, string>> = {
+  heif: FALLBACK.heif,
+  media: "winget install Gyan.FFmpeg",
+};
+
+/**
  * The command for this machine, or a plain sentence where none is known.
  *
  * `ID_LIKE` is read after `ID`, which is what makes Linux Mint answer with
- * Debian's line and Nobara with Fedora's without either being listed.
+ * Debian's line and Nobara with Fedora's without either being listed. Windows
+ * is answered ahead of all of it, because the question there is the platform.
  */
-export function installCommand(what: Installable, release = osRelease()): string {
-  const ids = [release["ID"], ...(release["ID_LIKE"]?.split(/\s+/) ?? [])];
+export function installCommand(
+  what: Installable,
+  release?: Record<string, string>,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  // Ahead of `osRelease()` rather than after it, so Windows never reads for a
+  // file it cannot have.
+  if (platform === "win32") return WINDOWS[what];
+
+  const found = release ?? osRelease();
+  const ids = [found["ID"], ...(found["ID_LIKE"]?.split(/\s+/) ?? [])];
   for (const id of ids) {
     const family = id === undefined ? undefined : COMMANDS[id.toLowerCase()];
     if (family !== undefined) return family[what];

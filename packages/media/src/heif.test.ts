@@ -59,7 +59,7 @@ describe("what to tell somebody to install", () => {
   it("names Fedora's two packages, one of which is not Fedora's", () => {
     // Verified on Fedora 44 on 2026-09-10: `libheif-freeworld` is RPM Fusion's,
     // because Fedora ships no HEVC decoder at all.
-    expect(installCommand("heif", { ID: "fedora" })).toBe(
+    expect(installCommand("heif", { ID: "fedora" }, "linux")).toBe(
       "sudo dnf install libheif-tools libheif-freeworld",
     );
   });
@@ -67,16 +67,28 @@ describe("what to tell somebody to install", () => {
   it("follows ID_LIKE, so a derivative gets its parent's line", () => {
     // Linux Mint is not listed and never will be; `ID_LIKE=ubuntu debian` is
     // what makes it answerable anyway.
-    expect(installCommand("heif", { ID: "linuxmint", ID_LIKE: "ubuntu debian" })).toContain(
-      "apt install",
+    expect(
+      installCommand("heif", { ID: "linuxmint", ID_LIKE: "ubuntu debian" }, "linux"),
+    ).toContain("apt install");
+    expect(installCommand("media", { ID: "nobara", ID_LIKE: "fedora" }, "linux")).toContain("dnf");
+  });
+
+  it("answers Windows from the platform, not from a file it cannot have", () => {
+    // Verified: winget's is a user-scope install that wants no administrator.
+    expect(installCommand("media", {}, "win32")).toBe("winget install Gyan.FFmpeg");
+    // And HEIC keeps the sentence, because nothing in winget ships `heif-dec`
+    // and a command nobody has run is worse than no command.
+    expect(installCommand("heif", {}, "win32")).toBe(
+      "install libheif's tools and its HEVC decoder plugin",
     );
-    expect(installCommand("media", { ID: "nobara", ID_LIKE: "fedora" })).toContain("dnf");
   });
 
   it("names the thing rather than a command when the system is unknown", () => {
     // A wrong package name is worse than none: it sends somebody to a terminal
     // to be told nothing matches.
-    expect(installCommand("heif", {})).toBe("install libheif's tools and its HEVC decoder plugin");
-    expect(installCommand("media", { ID: "plan9" })).toBe("install ffmpeg");
+    expect(installCommand("heif", {}, "linux")).toBe(
+      "install libheif's tools and its HEVC decoder plugin",
+    );
+    expect(installCommand("media", { ID: "plan9" }, "linux")).toBe("install ffmpeg");
   });
 });
