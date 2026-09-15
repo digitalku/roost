@@ -38,6 +38,7 @@ import { tag } from "./commands/tag.js";
 import { thumb } from "./commands/thumb.js";
 import { type Command, helpFor, isCommand, VERSION } from "./help.js";
 import { EXIT, flag, list, type Streams, text, usage, type Values } from "./io.js";
+import { setNoticeSink } from "./open.js";
 import { resolveLibrary } from "./resolve.js";
 
 export { EXIT, type Streams } from "./io.js";
@@ -162,6 +163,10 @@ export async function run(argv: readonly string[], streams: Streams): Promise<nu
   }
 
   installLogging(list(values, "verbose").length + (values["verbose"] === true ? 1 : 0));
+  // On stderr with the rest of what is not a result: a notice about the journal
+  // is news about the library, not the answer to the question that was asked,
+  // and `roost query | head` must not carry it into a pipe.
+  setNoticeSink(streams.warn);
 
   try {
     return await dispatch(first, parsed.positionals, values, streams);

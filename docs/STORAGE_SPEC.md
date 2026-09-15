@@ -1,500 +1,198 @@
-# Storage Specification
+# Storage — how this build meets the library format
 
-**Status: BINDING** · Version 1 · Accepted 2026-08-20 (ADR-0004)
+**Roost Library Format 1, revision 1.0.** The normative document is `SPEC.md` in the
+[`roost-library`](../../roost-library) repository, checked out beside this one. This file is
+**not** a specification and binds nothing on its own: it is the map from that document's
+numbered requirements to the code here, plus the notes that belong to this implementation
+and to no other.
 
-This document is binding. Any deviation requires explicit approval.
+> **Where the rules are.** `SPEC.md` (requirements `RL-1`…`RL-41`), `ops/REGISTRY.md` (every
+> journal operation), `conformance/` (a library and the state replaying it must produce), and
+> `CHANGING.md` (how any of those may change). Nothing from them is copied here. A copy drifts
+> the moment somebody fixes one of them, and a format read by three implementations cannot
+> afford a second opinion — see ADR-0045.
 
-## Port note (2026-08-24)
+## Status (2026-09-15)
 
-This specification is carried over **unchanged in substance** from the Rust/Tauri
-implementation at `../roost-old`. It governs the on-disk format, and the format did not
-change when the language did.
+Until this date the binding document was **this file**, carried over from the Rust
+implementation at `../roost-old` and amended four times in place. It has been replaced by a
+standard that no implementation owns, with the requirements numbered and with nothing in it
+naming a path in anybody's source tree. **No rule changed in the move.** What changed is who
+gets to change them, and how: every change now raises a document revision or a format version,
+and `conformance/` is extended in the same commit.
 
-**Amended 2026-08-29 (user decision).** This note used to require that a library written by
-either implementation open in the other. It no longer does: `roost-old` is a discontinued
-project, and schema growth this specification always allowed — `DATA_MODEL.md` §2 — reached the
-point where its build refuses the index (v6, M4). Nothing about the *format* changed with that
-decision: the layout, the hashing, the journal records, and the invariants below are untouched,
-and a library `roost-old` wrote still opens here. What was retired is an obligation to a dead
-build, not a rule about bytes on disk.
+Two things the old document did that the standard deliberately does not:
 
-Exactly two things were edited, both of them file paths naming where the *code* lives, never
-what the *library* contains:
+- **It specified thumbnails as WebP.** They are outside the format now (`RL-2`), because they
+  are derived from bytes the format *does* define and an implementation that throws them away
+  loses nothing but time. WebP at quality 80 is still what this build encodes; it is our
+  decision now, not the format's, and `ARCHITECTURE.md` §4.5 owns it.
+- **It carried schema v1.** The index is a cache (`RL-2`), so the schema moved to
+  `DATA_MODEL.md` §2.0 where the rest of the migrations already lived.
 
-- `crates/core/migrations/` became `packages/core/migrations/`
-- `crates/core/src/journal/op.rs` became `packages/core/src/journal/op.ts`
+## The map
 
-Nothing else — no invariant, no schema line, no journal record, no forbidden pattern — was
-touched. Those two edits are listed in `docs/TODO.md` §1 for confirmation rather than assumed,
-because this document is binding and even a path is a deviation in letter.
+Every requirement, and where this build meets it. A row with no code reference is met by
+construction or by a rule nothing here can break.
 
+### Scope and identity
 
-## Directory Layout
+| | | |
+|---|---|---|
+| RL-1 | The normative files are read and written as specified | `packages/core` |
+| RL-2 | `index.db`, `settings.json`, `staging/` are ours, not the format's | `db/`, `settings.ts`, `storage/handoff.ts` |
+| RL-3 | Nothing unlisted is created in the library root | Only the six names are ever joined to the root |
+| RL-4 | A library is a readable `library.json` with an integer version | `library/src/manifest.ts` |
+| RL-5, RL-5b | All four fields required; a bad file is *not a library*, never repaired | `manifest.ts` · `tests/standard.test.ts` |
+| RL-5a | Unrecognised fields ignored on read and **kept on write** | `Manifest.unrecognised` |
+| RL-6 | A higher version refuses to open and touches nothing | `LibraryTooNewError`, thrown before any handle is taken |
+| RL-6a, RL-6b | `<name>.roost` on write; never required on read, never renamed | `library/src/naming.ts` (ADR-0014) |
 
-```
-MyLibrary/
-├── originals/
-│   └── a3/
-│       ├── a3f2c9d1e5b4...8f.jpg
-│       └── a3b71e4a8802...c1.psd
-├── index.db              SQLite. Derived cache. Safe to delete.
-├── journal/
-│   ├── 2026-08.jsonl     Append-only. Source of truth.
-│   └── 2026-07.jsonl
-├── library.json          Format version and library id. Strictly validated.
-├── settings.json         Per-library preferences. Optional (ADR-0019).
-└── staging/              Named copies handed to other applications. Transient
-    └── Holiday.jpg       (ADR-0034). Emptied when the library opens.
-```
+### Layout and hashing
 
-`staging/` was added on 2026-09-07 by the user's decision (ADR-0034). It exists
-because the store names a file by its hash, which is right for a
-content-addressed library and unreadable the moment a file is handed to another
-application: dropping `a3f2c9….jpg` into a chat window gives somebody a name
-they cannot read. A copy under the name the library shows goes here first.
+| | | |
+|---|---|---|
+| RL-7 | One shard level, first two hex characters | `core/src/model/content-hash.ts` — `shardOf` |
+| RL-8, RL-8a, RL-8b, RL-8c | `<hash>.<ext>`, extension from the name's last dot, no trailing dot | `storage/managed.ts` — `locate` · `import.ts` |
+| RL-9 | Shards created as files arrive | `storage/managed.ts` — `put` |
+| RL-10 | Nothing under `originals/` is moved, renamed, edited or deleted | |
+| RL-11 | Identity is the content hash | `ContentHash` is branded, not a bare string |
+| RL-12, RL-12a | BLAKE3; over 50 MiB, size prefix plus two 64 KiB windows, seeking | `media/src/hash.ts` |
+| RL-13 | A partial hash is recorded as one | `add.partial`, `assets.is_partial_hash` |
+| RL-14 | The size prefix is eight bytes, unsigned, little-endian | `writeBigUInt64LE` |
 
-It is **inside the library** rather than in `/tmp` for one reason: a reflink
-works only within a filesystem, and `/tmp` is routinely a different one — so
-staging elsewhere would turn a free copy-on-write clone into a full byte copy on
-exactly the machines that support cloning.
+### Modes
 
-**It is not library data.** Nothing here is journalled, nothing is derived from
-it, and a rebuild neither reads nor writes it. Deleting the directory at any
-moment costs nothing but the files somebody has already been handed. It is
-emptied when the library opens rather than when it closes: a file given to
-another application may still be being read, and a clipboard reference outlives
-the session that wrote it.
+| | | |
+|---|---|---|
+| RL-15, RL-15a | reflink → hardlink → copy, and which succeeded is recorded | `storage/managed.ts` — `place` (ADR-0012) |
+| RL-16 | `referenced` mode never writes into the user's directories | `storage/referenced.ts` refuses rather than stubbing |
+| RL-17 | A missing referenced file is reported, never dropped | `library/src/doctor.ts` — `missingReferences` |
 
-`settings.json` was added on 2026-08-30 by the user's decision, and it was the
-only other change this repository has made to the layout. It is optional in the
-strongest sense: a library without one is complete, and a damaged one falls back
-to defaults rather than making the library unopenable — which is why it is a
-second file and not fields inside `library.json`. It is **not journalled**, and
-`rebuild` does not touch it: a preference is neither library data nor derived
-from it, so invariants 6 and 9 do not reach it.
+### The journal
 
-## Invariants
+| | | |
+|---|---|---|
+| RL-18 | Append-only | `journal/writer.ts` — files opened `"a"`, never rewritten |
+| RL-19, RL-19a | `YYYY-MM.jsonl`, the month read in **UTC** | `journal/writer.ts` — `monthKey` |
+| RL-20 | Oldest month first, records in file order | `journal/replay.ts` |
+| RL-21 | Journal before index, always | `edit.ts` — `apply`, `import.ts` — `commit` |
+| RL-22 | Never rewritten, compacted, rebuilt or pruned | No code anywhere writes to a journal file except by append |
+| RL-23, RL-23a | `ts` and `op` on every record; `at` is the one number in ms | `journal/op.ts` |
+| RL-24 | The operations are the registry's | `OP_NAMES`, checked against it by `spec-conformance.test.ts` |
+| RL-25, RL-25a | Ids are journalled explicitly, and minted from the **journal's** maximum | `db/repo.ts` — `noteIdUsed`, `nextFolderId` |
+| RL-26 | An unknown `op` is skipped with a warning, never an error | `journal/replay.ts` — `unknownOps` |
+| RL-26a | A dangling reference is skipped, logged, counted — and nothing is invented | `db/sink.ts` — `referentsOf` |
+| RL-27 | A torn final line is skipped like an unknown op | `journal/replay.ts` — `tornTrailing` |
+| RL-28 | The **person** is told, and the platform named where the prefix says it | `JournalNotice.tsx` · `cli/src/open.ts` |
+| RL-29 | Platform operations carry a prefix | `journal/op.ts` — `platformOf`, `platformName` |
 
-These must hold at all times. A violation is a bug, not a tradeoff.
+### Extension, text, and what is forbidden
 
-1. **Asset identity is the content hash.** Not the path, not the filename.
-2. **Sharding is one level**: the first two hex characters of the hash,
-   giving 256 buckets. Not two levels. Not one directory per asset.
-3. **On-disk filename is the full hash plus the original extension**,
-   lowercased. The user's original filename lives in the database only.
-4. **Shard directories are created lazily** as files arrive. Do not
-   pre-create all 256.
-5. **The journal is append-only.** Never edited, never rewritten in place.
-   Rotated monthly.
-6. **`index.db` must be fully rebuildable** from journal plus originals.
-   Any state that exists only in the database is a bug.
-7. **Thumbnails are BLOBs in `index.db`**, never loose files.
-8. **Folders are collections.** An asset belongs to zero or more folders
-   through a join table. Never a path column on the asset.
+| | | |
+|---|---|---|
+| RL-30, RL-31 | A new operation never raises the format version | This build writes no operation the registry lacks |
+| RL-32 | Unknown fields on a known operation are ignored, never rewritten away | `toRecord` reads the fields it knows and nothing else |
+| RL-33, RL-34 | No extension entity is a prerequisite for a core one | This build defines no platform operation |
+| RL-35 | UTF-8, `\n`, no BOM | `writeFile(…, "utf8")`; `toLine` ends every record with `\n` |
+| RL-36 | Filenames normalised to NFC on write | `core/src/model/text.ts` — `toNfc` |
+| RL-37 | An absent optional field is absent, except where `null` carries meaning | `journal/op.ts` — `?:` versus `\| null`, and the comment that says why |
+| RL-38 | The forbidden list | Reproduced in `CLAUDE.md` §5, which is what a session reads |
 
-## Hashing
+### Conformance
 
-- Files up to 50 MB: BLAKE3 over the entire file.
-- Files over 50 MB: BLAKE3 over the concatenation of
-  `file_size as u64 little-endian` + `first 64 KB` + `last 64 KB`.
-- Stored as a 64-character lowercase hex string.
-- Assets hashed partially set `is_partial_hash = 1` so they can be upgraded
-  to a full hash later without a schema change.
-
-## Import Modes
-
-**`managed`** — the file is placed under `originals/`. Attempt in order:
-
-1. **reflink** (`FICLONE` ioctl) — copy-on-write, zero bytes consumed.
-   Works on Btrfs and XFS. Preferred: the copy is independent, so later
-   edits to the user's file do not silently alter the library copy.
-2. **hardlink** — same filesystem only. Note that the two names share an
-   inode, so edits are visible through both.
-3. **copy** — fallback across filesystems.
-
-Record which method succeeded in `link_method`. Never move or delete the
-user's original file.
-
-**`referenced`** — the file stays where it is. The database stores an
-absolute path and a hash. Nothing is ever written into the user's folders.
-
-## Schema
-
-Version 1. Schema changes go in numbered migration files under
-`packages/core/migrations/`. Never edit an applied migration.
-
-```sql
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE meta (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
--- must contain ('schema_version', '1')
-
-CREATE TABLE assets (
-  hash            TEXT PRIMARY KEY,
-  ext             TEXT NOT NULL,
-  size            INTEGER NOT NULL,
-  width           INTEGER,
-  height          INTEGER,
-  duration_ms     INTEGER,          -- video and audio only
-  orig_name       TEXT NOT NULL,
-  storage_mode    TEXT NOT NULL
-                  CHECK (storage_mode IN ('managed', 'referenced')),
-  link_method     TEXT CHECK (link_method IN ('reflink', 'hardlink', 'copy')),
-  ref_path        TEXT,             -- referenced mode only
-  is_partial_hash INTEGER NOT NULL DEFAULT 0,
-  created_at      INTEGER,          -- source file mtime, unix seconds
-  imported_at     INTEGER NOT NULL
-);
-
-CREATE INDEX idx_assets_imported ON assets(imported_at DESC);
-CREATE INDEX idx_assets_ext      ON assets(ext);
-
-CREATE TABLE thumbs (
-  hash   TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
-  size   INTEGER NOT NULL,          -- longest edge: 256 or 512
-  width  INTEGER NOT NULL,
-  height INTEGER NOT NULL,
-  data   BLOB NOT NULL,             -- WebP, quality 80
-  PRIMARY KEY (hash, size)
-);
-
-CREATE TABLE folders (
-  id         INTEGER PRIMARY KEY,
-  parent_id  INTEGER REFERENCES folders(id) ON DELETE CASCADE,
-  name       TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE INDEX idx_folders_parent ON folders(parent_id);
-
-CREATE TABLE asset_folders (
-  hash      TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
-  folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
-  PRIMARY KEY (hash, folder_id)
-);
-
-CREATE INDEX idx_asset_folders_folder ON asset_folders(folder_id);
-
-CREATE TABLE tags (
-  id   INTEGER PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE COLLATE NOCASE
-);
-
-CREATE TABLE asset_tags (
-  hash   TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
-  tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-  PRIMARY KEY (hash, tag_id)
-);
-
-CREATE INDEX idx_asset_tags_tag ON asset_tags(tag_id);
-
-CREATE VIRTUAL TABLE assets_fts USING fts5(
-  hash UNINDEXED,
-  orig_name,
-  tags,
-  tokenize = 'unicode61'
-);
-```
-
-## Journal Format
-
-One operation per line, JSON, newline-delimited. `ts` and `op` are required
-on every record. `ts` is unix seconds.
-
-```json
-{"ts":1755648000,"op":"add","hash":"a3f2...","ext":"jpg","size":204813,"name":"beach trip.jpg","mode":"managed","link":"reflink","w":4000,"h":3000}
-{"ts":1755648100,"op":"tag_add","hash":"a3f2...","tags":["reference","blue"]}
-{"ts":1755648200,"op":"tag_remove","hash":"a3f2...","tags":["blue"]}
-{"ts":1755648250,"op":"folder_create","id":7,"parent":null,"name":"Moodboards"}
-{"ts":1755648260,"op":"folder_add","hash":"a3f2...","folder":7}
-{"ts":1755648300,"op":"remove","hash":"a3f2..."}
-```
-
-Replay processes files in chronological order, oldest month first.
-
-**Unknown `op` values must be skipped with a warning, not treated as an
-error.** This lets a library written by a newer version still open in an
-older one, and is what keeps invariant 6 survivable across releases.
-
-## Rebuild Test
-
-There must be a test that deletes `index.db`, replays the journal, and
-asserts the resulting database is equivalent to the original. This test
-guards invariant 6, which is the easiest one to leak as the project grows.
-
-## Forbidden Patterns
-
-Do not, under any framing:
-
-- Store thumbnails as separate PNG or JPEG files on disk
-- Write a `metadata.json` sidecar per asset
-- Shard across two directory levels
-- Use the original filename as the on-disk filename
-- Encode images as base64 anywhere in the pipeline
-- Write anything into user directories in `referenced` mode
-- Add a `path` or `folder` column to `assets` to represent collections
-- Move or delete a user's original file during import
+| | | |
+|---|---|---|
+| RL-39 | The standard's suite is run, against a checkout beside this one | `packages/library/tests/format-conformance.test.ts` |
+| RL-40 | Delete the cache, replay, assert the same state | `packages/core/tests/journal-replay.test.ts` |
+| RL-41 | Digests the standard publishes, not ones this code produced | `packages/media/src/hash.test.ts` |
 
 ---
 
 ## Implementation notes
 
-Non-normative. These record consequences of the spec that implementers must
-handle. They add no requirements and permit no deviation.
+Ours, not the format's. They record consequences an implementer has to handle, add no
+requirements, and permit no deviation from `SPEC.md`.
 
 ### Derived, not stored
-Thumbnails and FTS rows are *derived* and therefore exempt from invariant 6's
-journal requirement: they are regenerated from `originals/` and from replayed
-state, not replayed from the journal. Everything a user *authored* — tags,
-folders, membership, names — must be in the journal.
 
-### Partial-hash upgrade
-Because identity is the hash (invariant 1) and the on-disk filename is the hash
-(invariant 3), upgrading a >50 MB asset from partial to full hash changes both
-its primary key and its filename. Treat it as a journalled operation, not an
-in-place `UPDATE`, so a rebuild reproduces it.
+Thumbnails and FTS rows are *derived* and therefore outside the journal: they are regenerated
+from `originals/` and from replayed state. Everything a user **authored** — tags, folders,
+membership, names, ratings, notes — is a journal line first (RL-21). The test for which is the
+one worth remembering: if a person typed it or clicked it, it goes in the journal; if a machine
+derived it from bytes, it does not.
+
+### The cache is caught up on open
+
+The format puts the index outside itself, so a library written by another implementation arrives
+with no cache of ours — or with one built before that implementation last appended. `index.db`
+therefore records how far it has folded the journal, as the byte length of each month file, and
+an open that finds a mismatch folds the journal before the window draws anything. Sizes rather
+than digests: the journal is append-only, so a file that has not grown cannot have changed, and
+hashing it would make every open cost what a rebuild costs.
+
+The fold is **not** preceded by emptying the index. A rebuild does that deliberately; an open
+must not, or meeting one file another implementation added would throw away every thumbnail in
+the library. Replaying over what is there converges on the same state, because every operation
+sets a value rather than toggling one and the journal never loses a line.
+
+One consequence is worth knowing before anybody edits `applyAdd`: `width` and `height` are
+`coalesce`d on conflict, because they are the only columns with two sources — a header probe at
+import and a derive backend afterwards. An absent `w` on an `add` means the importer could not
+tell, not that the asset has none, and a fold that applied it as `NULL` would square off every
+asset whose dimensions had come from the second source, with nothing to restore them.
+
+**It is a whole-journal fold, not an incremental one.** The mark is a length, so the records past
+it could be read alone — that is a worthwhile optimisation and it is not built. `TODO.md` §3
+carries it.
 
 ### Partial-hash collisions cannot be detected by size
-An earlier draft of this note claimed the importer should escalate to a full
-hash when it finds an existing row with the same hash but a different size.
-**That check can never fire.** The size is hashed as the little-endian prefix,
-so two files with the same partial hash necessarily have the same size.
 
-The real blind spot is narrower and undetectable at import time: two files that
-share a size, a first 64 KB, and a last 64 KB, but differ somewhere in the
-middle, produce the same hash and are merged into one asset. Distinct video
-files rarely satisfy all three conditions; files derived from one another —
-a re-muxed container, a patched disk image — plausibly can.
+An early draft of this note claimed the importer should escalate to a full hash on finding an
+existing row with the same hash and a different size. **That check can never fire.** The size is
+hashed as the little-endian prefix, so two files sharing a partial hash necessarily share a size.
 
-Options, none free:
-- **Accept it.** Report partial-hash duplicates separately so the count is
-  visible rather than implied.
-- **Verify on collision** (current behaviour, since 2026-08-24). When a
-  duplicate is decided by a partial hash and the stored bytes are reachable,
-  the two files are compared byte for byte before merging. Costs a full read
-  only on the rare duplicate, never on an ordinary import. Matching bytes are an
-  ordinary duplicate; differing bytes are refused outright and counted in
-  `ImportReport::partial_collisions`, because merging them would lose one of the
-  two files. `ImportReport::partial_duplicates` now means the narrower thing it
-  always should have: a partial match whose stored bytes could **not** be
-  reached — a referenced original, which lives outside the object store.
-- **Full-hash override.** A per-import flag that hashes everything completely,
-  for libraries where even the unverifiable remainder is unacceptable. Not
-  implemented.
+The real blind spot is narrower and undetectable at import time: two files sharing a size, a
+first 64 KiB and a last 64 KiB but differing in the middle hash the same and would be merged
+into one asset. Distinct videos rarely satisfy all three; files derived from one another — a
+re-muxed container, a patched disk image — plausibly can.
 
-Refusing is not the last word: the file is untouched on disk, and the
-partial-to-full hash upgrade above is what would eventually let both be stored.
+This build **verifies on collision** (since 2026-08-24). When a duplicate is decided by a partial
+hash and the stored bytes are reachable, the two files are compared byte for byte before merging.
+That costs a full read only on the rare duplicate and never on an ordinary import. Matching bytes
+are an ordinary duplicate; differing bytes are refused outright and counted in
+`ImportReport.partialCollisions`, because merging them would lose one of the two files.
+`partialDuplicates` means the narrower thing it always should have: a partial match whose stored
+bytes could **not** be reached — a referenced original, which lives outside the object store.
 
-### Folder ids in replay
-`folder_create` carries an explicit `id`. Replay must insert that exact id
-rather than letting SQLite autoassign, or `folder_add` records will dangle.
-Allocate ids from the journal's own maximum, never from `last_insert_rowid()`
-after a partial replay.
+RL-12's own note permits all of accepting, verifying and refusing. Refusing is not the last word:
+the file is untouched on disk, and the partial-to-full upgrade below is what would eventually let
+both be stored.
+
+### Partial-hash upgrade
+
+Identity is the hash (RL-11) and the on-disk filename is the hash (RL-8), so upgrading an asset
+over 50 MiB from a partial hash to a full one changes both its primary key and its filename. It
+has to be a journalled operation rather than an in-place `UPDATE`, or a rebuild will not
+reproduce it — and **the format defines no operation for it yet** (`SPEC.md` §11.3). Nothing here
+may invent one; it is proposed against the standard first.
 
 ### Journal durability
-The journal is the source of truth, so a write that reaches the database but
-not the journal is data loss. Order every mutation journal-first, then index,
-and `fsync` the journal on a bounded interval (or per batch during bulk
-import). A trailing torn line from a crash must be skipped on replay with a
-warning, exactly as an unknown `op` is.
+
+A write that reaches the database but not the journal is data loss, so every mutation is ordered
+journal-first and the journal is `fdatasync`ed per batch rather than per record — an import of
+100 000 files would otherwise spend most of its time waiting on the disk. A trailing torn line
+from a crash is skipped on replay with a warning, exactly as an unknown `op` is (RL-27).
 
 ### Fields the `add` record needs beyond the published example
 
-**Approved 2026-08-20.** The example `add` line carries
-`hash, ext, size, name, mode, link, w, h`. Invariant 6 cannot hold with only those,
-because three pieces of state exist nowhere else once import has happened:
+`ref`, `created` and `partial` are optional in the registry and are **not** optional in practice,
+because each is state that exists nowhere else once import has happened: a referenced asset's
+location, the source file's mtime, and whether the hash was partial. All three are omitted from
+the line when empty, so the common case stays as small as the published example.
 
-- `ref` — absolute path, referenced mode only. Those bytes are not under `originals/`, so a
-  rebuild has no other source for their location. Without it, every referenced asset and
-  its tags are lost on rebuild.
-- `created` — the source file's mtime. The library copy's mtime is the import time, so the
-  original's is unrecoverable. This is `assets.created_at`.
-- `partial` — mirrors `assets.is_partial_hash`. Derivable from `size` today, but recorded
-  explicitly so that changing the 50 MB threshold later cannot retroactively reinterpret
-  old records.
+### Where the schema lives
 
-All three are omitted from the line when empty, so the common case stays as small as the
-published example. Implemented in `packages/core/src/journal/op.ts`.
-
-### Ops added after v1
-
-**M2, 2026-08-21.** The v1 set covers add, remove, tag add/remove, folder
-create, and folder add — enough to import, not enough to organize. The
-operations below were added under the rule this document already states: a new
-`op` value, never a repurposed one, tolerated by older builds because unknown
-ops are skipped.
-
-```json
-{"ts":1755648400,"op":"folder_remove","hash":"a3f2...","folder":7}
-{"ts":1755648410,"op":"folder_rename","id":7,"name":"References"}
-{"ts":1755648420,"op":"folder_move","id":7,"parent":null}
-{"ts":1755648430,"op":"folder_delete","id":7}
-{"ts":1755648440,"op":"asset_rename","hash":"a3f2...","name":"beach at dusk.jpg"}
-{"ts":1755648450,"op":"tag_rename","from":"blue","to":"cyan"}
-{"ts":1755648460,"op":"rate","hash":"a3f2...","rating":4}
-{"ts":1755648470,"op":"note_set","hash":"a3f2...","note":"client approved"}
-{"ts":1755648480,"op":"favorite_set","hash":"a3f2...","favorite":true}
-{"ts":1755648490,"op":"smart_folder_create","id":1,"parent":null,"name":"Recent PNGs","query":"ext:png imported:>2026-01-01"}
-{"ts":1755648500,"op":"smart_folder_update","id":1,"name":"Recent PNGs","query":"ext:png rating:>=4"}
-{"ts":1755648510,"op":"smart_folder_delete","id":1}
-{"ts":1755648520,"op":"tag_group_create","id":1,"name":"Material"}
-{"ts":1755648530,"op":"tag_group_rename","id":1,"name":"Materials"}
-{"ts":1755648540,"op":"tag_group_set","tag":"wood","group":1}
-{"ts":1755648550,"op":"tag_group_delete","id":1}
-```
-
-`tag_group_set` names its tag rather than numbering it, exactly as `tag_add`
-and `tag_rename` do: tag ids are assigned by the index, which is derived, so a
-journal record must never depend on one. `"group":null` takes the tag out of
-its group.
-
-`tag_group_delete` removes the arrangement, not the tags. `tags.group_id` is
-`ON DELETE SET NULL`, so the tags survive ungrouped and every asset carrying
-them is untouched.
-
-Three of them carry meaning in a `null` that an absent field would lose, so the
-field is always written: `rate` with `"rating":null` clears the rating, which is
-distinct from one star; `note_set` with `"note":null` clears the note; and
-`folder_move` with `"parent":null` moves a folder to the top level.
-
-`tag_rename` onto a name that already exists **merges** into it. That is not a
-convenience — `tags.name` is `UNIQUE COLLATE NOCASE`, so no other outcome both
-succeeds and replays to the same state.
-
-`folder_delete` removes the folder, its descendants, and every membership in
-them, by cascade. The assets are untouched: folders are collections, not
-locations.
-
-**M3 addendum, 2026-09-01 (ADR-0022).** Two more, under the same rule:
-
-```json
-{"ts":1755648600,"op":"trash","hash":"a3f2..."}
-{"ts":1755648610,"op":"restore","hash":"a3f2..."}
-```
-
-`trash` marks an asset trashed and changes nothing else about it — the row, its
-tags, its rating, its note, its folder memberships, and its thumbnail all stay.
-It carries **no timestamp of its own**: the line already has `ts`, and replay
-writes `assets.trashed_at` from it, so a live edit and a rebuild cannot disagree
-about when something was trashed. Two `trash` ops for one asset are idempotent
-in the way an append-only log makes natural — the later one wins.
-
-`remove` keeps exactly the meaning it has always had, and is what emptying the
-trash writes. An older build that does not know these two ops skips them and
-sees every asset as live, which is the correct degradation: it shows more than
-it should rather than losing anything.
-
-**M4 addendum, 2026-09-02 (ADR-0023, ADR-0024).** Four more, under the same
-rule. The first three were built on 2026-09-02 and this list was not updated
-with them at the time; they are recorded here now, with the fourth.
-
-```json
-{"ts":1755648700,"op":"comment_add","id":1,"hash":"a3f2...","at":91500,"body":"the cut lands early"}
-{"ts":1755648710,"op":"comment_set","id":1,"at":91000,"body":"two frames early"}
-{"ts":1755648720,"op":"comment_remove","id":1}
-{"ts":1755648730,"op":"poster_set","hash":"a3f2...","at":91500}
-```
-
-**`at` is milliseconds, and it is the only number in this format that is not
-unix seconds.** It is an offset into a medium rather than a date, and a second
-of granularity on a 24fps cut is twenty-four frames of ambiguity. It is named
-`at` and not `ts` so that it cannot be read as the line's own timestamp, which
-is what `created_at` is replayed from.
-
-Both carry meaning in a `null` that an absent field would lose, so the field is
-always written. `comment_add` and `comment_set` with `"at":null` are a comment
-about the **asset** rather than about a moment in it, which is what lets a
-`.zip` carry one. `poster_set` with `"at":null` returns a video's thumbnail to
-the default frame — which is not the first frame, but one a tenth of the way in.
-
-`comment_add` mints its `id` as `max(id) + 1` and journals it, exactly as
-`folder_create` does, so a rebuild reproduces it by construction rather than
-from insertion order. `comment_set` edits in place and keeps that id.
-
-**`poster_set` records where to look, never the pixels.** The thumbnail does not
-stop being a function of the file — it becomes a function of the file *and one
-number*, so a rebuild replays the op and the derive pass re-extracts the frame.
-An image in a journal line would be base64 in a text file, which the forbidden
-patterns refuse twice over. A different ffmpeg build may land a frame away on a
-long-GOP file; that is acceptable precisely because the instruction is the
-durable thing and the picture is a cache.
-
-An older build that does not know these four skips them: it shows an asset with
-no comments and a thumbnail at the default frame, which is showing less rather
-than losing anything.
-
-**M4 addendum, 2026-09-05 (ADR-0025, ADR-0026, ADR-0030).** Four more, under the
-same rule — and the first three were built on 2026-09-03 without this list being
-updated, which is the second time that has happened. They are recorded here now.
-
-```json
-{"ts":1755648800,"op":"subtitle_attach","hash":"a3f2...","track":"b7c1...","lang":"en","label":"English"}
-{"ts":1755648810,"op":"subtitle_detach","hash":"a3f2...","track":"b7c1..."}
-{"ts":1755648820,"op":"supersede","hash":"a3f2...","to":"c9d4..."}
-{"ts":1755648830,"op":"source_set","hash":"a3f2...","url":"https://example.com/the-post"}
-```
-
-**A caption track is an ordinary asset**, addressed by its own content hash, and
-the attachment is this line rather than a folder convention (ADR-0025). `lang`
-and `label` are omitted when unknown.
-
-**`supersede` records that an edit happened, not what changed** (ADR-0026). The
-bytes are the identity, so a save is a new asset; `"to":null` undoes the mark.
-
-**`source_set` carries a `null` that an absent field would lose**, as `note_set`
-does: `"url":null` clears where the file came from. The value is stored exactly
-as the user typed it — unparsed, unnormalised, and not required to have a
-scheme — because it is an answer to a question rather than an address this
-format vouches for (ADR-0030).
-
-An older build that does not know these four skips them: it shows a video with
-no caption tracks, an edited asset with no link to its replacement, and no
-source. Showing less, again, rather than losing anything.
-
-**Every operation above is checked against the implementation.**
-`packages/core/tests/spec-conformance.test.ts` reads every JSON block in this
-document, asserts their `op` values are exactly `OP_NAMES`, and parses and
-re-serialises each line byte for byte. An operation built without a line here
-fails, and so does a line here the implementation cannot read. That check exists
-because this list fell behind twice, and a list nothing verifies is a list that
-falls behind a third time.
-
-Still undefined, for want of a feature that needs them: stacking, watched
-roots, and the partial-to-full hash upgrade described above.
-
-### Referenced mode and rebuild
-A `referenced` asset's bytes are not under `originals/`, so a rebuild after the
-user moves or deletes that file cannot restore it. Replay must reinstate the
-row with its recorded `ref_path` and mark it missing at verification time
-rather than dropping it — dropping it would lose the user's tags for a file
-that may simply be on an unmounted drive.
-
-### TypeScript implementation notes
-
-Non-normative, and specific to this implementation. They record where a hosted language can
-silently produce bytes the specification does not describe.
-
-**The partial hash's size prefix is 8 bytes, little-endian, unsigned.** The spec says
-`file_size as u64 little-endian`, which in TypeScript means an 8-byte buffer written with
-`writeBigUInt64LE`, never a `Number` written as a double and never a decimal string. A library
-whose >50 MB assets hash differently from `roost-old`'s is not compatible with it, and nothing
-in a test that only round-trips through one implementation will say so. The conformance test
-must hash a fixed 50+ MB fixture and assert a hard-coded hex digest taken from the Rust.
-
-**Hashing streams.** BLAKE3 over a whole file must not read the file into memory: assets are
-routinely gigabytes. The partial scheme reads exactly two 64 KB windows by seeking, and reads
-nothing in between.
-
-**WebP encoding is not byte-identical across encoders**, and does not need to be. Thumbnails
-are derived (see *Derived, not stored* above), so an encoder change re-derives them rather than
-breaking a library. Only `size`, `width`, and `height` in the `thumbs` row are normative; the
-BLOB is whatever the current encoder produced at quality 80.
-
-**Text is written as UTF-8 with `\n` line endings, one JSON object per line, no BOM.**
-`JSON.stringify` is used for journal records; it must be given a plain object built field by
-field, never a class instance and never an object carrying `undefined` values, so that an
-absent optional field is *absent* rather than serialised inconsistently.
+`DATA_MODEL.md` §2 — v1 at §2.0, and one numbered migration per section after it. The index is a
+cache, so none of that is the format's business; what is the format's business is that every row
+in it can be rebuilt from the journal and `originals/`.

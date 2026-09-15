@@ -57,13 +57,53 @@ export function isOpName(value: string): value is OpName {
 }
 
 /**
+ * Which implementation an operation belongs to, read from its name (RL-29).
+ *
+ * A core operation carries no prefix; one belonging to a platform carries it
+ * before a dot — `mac.quicklook_tag`, `win.shell_pin`. That single character is
+ * the whole of what lets a message say *"this is available in Roost for Mac"*
+ * without a registry of everybody's features, which is why the format made it a
+ * requirement rather than a convention.
+ *
+ * The two unknowns it separates carry very different weight. An unprefixed name
+ * this build does not know is a **core operation from a later revision of the
+ * format**, and other core operations may depend on it. A prefixed one is
+ * another operating system's, and is safe to ignore forever — except when the
+ * prefix is this platform's own, which means a newer build of the same Roost.
+ */
+export function platformOf(op: string): string | undefined {
+  const dot = op.indexOf(".");
+  return dot === -1 ? undefined : op.slice(0, dot);
+}
+
+/**
+ * The name a person would recognise for a platform prefix.
+ *
+ * An unknown prefix is handed back as it was written rather than guessed at: a
+ * prefix nobody here has seen is exactly the case where inventing a product
+ * name would be wrong, and the raw string is still something to search for.
+ */
+export function platformName(prefix: string): string {
+  switch (prefix) {
+    case "win":
+      return "Roost for Windows";
+    case "mac":
+      return "Roost for Mac";
+    case "linux":
+      return "Roost for Linux";
+    default:
+      return prefix;
+  }
+}
+
+/**
  * The optional fields of an `add`.
  *
  * **The distinction between `?:` and `| null` here is the file format**, not a
  * style choice. A field declared `?:` is *omitted* when absent, because
  * `JSON.stringify` drops `undefined`; a field declared `| null` is always
  * written, because an absent field and an explicit `null` mean different things
- * to the operations that carry one (`STORAGE_SPEC.md` §Ops added after v1).
+ * to the operations that carry one (RL-37, and the registry's notes).
  *
  * Three of these exist only here: `created`, `ref`, and `partial` cannot be
  * recovered from `originals/`, so a rebuild without them loses data.
@@ -72,7 +112,7 @@ export interface AddRecord {
   readonly hash: ContentHash;
   readonly ext: string;
   readonly size: number;
-  /** The user's original filename. On disk the name is the hash (invariant 3). */
+  /** The user's original filename. On disk the name is the hash (RL-8). NFC (RL-36). */
   readonly name: string;
   readonly mode: StorageMode;
   /** Absent in referenced mode: nothing was linked, because nothing was placed. */
@@ -257,6 +297,29 @@ export class MalformedRecordError extends RoostError {
 
   constructor(field: string, reason: string) {
     super(`${field}: ${reason}`, { field, reason });
+  }
+}
+
+/**
+ * A well-formed record naming something that is not there (RL-26a).
+ *
+ * Not corruption, and the distinction is the whole reason this error exists
+ * rather than a second `MalformedRecordError`. A membership in a folder nobody
+ * created happens for two ordinary reasons — the creating operation belonged to
+ * an extension this build skipped, or another implementation deleted the folder
+ * afterwards — so it is counted and logged and no more. Reporting it as damage
+ * would tell somebody their library had lost data every time they opened it in
+ * two builds.
+ *
+ * What must **not** happen is the obliging repair: RL-26a forbids creating the
+ * missing entity to accept the record, because that puts a folder nobody made
+ * in the sidebar and a rebuild invents a different one each time.
+ */
+export class DanglingReferenceError extends RoostError {
+  readonly code = "dangling_reference";
+
+  constructor(op: string, what: string, id: string | number) {
+    super(`${op} names ${what} ${id}, which does not exist`, { op, what, id });
   }
 }
 

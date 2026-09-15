@@ -3,7 +3,7 @@ import { open as fsOpen } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { IoError } from "../model/index.js";
-import { isOpName, type JournalRecord, toRecord } from "./op.js";
+import { DanglingReferenceError, isOpName, type JournalRecord, toRecord } from "./op.js";
 import { monthsIn } from "./writer.js";
 
 /**
@@ -42,9 +42,13 @@ export interface SkippedLine {
 /**
  * What a replay did, and what it could not do.
  *
- * A non-empty `malformed` or `tornTrailing` is worth surfacing to the user: it
- * means the journal lost something, and only they can judge whether it
- * mattered.
+ * **Four buckets, because they are four different pieces of news.** A non-empty
+ * `malformed` or `tornTrailing` means the journal lost something and only the
+ * user can judge whether it mattered. `unknownOps` means another build holds
+ * meaning this one cannot show, which the user can act on by opening the
+ * library there — RL-28 requires they be told. `dangling` is neither: it is the
+ * ordinary result of a library edited from two builds, and RL-26a asks only
+ * that it be counted and logged.
  */
 export interface ReplayReport {
   readonly months: string[];
@@ -54,9 +58,19 @@ export interface ReplayReport {
   readonly malformed: SkippedLine[];
   /** Trailing lines cut short by a crash mid-write. */
   readonly tornTrailing: SkippedLine[];
+  /** Records naming something that is not in the library (RL-26a). */
+  readonly dangling: SkippedLine[];
 }
 
-/** True when every line was applied or was a recognisable record from a newer build. */
+/**
+ * True when every line was applied, skipped as a newer build's, or skipped as a
+ * reference to something no longer there.
+ *
+ * Dangling references are deliberately outside this: they are a diagnostic
+ * rather than damage (RL-28's last paragraph), and a library that reported
+ * itself unclean every time it had been opened in two builds would train
+ * everybody to ignore the word.
+ */
 export function isClean(report: ReplayReport): boolean {
   return report.malformed.length === 0 && report.tornTrailing.length === 0;
 }
@@ -103,6 +117,7 @@ export async function replay(journalDir: string, sink: ReplaySink): Promise<Repl
     unknownOps: new Map(),
     malformed: [],
     tornTrailing: [],
+    dangling: [],
   };
 
   for (const month of report.months) {
@@ -179,7 +194,7 @@ async function replayFile(
     if (!isOpName(op)) {
       // Written by a newer build. Skipping with a count — never an error — is
       // what lets a library opened by an older Roost survive intact
-      // (`STORAGE_SPEC.md` §Journal Format).
+      // (RL-26).
       report.unknownOps.set(op, (report.unknownOps.get(op) ?? 0) + 1);
       return;
     }
@@ -188,9 +203,17 @@ async function replayFile(
       sink.apply(toRecord(parsed as Record<string, unknown>));
       report.applied++;
     } catch (error) {
-      // A *known* op whose fields do not parse is corruption, not a version
-      // gap: this build defines those fields.
-      report.malformed.push(skipped((error as Error).message));
+      // Three outcomes, not two. A record naming something that is not there is
+      // skipped and counted (RL-26a) and is not damage — the creating operation
+      // may have belonged to an extension this build skipped a moment ago, or
+      // another implementation may have deleted the entity since. A *known* op
+      // whose fields do not parse is corruption, because this build defines
+      // those fields.
+      if (error instanceof DanglingReferenceError) {
+        report.dangling.push(skipped(error.message));
+      } else {
+        report.malformed.push(skipped((error as Error).message));
+      }
     }
   }
 }

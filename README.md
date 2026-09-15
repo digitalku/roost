@@ -222,7 +222,7 @@ but recovering from a bad build means going forward to a fixed one, not back to 
 | --- | --- |
 | [Concept](docs/CONCEPT.md) | Vision, scope, feature map, non-goals |
 | [Architecture](docs/ARCHITECTURE.md) | Packages, processes, IPC, invariants |
-| [Storage spec](docs/STORAGE_SPEC.md) | **Binding** layout, invariants, schema, journal |
+| [Storage](docs/STORAGE_SPEC.md) | How this build meets *Roost Library Format 1* — the map from each `RL-n` to the code |
 | [Data model](docs/DATA_MODEL.md) | Query language, schema growth plan |
 | [UI spec](docs/UI_SPEC.md) | Layout, tokens, components, interaction, keyboard map |
 | [Roadmap](docs/ROADMAP.md) | Milestones and acceptance criteria |
@@ -240,7 +240,8 @@ may not be copied, published, modified, or resold, and this repository is not op
 
 **The format is open, and that is the part that protects you.** Your files are never modified in
 place, every change is appended to a plain JSONL journal you can read in any text editor, and the
-layout is a published specification ([STORAGE_SPEC.md](docs/STORAGE_SPEC.md)). Roost's source
+layout is a published standard that no program owns — *Roost Library Format 1*, which has three
+implementations and a conformance suite any of them can be held to. Roost's source
 being closed does not close your data — you can walk away with all of it, and the licence says so
 in section 4.
 

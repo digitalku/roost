@@ -182,6 +182,25 @@ export class SelectionStore {
     });
   }
 
+  /**
+   * Marks one thing that is not an asset: the ring moves to it and the
+   * selection empties (ADR-0043).
+   *
+   * A folder tile is drawn in the grid and is **not a result**, so it must
+   * never enter the selection — what `selected()` returns is read by the
+   * inspector, the trash and every edit, and a folder id among those hashes
+   * would be an edit aimed at nothing. The store stays ignorant of folders:
+   * this is `click` without the one line that selects, and the order it is
+   * given holds assets alone, so an id marked here is simply not in it.
+   */
+  focusOnly(id: string): void {
+    this.#change(() => {
+      this.#selected = new Set();
+      this.#focused = id;
+      this.#anchor = undefined;
+    });
+  }
+
   /** Moves focus without touching the selection — they are separate. */
   focus(hash: string): void {
     this.#change(() => {

@@ -8,6 +8,7 @@ import {
   logger,
   type Storage,
   type StorageMode,
+  toNfc,
 } from "@roost/core";
 import { hashFile, probe } from "@roost/media";
 import { mapWithConcurrency } from "./concurrency.js";
@@ -462,7 +463,10 @@ async function ingest(
     hash: hashed.hash,
     ext,
     size: hashed.size,
-    name: basename(path),
+    // NFC, because the filesystem hands out whichever encoding it stored and
+    // macOS stores a different one (RL-36). The journal is the durable copy, so
+    // it is the one that has to be stable.
+    name: toNfc(basename(path)),
     mode,
   };
   // Built field by field rather than by spreading: an object carrying
@@ -644,4 +648,9 @@ async function commit(
     );
   });
   timings.indexing += performance.now() - indexStarted;
+
+  // After the fold, never before: the mark says how far the index has been
+  // brought, and a crash between the two would otherwise leave it claiming
+  // records that never arrived.
+  await library.noteJournalAppended();
 }

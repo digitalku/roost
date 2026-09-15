@@ -51,3 +51,4 @@ export {
   STORAGE_MODES,
   type StorageMode,
 } from "./storage.js";
+export { toNfc } from "./text.js";

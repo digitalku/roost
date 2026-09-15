@@ -39,7 +39,7 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 
 ```
 ┌──────────────┬──────────────────────────────────────────┬──────────────────┐
-│ [☰] library  │ [ search — RQL ....... ] [view ▾] [+ Add ▾] │              │
+│ [☰] library  │ [← → ↑] [ search RQL . ] [view ▾] [+ Add ▾] │              │
 │              ├──────────────────────────────────────────┤                  │
 │   Sidebar    │              Content                     │    Inspector     │
 │              │   icons · compact · details · preview    │                  │
@@ -59,7 +59,7 @@ Everything below is subordinate to those. Chrome that helps mode 3 must not slow
 | Region | Width | Collapsible | Notes |
 | --- | --- | --- | --- |
 | Sidebar head | with the sidebar | with it | Fixed height. The `☰` (ADR-0028) and the library's name. **The `☰` is drawn in whichever head is on screen** — this one, the content head while the sidebar is hidden, or the preview's own bar when that has replaced the content head (§7) — because it is the control that brings the sidebar back, and a menu that hides itself has no way back (ADR-0028 §6). Never two at once. The name does not travel with it: it belongs to the column that is gone, and the title bar carries it. |
-| Content head | with the content | no | Fixed height. Search is the widest thing in it, then the view control and **Add**. |
+| Content head | with the content | no | Fixed height. **Back, forward and up** (ADR-0044) first, then search — the widest thing in it — then the view control and **Add**. The three arrows are drawn in front of the field because the field is the address bar they belong to, which is a file manager's order and its corner. |
 | Sidebar | 220–420px, drag to resize | yes, `F9` or **Show sidebar** in the `☰` | Both the width and the collapsed state are remembered per library, in `settings.json` (ADR-0019). Hidden means **not drawn**, not narrowed — the grid takes the room. |
 | Content | fills | no | Hosts exactly one of: icons, compact, details, preview. |
 | Inspector | 280–480px, drag to resize | yes, `F4` or **Show inspector** in the `☰` | Width remembered per library, like the sidebar's. **Always drawn while it is shown**, and unmounted when it is not — it asks the engine for a detail or a summary on every change of selection, and a panel nobody can see should ask for nothing. An empty selection gets the empty state from §8, never a shell of disabled controls. Reserves a scrollbar gutter, as the grid does: how tall its content is depends on the asset, so without one the panel's fields shift sideways as the selection moves. |
@@ -183,9 +183,15 @@ review failure; it references `--surface-raised`.
 --select-bg           --select-border        --select-text
 --marquee-bg          --marquee-border
 --accent              --accent-hover         --accent-text
+--folder-back         --folder-front
 --link
 --shadow-1            --shadow-2
 ```
+
+`--folder-back` and `--folder-front` are the two tones of the folder drawn in the grid (§6,
+ADR-0043). One step apart on the accent ramp, and two rather than one because a silhouette in a
+single fill is a blob at 40px and a slab of colour at 400 — the sheet in front of the tab is what
+makes the shape read as a folder at both ends.
 
 `--link` is separate from `--accent` because the two are used differently: `--accent` fills a
 button and carries `--accent-text` on top of it, while `--link` *is* text on the surface behind
@@ -497,7 +503,7 @@ which resolves the hash, acts, and returns a boolean. Copying is the one case wh
 reaches a person — they asked for it, and it goes to the clipboard rather than into the sandbox.
 
 **Export is the only place Roost writes into a user's directory**, and it does so under two
-conditions that make it the opposite of the pattern `STORAGE_SPEC.md` forbids: the user picked
+conditions that make it the opposite of the pattern RL-16 forbids: the user picked
 the directory in a dialog, and nothing inside the library is moved, modified, or removed. Files
 land under the name the library shows, not the content-addressed one — a folder of hashes is not
 an export anyone wanted — and a name the destination already holds gets a numbered suffix. The
@@ -801,7 +807,7 @@ holds. A chip whose folder the tree does not know yet is drawn plainly and does 
 the panel and the navigation pane read the library separately and one can be a moment behind.
 
 **Detaching is not deleting, and it asks nothing.** A folder is a collection, not a location
-(`STORAGE_SPEC.md`) — leaving one changes nothing about the asset and moves nothing on disk. That is
+(RL-38) — leaving one changes nothing about the asset and moves nothing on disk. That is
 why the button is an `×` like a tag's rather than a word like `Delete`, and why `Ctrl+Delete` needs
 no confirmation while the bare `Delete` beside it does.
 
@@ -819,7 +825,7 @@ offerable here the moment it exists and nothing asks the engine twice for one sm
 ### 3.10 The name
 
 The panel's heading is the name, and it is a field: the one place an asset is renamed, since the
-file on disk is called after its hash and always will be (invariant 3, `STORAGE_SPEC.md`).
+file on disk is called after its hash and always will be (RL-8).
 
 **The extension is not in it.** An asset's `ext` is decided once, at import, from the file that
 arrived, and `asset_rename` has never touched it — so typing over `.txt` renamed nothing: the
@@ -883,7 +889,7 @@ Nothing was copied twice — Roost recognises a file by its contents.
 ```
 
 **It comes after the run, not before it.** Deduplication here is structural — identical bytes have
-one address (`STORAGE_SPEC.md` invariant 1) — so a duplicate is discovered by *hashing* the incoming
+one address (RL-11) — so a duplicate is discovered by *hashing* the incoming
 file. Asking first would mean reading every candidate twice. Waiting costs nothing, because for a
 duplicate the import writes nothing at all: *Ignore all* is the behaviour the run already had, and
 dismissing by clicking away means the same thing. It is not an `AlertDialog` for that reason.
@@ -1037,6 +1043,39 @@ and a retry would produce the same answer at the same cost. That is not a dead e
 either — the list still names the files and says plainly that the asset is fine and only its
 picture is missing.
 
+### 3.14 What another build wrote, and this one cannot show
+
+Roost is one format with an implementation per platform (ADR-0045), so a library may carry journal
+operations this build has never heard of — a feature from a later revision of the format, or one
+belonging to Roost for Windows or Roost for Mac. Those records are **skipped**, which is safe
+because the journal is append-only: a record ignored here is still there when the library opens
+elsewhere.
+
+**Skipping silently is not safe**, and the format says so in a requirement (RL-28): a library that
+quietly means less than it says is a library whose owner has no way to find out. So the window says
+so, and the shape of the saying is the whole of this section.
+
+**A line in the status bar, beside the derive status. Not a dialog on open.** Nothing is wrong,
+nothing needs deciding, and a box in front of the grid every time somebody opens a library they
+also use on another machine would be dismissed unread within a week. The line is quiet and
+permanent for as long as it is true, which is the right weight for news that does not expire.
+
+**It names the build when it can.** An operation belonging to a platform carries a prefix before a
+dot — `win.shell_pin`, `mac.quicklook_tag` — and one belonging to the format carries none (RL-29).
+That single character is what lets the line read *"2 only Roost for Windows shows"* rather than a
+bare count. When several builds wrote the skipped records, it falls back to `4 not shown`: a list
+of names does not fit in a line that already shares its row with four other things.
+
+Clicking it opens a list, and the list leads with the reassurance rather than the detail — a column
+of operation names reads like lost work, and none of it is lost. Then one row per operation with
+its count and whose it is, and a closing sentence that everything else in the library is here and
+safe to edit, because the journal only grows.
+
+**A dangling reference gets no line.** A record naming a folder another build deleted is the
+ordinary result of one library edited from two of them; the format counts it and logs it and calls
+it a diagnostic rather than news (RL-26a). A status bar that announced it would be a status bar
+announcing that somebody had used two builds.
+
 ## 4. Navigation
 
 ### 4.1 What the sidebar contains
@@ -1077,6 +1116,19 @@ Trash place to reach it — and the row that carries the number is where somebod
 drawn dead while the count is zero rather than coming and going: a menu with one item that is
 sometimes no items is one nobody learns. The pane raises it and owns no dialog, exactly as the three
 folder commands do.
+
+**The mark for the folder on screen spans the whole line**, indentation and disclosure column
+included — what every file manager does, and what this pane did not until 2026-09-13. The fill had
+been on the row, which begins *after* the disclosure column, so the marked row carried a 20px notch
+of page background down its left and no other row carried anything: a margin that appears on
+exactly one row reads as a mistake. The depth is padding on the line, and a background paints under
+padding, so the name still sits where it did.
+
+**The pane is no longer the only way into a folder** (ADR-0043, 2026-09-13). The grid draws the
+subfolders of the folder on screen, so descending happens there and the tree follows: the row
+matching the query is marked as current wherever the query came from. Coming back *up* is `Alt+↑`
+(§9), which matters most when this pane is hidden — `F9` can take it away, and a grid that could
+only descend would leave somewhere with no way out.
 
 **A folder's count is the count of its own row's query**, so it follows *Show subfolder contents*
 (§4.4, ADR-0036): the subtree when they are shown, the folder alone when they are not. Smart folders
@@ -1215,6 +1267,11 @@ wanted.
 ### 4.3 Dragging into a folder, and dragging a folder
 
 Built 2026-09-07 (ADR-0033 §5). Two gestures, one drop target.
+
+**Since 2026-09-13 a folder row is not the only target**: the grid draws the subfolders of the
+folder on screen (§6, ADR-0043), and a drop onto one of those tiles is this same gesture with this
+same rule. A tile is only ever drawn *inside* a folder, so a drag from the grid onto a sibling is
+always a **move** — which is what a file manager does, and the first thing anybody tries.
 
 **Assets onto a folder row.** What travels is the **selection**, not the cell under the pointer —
 `pointerdown` has already selected an unselected cell by the time a drag starts, exactly as a
@@ -1522,6 +1579,39 @@ derive queue is keeping up.
   (`CONCEPT.md` §5), so a `.blend` or a `.zip` is an ordinary member of the grid: the extension
   set in the monospace stack, legible at the smallest zoom, over the surface colour — never a
   broken-image glyph and never an empty box.
+
+**Folders are drawn in the grid, and they are not results** (ADR-0043, built 2026-09-13). Where
+the query is one folder's own contents, its subfolders are laid out **ahead of the assets** — a
+glyph, the name in the caption band, the count in the corner — so that descending into a library
+is the gesture a file manager has taught everybody. **The glyph has no ground**: an asset's thumbnail sits in a raised box because a
+picture needs something to sit on, and a folder is already a shape. **Its size is per view**, and
+it has to be: the box is 40px in a row and several hundred in Icons, so a row fills its square —
+the same square a thumbnail fills — while Icons takes a fraction of the picture area, so that a
+folder sits in the same optical rhythm as the photographs beside it rather than shouting over
+them. It is drawn in **two tones** (§2), because one fill is a blob at the small end and a slab
+of colour at the large one; both were built and both were reported, in that order, on 2026-09-13.
+**The count rides in the caption beside the name**, where every view has room for text, rather
+than as a badge over a filled shape. Four things follow, and none of them is
+negotiable:
+
+- **A tile is a control.** It is not paged (the children of one folder are already in the window,
+  as the pane's own tree), not taken by `Ctrl+A`, not swept by the marquee, and never in the
+  selection. Its mark is the ring: the selection is what the inspector, the trash and every edit
+  read, and a folder among those hashes would be an edit aimed at nothing.
+- **A click marks, a double-click or `Enter` opens.** Explorer's gesture, chosen on 2026-09-13
+  over the sidebar's one-click, because a hand that learned it there double-clicks whatever this
+  build prefers — and with the first click navigating, the second lands on a grid that has
+  changed.
+- **They are drawn only where the query is a place and nothing more.** A filter over the folder
+  takes them away, which is right: a subfolder does not have five stars. So does *Show subfolder
+  contents*, because everything beneath is then already on screen.
+- **Always first, and by name**, whatever the order is. Five of the six sort keys mean nothing to
+  a shelf; `random` shuffles the assets and leaves the folders where they are.
+
+**Show folders** is the view menu's fifth setting, on by default and remembered by the library —
+and **disabled while *Show subfolder contents* is on**, rather than lying about having nothing to
+draw. Going back up is `Alt+↑` (§9): the tiles only descend, and the tree that used to be the
+only way out of a folder can now be hidden.
 
 **One highlight per selected thing, in every view.** What changes is its shape, because the eye
 reads a row and a card differently.
@@ -1910,6 +2000,9 @@ becomes a preference in M6.
 | `0`–`5` | Set rating on the selection (`0` clears to unrated) |
 | `T` | Focus the tag editor for the selection |
 | `Delete` | Move the selection to the trash — and, inside the Trash place, delete it permanently after confirming (ADR-0022) |
+| `Alt+←` / `Backspace` | Back, through the **places** this window has been (ADR-0044). A filter is not a place, so Back is not an undo for the filter bar — and travelling keeps the chips standing, exactly as clicking a folder does |
+| `Alt+→` | Forward, until something new is chosen and the way ahead is dropped |
+| `Alt+↑` | Up one folder, and from a top-level folder to the library itself. Nothing outside a folder. **Not `Backspace`**: that one is *back* — history — and this one is *up* — hierarchy. Explorer draws the same line (ADR-0043 §8, ADR-0044 §6) |
 | `Ctrl+Delete` | Take the selection out of the folder on screen. Nothing outside one — there would be no folder to name, and guessing at one is a removal nobody asked for. No confirmation: a folder is a collection, so nothing is lost (§3.9) |
 | `[` / `]` | Zoom cells down · up |
 | `Ctrl+K` | Command palette (**M6**) |

@@ -21,6 +21,7 @@ export {
   type DerivedMetadata,
   type FolderMembership,
   type FolderRow,
+  type IdentifiedTable,
   type JobClaim,
   type JobCount,
   type JobReason,

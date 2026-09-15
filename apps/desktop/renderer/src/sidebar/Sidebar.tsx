@@ -8,6 +8,7 @@ import {
   draggedFolder,
   FOLDER_DRAG_TYPE,
 } from "../dnd.js";
+import { FolderContextMenu } from "../FolderContextMenu.js";
 import { type DrawnRow, found } from "../folders.js";
 import { counted } from "../format.js";
 import type { Expansion } from "./expansion.js";
@@ -177,10 +178,12 @@ function Folders({
    * Clearing costs a word somebody had finished with; hiding the result costs
    * the trust that the pane shows what is there.
    */
-  const command = (raise: () => void) => () => {
-    setNeedle("");
-    raise();
-  };
+  function command<T>(raise: (argument: T) => void): (argument: T) => void {
+    return (argument) => {
+      setNeedle("");
+      raise(argument);
+    };
+  }
 
   /**
    * Where the folder on screen sits in the tree, or `-1` (ADR-0033 §7).
@@ -403,9 +406,14 @@ function Folders({
           // The one row the reveal scrolls to. On the item rather than on the
           // branch inside it, which is a Radix trigger and has a ref of its own.
           <li key={row.id} ref={row.query === query ? here : undefined}>
-            <ContextMenu.Root>
-              <ContextMenu.Trigger asChild>
-                {/*
+            <FolderContextMenu
+              row={row}
+              onNewFolder={command(onNewFolder)}
+              onRename={command(onRename)}
+              onMoveFolder={(folder, parent) => onMoveFolder(folder, parent)}
+              onDelete={command(onDelete)}
+            >
+              {/*
                   Drag handlers on a row that is not itself a control. The
                   keyboard reaches everything they do through this row's own
                   menu — the context-menu key opens it from the focused row —
@@ -413,50 +421,56 @@ function Folders({
                   is the test this rule is really asking about (`UI_SPEC.md`
                   §10).
                 */}
-                {/* biome-ignore lint/a11y/noStaticElementInteractions: see above */}
-                <div
-                  className="sidebar-branch"
-                  data-depth={depthOf(row)}
-                  data-context={isContext || undefined}
-                  data-over={over === row.folder || undefined}
-                  // The branch is the drag source as well as a target: a folder
-                  // travels as its id, and the row's own `draggable` would take
-                  // the disclosure arrow with it.
-                  draggable
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData(FOLDER_DRAG_TYPE, String(row.folder));
-                    event.dataTransfer.effectAllowed = "move";
-                  }}
-                  onDragOver={(event) => {
-                    if (!accepts(event, row.folder)) return;
-                    // Both halves are required: without `preventDefault` on
-                    // *every* `dragover` the browser refuses the drop, and
-                    // `dropEffect` is what the cursor shows the hand.
-                    event.preventDefault();
-                    event.dataTransfer.dropEffect =
-                      carriesAssets(event.dataTransfer) && event.ctrlKey ? "copy" : "move";
-                    setOver(row.folder);
-                  }}
-                  onDragLeave={() => setOver((held) => (held === row.folder ? null : held))}
-                  onDrop={(event) => {
-                    setOver(null);
-                    if (!accepts(event, row.folder)) return;
-                    event.preventDefault();
-                    const folder = draggedFolder(event.dataTransfer);
-                    if (folder !== undefined) return onMoveFolder(folder, row.folder);
-                    const hashes = draggedAssets(event.dataTransfer);
-                    if (hashes.length > 0) onDropAssets(row, hashes, event.ctrlKey);
-                  }}
-                >
-                  {/*
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: see above */}
+              <div
+                className="sidebar-branch"
+                data-depth={depthOf(row)}
+                data-context={isContext || undefined}
+                // The mark for the folder on screen is on the **branch**, not
+                // on the row inside it: the row starts after the disclosure
+                // column, so a fill there left a notch of background down the
+                // left of the marked row and none down any other (reported
+                // from a real pane, 2026-09-13). A tree marks the whole line.
+                data-current={row.query === query || undefined}
+                data-over={over === row.folder || undefined}
+                // The branch is the drag source as well as a target: a folder
+                // travels as its id, and the row's own `draggable` would take
+                // the disclosure arrow with it.
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(FOLDER_DRAG_TYPE, String(row.folder));
+                  event.dataTransfer.effectAllowed = "move";
+                }}
+                onDragOver={(event) => {
+                  if (!accepts(event, row.folder)) return;
+                  // Both halves are required: without `preventDefault` on
+                  // *every* `dragover` the browser refuses the drop, and
+                  // `dropEffect` is what the cursor shows the hand.
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect =
+                    carriesAssets(event.dataTransfer) && event.ctrlKey ? "copy" : "move";
+                  setOver(row.folder);
+                }}
+                onDragLeave={() => setOver((held) => (held === row.folder ? null : held))}
+                onDrop={(event) => {
+                  setOver(null);
+                  if (!accepts(event, row.folder)) return;
+                  event.preventDefault();
+                  const folder = draggedFolder(event.dataTransfer);
+                  if (folder !== undefined) return onMoveFolder(folder, row.folder);
+                  const hashes = draggedAssets(event.dataTransfer);
+                  if (hashes.length > 0) onDropAssets(row, hashes, event.ctrlKey);
+                }}
+              >
+                {/*
                     A button where there are children and a spacer where there
                     are none — never a disabled button, which would be a target
                     that answers a press by doing nothing. The spacer keeps the
                     names in one column, which is what makes the indentation
                     readable at all.
                   */}
-                  {hasChildren && wanted !== "" ? (
-                    /*
+                {hasChildren && wanted !== "" ? (
+                  /*
                       While a needle is typed the disclosure is a mark rather
                       than a control. A branch is drawn only because something
                       under it matched, so the one thing closing it could do is
@@ -464,78 +478,33 @@ function Folders({
                       returns to when the field is cleared is the one it had
                       before, untouched by anything done in here.
                     */
-                    <span className="sidebar-twisty" data-open="" aria-hidden="true">
-                      <Chevron />
-                    </span>
-                  ) : hasChildren ? (
-                    <button
-                      type="button"
-                      className="sidebar-twisty"
-                      aria-expanded={expansion.open.has(row.folder)}
-                      aria-label={`${expansion.open.has(row.folder) ? "Collapse" : "Expand"} ${row.name}`}
-                      onClick={() => expansion.toggle(row.folder)}
-                    >
-                      <Chevron />
-                    </button>
-                  ) : (
-                    <span className="sidebar-twisty" aria-hidden="true" />
-                  )}
-                  <Row
-                    name={row.name}
-                    query={row.query}
-                    count={row.count}
-                    depth={0}
-                    stars={null}
-                    isCurrent={row.query === query}
-                    onPick={onPick}
-                  />
-                </div>
-              </ContextMenu.Trigger>
-
-              <ContextMenu.Portal>
-                <ContextMenu.Content className="menu" collisionPadding={8}>
-                  <ContextMenu.Item
-                    className="menu-item"
-                    onSelect={command(() => onNewFolder(row))}
+                  <span className="sidebar-twisty" data-open="" aria-hidden="true">
+                    <Chevron />
+                  </span>
+                ) : hasChildren ? (
+                  <button
+                    type="button"
+                    className="sidebar-twisty"
+                    aria-expanded={expansion.open.has(row.folder)}
+                    aria-label={`${expansion.open.has(row.folder) ? "Collapse" : "Expand"} ${row.name}`}
+                    onClick={() => expansion.toggle(row.folder)}
                   >
-                    <span className="menu-mark" />
-                    <span className="menu-label">New subfolder…</span>
-                  </ContextMenu.Item>
-                  <ContextMenu.Item className="menu-item" onSelect={command(() => onRename(row))}>
-                    <span className="menu-mark" />
-                    <span className="menu-label">Rename…</span>
-                  </ContextMenu.Item>
-                  {/*
-                    The keyboard's half of dragging a folder onto the heading.
-                    Only the one direction: moving a folder *into* another is a
-                    choice among every folder there is, which is a picker, and
-                    the drag is the gesture that already expresses it. Coming
-                    back out has exactly one destination.
-                  */}
-                  <ContextMenu.Item
-                    className="menu-item"
-                    disabled={row.depth === 0}
-                    onSelect={() => onMoveFolder(row.folder, null)}
-                  >
-                    <span className="menu-mark" />
-                    <span className="menu-label">Move to top level</span>
-                  </ContextMenu.Item>
-                  <ContextMenu.Separator className="menu-separator" />
-                  {/*
-                    Not drawn in the danger ramp, though what it opens is: the
-                    asset menu does not colour `Delete permanently` either, and
-                    a red row in a menu is attention rather than meaning
-                    (`UI_SPEC.md` §2). The ellipsis is the promise that a
-                    dialog comes next, and the dialog is where the choice about
-                    the contents is made (ADR-0033).
-                  */}
-                  <ContextMenu.Item className="menu-item" onSelect={command(() => onDelete(row))}>
-                    <span className="menu-mark" />
-                    <span className="menu-label">Delete folder…</span>
-                  </ContextMenu.Item>
-                </ContextMenu.Content>
-              </ContextMenu.Portal>
-            </ContextMenu.Root>
+                    <Chevron />
+                  </button>
+                ) : (
+                  <span className="sidebar-twisty" aria-hidden="true" />
+                )}
+                <Row
+                  name={row.name}
+                  query={row.query}
+                  count={row.count}
+                  depth={0}
+                  stars={null}
+                  isCurrent={row.query === query}
+                  onPick={onPick}
+                />
+              </div>
+            </FolderContextMenu>
           </li>
         ))}
       </ul>

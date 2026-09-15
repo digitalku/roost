@@ -70,6 +70,15 @@ export interface ViewMenuProps {
   readonly onSort: (sort: WireSort) => void;
   /** Rolls a new shuffle, which is the only way `random` changes (ADR-0039). */
   readonly onShuffle: () => void;
+  /** Whether the grid draws the folders inside the folder on screen (ADR-0043). */
+  readonly showFolders: boolean;
+  readonly onShowFolders: (on: boolean) => void;
+  /**
+   * Whether the query on screen reaches into subfolders (ADR-0036).
+   *
+   * Only to disable the item above: with it on there are no folders to draw.
+   */
+  readonly subfolders: boolean;
 }
 
 export function ViewMenu({
@@ -82,6 +91,9 @@ export function ViewMenu({
   onZoom,
   onSort,
   onShuffle,
+  showFolders,
+  onShowFolders,
+  subfolders,
 }: ViewMenuProps): React.JSX.Element {
   const first = ZOOM_STEPS[0] ?? DEFAULT_ZOOM;
   const last = ZOOM_STEPS[ZOOM_STEPS.length - 1] ?? DEFAULT_ZOOM;
@@ -140,6 +152,30 @@ export function ViewMenu({
               <span className="menu-label">Match image proportions</span>
             </DropdownMenu.CheckboxItem>
           )}
+
+          {/*
+            The folders drawn among the thumbnails (ADR-0043 §9).
+
+            Here rather than in the filter bar on ADR-0028 §6's test: this menu
+            says how the content region is drawn, and the tiles are drawn in it
+            — while *Show subfolder contents* changes the **query**, which is
+            what the bar is a view of.
+
+            Disabled while that checkbox is on, because there is then nothing to
+            draw: the grid already holds everything beneath the folder, and a
+            tile for a subfolder whose contents are on screen around it would
+            offer the same assets twice. Disabled rather than hidden, so the
+            menu does not appear to lose an item.
+          */}
+          <DropdownMenu.CheckboxItem
+            className="menu-item"
+            checked={showFolders}
+            disabled={subfolders}
+            onCheckedChange={onShowFolders}
+          >
+            <span className="menu-mark">{showFolders ? "✓" : ""}</span>
+            <span className="menu-label">Show folders</span>
+          </DropdownMenu.CheckboxItem>
 
           <DropdownMenu.Separator className="menu-separator" />
 

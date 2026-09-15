@@ -107,6 +107,15 @@ export interface Settings {
   readonly matchImageProportions: boolean;
   readonly gridZoom: number;
   /**
+   * Whether the grid draws the folders inside the folder on screen (ADR-0043).
+   *
+   * On by default: it is what a file manager does, and it is what was asked
+   * for. Only the window knows when there is anything to draw — the tiles
+   * appear where a query is one folder's own contents and nowhere else — so
+   * this file holds the preference and makes no claim about when it applies.
+   */
+  readonly showFolders: boolean;
+  /**
    * Whether the sidebar and the inspector are drawn (ADR-0028 §6).
    *
    * Here rather than in the window for the reason the view is: a library is a
@@ -158,6 +167,7 @@ export const DEFAULT_SETTINGS: Settings = {
   gridView: "icons",
   matchImageProportions: true,
   gridZoom: 160,
+  showFolders: true,
   showSidebar: true,
   showInspector: true,
   sidebarWidth: 240,
@@ -193,6 +203,7 @@ export async function readSettings(root: string): Promise<Settings> {
       DEFAULT_SETTINGS.matchImageProportions,
     ),
     gridZoom: numberish(raw["gridZoom"], DEFAULT_SETTINGS.gridZoom, ZOOM_RANGE),
+    showFolders: boolish(raw["showFolders"], DEFAULT_SETTINGS.showFolders),
     showSidebar: boolish(raw["showSidebar"], DEFAULT_SETTINGS.showSidebar),
     showInspector: boolish(raw["showInspector"], DEFAULT_SETTINGS.showInspector),
     sidebarWidth: numberish(raw["sidebarWidth"], DEFAULT_SETTINGS.sidebarWidth, SIDEBAR_RANGE),

@@ -1,4 +1,4 @@
-import { isClean } from "@roost/core";
+import { isClean, platformName, platformOf } from "@roost/core";
 import { Library } from "@roost/library";
 import { row } from "../format.js";
 
@@ -19,11 +19,23 @@ export async function rebuild(
     out(row("assets", `${before} before, ${after} after`));
 
     if (report.unknownOps.size > 0) {
-      // Not a failure. A library written by a newer Roost carries operations
-      // this build has never seen, and skipping them is what lets it open at
-      // all (`STORAGE_SPEC.md` §Journal Format).
-      warn(`Skipped ${report.unknownOps.size} operation type(s) from a newer build:`);
-      for (const [op, count] of report.unknownOps) warn(row(op, count, 1, 24));
+      // Not a failure. A library written by another implementation, or by a
+      // newer build of this one, carries operations this build has never seen,
+      // and skipping them is what lets it open at all (RL-26). Each is named
+      // with whose it is, which the prefix makes knowable (RL-28, RL-29).
+      warn(`Skipped ${report.unknownOps.size} operation type(s) this build does not know:`);
+      for (const [op, count] of report.unknownOps) {
+        const platform = platformOf(op);
+        const whose = platform === undefined ? "a later revision" : platformName(platform);
+        warn(row(`${op}  (${whose})`, count, 1, 40));
+      }
+    }
+    if (report.dangling.length > 0) {
+      // A diagnostic rather than news (RL-26a): the creating operation belonged
+      // to something this build skipped, or another build deleted the entity
+      // afterwards. Nothing was invented to make the record fit.
+      warn(`Skipped ${report.dangling.length} record(s) naming something that is not there:`);
+      for (const line of report.dangling) warn(row(`${line.month} line ${line.line}`, "", 1, 40));
     }
     for (const line of report.tornTrailing) {
       warn(`Ignored a torn final line in ${line.month}, line ${line.line} — a write that was`);

@@ -1,16 +1,16 @@
 /**
  * Deterministic fixture files for the content-hashing conformance test.
  *
- * The files are generated rather than committed: two of them are over 50 MB,
- * which is the whole point — the specification hashes those differently, and
- * the partial scheme carries a byte-order and integer-width decision that
- * JavaScript will happily get self-consistently wrong
- * (`docs/STORAGE_SPEC.md` §TypeScript implementation notes).
+ * The files are generated rather than committed: two of them are over 50 MiB,
+ * which is the whole point — RL-12 hashes those differently, and the partial
+ * scheme carries a byte-order and integer-width decision that JavaScript will
+ * happily get self-consistently wrong.
  *
- * The generator is committed so that anyone — including the Rust
- * implementation at `../roost-old`, which produced the expected digests — can
- * recreate byte-identical inputs. `scripts/make-hash-fixtures.mjs` writes them
- * to a directory for exactly that purpose.
+ * The generator, the six files and their digests are all published by the
+ * standard, in `conformance/hashing.md`. It is reproduced here rather than read
+ * from there because these are *inputs*: an implementation has to be able to
+ * write byte-identical files before it can compare a digest.
+ * `scripts/make-hash-fixtures.mjs` writes them to a directory for that purpose.
  */
 
 import { mkdir, stat, writeFile } from "node:fs/promises";

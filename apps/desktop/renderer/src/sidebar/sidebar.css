@@ -228,6 +228,33 @@
   color: var(--select-text);
 }
 
+/*
+ * In the tree, both marks are on the **branch** rather than on the row.
+ *
+ * The row begins after the disclosure column, so a fill on it stopped 20px in
+ * and left a notch of page background down the left of the one row that is
+ * marked — visible only on that row, which is what made it read as a mistake
+ * rather than as a margin (reported from a real pane, 2026-09-13). Every file
+ * manager marks the whole line, indentation included: the depth is padding on
+ * this element, and a background paints under padding, so the name still sits
+ * where it did and the fill reaches the edge.
+ *
+ * The row keeps `data-current` for its colour, its count and its stars; what
+ * moves here is only where the paint goes.
+ */
+.sidebar-branch:hover {
+  background: var(--surface-raised);
+}
+
+.sidebar-branch[data-current] {
+  background: var(--select-bg);
+}
+
+.sidebar-branch .sidebar-row:hover,
+.sidebar-branch .sidebar-row[data-current] {
+  background: none;
+}
+
 .sidebar-label {
   flex: 1;
   overflow: hidden;

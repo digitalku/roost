@@ -168,7 +168,7 @@ describe("replay, on a damaged journal", () => {
     const report = await replay(journalDir, sink);
 
     // This is what lets a library written by a newer Roost still open in an
-    // older one (`STORAGE_SPEC.md` §Journal Format). It is expected, not a fault.
+    // older one (RL-26). It is expected, not a fault.
     expect(report.applied).toBe(1);
     expect(report.unknownOps.get("stack_create")).toBe(1);
     expect(isClean(report)).toBe(true);

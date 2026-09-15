@@ -102,6 +102,38 @@ export function isGridView(value: string): value is GridView {
   return (GRID_VIEWS as readonly string[]).includes(value);
 }
 
+/**
+ * One journal operation this build could not apply, and whose it is.
+ *
+ * `platform` is read from the operation's own name: the library format requires
+ * an operation belonging to one platform to carry a prefix before a dot
+ * (`mac.quicklook_tag`, `win.shell_pin`) and a core operation to carry none.
+ * That is the whole of what lets the window say *"this is available in Roost
+ * for Mac"* without anybody keeping a register of everybody's features.
+ */
+export interface WireSkippedOp {
+  readonly op: string;
+  readonly count: number;
+  /** `null` for a core operation from a later revision of the format. */
+  readonly platform: string | null;
+  /** The platform under a name a person would recognise. `null` with it. */
+  readonly platformLabel: string | null;
+}
+
+/**
+ * What the library's journal held that this build could not use.
+ *
+ * Both lists are empty in the ordinary case and the window says nothing. The
+ * format requires the **person** be told about `skipped` rather than only a log
+ * — another build holds meaning this one cannot show, and opening the library
+ * there is something only they can do. `dangling` is a diagnostic in the same
+ * document's words: the ordinary result of one library edited from two builds.
+ */
+export interface WireJournalNotice {
+  readonly skipped: readonly WireSkippedOp[];
+  readonly dangling: number;
+}
+
 /** What the window shows about the library it has open. */
 export interface LibrarySummary {
   readonly root: string;
@@ -109,6 +141,7 @@ export interface LibrarySummary {
   readonly id: string;
   readonly formatVersion: number;
   readonly schemaVersion: number;
+  readonly journal: WireJournalNotice;
 }
 
 /**
@@ -498,6 +531,15 @@ export interface WireSettings {
   readonly matchImageProportions: boolean;
   readonly gridZoom: number;
   /**
+   * Whether the folders inside the folder on screen are drawn in it (ADR-0043).
+   *
+   * On by default: the request was for the grid to feel like a file manager,
+   * and a file manager shows them. It changes nothing about the query — the
+   * tiles are a control rather than a result — so it is the view menu's, not
+   * the filter bar's.
+   */
+  readonly showFolders: boolean;
+  /**
    * Whether the preview scales a video up to the pane (ADR-0024 §8).
    *
    * Off is the state the pane has always had: a video is fitted but never
@@ -838,7 +880,7 @@ export interface WireImportFailure {
  * What an import did.
  *
  * `duplicates` is not a failure: deduplication is structural — identical bytes
- * have one address (`STORAGE_SPEC.md` invariant 1) — so re-importing a folder
+ * have one address (RL-11) — so re-importing a folder
  * is the ordinary case, and the number is here to say so rather than to warn.
  *
  * The timings are deliberately absent. They are a benchmark's business, and a

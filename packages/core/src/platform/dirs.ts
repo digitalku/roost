@@ -6,7 +6,8 @@ import { UnsupportedPlatformError } from "../model/index.js";
  *
  * Application state, logs, and caches live **outside** every library, and so
  * does the configuration a library cannot hold. That is not a preference:
- * `STORAGE_SPEC.md` publishes the library layout and it is binding.
+ * RL-3 makes the library root a reserved namespace, and nothing may be put
+ * there that the format does not name.
  *
  * **Per-library preferences are not among them** (ADR-0019): they live in
  * `settings.json` inside the library, so they travel when the folder is copied.

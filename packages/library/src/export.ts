@@ -27,7 +27,7 @@ export interface ExportReport {
  *
  * The only place this project writes into a user's own directory, and it does
  * so under two conditions that make it the opposite of the pattern
- * `STORAGE_SPEC.md` forbids: the user chose the directory, and nothing inside
+ * the format forbids (RL-16): the user chose the directory, and nothing inside
  * the library is read for anything but its bytes. No original is moved,
  * modified, or removed, and a `referenced` asset is copied from where it lives
  * rather than being touched.

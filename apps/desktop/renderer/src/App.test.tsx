@@ -641,6 +641,7 @@ describe("the library view", () => {
         shuffleSeed: 0,
         gridView: "details",
         matchImageProportions: false,
+        showFolders: true,
         gridZoom: 400,
         showSidebar: true,
         showInspector: true,
@@ -682,6 +683,7 @@ describe("the library view", () => {
         shuffleSeed: 0,
         gridView: "gallery",
         matchImageProportions: true,
+        showFolders: true,
         gridZoom: 240,
         showSidebar: true,
         showInspector: true,
@@ -1569,6 +1571,284 @@ describe("Show subfolder contents, in the window (ADR-0036)", () => {
   });
 });
 
+describe("folders in the grid, in the window (ADR-0043)", () => {
+  const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+  const DESIGN: SidebarFolderRow = {
+    id: "folder:7",
+    name: "Design",
+    query: "infolder:Design",
+    count: 4,
+    descendants: 6,
+    depth: 0,
+    group: null,
+    stars: null,
+    folder: 7,
+    path: "Design",
+  };
+
+  /** A child of it, which is what the grid draws a tile for. */
+  const ICONS: SidebarFolderRow = {
+    id: "folder:9",
+    name: "Icons",
+    query: "infolder:Design/Icons",
+    count: 2,
+    descendants: 2,
+    depth: 1,
+    group: null,
+    stars: null,
+    folder: 9,
+    path: "Design/Icons",
+  };
+
+  beforeEach(() => {
+    for (const [name, value] of [
+      ["clientWidth", 1000],
+      ["clientHeight", 800],
+    ] as const) {
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value });
+    }
+  });
+
+  const open = async () => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 4 },
+      assets: Array.from({ length: 4 }, (_, i) => fakeAsset(i)),
+      byQuery: {
+        "infolder:Design": Array.from({ length: 4 }, (_, i) => fakeAsset(i)),
+        "folder:Design": Array.from({ length: 6 }, (_, i) => fakeAsset(i)),
+        "infolder:Design rating:5": [fakeAsset(0)],
+        "infolder:Design/Icons": [fakeAsset(0), fakeAsset(1)],
+      },
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [DESIGN, ICONS],
+        smartFolders: [],
+        tags: [],
+        types: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(4));
+    return { engine, user };
+  };
+
+  const tiles = (): HTMLElement[] =>
+    screen
+      .getAllByRole("option")
+      .filter((cell) => cell.getAttribute("data-hash")?.startsWith("folder-") === true);
+
+  const field = (): HTMLElement => screen.getByRole("searchbox", { name: /Search/ });
+
+  it("draws none outside a folder, and the children inside one", async () => {
+    const { user } = await open();
+    // `All assets` is every asset, including the ones in no folder at all: a
+    // row of folders across its top would promise a containment the library
+    // does not have (ADR-0043 §3).
+    expect(tiles()).toEqual([]);
+
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() => expect(field()).toHaveProperty("value", "infolder:Design"));
+    await waitFor(() => expect(tiles().length).toBe(1));
+    expect(tiles()[0]?.getAttribute("aria-label")).toBe("Icons, folder, 2 assets");
+  });
+
+  it("draws none once the query is narrowed past the folder itself", async () => {
+    // The tiles follow `openFolder`, which matches the query the **engine**
+    // wrote for the row — so a filter over the folder takes them away, which is
+    // right: a subfolder does not have five stars.
+    const { user } = await open();
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() => expect(tiles().length).toBe(1));
+
+    await user.clear(field());
+    await user.type(field(), "infolder:Design rating:5{Enter}");
+    await waitFor(() => expect(tiles()).toEqual([]));
+  });
+
+  it("draws none while Show subfolder contents is on", async () => {
+    // Everything beneath the folder is already in the grid, so a tile would
+    // offer the same assets twice — and the view menu says so rather than
+    // leaving a checkbox that does nothing (ADR-0043 §9).
+    const { user } = await open();
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() => expect(tiles().length).toBe(1));
+
+    await user.click(screen.getByRole("checkbox", { name: "Show subfolder contents" }));
+    await waitFor(() => expect(field()).toHaveProperty("value", "folder:Design"));
+    await waitFor(() => expect(tiles()).toEqual([]));
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    const item = await screen.findByRole("menuitemcheckbox", { name: /Show folders/ });
+    expect(item.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("descends on a double-click and comes back up on Alt+ArrowUp", async () => {
+    const { user } = await open();
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() => expect(tiles().length).toBe(1));
+
+    await user.dblClick(tiles()[0] as HTMLElement);
+    await waitFor(() => expect(field()).toHaveProperty("value", "infolder:Design/Icons"));
+
+    // Not `Backspace`, which the user refused on 2026-09-13 as already spoken
+    // for. Explorer binds this one to *up* and that one to *back* (ADR-0043 §8).
+    fireEvent.keyDown(window, { key: "ArrowUp", altKey: true });
+    await waitFor(() => expect(field()).toHaveProperty("value", "infolder:Design"));
+
+    // And once more, from a top-level folder, which leaves the folders for the
+    // library itself.
+    fireEvent.keyDown(window, { key: "ArrowUp", altKey: true });
+    await waitFor(() => expect(field()).toHaveProperty("value", ""));
+  });
+});
+
+describe("back, forward and up, in the window (ADR-0044)", () => {
+  const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+  const DESIGN: SidebarFolderRow = {
+    id: "folder:7",
+    name: "Design",
+    query: "infolder:Design",
+    count: 4,
+    descendants: 6,
+    depth: 0,
+    group: null,
+    stars: null,
+    folder: 7,
+    path: "Design",
+  };
+
+  const ICONS: SidebarFolderRow = {
+    id: "folder:9",
+    name: "Icons",
+    query: "infolder:Design/Icons",
+    count: 2,
+    descendants: 2,
+    depth: 1,
+    group: null,
+    stars: null,
+    folder: 9,
+    path: "Design/Icons",
+  };
+
+  beforeEach(() => {
+    for (const [name, value] of [
+      ["clientWidth", 1000],
+      ["clientHeight", 800],
+    ] as const) {
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value });
+    }
+  });
+
+  const open = async () => {
+    const four = Array.from({ length: 4 }, (_, i) => fakeAsset(i));
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 4 },
+      assets: four,
+      byQuery: {
+        "infolder:Design": four,
+        "infolder:Design/Icons": [fakeAsset(0), fakeAsset(1)],
+        "infolder:Design rating:5": [fakeAsset(0)],
+        "rating:5": [fakeAsset(0)],
+      },
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [DESIGN, ICONS],
+        smartFolders: [],
+        tags: [],
+        types: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(4));
+    return { engine, user };
+  };
+
+  const field = (): HTMLElement => screen.getByRole("searchbox", { name: /Search/ });
+  const nav = (name: string): HTMLElement => screen.getByRole("button", { name });
+
+  it("starts with all three dead, and wakes them as the window moves", async () => {
+    const { user } = await open();
+    // A window that has been nowhere: three buttons that are drawn and cannot
+    // act, rather than a row that grows as you use it (ADR-0044 §5).
+    expect(nav("Back")).toHaveProperty("disabled", true);
+    expect(nav("Forward")).toHaveProperty("disabled", true);
+    expect(nav("Up")).toHaveProperty("disabled", true);
+
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() => expect(nav("Back")).toHaveProperty("disabled", false));
+    expect(nav("Up")).toHaveProperty("disabled", false);
+    expect(nav("Forward")).toHaveProperty("disabled", true);
+  });
+
+  it("walks back and forward over the places it has been", async () => {
+    const { user } = await open();
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() => expect(field()).toHaveProperty("value", "infolder:Design"));
+
+    await user.click(nav("Back"));
+    await waitFor(() => expect(field()).toHaveProperty("value", ""));
+    expect(nav("Forward")).toHaveProperty("disabled", false);
+
+    await user.click(nav("Forward"));
+    await waitFor(() => expect(field()).toHaveProperty("value", "infolder:Design"));
+  });
+
+  it("goes back on Backspace, which is history rather than hierarchy", async () => {
+    const { user } = await open();
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() => expect(field()).toHaveProperty("value", "infolder:Design"));
+
+    fireEvent.keyDown(window, { key: "Backspace" });
+    await waitFor(() => expect(field()).toHaveProperty("value", ""));
+  });
+
+  it("leaves a filter out of the history, and keeps the chip while walking", async () => {
+    // The user's own answer on 2026-09-13: only a change of **place** is
+    // somewhere you have been. Back is not an undo for the filter bar — and
+    // travelling keeps the chips standing, exactly as clicking a folder does.
+    const { user } = await open();
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() => expect(field()).toHaveProperty("value", "infolder:Design"));
+
+    await user.clear(field());
+    await user.type(field(), "infolder:Design rating:5{Enter}");
+    await waitFor(() => expect(field()).toHaveProperty("value", "infolder:Design rating:5"));
+
+    await user.click(nav("Back"));
+    await waitFor(() => expect(field()).toHaveProperty("value", "rating:5"));
+  });
+
+  it("drops what was ahead once somewhere new is chosen", async () => {
+    const { user } = await open();
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() => expect(field()).toHaveProperty("value", "infolder:Design"));
+    await user.click(nav("Back"));
+    await waitFor(() => expect(nav("Forward")).toHaveProperty("disabled", false));
+
+    // A different **place** from the one that was ahead: the future that is not
+    // being had any more goes, which is what a browser and a file manager both
+    // do. A filter would not do this 2014 it is not a place, so it is not a
+    // future either.
+    await user.clear(field());
+    await user.type(field(), "infolder:Design/Icons{Enter}");
+    await waitFor(() => expect(nav("Forward")).toHaveProperty("disabled", true));
+  });
+});
+
 describe("the preview, in the window", () => {
   const HOLIDAY = "/home/you/Holiday Photos.roost";
 
@@ -1782,6 +2062,7 @@ describe("the volume a library remembers", () => {
         shuffleSeed: 0,
         gridView: "icons",
         matchImageProportions: true,
+        showFolders: true,
         gridZoom: 240,
         showSidebar: true,
         showInspector: true,
@@ -1997,6 +2278,7 @@ describe("showing and hiding the side panes", () => {
               shuffleSeed: 0,
               gridView: "icons",
               matchImageProportions: true,
+              showFolders: true,
               gridZoom: 240,
               showSidebar: true,
               showInspector: true,

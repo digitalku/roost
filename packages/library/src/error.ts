@@ -8,12 +8,20 @@ import { RoostError } from "@roost/core";
  * renderer's error states, so they are interface rather than debugging aid.
  */
 
-/** The directory holds no `library.json`. */
+/**
+ * The directory holds no `library.json`, or holds one that fails validation.
+ *
+ * Both are this error rather than two, because RL-5b requires a manifest that
+ * fails validation to be **reported as "not a Roost library"** rather than
+ * repaired or replaced. `reason` says which of the two it was: a directory
+ * nobody ever made a library in and a `library.json` missing its `id` send a
+ * person in opposite directions, and only the second is worth opening.
+ */
 export class NotALibraryError extends RoostError {
   readonly code = "not_a_library";
 
-  constructor(path: string) {
-    super(`${path} is not a Roost library (no library.json)`, { path });
+  constructor(path: string, reason = "no library.json") {
+    super(`${path} is not a Roost library (${reason})`, { path, reason });
   }
 }
 

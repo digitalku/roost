@@ -10,11 +10,20 @@ import { InvalidLibraryNameError } from "./error.js";
  * with the same effect — the folder reads as one object, a double-click can be
  * associated with the app, and a file picker can filter for it (ADR-0014).
  *
- * **The suffix is a convention, not a format rule.** `STORAGE_SPEC.md` says
- * nothing about the root's name and its eight invariants do not reach it, so a
- * directory holding a `library.json` is a library whatever it is called. That is
- * what keeps every library made before this rule — and every library made by
- * the Rust build — openable.
+ * **It is now a format rule, and a two-sided one.** RL-6a requires the suffix
+ * on the directory an implementation *creates*; RL-6b forbids requiring it in
+ * order to *open* one, forbids refusing one that lacks it, and forbids renaming
+ * one that is found. Strict on write, lenient on read — what KeePass does with
+ * `.kdbx`, where the extension is how a person and a file manager recognise a
+ * database and the magic bytes are how the program does.
+ *
+ * The lenient half is the one that matters: every library made before this rule
+ * lacks the suffix, and so does every library somebody has renamed. Requiring it
+ * on read is a change nobody notices until one of those has stopped opening.
+ * Identification is RL-4 and only RL-4 — a readable `library.json`.
+ *
+ * ADR-0014 decided the suffix here before the standard existed; the standard
+ * then adopted it, which is why this file did not change when it did.
  */
 
 export const LIBRARY_SUFFIX = ".roost";

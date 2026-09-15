@@ -9,6 +9,7 @@ import {
   logger,
   type Op,
   type SubtitleRow,
+  toNfc,
 } from "@roost/core";
 import { hashBytes } from "@roost/media";
 import { formatFromExtension, kindOf, PREVIEW_SIZE } from "@roost/media/serving";
@@ -85,6 +86,7 @@ export async function apply(library: Library, ops: readonly Op[]): Promise<void>
     const sink = new IndexSink(library.db);
     for (const record of records) sink.apply(record);
   });
+  await library.noteJournalAppended();
 
   log.debug("edits journalled and indexed", { ops: kinds(records) });
 }
@@ -116,8 +118,17 @@ function requireAsset(library: Library, hash: ContentHash): void {
   if (library.db.repo.findAsset(hash) === undefined) throw new UnknownAssetError(hash);
 }
 
+/**
+ * A name on its way into the journal.
+ *
+ * Normalised to NFC here rather than at each caller, because this is the one
+ * door every name a person typed comes through — a rename, a new file, a tag,
+ * a folder. RL-36 binds filenames; the rest are normalised by the same hand
+ * because a tag spelled two ways is two tags, and nothing downstream can tell
+ * them apart either.
+ */
 function cleanName(name: string, what: string): string {
-  const trimmed = name.trim();
+  const trimmed = toNfc(name.trim());
   if (trimmed === "") throw new EmptyNameError(what);
   return trimmed;
 }

@@ -11,7 +11,7 @@ const log = logger("handoff");
  *
  * **The problem this exists for is the filename.** A managed original is stored
  * as `originals/a3/a3f2c9….jpg` — the hash *is* the filename
- * (`STORAGE_SPEC.md`), which is right for a content-addressed store and useless
+ * (RL-8), which is right for a content-addressed store and useless
  * the moment a file leaves for somewhere else. Dropping `a3f2c9….jpg` into a
  * chat window or a design tool hands somebody a name they cannot read and
  * cannot search for.
@@ -31,7 +31,14 @@ const log = logger("handoff");
  * where it lies.
  */
 
-/** Where the named copies go, inside the library (`STORAGE_SPEC.md`). */
+/**
+ * Where the named copies go, inside the library.
+ *
+ * Named in the format's published layout and explicitly **not part of it**
+ * (RL-2): it is transient, and another implementation may spell it differently
+ * or not have one at all. What binds is RL-3 — the library root is a reserved
+ * namespace, and this is one of the names reserved in it.
+ */
 export const STAGING_DIR = "staging";
 
 /** How many suffixed names to try before giving up on one asset. */

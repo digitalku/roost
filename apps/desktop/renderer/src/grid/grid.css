@@ -443,3 +443,102 @@
   line-height: var(--leading-xs);
   text-align: center;
 }
+
+/* ── Folders in the grid (ADR-0043) ──────────────────────────────────────── */
+
+/*
+ * A folder tile is a control rather than a result, and it has to look like one
+ * before anything is clicked: no picture, a glyph in the accent, and the same
+ * caption band as the cell beside it so the row still reads as a row.
+ *
+ * **The glyph is the tile, not something inside it.** An asset's thumbnail sits
+ * in a raised box because a picture needs a ground to sit on; a folder is
+ * already a shape, and the box around it was two paddings deep — the box's own,
+ * and the one the icon reserved inside its `viewBox`. Reported from a real
+ * window on 2026-09-13: *"kekecilan … tidak perlu dikasih area kosong
+ * pinggiran"*. So there is no ground, and the picture fills its element.
+ */
+.cell-folder .cell-thumb {
+  background: none;
+}
+
+.folder-back {
+  fill: var(--folder-back);
+}
+
+.folder-front {
+  fill: var(--folder-front);
+}
+
+/*
+ * How big, per view — and it has to be per view, because the box is 40px in a
+ * row and several hundred in Icons. One number cannot serve both: a fraction
+ * that reads as an icon at 400px is a speck at 40, and filling the box at 40
+ * makes a slab at 400. Both were drawn and both were reported, on 2026-09-13.
+ *
+ * A row fills its square, because that square *is* the icon's size — it is the
+ * same box a thumbnail fills. Icons takes a fraction of the picture area
+ * instead, so that a folder sits in the same optical rhythm as the photographs
+ * beside it rather than shouting over them.
+ */
+.cell-folder-glyph {
+  width: 100%;
+  height: 100%;
+}
+
+.cell[data-view="icons"] .cell-folder-glyph {
+  width: 62%;
+  height: auto;
+  /* Past this it stops reading as an icon and starts reading as a panel, which
+     is what the zoom's top step did. */
+  max-width: 220px;
+}
+
+/*
+ * The name and the count share the caption band.
+ *
+ * The band is the one piece of a cell that is the same height at every zoom, so
+ * a number in it is legible in every view — where a badge over the picture was
+ * unreadable at one size and in the way at another. `space-between` keeps the
+ * count against the right edge as the name ellipsizes past it.
+ */
+.cell-folder .cell-name {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.cell-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell-count {
+  flex: none;
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+
+/*
+ * The mark on a folder is the ring — it is never selected (ADR-0043 §4) — so
+ * the focused tile borrows the selected card's fill to say "this is the one",
+ * and keeps the focus ring to say the keyboard is on it.
+ */
+.cell-folder[data-view="icons"][data-focused] {
+  background: var(--select-bg);
+}
+
+.cell-folder[data-view="icons"][data-focused] .cell-name,
+.cell-folder[data-view="icons"][data-focused] .cell-count {
+  color: var(--select-text);
+}
+
+/* A drop target lights up rather than relying on `:hover`, which does not match
+   while a drag is in progress (`UI_SPEC.md` §4.3). */
+.cell-folder[data-over] {
+  outline-color: var(--accent);
+  background: var(--select-bg);
+}

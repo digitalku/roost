@@ -28,9 +28,10 @@ import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Credit } from "./Credit.js";
 import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
 import { FilterBar } from "./filter/FilterBar.js";
+import { childrenOf, parentOf } from "./folders.js";
 import { counted } from "./format.js";
 import { AssetContextMenu } from "./grid/AssetContextMenu.js";
-import { Grid } from "./grid/Grid.js";
+import { type FolderTiles, Grid } from "./grid/Grid.js";
 import {
   DEFAULT_ZOOM,
   GRID_VIEWS,
@@ -48,8 +49,10 @@ import { DuplicatesDialog } from "./import/DuplicatesDialog.js";
 import { EagleDialog } from "./import/EagleDialog.js";
 import { type Importing, useImport } from "./import/useImport.js";
 import { Inspector } from "./inspector/Inspector.js";
+import { JournalNotice } from "./JournalNotice.js";
 import { isTyping } from "./keyboard.js";
 import { RecentList } from "./library/RecentList.js";
+import { NavButtons } from "./NavButtons.js";
 import { NewFileDialog } from "./NewFileDialog.js";
 import { INSPECTOR, PaneResizer, SIDEBAR } from "./PaneResizer.js";
 import { PreviewPane } from "./preview/PreviewPane.js";
@@ -59,6 +62,7 @@ import { SearchField } from "./search/SearchField.js";
 import { useExpansion } from "./sidebar/expansion.js";
 import { FolderDialog, type FolderDialogProps } from "./sidebar/FolderDialog.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
+import { canTravel, NO_TRAIL, record, type Source, type Trail, travel } from "./trail.js";
 
 /**
  * A query nobody has read yet: no place, no facets, and describable.
@@ -79,6 +83,7 @@ const DEFAULT_SETTINGS: WireSettings = {
   gridView: "icons",
   matchImageProportions: true,
   gridZoom: DEFAULT_ZOOM,
+  showFolders: true,
   showSidebar: true,
   showInspector: true,
   sidebarWidth: SIDEBAR.fallback,
@@ -907,14 +912,45 @@ function LibraryView({
     if (ruleIsInTheQuery(split.facets)) setTagRule(split.facets.tagRule);
   }, [split]);
 
+  /**
+   * Where this window has been (ADR-0044).
+   *
+   * Recorded from the split the bar already asks for, rather than from a call
+   * at every gesture: the engine is the only thing that can say which part of a
+   * query is the **place**, and a control added later cannot forget to record
+   * something nobody has to remember to do. A facet ticked leaves the place
+   * alone and so leaves the trail alone, which is what the user chose on
+   * 2026-09-13 — Back is not an undo for the filter bar.
+   *
+   * Travelling moves the index *first*, so the split that follows names the
+   * place already being stood on and `record` hands back what it was given.
+   */
+  const [trail, setTrail] = useState<Trail>(NO_TRAIL);
+
+  useEffect(() => {
+    setTrail((held) => record(held, split.place, source.current));
+  }, [split]);
+
   /** What the bar draws and what a join is built from: the query, then memory. */
   const facets = useMemo(
     () => (ruleIsInTheQuery(split.facets) ? split.facets : { ...split.facets, tagRule }),
     [split.facets, tagRule],
   );
 
+  /**
+   * Where the last apply came from (ADR-0044 §3).
+   *
+   * A ref rather than state, and read by the recorder below rather than by a
+   * render: it is the one thing about a navigation that cannot be read back out
+   * of the query, because a place typed and a place clicked are the same
+   * string. The field applies on a 250ms idle, so without this a query typed at
+   * a normal speed would be three or four entries in the history.
+   */
+  const source = useRef<Source>("control");
+
   const applyQuery = useCallback(
-    (picked: string) => {
+    (picked: string, from: Source = "control") => {
+      source.current = from;
       // The selection *and the focus* go with the query: what was selected is
       // no longer on screen (`UI_SPEC.md` §4.2).
       selection.reset();
@@ -1429,6 +1465,107 @@ function LibraryView({
     });
   }, []);
 
+  /**
+   * The folders drawn in the grid, and everything one can do (ADR-0043).
+   *
+   * Three conditions, and two of them come out of what is already on screen
+   * rather than being enforced here. **A folder has to be open** — `openFolder`
+   * matches the query the *engine* wrote for a row, so a query narrowed by a
+   * rating or a typed word is nobody's row and draws no tiles, which is right:
+   * a subfolder does not have five stars. And **the query must be that folder's
+   * own contents**: with *Show subfolder contents* on, everything beneath is
+   * already in the grid and a tile would offer the same assets twice.
+   *
+   * The rows cost nothing to find. The window holds the whole tree for the
+   * pane, and it arrives depth-first, so the children of the folder on screen
+   * are a slice of it.
+   */
+  const folderTiles = useMemo<FolderTiles | undefined>(() => {
+    if (!settings.showFolders || openFolder === undefined) return undefined;
+    if (split.subfolders !== false) return undefined;
+    const rows = childrenOf(sidebar?.folders ?? NO_FOLDERS, openFolder.folder);
+    if (rows.length === 0) return undefined;
+    return {
+      rows,
+      onOpen: (row) => pickQuery(row.query),
+      onNewFolder: newFolder,
+      onRename: renameFolder,
+      onMoveFolder: moveFolder,
+      onDelete: deleteFolder,
+      onDropAssets: dropOnFolder,
+    };
+  }, [
+    settings.showFolders,
+    openFolder,
+    split.subfolders,
+    sidebar,
+    pickQuery,
+    newFolder,
+    renameFolder,
+    moveFolder,
+    deleteFolder,
+    dropOnFolder,
+  ]);
+
+  /**
+   * Up one folder (`UI_SPEC.md` §9, ADR-0043 §8).
+   *
+   * The tiles only descend, and the tree that used to be the only way back can
+   * now be hidden (ADR-0028 §6) — so without this there is a folder somebody
+   * can reach and not leave. From a top-level folder it goes to **All assets**,
+   * which is what is above every folder here: `pickQuery("")` clears the place
+   * and leaves the filter bar's chips standing, exactly as that row does.
+   */
+  const goUp = useCallback(() => {
+    if (openFolder === undefined) return;
+    pickQuery(parentOf(sidebar?.folders ?? NO_FOLDERS, openFolder.folder)?.query ?? "");
+  }, [openFolder, sidebar, pickQuery]);
+
+  /**
+   * Back and forward (ADR-0044).
+   *
+   * The index moves before the query does, so the split that follows names the
+   * place already being stood on and records nothing. What is applied is the
+   * **place** through `pickQuery` — so travelling keeps the filter bar's chips
+   * standing, which is the same thing clicking a folder does and the reason
+   * those two cannot drift apart.
+   */
+  const journey = useCallback(
+    (delta: number) => {
+      const next = travel(trail, delta);
+      if (next === undefined) return;
+      setTrail(next);
+      pickQuery(next.entries[next.at] ?? "");
+    },
+    [trail, pickQuery],
+  );
+
+  /**
+   * The four navigation keys (`UI_SPEC.md` §9, ADR-0044 §6).
+   *
+   * `Backspace` is **back**, which is the user's own reading and Explorer's:
+   * there `Backspace` is history and `Alt+↑` is hierarchy. It takes the typing
+   * guard because in a field it deletes a character; the `Alt` chords take it
+   * for the reason `Ctrl+Delete` does, which is that a shortcut listening on
+   * the window hears everything typed into one.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.ctrlKey || event.metaKey) return;
+      const back = event.key === "Backspace" || (event.altKey && event.key === "ArrowLeft");
+      const forward = event.altKey && event.key === "ArrowRight";
+      const up = event.altKey && event.key === "ArrowUp";
+      if (!back && !forward && !up) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && isTyping(target)) return;
+      event.preventDefault();
+      if (up) goUp();
+      else journey(back ? -1 : 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [goUp, journey]);
+
   /** The Eagle library the survey dialog is open on, if it is (ADR-0032). */
   const [eagle, setEagle] = useState<string | undefined>();
 
@@ -1764,10 +1901,28 @@ function LibraryView({
                     belongs to the column that is gone, and the window's title
                     bar already carries it. */}
                 {!settings.showSidebar && appMenu}
+                {/* In front of the field, because the field is the address bar
+                    — a file manager's order, and its corner (ADR-0044). */}
+                <NavButtons
+                  canBack={canTravel(trail, -1)}
+                  canForward={canTravel(trail, 1)}
+                  canUp={openFolder !== undefined}
+                  onBack={() => journey(-1)}
+                  onForward={() => journey(1)}
+                  onUp={goUp}
+                />
                 {/* The field is edited directly and the bar is derived from it, so
                   typing goes to `applyQuery` and every row and chip goes through
-                  `pickQuery`, which keeps the filters standing (ADR-0035 §6). */}
-                <SearchField query={query} onApply={applyQuery} matches={matches} />
+                  `pickQuery`, which keeps the filters standing (ADR-0035 §6).
+
+                  It is the one caller that says where the apply came from: the
+                  field applies on an idle, so a query typed at speed arrives
+                  several times and is one trip, not four (ADR-0044 §3). */}
+                <SearchField
+                  query={query}
+                  onApply={(next) => applyQuery(next, "field")}
+                  matches={matches}
+                />
                 <div className="bar-actions">
                   <ViewMenu
                     view={view}
@@ -1785,6 +1940,9 @@ function LibraryView({
                       applyView({ sortKey: next.key, sortDescending: next.descending })
                     }
                     onShuffle={applyShuffle}
+                    showFolders={settings.showFolders}
+                    onShowFolders={(on) => applyView({ showFolders: on })}
+                    subfolders={split.subfolders ?? settings.showSubfolderContents}
                   />
                   <AddMenu
                     busy={importing.running}
@@ -1883,6 +2041,7 @@ function LibraryView({
                 selection={selection}
                 onMore={paging.more}
                 onOpen={openAsset}
+                {...(folderTiles === undefined ? {} : { folders: folderTiles })}
               />
             </AssetContextMenu>
           )}
@@ -1968,6 +2127,9 @@ function LibraryView({
         )}
         <ImportStatus importing={importing} />
         <DeriveStatus status={derives.status} onRetry={(reason) => void derives.retry(reason)} />
+        {/* Quiet and permanent for as long as it is true: another build holds
+            meaning this one cannot show, and only the person can act on it. */}
+        <JournalNotice notice={opened.summary.journal} />
         <span className="path">{opened.summary.root}</span>
       </footer>
       {showing !== undefined && <Problem problem={showing} />}

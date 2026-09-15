@@ -1,8 +1,13 @@
--- Schema v1, verbatim from docs/STORAGE_SPEC.md.
+-- Schema v1, verbatim from docs/DATA_MODEL.md §2.0.
 --
--- The specification is binding: do not add, rename, or reorder anything here.
--- Later changes go in a new numbered migration. Never edit a migration that
--- has been applied.
+-- The index is a cache the library format deliberately does not describe
+-- (RL-2), so nothing here is binding on any other implementation. What is
+-- binding is that every row in it can be rebuilt from the journal and
+-- originals/ -- which is the only reason a cache is allowed to exist.
+--
+-- Within this build it is settled all the same: do not add, rename, or reorder
+-- anything here. Later changes go in a new numbered migration. Never edit a
+-- migration that has been applied.
 --
 -- `PRAGMA journal_mode = WAL` and `PRAGMA foreign_keys = ON` are not in this
 -- file: journal_mode cannot be set inside a transaction, and foreign_keys is

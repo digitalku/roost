@@ -6,6 +6,19 @@ import { describe, expect, it } from "vitest";
 const docs = (name: string): string =>
   readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), "utf8");
 
+/**
+ * A file from the Roost Library Format, checked out beside this repository.
+ *
+ * The journal vocabulary is the standard's (RL-24), so this is what the
+ * vocabulary is compared against. It is never vendored — see ADR-0045, and
+ * `packages/library/tests/format-conformance.test.ts` for the rest of the suite.
+ */
+const standard = (name: string): string =>
+  readFileSync(
+    fileURLToPath(new URL(`../../../../roost-library/${name}`, import.meta.url)),
+    "utf8",
+  );
+
 /** Every fenced ```sql block in a markdown file, in order. */
 function sqlBlocks(markdown: string): string[] {
   return [...markdown.matchAll(/```sql\n([\s\S]*?)```/g)].map((m) => m[1] ?? "");
@@ -27,12 +40,15 @@ function statements(sql: string): string[] {
 }
 
 /**
- * Every journal line the specification publishes, with its hashes filled in.
+ * Every journal line the registry publishes, with its hashes filled in.
  *
  * A document elides a hash to its first few characters, which is right for
  * something a person reads and unparseable here. Padding restores the length
  * `isContentHash` checks without inventing a different value: the point is the
  * shape of the line, never which asset it names.
+ *
+ * Both spellings of the elision are accepted — the registry sets a real
+ * ellipsis, and a document typed by hand may carry three dots.
  */
 function publishedOps(markdown: string): string[] {
   return [...markdown.matchAll(/```json\n([\s\S]*?)```/g)]
@@ -40,7 +56,10 @@ function publishedOps(markdown: string): string[] {
     .map((line) => line.trim())
     .filter((line) => line.startsWith('{"ts"'))
     .map((line) =>
-      line.replace(/"([0-9a-f]{1,63})\.\.\."/g, (_, head: string) => `"${head.padEnd(64, "0")}"`),
+      line.replace(
+        /"([0-9a-f]{1,63})(?:…|\.\.\.)"/g,
+        (_, head: string) => `"${head.padEnd(64, "0")}"`,
+      ),
     );
 }
 
@@ -52,32 +71,25 @@ function opOf(line: string): string {
 }
 
 describe("the schema on disk against the schema in the documents", () => {
-  it("keeps migration 0001 identical to the binding specification's schema v1", () => {
-    const spec = sqlBlocks(docs("STORAGE_SPEC.md"))[0];
-    expect(spec).toBeDefined();
-
-    // The two PRAGMAs in the specification's block are deliberately not in the
-    // migration: `journal_mode` cannot be set inside a transaction, and
-    // `foreign_keys` is per-connection. Both are applied at open instead, and
-    // migration 0001's header says so.
-    const published = statements(spec ?? "").filter((s) => !s.startsWith("PRAGMA"));
-    const migration = allMigrations()[0];
-
-    expect(migration?.version).toBe(1);
-    expect(statements(migration?.sql ?? "")).toEqual(published);
-  });
-
-  it("keeps migrations 0002 to 0014 identical to what DATA_MODEL publishes", () => {
-    // `DATA_MODEL.md` §2.1 through §2.13 publish one block each, in migration
-    // order, because the specification's schema block is v1 and stays v1 —
-    // growth lives in that file (its §2).
+  it("keeps every migration identical to what DATA_MODEL publishes", () => {
+    // §2.0 through §2.13 publish one block each, in migration order. The schema
+    // is a **cache** as far as the library format is concerned (RL-2), which is
+    // why all fourteen live in one document here rather than the first one
+    // living in a specification: what the format binds is that every row can be
+    // rebuilt from the journal, not what shape the rows are.
     const published = sqlBlocks(docs("DATA_MODEL.md"));
-    expect(published).toHaveLength(13);
+    expect(published).toHaveLength(14);
 
     for (const [index, block] of published.entries()) {
-      const migration = allMigrations()[index + 1];
-      expect(migration?.version).toBe(index + 2);
-      expect(statements(migration?.sql ?? "")).toEqual(statements(block));
+      const migration = allMigrations()[index];
+      expect(migration?.version).toBe(index + 1);
+
+      // The two PRAGMAs in §2.0's block are deliberately not in migration 0001:
+      // `journal_mode` cannot be set inside a transaction, and `foreign_keys`
+      // is per-connection. Both are applied at open instead, and the migration's
+      // header says so.
+      const want = statements(block).filter((statement) => !statement.startsWith("PRAGMA"));
+      expect(statements(migration?.sql ?? "")).toEqual(want);
     }
   });
 
@@ -184,7 +196,7 @@ describe("the journal vocabulary against the vocabulary in the documents", () =>
     //
     // Sorted and not deduplicated, so a second example for an operation that
     // already has one fails too: `OP_NAMES` holds each name once.
-    const names = publishedOps(docs("STORAGE_SPEC.md")).map(opOf).sort();
+    const names = publishedOps(standard("ops/REGISTRY.md")).map(opOf).sort();
     expect(names).toEqual([...OP_NAMES]);
   });
 
@@ -194,7 +206,7 @@ describe("the journal vocabulary against the vocabulary in the documents", () =>
     // in `OP_NAMES` that `toRecord` has no case for, fails here. The latter is
     // otherwise invisible until a replay reports a real operation as a corrupt
     // line, which reads like data loss rather than like a missing case.
-    const lines = publishedOps(docs("STORAGE_SPEC.md"));
+    const lines = publishedOps(standard("ops/REGISTRY.md"));
     expect(lines).toHaveLength(OP_NAMES.length);
 
     for (const line of lines) {

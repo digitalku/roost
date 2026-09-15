@@ -199,7 +199,7 @@ describe("the engine's message loop", () => {
       problem: {
         code: "not_a_library",
         message: expect.stringContaining("not a Roost library"),
-        detail: { path: dir },
+        detail: { path: dir, reason: "no library.json" },
       },
     });
   });
@@ -925,7 +925,7 @@ describe("the engine's message loop", () => {
     expect(report["failed"]).toEqual([]);
 
     // Re-importing is the ordinary case, not a failure: identical bytes have
-    // one address (`STORAGE_SPEC.md` invariant 1).
+    // one address (RL-11).
     const again = await ask(3, {
       type: "import:paths",
       folder: null,

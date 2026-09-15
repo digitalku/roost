@@ -35,7 +35,7 @@ the whole architecture in one picture:
 │    ├── @roost/search   RQL → WHERE fragment, params bound             │
 │    ├── @roost/media    decode, thumbnails, EXIF, phash, color         │
 │    └── @roost/core     model·db·storage·journal·platform·log          │
-│                        (everything STORAGE_SPEC.md governs)           │
+│                    (everything the library format governs)            │
 │    └── worker pool     hashing, replay parsing — CPU-bound JS only    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -62,7 +62,7 @@ roost/
 ├── docs/
 ├── packages/
 │   ├── core/                  # domain types + SQLite + storage + journal — what the spec governs
-│   │   ├── migrations/        # numbered SQL, exactly where STORAGE_SPEC.md places them
+│   │   ├── migrations/        # numbered SQL; DATA_MODEL.md §2 publishes each one
 │   │   └── src/{model,db,storage,journal,platform,log}
 │   ├── media/                 # format probing, decode, thumbnails, metadata, hashes
 │   ├── search/                # RQL grammar, parser, filter compiler
@@ -101,7 +101,7 @@ from being lost.
 ## 3. Package responsibilities
 
 ### 3.1 `@roost/core` (`packages/core`)
-Owns everything `STORAGE_SPEC.md` governs, so that the spec maps to exactly one package and a
+Owns everything the library format governs, so that the standard maps to exactly one package and a
 reviewer has one place to check compliance. Six modules:
 
 - `model` — domain vocabulary: `ContentHash`, `Kind`, `StorageMode`, `LinkMethod`, and the
@@ -209,7 +209,7 @@ The application service layer and the only public API worth calling:
   pages, counts
 - **Thumbnails** (`thumbnails`) — the backfill pass, and lazy generation on first request
 - **Integrity** (`doctor`) — checks over objects, index, and FTS; optional re-hash
-- Replay and rebuild (`STORAGE_SPEC.md`), and `fixture` for synthetic libraries
+- Replay and rebuild (RL-20, RL-26 to RL-28), and `fixture` for synthetic libraries
 - The **job runner**: a bounded, persisted queue with priorities and backpressure (**M4**)
 - The **watcher**: debounced filesystem events feeding the queue (**M5**)
 - The **event emitter** for progress and change notification, which the engine forwards to the
@@ -423,7 +423,7 @@ discover → probe → hash → dedupe → place bytes → journal → index →
 4. **dedupe** — the hash *is* the identity, so a matching row means the asset already exists.
    Merge folder and tag intent onto the existing asset; do not create a second row. A duplicate
    decided by a *partial* hash is verified byte for byte against the stored bytes before
-   merging, and refused if they differ — `STORAGE_SPEC.md` §Partial-hash collisions is the
+   merging, and refused if they differ — `STORAGE_SPEC.md`'s note on partial-hash collisions is the
    authority, and explains why a size check can never catch this.
 5. **place** — `Storage.put`. Managed mode tries reflink → hardlink → copy and records
    `link_method`. Referenced mode writes nothing and stores `ref_path`.
@@ -451,7 +451,7 @@ the reflink probe do anything sensible there.
   is *not* used for library-adjacent paths — it has its own opinions, and each platform's own
   layout is what its users expect.
 - The single-instance lock is keyed by a hash of the library's canonical path and lives in
-  `state_dir()/locks`, never inside the library: `STORAGE_SPEC.md` fixes the library layout at
+  `state_dir()/locks`, never inside the library: RL-3 makes the library root a reserved namespace at
   four entries, a pid is meaningless on another machine, and a read-only library must still
   open. The desktop app takes it when it opens a library; `roost rebuild` takes it too, being
   the one CLI command that rewrites a library whole. Ordinary reads and edits do not — two
@@ -467,7 +467,7 @@ the reflink probe do anything sensible there.
 
 ### Where logs live
 
-Not in the library. `STORAGE_SPEC.md` publishes the library layout and is binding: a library
+Not in the library. RL-3 makes the library root a reserved namespace: a library
 holds `originals/`, `index.db`, `journal/`, and `library.json`, and nothing else. Logs go to
 `$XDG_STATE_HOME/roost/logs`, and to `%LOCALAPPDATA%\roost\state\logs` on Windows. Two
 destinations, different jobs: the terminal carries warnings and errors so the person running a
@@ -495,9 +495,11 @@ reported days later can still be investigated.
 
 Violating any of these is a bug, regardless of what it enables:
 
-0. **`docs/STORAGE_SPEC.md` is binding** and outranks this document. Its eight invariants and
-   its Forbidden Patterns list govern storage, schema, import, and rebuild. Deviation requires
-   explicit user approval.
+0. **`../roost-library/SPEC.md` is normative** and outranks this document. Requirements `RL-1`
+   … `RL-41` and RL-38's forbidden list govern storage, import and rebuild — not the schema,
+   which RL-2 leaves to each implementation. It is **not this repository's document**: a change
+   to it is proposed there, against that repository's `CHANGING.md`, and raises a document
+   revision or a format version (ADR-0045).
 1. The index is derivable from the journal plus `originals/`. Always. Any state that exists
    only in `index.db` is a bug.
 2. No path is constructed from a hash outside a `Storage` implementation.

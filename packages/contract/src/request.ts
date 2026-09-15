@@ -207,6 +207,7 @@ export type Request =
       readonly gridView?: string;
       readonly matchImageProportions?: boolean;
       readonly gridZoom?: number;
+      readonly showFolders?: boolean;
       readonly showSidebar?: boolean;
       readonly showInspector?: boolean;
       readonly sidebarWidth?: number;
@@ -515,7 +516,7 @@ export type Request =
    * The one place Roost writes into a user's directory, and it does so only
    * because the user picked the directory in a dialog and asked for it by name.
    * Nothing under `originals/` is moved, modified, or removed — an export is a
-   * copy out (`STORAGE_SPEC.md` invariant 6 is about the reverse direction).
+   * copy out (RL-16 is about the reverse direction).
    */
   | {
       readonly type: "assets:export";
@@ -529,9 +530,9 @@ export type Request =
    * preload and never reads one. Directories are walked by the engine, which
    * is the side with a filesystem.
    *
-   * Originals are never moved, modified, or deleted (`STORAGE_SPEC.md`
-   * invariant 8), and in `referenced` mode nothing is written into the user's
-   * directories at all.
+   * Originals are never moved, modified, or deleted (RL-10), and in
+   * `referenced` mode nothing is written into the user's directories at all
+   * (RL-16).
    */
   | {
       readonly type: "import:paths";
@@ -904,6 +905,7 @@ export const REQUEST_VALIDATORS: {
       gridView?: string;
       matchImageProportions?: boolean;
       gridZoom?: number;
+      showFolders?: boolean;
       showSidebar?: boolean;
       showInspector?: boolean;
       sidebarWidth?: number;
@@ -916,6 +918,7 @@ export const REQUEST_VALIDATORS: {
       "mediaMuted",
       "sortDescending",
       "matchImageProportions",
+      "showFolders",
       "showSidebar",
       "showInspector",
     ] as const) {

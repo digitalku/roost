@@ -26,7 +26,7 @@ const READ_BUFFER_BYTES = 256 * 1024;
  * Size travels with the hash because a partial hash is only meaningful
  * alongside it: the size is hashed as the prefix, so two files sharing a
  * partial hash necessarily share a size, and the importer needs the number to
- * decide what to verify (`STORAGE_SPEC.md` §Partial-hash collisions).
+ * decide what to verify (RL-12's note on collisions).
  */
 export interface Hashed {
   readonly hash: ContentHash;
@@ -60,7 +60,7 @@ async function readExact(handle: FileHandle, buffer: Buffer, position: number): 
 }
 
 /**
- * Hashes a file according to `docs/STORAGE_SPEC.md` §Hashing.
+ * Hashes a file according to RL-12, RL-12a and RL-14.
  *
  * Below the size limit this is BLAKE3 over the whole file, streamed — assets
  * are routinely gigabytes and must never be read into memory. Above it, the

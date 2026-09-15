@@ -30,7 +30,7 @@ describe("storage modes", () => {
 describe("link methods", () => {
   it("lists them in the order the spec tries them", () => {
     // reflink first: it is the only one that is both free and independent of
-    // later edits to the user's file (STORAGE_SPEC.md §Import Modes).
+    // later edits to the user's file (RL-15).
     expect(LINK_METHODS).toEqual(["reflink", "hardlink", "copy"]);
   });
 

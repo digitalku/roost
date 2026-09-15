@@ -25,7 +25,7 @@ export function counted(value: number): string {
   return value.toLocaleString("en-US");
 }
 
-/** Binary multiples, the way `STORAGE_SPEC.md` and the CLI both count. */
+/** Binary multiples, the way the library format and the CLI both count. */
 export function bytes(size: number): string {
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];
   let value = size;

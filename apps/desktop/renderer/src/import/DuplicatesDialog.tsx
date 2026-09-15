@@ -62,7 +62,7 @@ export function DuplicatesDialog({
           <p className="dialog-body">
             {/* Said plainly, because a grid that did not grow looks like an
                 import that failed. Identical bytes have one address
-                (`STORAGE_SPEC.md` invariant 1), so this is the ordinary
+                (RL-11), so this is the ordinary
                 outcome of re-importing rather than a fault. */}
             Nothing was copied twice — Roost recognises a file by its contents.
           </p>

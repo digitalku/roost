@@ -1312,3 +1312,47 @@ button:disabled {
   font-size: var(--text-xs);
   line-height: var(--leading-xs);
 }
+
+/*
+ * Back, forward and up (ADR-0044).
+ *
+ * Square icon buttons in front of the search field, which is the address bar
+ * they belong to. Grouped tight and set apart from the field by the bar's own
+ * gap: three arrows read as one control, and a `gap` between them would make
+ * them three.
+ */
+.bar-nav {
+  display: flex;
+  flex: none;
+  gap: var(--space-1);
+}
+
+.nav-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-height);
+  padding: 0;
+  border-color: transparent;
+  background: none;
+}
+
+.nav-button:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--surface-raised);
+}
+
+/* One path, turned. A left chevron is a right chevron and an up chevron, and
+   three copies of the same shape cannot drift apart at three sizes. */
+.nav-arrow {
+  width: 16px;
+  height: 16px;
+}
+
+.nav-arrow[data-direction="right"] {
+  transform: rotate(180deg);
+}
+
+.nav-arrow[data-direction="up"] {
+  transform: rotate(90deg);
+}

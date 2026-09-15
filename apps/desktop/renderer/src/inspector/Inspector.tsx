@@ -194,7 +194,7 @@ export function Inspector({
     <aside className="inspector" aria-label="Inspector">
       {/*
         The 512px thumbnail, generated on first use rather than at import
-        (`STORAGE_SPEC.md`) — so an asset nobody has looked at yet has none, and
+        (`ARCHITECTURE.md` §4.5) — so an asset nobody has looked at yet has none, and
         the extension shows through underneath exactly as it does in the grid.
         Bytes come over `roost://`, never through a message (invariant 12).
       */}
@@ -656,7 +656,7 @@ function TagEditor({
  * the folder — so the distinction is a thing said, not a thing branched on.
  *
  * **Detaching is not deleting.** Taking an asset out of a folder leaves the
- * asset alone: folders are collections, not locations (`STORAGE_SPEC.md`), and
+ * asset alone: folders are collections, not locations (RL-38), and
  * nothing on disk moves. That is why there is no confirmation here and why the
  * button is an `×` like a tag's rather than a word like `Delete`.
  */

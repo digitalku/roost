@@ -147,6 +147,7 @@ export {
   retryFailed,
   runDerives,
 } from "./jobs.js";
+export { type JournalNotice, NOTHING_SKIPPED, type SkippedOp } from "./journal-state.js";
 export { Library, nowUnix, type OpenOptions } from "./library.js";
 export {
   discoverLibrary,

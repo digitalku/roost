@@ -233,6 +233,7 @@ export class EngineHost {
             matchImageProportions: request.matchImageProportions,
           }),
           ...(request.gridZoom !== undefined && { gridZoom: request.gridZoom }),
+          ...(request.showFolders !== undefined && { showFolders: request.showFolders }),
           ...(request.showSidebar !== undefined && { showSidebar: request.showSidebar }),
           ...(request.showInspector !== undefined && { showInspector: request.showInspector }),
           ...(request.sidebarWidth !== undefined && { sidebarWidth: request.sidebarWidth }),
@@ -853,6 +854,18 @@ function summarize(library: Library): LibrarySummary {
     id: library.manifest.id,
     formatVersion: library.manifest.roost_library_version,
     schemaVersion: library.db.schemaVersion(),
+    // Mapped field by field rather than spread: the engine's shape and the
+    // wire's are allowed to differ, and this is the place that notices when
+    // they do (ADR-0007).
+    journal: {
+      skipped: library.notice.skipped.map((skipped) => ({
+        op: skipped.op,
+        count: skipped.count,
+        platform: skipped.platform,
+        platformLabel: skipped.platformLabel,
+      })),
+      dangling: library.notice.dangling,
+    },
   };
 }
 

@@ -87,7 +87,7 @@ export async function strayFilesIn(dir: string): Promise<string[]> {
  * journal line is silent data loss on the next rebuild.
  *
  * Files are opened in append mode and never rewritten in place
- * (`STORAGE_SPEC.md` invariant 5). Which month a record lands in follows the
+ * (RL-18, RL-22). Which month a record lands in follows the
  * record's own `ts`, not the wall clock, so writing and replaying agree even
  * when a batch straddles midnight on the first of a month.
  *

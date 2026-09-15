@@ -1,6 +1,12 @@
-import { type JournalRecord, MalformedRecordError, type ReplaySink } from "../journal/index.js";
+import {
+  DanglingReferenceError,
+  type JournalRecord,
+  MalformedRecordError,
+  type ReplaySink,
+} from "../journal/index.js";
+import type { ContentHash } from "../model/index.js";
 import type { Db } from "./database.js";
-import type { Repo } from "./repo.js";
+import type { IdentifiedTable, Repo } from "./repo.js";
 
 /**
  * How many records one rebuild transaction holds.
@@ -12,6 +18,95 @@ import type { Repo } from "./repo.js";
  * is restartable from the journal, so it can afford to be large.
  */
 export const REBUILD_BATCH_SIZE = 10_000;
+
+/** Something a record needs to already exist. */
+type Referent =
+  | { readonly kind: "asset"; readonly hash: ContentHash }
+  | { readonly kind: IdentifiedTable; readonly id: number };
+
+/** What each table is called when a person is told about it. */
+const REFERENT_NAMES: Readonly<Record<IdentifiedTable, string>> = {
+  folders: "folder",
+  smart_folders: "smart folder",
+  tag_groups: "tag group",
+  asset_comments: "comment",
+};
+
+/**
+ * What a record names that must already be in the library (RL-26a).
+ *
+ * Exhaustive over `Op`, and written out rather than inferred from the schema's
+ * foreign keys on purpose. The schema is a **cache** — the format says so,
+ * RL-2 — so which constraints it happens to declare is this build's business
+ * and could change without anybody meaning to change what a journal means.
+ * Which entities a record depends on is the format's business, and belongs in
+ * one list somebody can read against the registry.
+ *
+ * `add`, `folder_create`, `smart_folder_create`, `tag_group_create` and the two
+ * rename-by-name operations answer with nothing. A tag is named rather than
+ * numbered (the registry says why), so `tag_rename` from a name nobody uses is
+ * an ordinary no-op and not a dangling reference; and a create is what brings
+ * its own entity into being.
+ */
+function referentsOf(record: JournalRecord): readonly Referent[] {
+  const asset = (hash: ContentHash): readonly Referent[] => [{ kind: "asset", hash }];
+
+  switch (record.op) {
+    case "add":
+    case "folder_create":
+    case "smart_folder_create":
+    case "tag_group_create":
+    case "tag_rename":
+      return [];
+    case "remove":
+    case "trash":
+    case "restore":
+    case "tag_add":
+    case "tag_remove":
+    case "asset_rename":
+    case "rate":
+    case "note_set":
+    case "source_set":
+    case "favorite_set":
+    case "poster_set":
+    case "supersede":
+    case "comment_add":
+      return asset(record.hash);
+    case "subtitle_attach":
+    case "subtitle_detach":
+      return [
+        { kind: "asset", hash: record.hash },
+        { kind: "asset", hash: record.track },
+      ];
+    case "folder_add":
+    case "folder_remove":
+      return [
+        { kind: "asset", hash: record.hash },
+        { kind: "folders", id: record.folder },
+      ];
+    case "folder_rename":
+    case "folder_move":
+    case "folder_delete":
+      return [{ kind: "folders", id: record.id }];
+    case "smart_folder_update":
+    case "smart_folder_delete":
+      return [{ kind: "smart_folders", id: record.id }];
+    case "tag_group_rename":
+    case "tag_group_delete":
+      return [{ kind: "tag_groups", id: record.id }];
+    case "tag_group_set":
+      // The tag is named, so only the group can dangle — and `null` is the
+      // operation that takes a tag *out* of a group, which names none.
+      return record.group === null ? [] : [{ kind: "tag_groups", id: record.group }];
+    case "comment_set":
+    case "comment_remove":
+      return [{ kind: "asset_comments", id: record.id }];
+    default: {
+      const unhandled: never = record;
+      throw new MalformedRecordError("op", `unhandled operation: ${JSON.stringify(unhandled)}`);
+    }
+  }
+}
 
 /**
  * Folds journal records into the index.
@@ -52,6 +147,10 @@ export class IndexSink implements ReplaySink {
    * only place that failure is cheap. An operation from a *newer* build never
    * reaches this method — replay recognises the unknown name first and counts
    * it (`journal/replay.ts`).
+   *
+   * @throws DanglingReferenceError when the record names something that is not
+   * in the library. Nothing is written for it, and nothing is invented to make
+   * it fit (RL-26a).
    */
   apply(record: JournalRecord): void {
     if (!this.#db.inTransaction) {
@@ -59,6 +158,7 @@ export class IndexSink implements ReplaySink {
       this.#owned = true;
     }
 
+    this.#requireReferents(record);
     this.#fold(record);
 
     this.#pending += 1;
@@ -76,6 +176,25 @@ export class IndexSink implements ReplaySink {
       this.#owned = false;
     }
     this.#pending = 0;
+  }
+
+  /**
+   * Refuses a record whose referents are not there, before anything is written.
+   *
+   * Before, not after, because half of these would otherwise be a foreign key
+   * failure and the other half a silent no-op — a `rate` on an asset nobody
+   * added updates no rows and reports success. One rule for both is what makes
+   * the count in the replay report mean something.
+   */
+  #requireReferents(record: JournalRecord): void {
+    for (const referent of referentsOf(record)) {
+      if (referent.kind === "asset") {
+        if (this.#repo.hasAsset(referent.hash)) continue;
+        throw new DanglingReferenceError(record.op, "asset", referent.hash);
+      }
+      if (this.#repo.hasRow(referent.kind, referent.id)) continue;
+      throw new DanglingReferenceError(record.op, REFERENT_NAMES[referent.kind], referent.id);
+    }
   }
 
   #fold(record: JournalRecord): void {

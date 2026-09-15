@@ -34,7 +34,7 @@ function tempPathFor(dest: string): string {
 
 /**
  * Places bytes at `dest` by the best method the filesystem allows: reflink,
- * then hardlink, then copy (`STORAGE_SPEC.md` §Import Modes).
+ * then hardlink, then copy (RL-15).
  *
  * A reflink is copy-on-write, so the library's copy costs nothing *and* stays
  * independent of later edits to the user's file. A hardlink is also free but
@@ -128,7 +128,7 @@ export class ManagedStorage implements Storage {
     }
 
     // Shard directories are created lazily, as files arrive
-    // (`STORAGE_SPEC.md` invariant 4).
+    // (RL-9).
     const shard = dirname(dest);
     try {
       await mkdir(shard, { recursive: true });

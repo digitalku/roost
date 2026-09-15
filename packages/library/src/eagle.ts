@@ -1,6 +1,6 @@
 import { opendir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { type ContentHash, logger, type Op, type StorageMode } from "@roost/core";
+import { type ContentHash, logger, type Op, type StorageMode, toNfc } from "@roost/core";
 import {
   apply,
   comments as commentsOn,
@@ -678,11 +678,21 @@ async function createFolders(
   return count;
 }
 
-/** The item's tags plus the run's own, without repeating one Eagle already had. */
+/**
+ * The item's tags plus the run's own, without repeating one Eagle already had.
+ *
+ * Normalised on the way through, because Eagle's `metadata.json` carries
+ * whichever encoding the machine that wrote it produced — an Eagle library from
+ * a Mac spells an accented tag decomposed — and everything downstream compares
+ * these as text. RL-36's reason, applied to the one field this importer writes
+ * itself rather than handing to `edit.ts`, which normalises everything it is
+ * given.
+ */
 function mergeTags(own: readonly string[], extra: readonly string[]): string[] {
-  if (extra.length === 0) return [...own];
-  const seen = new Set(own.map((tag) => tag.toLowerCase()));
-  return [...own, ...extra.filter((tag) => !seen.has(tag.toLowerCase()))];
+  const mine = own.map(toNfc);
+  if (extra.length === 0) return mine;
+  const seen = new Set(mine.map((tag) => tag.toLowerCase()));
+  return [...mine, ...extra.map(toNfc).filter((tag) => !seen.has(tag.toLowerCase()))];
 }
 
 /**

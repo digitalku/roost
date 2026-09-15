@@ -6,7 +6,7 @@ declare const contentHashBrand: unique symbol;
  * A BLAKE3 content hash: exactly 64 lowercase hexadecimal characters.
  *
  * This is the identity of an asset — not its path, not its filename
- * (`STORAGE_SPEC.md` invariant 1). It is branded rather than a bare `string`
+ * (RL-11). It is branded rather than a bare `string`
  * because the whole system keys on it, and a "lowercase hex, 64 characters"
  * rule that lives only in a comment is a rule that is already broken.
  */
@@ -33,7 +33,7 @@ export function parseContentHash(value: string): ContentHash {
 
 /**
  * The shard a hash belongs to: its first two hex characters, giving 256
- * buckets (`STORAGE_SPEC.md` invariant 2).
+ * buckets (RL-7).
  *
  * This returns a directory *name*, never a path. Turning a hash into a path is
  * reserved to a `Storage` implementation — `ARCHITECTURE.md` invariant 2 —

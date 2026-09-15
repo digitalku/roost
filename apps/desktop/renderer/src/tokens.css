@@ -156,6 +156,13 @@
   --accent-hover: var(--accent-5);
   --accent-text: var(--gray-0);
 
+  /* The folder drawn in the grid (ADR-0043). Two tones rather than one, because
+     a silhouette at 400px is a slab of colour and at 40px is a blob: the tab
+     and the sheet in front of it are what make the shape legible at both ends.
+     One step apart on the same ramp, never two decisions. */
+  --folder-back: var(--accent-3);
+  --folder-front: var(--accent-4);
+
   /* Text that hands a URL to the desktop's browser. One step brighter than
      `--accent` on this ground, because `--accent` is a *fill* colour here and
      text on the surface behind it needs the contrast a button does not. */
@@ -211,6 +218,10 @@
   --accent: var(--accent-3);
   --accent-hover: var(--accent-2);
   --accent-text: var(--gray-12);
+
+  /* The ramp reversing, as every fill on this theme does. */
+  --folder-back: var(--accent-2);
+  --folder-front: var(--accent-3);
 
   /* The ramp reversing, for the reason the dark theme's does: darker text on a
      light ground is the same decision made the other way. */

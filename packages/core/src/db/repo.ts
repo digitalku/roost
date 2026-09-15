@@ -1,8 +1,21 @@
 import type { Database, Statement } from "better-sqlite3";
 import type { AddRecord } from "../journal/index.js";
-import type { ContentHash, JobKind, JobState, Sort, SortKey } from "../model/index.js";
+import type { ContentHash, JobKind, JobState, LinkMethod, Sort, SortKey } from "../model/index.js";
 import { DEFAULT_SORT, rotationFor } from "../model/index.js";
 import type { Cursor, CursorKey, Filter, Page, SearchHit } from "./query.js";
+
+/**
+ * The four tables whose ids the journal mints explicitly (RL-25).
+ *
+ * A closed union rather than a string, because these names are interpolated
+ * into SQL: SQLite cannot parameterise a table name, so the only safe way to
+ * write one statement for four tables is to make the compiler prove the name
+ * came from this list. Invariant 5 binds *user input*, and none of this is.
+ */
+export type IdentifiedTable = "folders" | "smart_folders" | "tag_groups" | "asset_comments";
+
+/** Where the high-water mark for each of those lives in `meta`. */
+const ID_WATERMARK_PREFIX = "max_id.";
 
 /**
  * Summary counts for `roost stats`.
@@ -207,6 +220,14 @@ export interface AssetDetail {
   readonly pageCount: number | null;
   readonly origName: string;
   readonly storageMode: string;
+  /**
+   * Which rung of RL-15's ladder placed the bytes — reflink, hardlink or copy.
+   *
+   * `null` in referenced mode, where nothing was placed. RL-15a requires it be
+   * recorded on the asset, and it is read back here so that a conformance suite
+   * has something to compare rather than a column only the journal ever sees.
+   */
+  readonly linkMethod: LinkMethod | null;
   readonly refPath: string | null;
   readonly isPartialHash: boolean;
   readonly createdAt: number | null;
@@ -384,6 +405,22 @@ export class Repo {
    * `ON CONFLICT ... DO UPDATE` rather than `INSERT OR REPLACE`: the latter
    * deletes the existing row first, and the schema's `ON DELETE CASCADE` would
    * take the asset's tags and folder memberships with it.
+   *
+   * **`width` and `height` are coalesced; nothing else is.** They are the only
+   * columns here with two sources. The importer probes a header and writes what
+   * it found; a derive backend reads the file properly afterwards and fills in
+   * what the header could not say — a video whose container the probe cannot
+   * parse gets its dimensions that way and no other. So an absent `w` on an
+   * `add` means *the importer could not tell*, never *this asset has none*, and
+   * folding the record a second time must not blank an answer something else
+   * found. {@link putDerived} carries the same `coalesce` for the same reason.
+   *
+   * On a rebuild it changes nothing, because there is no conflict to resolve:
+   * the row does not exist, the INSERT applies, and the journal's value stands
+   * with `NULL` included. It matters on the fold an open performs when it finds
+   * the index behind the journal, which writes over rows that are already
+   * there — found by measuring one on 2026-09-15, where it silently squared off
+   * every asset whose dimensions had come from a derive.
    */
   applyAdd(ts: number, add: AddRecord): void {
     this.#s(
@@ -394,8 +431,10 @@ export class Repo {
        ON CONFLICT(hash) DO UPDATE SET
            ext = excluded.ext,
            size = excluded.size,
-           width = excluded.width,
-           height = excluded.height,
+           -- coalesce on these two and on nothing else. See the note above the
+           -- method: they are the only columns here with two sources.
+           width = coalesce(excluded.width, width),
+           height = coalesce(excluded.height, height),
            orig_name = excluded.orig_name,
            storage_mode = excluded.storage_mode,
            link_method = excluded.link_method,
@@ -570,6 +609,7 @@ export class Repo {
       `INSERT INTO folders (id, parent_id, name) VALUES (?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET parent_id = excluded.parent_id, name = excluded.name`,
     ).run(id, parent, name);
+    this.noteIdUsed("folders", id);
   }
 
   applyFolderAdd(hash: ContentHash, folder: number): void {
@@ -791,6 +831,7 @@ export class Repo {
          hash = excluded.hash, at_ms = excluded.at_ms, body = excluded.body,
          created_at = excluded.created_at, updated_at = NULL`,
     ).run(id, hash, atMs, body, createdAt);
+    this.noteIdUsed("asset_comments", id);
     this.#refreshFts(hash);
   }
 
@@ -857,6 +898,7 @@ export class Repo {
            name = excluded.name,
            query = excluded.query`,
     ).run(id, parent, name, query);
+    this.noteIdUsed("smart_folders", id);
   }
 
   applySmartFolderUpdate(id: number, name: string, query: string): void {
@@ -872,6 +914,7 @@ export class Repo {
       `INSERT INTO tag_groups (id, name) VALUES (?, ?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name`,
     ).run(id, name);
+    this.noteIdUsed("tag_groups", id);
   }
 
   applyTagGroupRename(id: number, name: string): void {
@@ -995,7 +1038,8 @@ export class Repo {
     const base = this.#s(
       `SELECT hash, ext, size, width, height, duration_ms AS durationMs,
               page_count AS pageCount, orig_name AS origName,
-              storage_mode AS storageMode, ref_path AS refPath,
+              storage_mode AS storageMode, link_method AS linkMethod,
+              ref_path AS refPath,
               is_partial_hash AS isPartialHash, created_at AS createdAt,
               imported_at AS importedAt, trashed_at AS trashedAt,
               rating, note, source_url AS sourceUrl,
@@ -1462,28 +1506,102 @@ export class Repo {
   }
 
   /**
-   * The next free folder id.
+   * The next free folder id — **the journal's maximum plus one**, not the
+   * table's (RL-25a).
    *
-   * Taken from the table rather than from `last_insert_rowid()`, as the
-   * specification requires: the index is the journal folded in order, so its
-   * maximum is the journal's maximum. Ids of deleted folders are reused, which
-   * replays correctly because replay is total and ordered — the create, the
-   * delete, and the re-create arrive in the order they happened.
+   * The two differ the moment anything is deleted, and that is the whole point.
+   * A folder created as 7 and then deleted leaves no row, so `max(id)` over the
+   * table answers 6 and the next folder is a **second** folder 7. Within one
+   * implementation that replays correctly — the create, the delete and the
+   * re-create arrive in order — which is exactly why it survived three
+   * milestones here. It stops being true the moment a second implementation is
+   * reading the same journal and has not applied the same records: a line one
+   * build could not parse, or an entity another build deleted afterwards, and
+   * the two now hold different folders under one id with every membership
+   * record ambiguous between them.
+   *
+   * So the maximum is remembered rather than recomputed. {@link noteIdUsed}
+   * raises the mark whenever a create is folded, and nothing ever lowers it.
+   * The table is still consulted alongside it, which is what carries an index
+   * built before this build forward without a migration: an old `index.db` has
+   * no mark, and its table maximum is the best answer available until the next
+   * rebuild writes a real one.
    */
   nextFolderId(): number {
-    return this.#count("SELECT coalesce(max(id), 0) + 1 AS n FROM folders");
+    return this.#nextId("folders");
   }
 
   nextSmartFolderId(): number {
-    return this.#count("SELECT coalesce(max(id), 0) + 1 AS n FROM smart_folders");
+    return this.#nextId("smart_folders");
   }
 
   nextTagGroupId(): number {
-    return this.#count("SELECT coalesce(max(id), 0) + 1 AS n FROM tag_groups");
+    return this.#nextId("tag_groups");
   }
 
   nextCommentId(): number {
-    return this.#count("SELECT coalesce(max(id), 0) + 1 AS n FROM asset_comments");
+    return this.#nextId("asset_comments");
+  }
+
+  /**
+   * A value from `meta`, or `undefined` if nothing has written that key.
+   *
+   * `meta` is where the index keeps what it has worked out about the journal —
+   * how far it has folded it, and what it had to skip. All of it is derived, so
+   * all of it is thrown away and recomputed by a rebuild, which is what keeps
+   * invariant 1 true of a table that is not itself journalled.
+   */
+  meta(key: string): string | undefined {
+    const row = this.#s("SELECT value FROM meta WHERE key = ?").get(key) as
+      | { value: string }
+      | undefined;
+    return row?.value;
+  }
+
+  setMeta(key: string, value: string): void {
+    this.#s(
+      `INSERT INTO meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ).run(key, value);
+  }
+
+  /**
+   * Whether the library holds this asset.
+   *
+   * On the primary key and selecting a constant, so it costs an index probe and
+   * touches no row: replay asks it once per record that names an asset, which
+   * is most of a large journal.
+   */
+  hasAsset(hash: ContentHash): boolean {
+    return this.#s("SELECT 1 FROM assets WHERE hash = ?").get(hash) !== undefined;
+  }
+
+  /** The same question for the four tables whose ids the journal mints. */
+  hasRow(table: IdentifiedTable, id: number): boolean {
+    return this.#s(`SELECT 1 FROM ${table} WHERE id = ?`).get(id) !== undefined;
+  }
+
+  /**
+   * Records that `id` has been used in `table`, so it is never handed out again.
+   *
+   * Called from the four `apply*` methods that fold a create, so replay and
+   * live mutation raise the mark by the same hand — there is no second path for
+   * one of them to forget.
+   */
+  noteIdUsed(table: IdentifiedTable, id: number): void {
+    this.#s(
+      `INSERT INTO meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value
+       WHERE CAST(excluded.value AS INTEGER) > CAST(meta.value AS INTEGER)`,
+    ).run(`${ID_WATERMARK_PREFIX}${table}`, String(id));
+  }
+
+  #nextId(table: IdentifiedTable): number {
+    const mark = this.#count(
+      `SELECT coalesce(CAST((SELECT value FROM meta WHERE key = '${ID_WATERMARK_PREFIX}${table}') AS INTEGER), 0) AS n`,
+    );
+    const highest = this.#count(`SELECT coalesce(max(id), 0) AS n FROM ${table}`);
+    return Math.max(mark, highest) + 1;
   }
 
   /**

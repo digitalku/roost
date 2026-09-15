@@ -1,3 +1,4 @@
+import type { SidebarFolderRow } from "@roost/contract";
 import { createEvent, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act } from "react";
@@ -427,5 +428,208 @@ describe("the grid", () => {
       for (let i = 0; i < 20; i += 1) grid.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
     expect(frames).toHaveLength(1);
+  });
+});
+
+/**
+ * The folders drawn among the thumbnails (ADR-0043).
+ *
+ * Every claim here is about the one distinction the feature rests on: a tile is
+ * a **control**, not a result. It is laid out like a cell and it is in none of
+ * the places a result is — the selection, `Ctrl+A`, the marquee, a drag.
+ */
+describe("folders in the grid", () => {
+  let selection: SelectionStore;
+  const opened = vi.fn();
+  const onOpen = vi.fn();
+
+  function folderRow(folder: number, name: string): SidebarFolderRow {
+    return {
+      id: `folder:${folder}`,
+      name,
+      query: `infolder:"${name}"`,
+      count: 3,
+      depth: 1,
+      group: null,
+      stars: null,
+      folder,
+      path: `Design/${name}`,
+      descendants: 3,
+    };
+  }
+
+  const ICONS = folderRow(7, "Icons");
+  const LOGOS = folderRow(8, "Logos");
+
+  const show = (count: number) => {
+    const assets = Array.from({ length: count }, (_, i) => fakeAsset(i));
+    render(
+      <Grid
+        assets={assets}
+        view="icons"
+        proportional={false}
+        target={240}
+        selection={selection}
+        onMore={() => {}}
+        onOpen={onOpen}
+        folders={{
+          rows: [ICONS, LOGOS],
+          onOpen: opened,
+          onNewFolder: () => {},
+          onRename: () => {},
+          onMoveFolder: () => {},
+          onDelete: () => {},
+          onDropAssets: () => {},
+        }}
+      />,
+    );
+    return { user: userEvent.setup(), assets };
+  };
+
+  const tile = (folder: number): HTMLElement => {
+    const cell = document.querySelector(`[data-hash="folder-${folder}"]`);
+    if (!(cell instanceof HTMLElement)) throw new Error(`no tile for folder ${folder}`);
+    return cell;
+  };
+
+  beforeEach(() => {
+    sized();
+    selection = new SelectionStore();
+    opened.mockClear();
+    onOpen.mockClear();
+    vi.stubGlobal("requestAnimationFrame", (fn: FrameRequestCallback) => {
+      fn(0);
+      return 0;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    vi.stubGlobal("getComputedStyle", () => ({ paddingLeft: "0px", paddingRight: "0px" }));
+  });
+
+  it("draws the subfolders ahead of the assets, with their counts", () => {
+    show(12);
+    const cells = screen.getAllByRole("option");
+    expect(cells[0]?.getAttribute("data-hash")).toBe("folder-7");
+    expect(cells[1]?.getAttribute("data-hash")).toBe("folder-8");
+    expect(cells[0]?.getAttribute("aria-label")).toBe("Icons, folder, 3 assets");
+    // Two tiles and twelve assets: the tiles are laid out, not overlaid.
+    expect(cells.length).toBe(14);
+  });
+
+  it("marks a folder on a click without selecting it", async () => {
+    // The mark is the ring. A folder in the selection would be a folder handed
+    // to the inspector, the trash, and every edit (ADR-0043 §4).
+    const { user } = show(12);
+    await user.click(tile(7));
+
+    expect(selection.selected()).toEqual([]);
+    expect(selection.focused).toBe("folder-7");
+    expect(tile(7).hasAttribute("data-focused")).toBe(true);
+  });
+
+  it("clears an asset selection when a folder is marked", async () => {
+    const { user, assets } = show(12);
+    await user.click(screen.getAllByRole("option")[3] as HTMLElement);
+    expect(selection.selected()).toEqual([assets[1]?.hash]);
+
+    await user.click(tile(8));
+    expect(selection.selected()).toEqual([]);
+  });
+
+  it("opens a folder on a double-click, and opens no preview", async () => {
+    // Explorer's gesture, chosen by the user on 2026-09-13 over one-click:
+    // a hand that learned it there will double-click whatever this build does,
+    // and with the first click navigating the second lands on a new grid.
+    const { user } = show(12);
+    await user.dblClick(tile(7));
+
+    expect(opened).toHaveBeenCalledWith(ICONS);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("opens the marked folder on Enter", async () => {
+    const { user } = show(12);
+    await user.click(tile(8));
+    await user.keyboard("{Enter}");
+
+    expect(opened).toHaveBeenCalledWith(LOGOS);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("leaves folders out of Ctrl+A and out of a sweep", async () => {
+    const { user, assets } = show(12);
+    await user.click(screen.getAllByRole("option")[5] as HTMLElement);
+    await user.keyboard("{Control>}a{/Control}");
+    expect(selection.selected()).toEqual(assets.map((asset) => asset.hash));
+
+    const grid = screen.getByRole("listbox");
+    fireEvent.pointerDown(grid, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(grid, { pointerId: 1, clientX: 900, clientY: 10 });
+    fireEvent.pointerUp(grid, { pointerId: 1, clientX: 900, clientY: 10 });
+    // The sweep crossed both tiles on its way across the first row.
+    expect(selection.selected().every((id) => !id.startsWith("folder-"))).toBe(true);
+  });
+
+  it("does nothing on Space over a folder", async () => {
+    const { user } = show(12);
+    await user.click(tile(7));
+    await user.keyboard(" ");
+
+    expect(selection.selected()).toEqual([]);
+    expect(selection.focused).toBe("folder-7");
+  });
+
+  it("never starts an asset drag from a tile", () => {
+    show(12);
+    const setData = vi.fn();
+    const event = createEvent.dragStart(tile(7), {
+      dataTransfer: {
+        setData,
+        setDragImage: () => {},
+        effectAllowed: "all",
+      } as unknown as DataTransfer,
+    });
+    fireEvent(tile(7), event);
+
+    expect(setData).not.toHaveBeenCalled();
+  });
+
+  it("takes a drop of assets onto a tile", () => {
+    const dropped = vi.fn();
+    const assets = [fakeAsset(0), fakeAsset(1)];
+    render(
+      <Grid
+        assets={assets}
+        view="icons"
+        proportional={false}
+        target={240}
+        selection={selection}
+        onMore={() => {}}
+        folders={{
+          rows: [ICONS],
+          onOpen: opened,
+          onNewFolder: () => {},
+          onRename: () => {},
+          onMoveFolder: () => {},
+          onDelete: () => {},
+          onDropAssets: dropped,
+        }}
+      />,
+    );
+
+    const hashes = [assets[0]?.hash];
+    const dataTransfer = {
+      types: [ASSET_DRAG_TYPE],
+      getData: () => JSON.stringify(hashes),
+      dropEffect: "none",
+      effectAllowed: "all",
+    } as unknown as DataTransfer;
+    // happy-dom leaves `ctrlKey` off a constructed `DragEvent`, and React reads
+    // it off the native one — so the modifier the handler asks about has to be
+    // put there by hand for the drop to be an ordinary, unmodified one.
+    const drop = createEvent.drop(tile(7), { dataTransfer });
+    Object.defineProperty(drop, "ctrlKey", { value: false });
+    fireEvent(tile(7), drop);
+
+    expect(dropped).toHaveBeenCalledWith(ICONS, hashes, false);
   });
 });

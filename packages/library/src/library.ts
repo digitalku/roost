@@ -19,6 +19,15 @@ import {
 } from "@roost/core";
 import { LibraryBusyError } from "./error.js";
 import {
+  indexMatchesJournal,
+  type JournalNotice,
+  journalFingerprint,
+  journalNotice,
+  NOTHING_SKIPPED,
+  rememberFold,
+  rememberSkips,
+} from "./journal-state.js";
+import {
   type Manifest,
   newManifest,
   readManifest,
@@ -67,6 +76,7 @@ export class Library {
   #lock: InstanceLock | undefined;
   #settings: Settings;
   #closed = false;
+  #notice: JournalNotice = NOTHING_SKIPPED;
 
   private constructor(
     root: string,
@@ -117,13 +127,25 @@ export class Library {
       // row's query from it — never has to reach the filesystem. Nothing here
       // can fail: an absent or damaged file is the defaults (ADR-0019).
       const settings = await readSettings(root);
+      const library = new Library(root, manifest, db, journal, lock, settings);
+
+      // The index is a cache the format does not describe (RL-2), so a library
+      // written by another implementation arrives with no cache of ours — or
+      // with one built before that implementation last appended. Either way the
+      // journal is the library and the index is behind it, and a window that
+      // drew the stale one would show an empty grid and say nothing. Through M4
+      // that is exactly what it did.
+      const fingerprint = await journalFingerprint(journal.dir);
+      if (indexMatchesJournal(db, fingerprint)) library.#notice = journalNotice(db);
+      else await library.#fold(fingerprint);
+
       log.debug("library opened", {
         root,
         schema: db.schemaVersion(),
         format: manifest.roost_library_version,
         exclusive: lock !== undefined,
       });
-      return new Library(root, manifest, db, journal, lock, settings);
+      return library;
     } catch (error) {
       // A lock taken and then abandoned would keep the library shut until
       // someone deleted the file by hand.
@@ -134,6 +156,16 @@ export class Library {
 
   get db(): Db {
     return this.#db;
+  }
+
+  /**
+   * What the last fold of this journal could not do (RL-26a, RL-28).
+   *
+   * Answered from the index rather than by replaying, so every open can say it
+   * and not only the opens that rebuilt. Empty is the ordinary answer.
+   */
+  get notice(): JournalNotice {
+    return this.#notice;
   }
 
   /** This library's preferences (ADR-0019). */
@@ -164,6 +196,23 @@ export class Library {
 
   stats(): Stats {
     return this.#db.repo.stats();
+  }
+
+  /**
+   * Records that the index now reflects the journal as it stands on disk.
+   *
+   * Called after every append, by the two places that write one — the edit path
+   * and the import path. Without it every mutation would leave the index
+   * looking stale to the next open, and the next open would fold the whole
+   * journal to discover that nothing had changed.
+   *
+   * It is deliberately a separate step rather than something the journal does
+   * on its own. The journal must not know the index exists (invariant 9's
+   * direction), and the mark has to go down **after** the fold, or a crash
+   * between the two would leave a mark claiming records the index never got.
+   */
+  async noteJournalAppended(): Promise<void> {
+    rememberFold(this.#db, await journalFingerprint(this.#journal.dir));
   }
 
   /**
@@ -214,20 +263,57 @@ export class Library {
     this.#db = Db.open(join(this.root, INDEX_FILE));
     this.#journal = await Journal.open(this.root);
 
-    const report = await replay(journalDir, new IndexSink(this.#db));
+    return this.#fold(await journalFingerprint(journalDir));
+  }
 
-    // Every counter on one line: a rebuild is the operation most worth being
-    // able to reconstruct after the fact.
-    log.info("rebuild complete", {
+  /**
+   * Folds the whole journal into the index, and writes down that it did.
+   *
+   * Shared by `rebuild` and by an open that found the index behind the journal,
+   * so there is one answer to "what does folding mean" rather than two that can
+   * drift. It does **not** empty the index first — `rebuild` has already done
+   * that, and an open must not: a fold triggered by another implementation
+   * having appended one file would otherwise throw away every thumbnail in the
+   * library to learn about that file. Replaying over what is there converges
+   * on the same state, because every operation sets a value rather than
+   * toggling one and the journal never loses a line.
+   *
+   * **The fingerprint is taken before the replay, not after.** A journal that
+   * grows while this is running would otherwise be recorded as folded further
+   * than it was, and those records would never be read. Under-claiming costs
+   * one redundant fold at the next open; over-claiming loses data.
+   */
+  async #fold(fingerprint: Record<string, number>): Promise<ReplayReport> {
+    const report = await replay(this.#journal.dir, new IndexSink(this.#db));
+
+    this.#db.transaction(() => {
+      rememberSkips(this.#db, report);
+      rememberFold(this.#db, fingerprint);
+    });
+    this.#notice = journalNotice(this.#db);
+
+    // Every counter on one line: a fold is the operation most worth being able
+    // to reconstruct after the fact.
+    log.info("journal folded", {
       months: report.months.length,
       applied: report.applied,
       unknownOps: report.unknownOps.size,
+      dangling: report.dangling.length,
       malformed: report.malformed.length,
       tornTrailing: report.tornTrailing.length,
     });
     if (report.unknownOps.size > 0) {
+      // Logged here and told to the person by whichever frontend is running —
+      // RL-28 requires the second, and a log line is not it.
       log.warn("journal holds operations this build does not know; they were skipped", {
         ops: [...report.unknownOps.keys()].join(","),
+      });
+    }
+    if (report.dangling.length > 0) {
+      // Not an error: a record naming something another build deleted is the
+      // ordinary result of editing one library from two of them (RL-26a).
+      log.info("journal records named entities that are not there; they were skipped", {
+        count: report.dangling.length,
       });
     }
     if (report.malformed.length > 0) {

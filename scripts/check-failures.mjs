@@ -228,7 +228,7 @@ try {
  * A library holding two whole images and two that only claim to be images.
  *
  * The broken pair differ in length on purpose: identical bytes are one asset
- * here (`STORAGE_SPEC.md` invariant 1), so two copies of the same wreck would
+ * here (RL-11), so two copies of the same wreck would
  * import as one file and fail once.
  */
 async function brokenLibrary(where) {

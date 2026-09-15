@@ -204,16 +204,33 @@ describe("folding one operation at a time", () => {
     expect(db.repo.stats().assets).toBe(1);
   });
 
-  it("hands out the next id from the table, not from the last insert", () => {
+  it("hands out the next id from the journal's maximum, not the table's", () => {
     expect(db.repo.nextFolderId()).toBe(1);
     db.repo.applyFolderCreate(1, null, "One");
     db.repo.applyFolderCreate(2, null, "Two");
     expect(db.repo.nextFolderId()).toBe(3);
 
-    // Ids of deleted folders are reused, which replays correctly because
-    // replay is total and ordered.
+    // The id of a deleted folder is **not** handed out again (RL-25a). Through
+    // M4 it was, and within one implementation that replayed correctly —
+    // create, delete and re-create arrive in the order they happened. It stops
+    // being true with a second implementation reading the same journal: a line
+    // it could not parse, or an entity it deleted afterwards, and the two hold
+    // different folders under one id.
     db.repo.applyFolderDelete(2);
-    expect(db.repo.nextFolderId()).toBe(2);
+    expect(db.repo.stats().folders).toBe(1);
+    expect(db.repo.nextFolderId()).toBe(3);
+  });
+
+  it("keeps the mark for each of the four numbered tables apart", () => {
+    db.repo.applyFolderCreate(9, null, "Nine");
+    db.repo.applySmartFolderCreate(1, null, "Recent", "ext:png");
+    db.repo.applyTagGroupCreate(4, "Material");
+
+    expect(db.repo.nextFolderId()).toBe(10);
+    expect(db.repo.nextSmartFolderId()).toBe(2);
+    expect(db.repo.nextTagGroupId()).toBe(5);
+    // Nothing has been commented on, so this one is still at the beginning.
+    expect(db.repo.nextCommentId()).toBe(1);
   });
 
   it("reports a hash prefix that names two assets as two", () => {

@@ -15,6 +15,7 @@ Correct it in the same change if M0 lands differently.
 | Node.js | 22 LTS | Both | The system runtime for the CLI and for tests. **Not** Electron's Node, which is 24.18.1 at Electron 43 — `packages/` targets the lower of the two (ADR-0011 §5) |
 | pnpm | 10+ | Both | Workspace manager of record. `corepack enable` is enough |
 | git | any | Both | |
+| The format, checked out beside this one | — | Both | `../roost-library` holds *Roost Library Format 1* and its conformance suite. `pnpm test` runs that suite (RL-39) and **fails loudly** if the checkout is not there — see below |
 | A C++ toolchain | `gcc-c++`, `make`, `python3` | **Linux** | `sharp` is built from source there, always — see below |
 | libvips headers | `vips-devel` 8.15+ | **Linux** | What that source build links against (ADR-0013). Not optional |
 | Electron runtime libs | nss, gtk3, libX11, alsa | **Linux** | Needed to open a window, not to run tests |
@@ -29,6 +30,28 @@ Optional, and each one degrades gracefully when absent:
 
 SVG, fonts, and PDF need nothing installed: their backends are WebAssembly and ship with Roost
 (ADR-0015, ADR-0016).
+
+### The library format
+
+Roost is one format with an implementation per platform (ADR-0045), and the format is a separate
+repository:
+
+```bash
+git clone <roost-library> ../roost-library
+```
+
+It must sit **beside** this checkout, so that `roost/` and `roost-library/` share a parent.
+`packages/library/tests/format-conformance.test.ts` replays its library and compares the result
+with the state it publishes; `packages/core/tests/spec-conformance.test.ts` checks this build's
+journal vocabulary against its operation registry.
+
+Nothing is copied out of it, ever — a vendored copy drifts the moment somebody fixes one of them.
+And nothing in this repository updates it: `pnpm refresh` pulls *this* checkout, because pulling
+somebody else's repository from inside this one's script is a surprise nobody asked for.
+
+**The suite fails rather than skipping** when the checkout is absent. A suite that quietly reports
+success when it did not run turns "this build conforms" into a claim nobody checks, and the day it
+matters is the day somebody changes the hashing and sees green.
 
 ### On Fedora
 

@@ -2,12 +2,16 @@
 
 Status: v3 · Last updated: 2026-08-24
 
-> **The authoritative document is [`STORAGE_SPEC.md`](STORAGE_SPEC.md).** It is binding:
-> directory layout, invariants, hashing, import modes, schema v1, journal format, and
-> forbidden patterns all live there. This file holds only what the spec does not cover —
-> the query language, and the plan for schema growth beyond v1.
+> **The normative document is `SPEC.md` in [`../roost-library`](../../roost-library).** Directory
+> layout, hashing, import modes, journal format and the forbidden patterns are requirements
+> `RL-1` … `RL-41` there, and no implementation owns them (ADR-0045).
 >
-> If this file ever contradicts `STORAGE_SPEC.md`, the spec wins and this file is the bug.
+> This file holds what the format deliberately does **not** cover: the **index schema**, which
+> RL-2 puts outside it as a cache, and the **query language**, which the format calls an opaque
+> string. If anything here contradicts `SPEC.md`, the spec wins and this file is the bug.
+>
+> §2.0 is schema v1 and the thirteen sections after it are the migrations that grew it.
+> [`STORAGE_SPEC.md`](STORAGE_SPEC.md) maps each `RL-n` to the code that meets it.
 
 ## Port note (2026-08-24)
 
@@ -67,9 +71,101 @@ clicked it, it goes in the journal. If a machine derived it from bytes, it does 
 Derived tables (`thumbs`, `assets_fts`, colors, perceptual hashes) are rebuilt by
 re-processing `originals/`, so they stay exempt from the journal.
 
+### 2.0 Migration 0001 — the index a library starts with (schema v1)
+
+**The index is not part of the library format.** RL-2 puts `index.db` outside it, as a cache
+this implementation happens to keep; another one may keep a different shape, or none. What the
+format binds is that everything here can be rebuilt from the journal and `originals/`, which is
+the only reason a cache is allowed to exist at all.
+
+It is written down because a schema nobody publishes is a schema that drifts from its migration,
+and because the numbered migrations below are all described as changes to *this*. Schema v1 —
+migrations 0001 through 0005 — is carried over verbatim from the Rust implementation, so a library
+moves between the two; this repository's own migrations start at 0006.
+
+```sql
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+-- must contain ('schema_version', '1')
+
+CREATE TABLE assets (
+  hash            TEXT PRIMARY KEY,
+  ext             TEXT NOT NULL,
+  size            INTEGER NOT NULL,
+  width           INTEGER,
+  height          INTEGER,
+  duration_ms     INTEGER,          -- video and audio only
+  orig_name       TEXT NOT NULL,
+  storage_mode    TEXT NOT NULL
+                  CHECK (storage_mode IN ('managed', 'referenced')),
+  link_method     TEXT CHECK (link_method IN ('reflink', 'hardlink', 'copy')),
+  ref_path        TEXT,             -- referenced mode only
+  is_partial_hash INTEGER NOT NULL DEFAULT 0,
+  created_at      INTEGER,          -- source file mtime, unix seconds
+  imported_at     INTEGER NOT NULL
+);
+
+CREATE INDEX idx_assets_imported ON assets(imported_at DESC);
+CREATE INDEX idx_assets_ext      ON assets(ext);
+
+CREATE TABLE thumbs (
+  hash   TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
+  size   INTEGER NOT NULL,          -- longest edge: 256 or 512
+  width  INTEGER NOT NULL,
+  height INTEGER NOT NULL,
+  data   BLOB NOT NULL,             -- WebP, quality 80
+  PRIMARY KEY (hash, size)
+);
+
+CREATE TABLE folders (
+  id         INTEGER PRIMARY KEY,
+  parent_id  INTEGER REFERENCES folders(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_folders_parent ON folders(parent_id);
+
+CREATE TABLE asset_folders (
+  hash      TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
+  folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+  PRIMARY KEY (hash, folder_id)
+);
+
+CREATE INDEX idx_asset_folders_folder ON asset_folders(folder_id);
+
+CREATE TABLE tags (
+  id   INTEGER PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+
+CREATE TABLE asset_tags (
+  hash   TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
+  tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  PRIMARY KEY (hash, tag_id)
+);
+
+CREATE INDEX idx_asset_tags_tag ON asset_tags(tag_id);
+
+CREATE VIRTUAL TABLE assets_fts USING fts5(
+  hash UNINDEXED,
+  orig_name,
+  tags,
+  tokenize = 'unicode61'
+);
+```
+
+The two `PRAGMA`s are deliberately not in the migration file: `journal_mode` cannot be set inside
+a transaction and `foreign_keys` is per-connection, so both are applied when a connection opens.
+
 ### 2.1 Migration 0002 — M2 organize (schema v2)
 
-Landed 2026-08-21 in the Rust engine; carried over here unchanged. Published here rather than in `STORAGE_SPEC.md` because the
+Landed 2026-08-21 in the Rust engine; carried over here unchanged. Published here rather than in the format because the
 specification's schema block is v1 and stays v1; growth lives in this file.
 `packages/core/tests/spec-conformance.test.ts` asserts the migration still matches
 this block, so the two cannot drift.
@@ -854,7 +950,7 @@ the call site that knows which column it is filling, and an optional journal fie
 
 **`NULL` is not `undefined`.** The schema uses `NULL` to mean "unrated", "no note", "top-level
 folder", and the journal ops for those carry an explicit `null` rather than omitting the field
-(`STORAGE_SPEC.md` §Ops added after v1). `JSON.stringify` drops `undefined` and keeps `null`,
+(RL-37, and the registry's notes). `JSON.stringify` drops `undefined` and keeps `null`,
 so the difference between clearing a rating and not mentioning it is one keystroke in the code
 and invisible in review. Journal records are built by constructors that take `null`, never by
 spreading an object that might carry `undefined`.

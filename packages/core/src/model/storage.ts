@@ -1,5 +1,5 @@
 /**
- * How a library holds an asset's bytes (`STORAGE_SPEC.md` §Import Modes).
+ * How a library holds an asset's bytes (RL-15).
  *
  * `managed` places the file under `originals/`; `referenced` leaves it where
  * the user put it and records an absolute path. Nothing is ever written into a

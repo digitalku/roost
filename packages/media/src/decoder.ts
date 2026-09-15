@@ -64,7 +64,14 @@ export function isRenderable(format: Format): boolean {
   return RENDERABLE.has(format);
 }
 
-/** WebP quality, as `STORAGE_SPEC.md` specifies. */
+/**
+ * WebP quality for a thumbnail.
+ *
+ * **Ours to choose.** Thumbnails are outside the library format (RL-2) —
+ * derived from bytes it does define, so an implementation that discards them
+ * loses nothing but time, and another may encode them differently or keep none.
+ * 80 is carried over from the Rust build, which measured it.
+ */
 export const WEBP_QUALITY = 80;
 
 /**

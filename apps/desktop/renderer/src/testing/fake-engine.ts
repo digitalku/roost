@@ -23,6 +23,7 @@ import type {
   WireFolderRef,
   WireImportReport,
   WireInstallOutcome,
+  WireJournalNotice,
   WirePasted,
   WireProblem,
   WireRecentLibrary,
@@ -53,6 +54,13 @@ import type { WindowBridge } from "../bridge.js";
 export interface FakeLibrary {
   readonly root: string;
   readonly name: string;
+  /**
+   * What this library's journal held that the engine could not use.
+   *
+   * Absent means nothing was skipped, which is what almost every library looks
+   * like. A test about the notice sets it.
+   */
+  readonly journal?: WireJournalNotice;
 }
 
 export interface FakeEngineOptions {
@@ -364,6 +372,7 @@ export class FakeEngine {
       shuffleSeed: 0,
       gridView: "icons",
       matchImageProportions: true,
+      showFolders: true,
       gridZoom: 240,
       showSidebar: true,
       showInspector: true,
@@ -1264,6 +1273,9 @@ function summarize(library: FakeLibrary): LibrarySummary {
     // A stand-in, not a claim: the renderer never reads this number, and it
     // cannot import the migration list to learn the real one.
     schemaVersion: 6,
+    // Nothing skipped, which is what a library this fake ever holds looks like.
+    // A test that wants the notice drawn sets this itself.
+    journal: library.journal ?? { skipped: [], dangling: 0 },
   };
 }
 

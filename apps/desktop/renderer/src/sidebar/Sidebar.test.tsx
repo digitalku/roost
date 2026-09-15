@@ -197,6 +197,23 @@ describe("the navigation pane", () => {
     expect(branch(/^Design/)?.getAttribute("data-depth")).toBeNull();
   });
 
+  it("marks the whole branch as current, not the row inside it", async () => {
+    // The row begins after the disclosure column, so a mark on it stopped 20px
+    // in and left a notch of page background down the left of the one row that
+    // is marked — visible only on that row, which is what made it read as a
+    // mistake (reported from a real pane, 2026-09-13). A tree marks the line.
+    render(<Pane query={'folder:"Design"'} />);
+
+    expect(branchOf(/^Design/).getAttribute("data-current")).toBe("true");
+    // The row keeps it too: its label, its count and its stars are coloured
+    // from it. What moved is where the fill is painted, not what is current.
+    expect(screen.getByRole("button", { name: "Design 412" }).dataset["current"]).toBe("true");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Expand Design" }));
+    expect(branchOf(/Icons/).getAttribute("data-current")).toBeNull();
+  });
+
   it("starts collapsed, and an arrow opens exactly one branch", async () => {
     // The pane the user showed on 2026-09-06 was a hundred folders drawn flat.
     // A closed branch still says how much is under it, because the count is the

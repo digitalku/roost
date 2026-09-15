@@ -72,7 +72,7 @@ export interface Storage {
 
 /**
  * The on-disk filename is the hash plus the *lowercased* extension
- * (`STORAGE_SPEC.md` invariant 3). Skipping this would put `photo.JPG` and
+ * (RL-8). Skipping this would put `photo.JPG` and
  * `photo.jpg` at two different addresses despite identical content.
  *
  * Every leading dot is stripped, not just one, so `.jpg` and `jpg` are the same

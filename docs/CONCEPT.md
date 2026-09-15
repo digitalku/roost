@@ -219,7 +219,7 @@ These are the differentiators worth building, not just parity items:
 
 ## 9. Related documents
 
-- `docs/STORAGE_SPEC.md` — **binding** storage specification
+- `../roost-library/SPEC.md` — **normative** library format (RL-1…RL-41); `docs/STORAGE_SPEC.md` maps it to the code
 - `docs/ARCHITECTURE.md` — how it is built
 - `docs/DATA_MODEL.md` — query language and schema growth plan
 - `docs/UI_SPEC.md` — the interface, designed for this stack rather than ported

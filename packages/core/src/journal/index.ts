@@ -1,11 +1,14 @@
 export {
   type AddRecord,
+  DanglingReferenceError,
   isOpName,
   type JournalRecord,
   MalformedRecordError,
   OP_NAMES,
   type Op,
   type OpName,
+  platformName,
+  platformOf,
   toLine,
   toRecord,
 } from "./op.js";

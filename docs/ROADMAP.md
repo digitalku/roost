@@ -262,6 +262,23 @@ M5 and M6 are deferred at the user's request (below), so a feature they ask for 
 ask for it rather than waiting for a milestone nobody has planned yet. What has arrived that way
 is listed here, so the order stays visible instead of becoming folklore.
 
+- ☑ **Conforming to the library format** — 2026-09-15, ADR-0045 (**proposed**), from the user
+  asking that Roost be standardised against `../roost-library`. The format is now a separate
+  repository with numbered requirements `RL-1` … `RL-41`, an operation registry and a conformance
+  suite, and **no implementation owns it** — Roost is one format with an implementation per
+  platform, and `roost-net` is the third. The state a correct replay of the conformance library
+  produces matched this build **field for field on the first run**; what did not match was seven
+  places where the code had drifted from rules this repository wrote itself, and one thing no
+  requirement covers. A damaged `library.json` was **repaired** rather than refused, another
+  implementation's manifest fields were **deleted** on write, a folder id was handed out again after
+  its folder was deleted, a dangling reference was reported as **data loss**, a skipped operation
+  was told to a log and to nobody, filenames went into the journal in whatever Unicode form the
+  filesystem produced, and nothing ran the suite. The eighth is the one a person would hit first:
+  a library whose `index.db` this build had not written opened **empty and silent**, so the index
+  now records how far it has folded the journal and an open that finds a mismatch folds first.
+  `format-conformance.test.ts` runs the standard's own suite; `spec-conformance.test.ts` now reads
+  and rewrites every line its **registry** publishes, byte for byte
+
 - ☑ **A filter bar over the grid** — 2026-09-07, ADR-0035, from the user asking for Eagle's filter
   row and naming the three facets they wanted: tags, rating, file type, with rating and tags taken
   out of the sidebar. Built the same day. The decision worth the record is that the bar is a **view
@@ -369,8 +386,45 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Two open, as of 2026-09-11.** **ADR-0042 — installing a missing backend from the window,
-proposed**, from the user seeing the words `install ffmpeg` in a dialog on Windows and asking for
+**Three open, as of 2026-09-15.** **ADR-0045 — the library format is a standard** is proposed and
+**not accepted**. It is the only decision here about *who decides*: the format left this repository
+for `../roost-library`, where it is numbered `RL-1` … `RL-41` and carries its own registry,
+conformance suite and change procedure. **No rule changed in the move**, and `docs/STORAGE_SPEC.md`
+became the map from each requirement to the code that meets it rather than a document that binds
+anybody. The work is done and tested; what is outstanding is the user's word on the ADR.
+
+It also hands the user one question that is **not** ours to answer: `SPEC.md` §11.1 leaves portable
+`referenced` libraries open — named source roots, or absolute paths and a library honestly described
+as partially unreadable on another machine. This implementation must not invent source roots while
+it is open, because two implementations inventing them differently is worse than neither having
+them.
+
+Before it, **ADR-0044 — back, forward and up** was proposed and accepted on 2026-09-13,
+hours after ADR-0043 §8 had recorded that Roost keeps no history: the user asked for
+Explorer's three arrows, which overturns that sentence. Its one real question was what a location
+is, and the answer was theirs and against the recommendation — **only a change of place**, not
+every change of query, so Back is not an undo for the filter bar. That costs nothing to build,
+because ADR-0035 already split a query into a place and the facets the bar owns: the history is a
+stack of places, travelling is `pickQuery` with an older one, and the chips stay standing while you
+walk. It is recorded from the split the window already asks for, so nothing has to remember to
+record; the only thing it cannot read out of the query is where an apply came from, which one rule
+needs — a query typed at speed arrives three or four times through the field's idle and must be one
+trip.
+
+Before it that day, **ADR-0043 — subfolders drawn in the grid** was proposed and
+accepted, from the
+user asking whether the folders inside the folder on screen can be drawn among the thumbnails, so
+that the grid feels like the file manager they already know. It is a renderer decision rather than
+an engine one: the window already holds the whole tree and already knows which folder is on screen,
+so the tiles need no request, no schema and no journal op. What it has to decide is that a tile is
+a **control rather than a result** — not paged, not selected, not swept by the marquee — and when
+it may be drawn at all: only where the query is one folder's own contents, which the existing
+`openFolder` test gives for free, and never under *Show subfolder contents*, where the assets
+beneath are already on screen. Four answers are the user's, and they are listed in its §10.
+
+Before it, **ADR-0042 — installing a missing backend from the window** was proposed on 2026-09-11
+and accepted on 2026-09-13, with its §8 still proposed. From the user seeing the words
+`install ffmpeg` in a dialog on Windows and asking for
 one command, or a button. Both halves were true: the table in `install.ts` is keyed on
 `/etc/os-release` and Windows has none, so the dialog built to stop saying nothing useful was saying
 nothing useful. It decides that the command is shown everywhere with a **Copy command** beside it,

@@ -121,7 +121,7 @@ export function hasHeicDecoder(listed: string): boolean {
  * Through a temporary file rather than a pipe, which is not a preference:
  * `heif-dec` picks the output format from the filename's suffix and refuses
  * `/dev/stdout` with *"Unknown file type"*. The file goes in the system's
- * temporary directory — never inside the library, where `STORAGE_SPEC.md`
+ * temporary directory — never inside the library, whose root RL-3
  * accounts for every path — and is removed even when the decode throws.
  */
 export async function decodeHeif(path: string): Promise<Buffer> {

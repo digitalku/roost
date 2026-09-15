@@ -31,11 +31,13 @@ versions that came with it.
 
 Still open, and none of it blocks M0:
 
-- 🟡 **The two path edits in `STORAGE_SPEC.md`.** The spec is binding, and this repository
-  changed exactly two strings in it: `crates/core/migrations/` → `packages/core/migrations/`,
-  and the journal op source file's path. Both name where *code* lives, not what a *library*
-  contains, so nothing about the format moved. Flagged here rather than assumed, because a
-  binding document does not get edited quietly. See the port note at the top of the spec.
+- 🟡 **ADR-0045 is proposed and not accepted.** The library format moved to `../roost-library`
+  and `docs/STORAGE_SPEC.md` became the map from its `RL-n` to the code here. Everything the
+  audit found is fixed and tested; what is outstanding is the user's answer on the ADR itself.
+
+  It also closes a 🟡 that stood here from M0: *the two path edits in `STORAGE_SPEC.md`*, both of
+  which named where **code** lived rather than what a **library** contained. The standard forbids
+  a requirement from naming a path in anybody's source tree, so the question cannot arise again.
 
 - 🟢 **A menu that opens a dialog has to stop Radix taking the focus back.** The close returns
   focus to the trigger **after** the dialog has focused its own field, so the caret sits in a field
@@ -462,10 +464,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   decision rather than a patch. Noticed 2026-09-08.
 
 - 🟢 **A folder is reached by typing its whole path, or by clicking it.** Two ideas were put to the
-  user on 2026-09-08 beside the one that was built, and neither was taken up yet. **A breadcrumb
-  over the grid**, with the last crumb offering the folder's children, is the file manager's answer
-  to descending without typing — it would be a *view of the query* exactly as the filter bar is
-  (ADR-0035), so it needs an ADR and a place in `UI_SPEC.md` §6. And **matching a path from its
+  user on 2026-09-08 beside the one that was built. **Descending** was answered on 2026-09-13 by
+  ADR-0043 instead — the subfolders are drawn in the grid — so what a **breadcrumb over the grid**
+  would still add is the *ascent* and the sense of where one is, which `Alt+↑` now does without any
+  chrome. It remains a *view of the query* exactly as the filter bar is (ADR-0035), so it still
+  needs an ADR and a place in `UI_SPEC.md` §6. And **matching a path from its
   tail**: `folder:"SINTANG/Kelas 12"` finds nothing today, because a multi-segment path has to be
   exact from the root while a bare name matches anywhere (`library/search.ts`). Widening it to a
   suffix would follow the rule already there — the exact path wins, and the fallback can only
@@ -497,6 +500,48 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   scroll benchmark mode is what turns this into a number, and it is still an M3 item.
 
 - 🟢 The app icon. `roost-old` shipped a flat generated square and never replaced it.
+
+### Back, forward and up (ADR-0044, asked for and built 2026-09-13)
+
+- 🟡 **The window check that is owed for the tiles owes these three too.** Two of the claims are
+  ones no component test reaches: that a **`Backspace` in the search field still deletes a
+  character** rather than navigating — the guard is `isTyping`, and happy-dom will agree with
+  whatever the code says because no real focus is involved — and that the trail survives the
+  preview opening and closing over it. Cheap to add beside the tiles' check rather than as a
+  fifteenth script of its own.
+
+- 🟢 **The buttons say where they go and not what is there.** Explorer's Back has a dropdown of
+  the last several places, and a long press opens it. Not asked for, and it wants a menu whose
+  rows are places rather than queries — which is exactly what the trail holds, so it is a small
+  thing to add if somebody ever wants it.
+
+- 🟢 **A place is recorded when the split arrives, not when the query changes.** One round trip
+  behind, therefore, and the recorder can only run after the engine has read the query. Nothing
+  visible depends on it — the buttons enable a frame later than the grid changes — but it is why
+  a test has to `waitFor` the button rather than assert straight after a click.
+
+### Folders in the grid (ADR-0043, asked for and built 2026-09-13)
+
+- 🟡 **No window check covers the tiles, and one is owed — the fifteenth.** Three of the claims
+  in ADR-0043 are ones a component test cannot make, and the first is the reason the gesture was
+  chosen at all: that a **double-click does not land a preview on the folder it just opened**.
+  happy-dom fires both clicks against a DOM that never re-queried, so the hazard the design is
+  defending against is exactly the one no test here can see. The other two are the layout (the
+  tiles are laid out, not overlaid, and they take the first row) and the drop outline, which is
+  written to the element rather than rendered. `scripts/lib/` has everything it needs; the
+  fixture wants a folder with subfolders in it, which `check-folders.mjs` already builds.
+
+- 🟢 **A folder tile draws a glyph, not a cover.** ADR-0043 §7 keeps the mosaic of up to four
+  thumbnails from inside the folder — what Eagle and a modern Explorer both draw — as the
+  follow-up, at the user's choosing. It is the one part of this that needs the engine: a request
+  naming a parent and answering with up to four hashes per child, asked once when the folder
+  changes. The bytes still arrive over `roost://thumb/<hash>@256`, so it is one small query and
+  no new transport.
+
+- 🟢 **A tile cannot be dragged, only dropped onto.** Re-parenting a folder by dragging it onto
+  another is the tree's gesture (`UI_SPEC.md` §4.3) and `folder:move` is already wired; ADR-0043
+  §5 leaves it there rather than requiring it. What the grid refuses is a folder id travelling as
+  an asset payload, which is the part that would be a bug.
 
 ### Showing and hiding the side panes (ADR-0028 §6, asked for 2026-09-13)
 
@@ -711,13 +756,41 @@ viewer, which needed no schema at all.
   WebAssembly — but it is CPU on the window's process, and a fifty-page-per-second scroll through
   a document would be the thing that proves it wrong.
 
+### Conforming to the library format
+
+- 🟢 **An open folds the whole journal, not the part it has not seen.** The mark `index.db` keeps
+  is the byte length of each month file, so the records past it could be read alone — the journal
+  is append-only, and a fold that seeks to an offset and reads forward would turn a stale-cache
+  open from *rebuild time* into *the size of what changed*. Correctness is there and this is not;
+  it matters the first time somebody keeps a million-asset library on a drive two implementations
+  share. ADR-0045 §6.
+
+- 🟢 **Every existing library folds once**, on its first open after ADR-0045, because no `index.db`
+  yet carries a mark. Thumbnails survive it — the fold does not empty the index — but a large
+  library will open slowly exactly once. Nothing to do; written down so the next person to see it
+  does not go looking for a bug.
+
+- 🟢 **Two findings belong to `../roost-library`, not here.** Its `.gitattributes` guards
+  `conformance/library/**` and the directory is `conformance/library.roost/`, so the fixture's
+  byte-exactness — including the deliberately truncated last line — is protected by nothing. And
+  RL-3 forbids unlisted names in the library root while SQLite in WAL mode always writes
+  `index.db-wal` and `index.db-shm` beside `index.db`; they are plainly part of the cache RL-2
+  puts outside the format, and the requirement does not say so. Both are raised there, as a
+  revision.
+
+- 🟢 **Portable `referenced` libraries are open in the format** (`SPEC.md` §11.1) and this
+  implementation **must not invent source roots** while they are. Two implementations inventing
+  them differently is worse than neither having them.
+
 ### Deferred by design
 
 - 🟢 **Journal compaction.** The journal grows monotonically. ADR-0003 leaves compaction out of
   v1 deliberately; revisit only with measurements, and only as a new rotated file.
 
-- 🟢 **Partial-to-full hash upgrade.** Specified in `STORAGE_SPEC.md`, never implemented. It
-  changes the primary key *and* the on-disk filename, so it must be a journalled operation.
+- 🟢 **Partial-to-full hash upgrade.** It changes the primary key *and* the on-disk filename, so
+  it must be a journalled operation — and **the format defines no operation for it**
+  (`SPEC.md` §11.3, listed as undefined rather than forgotten). Nothing here may invent one: it is
+  proposed against that repository first.
 
 - 🟢 **A referenced original cannot be byte-verified** on a partial-hash duplicate, because
   there is no object store to compare against. It is merged on probability. Reaching it needs

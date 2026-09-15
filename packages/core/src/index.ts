@@ -1,7 +1,8 @@
 /**
- * `@roost/core` owns everything `docs/STORAGE_SPEC.md` governs, so the binding
- * specification maps to exactly one package and a reviewer has one place to
- * check compliance.
+ * `@roost/core` owns everything the Roost Library Format governs, so the
+ * standard maps to exactly one package and a reviewer has one place to check
+ * compliance. `docs/STORAGE_SPEC.md` is the map from its requirements to the
+ * code here.
  *
  * Modules arrive with the milestone that needs them: `model`, `storage`,
  * `journal`, `db`, `platform`, and `log` are all here. What remains of M1 is

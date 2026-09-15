@@ -60,3 +60,49 @@ export function found(rows: readonly SidebarFolderRow[], needle: string): DrawnR
     isContext: !hits.has(at),
   }));
 }
+
+/**
+ * The folder one level up, or `undefined` at the top (ADR-0043 §8).
+ *
+ * The wire carries no parent id — it does not need one, because the rows are
+ * depth-first — so the parent is the nearest row *before* this one that is
+ * exactly one level shallower. The same walk `Sidebar` does to reveal a row's
+ * ancestors, which is why both live here.
+ */
+export function parentOf(
+  rows: readonly SidebarFolderRow[],
+  folder: number,
+): SidebarFolderRow | undefined {
+  const at = rows.findIndex((row) => row.folder === folder);
+  const here = rows[at];
+  if (here === undefined || here.depth === 0) return undefined;
+  for (let above = at - 1; above >= 0; above -= 1) {
+    const row = rows[above];
+    if (row !== undefined && row.depth === here.depth - 1) return row;
+  }
+  return undefined;
+}
+
+/**
+ * The folders directly inside one of them (ADR-0043).
+ *
+ * The tree arrives depth-first, so a folder's children are the rows that follow
+ * it one level deeper, up to the first row that is not deeper than the folder
+ * itself. That is the whole of it: **the grid's tiles cost no request**, because
+ * the window already holds every folder the pane draws.
+ *
+ * `parent` is a folder id rather than a row, since the caller has matched the
+ * query rather than clicked a row.
+ */
+export function childrenOf(rows: readonly SidebarFolderRow[], parent: number): SidebarFolderRow[] {
+  const at = rows.findIndex((row) => row.folder === parent);
+  const under = rows[at];
+  if (under === undefined) return [];
+
+  const children: SidebarFolderRow[] = [];
+  for (const row of rows.slice(at + 1)) {
+    if (row.depth <= under.depth) break;
+    if (row.depth === under.depth + 1) children.push(row);
+  }
+  return children;
+}

@@ -1,8 +1,19 @@
-import type { AssetCard } from "@roost/contract";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { AssetCard, SidebarFolderRow } from "@roost/contract";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { benchTarget } from "../bench/bench.js";
-import { ASSET_DRAG_TYPE } from "../dnd.js";
+import { ASSET_DRAG_TYPE, carriesAssets, draggedAssets } from "../dnd.js";
+import { FolderContextMenu } from "../FolderContextMenu.js";
 import { AssetCell, cellId } from "./AssetCell.js";
+import { FolderCell } from "./FolderCell.js";
+import { folderTileId, isFolderTile } from "./folderTiles.js";
 import {
   type Direction,
   type GridView,
@@ -48,6 +59,36 @@ const PREFETCH = 1200;
 /** The band under the thumbnail, reserved rather than overlaid. */
 const CAPTION = 22;
 
+/**
+ * The folders drawn ahead of the assets, and everything they can do (ADR-0043).
+ *
+ * One object rather than seven props, and it is the one object here that may be
+ * allocated per render — it is the grid's prop, not a cell's, so the rule in
+ * `UI_SPEC.md` §6 does not reach it. The window memoizes it anyway, because
+ * `rows` changing is what re-lays the grid out.
+ *
+ * Absent where there are no tiles to draw, which is everywhere except a query
+ * that is one folder's own contents: the window decides that, because it is the
+ * window that knows what the query says.
+ */
+export interface FolderTiles {
+  readonly rows: readonly SidebarFolderRow[];
+  /** Descend: the row's own query, applied exactly as a sidebar click does. */
+  readonly onOpen: (row: SidebarFolderRow) => void;
+  readonly onNewFolder: (parent: SidebarFolderRow) => void;
+  readonly onRename: (row: SidebarFolderRow) => void;
+  readonly onMoveFolder: (folder: number, parent: number | null) => void;
+  readonly onDelete: (row: SidebarFolderRow) => void;
+  /**
+   * Assets dropped on a tile (`UI_SPEC.md` §4.3).
+   *
+   * `copy` is the answer to "was `Ctrl` held" and nothing more. Whether the
+   * drop is a move is the window's decision, as it is for the pane — and from
+   * inside a folder it always is.
+   */
+  readonly onDropAssets: (row: SidebarFolderRow, hashes: readonly string[], copy: boolean) => void;
+}
+
 export interface GridProps {
   readonly assets: readonly AssetCard[];
   readonly view: GridView;
@@ -58,6 +99,8 @@ export interface GridProps {
   readonly selection: SelectionStore;
   readonly onMore: () => void;
   readonly onOpen?: (hash: string) => void;
+  /** The subfolders of the folder on screen, where there is one (ADR-0043). */
+  readonly folders?: FolderTiles;
 }
 
 export function Grid({
@@ -68,6 +111,7 @@ export function Grid({
   selection,
   onMore,
   onOpen,
+  folders,
 }: GridProps): React.JSX.Element {
   const frame = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -78,9 +122,26 @@ export function Grid({
   const [height, setHeight] = useState(0);
   const [top, setTop] = useState(0);
 
+  /**
+   * The folder tiles ahead of the assets (ADR-0043).
+   *
+   * They have no dimensions, which is what the layout already does with an
+   * asset that has none: it lays it out square. So a folder needs no case in
+   * `layout()` at all, and in proportional Icons the shortest-column packing
+   * puts them across the first row because they come first.
+   */
+  const items = useMemo(() => {
+    const rows = folders?.rows ?? [];
+    if (rows.length === 0) return assets;
+    return [
+      ...rows.map((row) => ({ hash: folderTileId(row.folder), width: null, height: null })),
+      ...assets,
+    ];
+  }, [assets, folders]);
+
   const grid = useMemo(
     () =>
-      layout(assets, {
+      layout(items, {
         view,
         proportional,
         containerWidth: width,
@@ -88,13 +149,19 @@ export function Grid({
         gap: view === "details" ? 0 : 8,
         caption: CAPTION,
       }),
-    [assets, view, proportional, width, target],
+    [items, view, proportional, width, target],
   );
 
   // The order is what Shift-click and the arrow keys move through, so it
   // follows the layout rather than being computed twice.
+  //
+  // **Assets only.** The store's order is what `Ctrl+A` selects and what a
+  // `Shift`-click ranges over, and a folder is not a result (ADR-0043 §4) — so
+  // leaving the tiles out here is the whole of how they stay out of every edit,
+  // rather than a filter each of those has to remember. The arrow keys move
+  // through the *layout's* order, which still holds them.
   useEffect(() => {
-    selection.setOrder(grid.order.map((tile) => tile.hash));
+    selection.setOrder(grid.order.map((tile) => tile.hash).filter((id) => !isFolderTile(id)));
   }, [grid, selection]);
 
   // Width and height come from the element, so the grid reflows with the window
@@ -222,6 +289,21 @@ export function Grid({
     return map;
   }, [assets]);
 
+  const byFolder = useMemo(() => {
+    const map = new Map<string, SidebarFolderRow>();
+    for (const row of folders?.rows ?? []) map.set(folderTileId(row.folder), row);
+    return map;
+  }, [folders]);
+
+  /** The folder a pointer event landed in, if it landed in a tile. */
+  const folderAt = useCallback(
+    (target: EventTarget): SidebarFolderRow | undefined => {
+      const id = hashAt(target);
+      return id === undefined ? undefined : byFolder.get(id);
+    },
+    [byFolder],
+  );
+
   /**
    * One step of a sweep, on a frame.
    *
@@ -265,7 +347,12 @@ export function Grid({
       bottom: Math.max(sweep.origin.y, y),
     };
 
-    const hashes = tilesIn(grid, rect).map((tile) => tile.hash);
+    // A sweep selects assets. A folder tile it crosses is passed over rather
+    // than picked up: the marquee's result is what the inspector and every edit
+    // read (ADR-0043 §4).
+    const hashes = tilesIn(grid, rect)
+      .map((tile) => tile.hash)
+      .filter((id) => !isFolderTile(id));
     if (!same(hashes, sweep.swept)) {
       sweep.swept = hashes;
       selection.sweep(hashes, sweep.base);
@@ -338,7 +425,24 @@ export function Grid({
       // does.
       if (event.button === SECONDARY) {
         if (hash === undefined) return selection.clear();
+        // A folder is marked rather than selected, so the same rule reads one
+        // step differently: right-clicking a tile makes it the marked one, and
+        // the menu that opens over it is the folder's, not the assets'.
+        if (isFolderTile(hash)) return selection.focusOnly(hash);
         if ((selection.stateOf(hash) & SELECTED) === 0) selection.click(hash);
+        return;
+      }
+
+      /*
+       * A folder tile takes the mark and clears the selection (ADR-0043 §5).
+       *
+       * Before the modifiers, because none of them means anything here: there
+       * is no range to extend to a folder and nothing to add it to. Opening is
+       * the double-click, which is what Explorer does — and what a hand that
+       * learned Explorer will do whether or not this build agrees.
+       */
+      if (hash !== undefined && isFolderTile(hash)) {
+        if (event.button === PRIMARY) selection.focusOnly(hash);
         return;
       }
 
@@ -433,9 +537,12 @@ export function Grid({
       // The pointer-down that preceded this already selected and focused the
       // cell, so opening is all that is left to do.
       const hash = hashAt(event.target);
-      if (hash !== undefined) onOpen?.(hash);
+      if (hash === undefined) return;
+      const row = byFolder.get(hash);
+      if (row !== undefined) return folders?.onOpen(row);
+      onOpen?.(hash);
     },
-    [onOpen],
+    [onOpen, byFolder, folders],
   );
 
   /**
@@ -457,6 +564,10 @@ export function Grid({
     (event: React.DragEvent<HTMLDivElement>) => {
       const hash = hashAt(event.target);
       if (hash === undefined) return;
+      // A folder tile is not a drag source here. Re-parenting by dragging is
+      // the tree's gesture (`UI_SPEC.md` §4.3) and ADR-0043 §5 leaves it there;
+      // what must not happen is a folder id travelling as an asset payload.
+      if (isFolderTile(hash)) return event.preventDefault();
       // The press became a drag, so it was never a click: the selection stands
       // as it was, which is the whole point of deferring it.
       pendingClick.current = undefined;
@@ -477,6 +588,57 @@ export function Grid({
     [selection],
   );
 
+  /**
+   * The tile a drag is hovering, marked on the element rather than in state.
+   *
+   * `dragover` fires continuously while the hand is still, so a `setState` here
+   * would re-render the grid several times a second for one outline
+   * (`CLAUDE.md` §8). The same reasoning as the roving ring above.
+   */
+  const over = useRef<Element | null>(null);
+  const markOver = useCallback((cell: Element | null) => {
+    if (over.current === cell) return;
+    over.current?.removeAttribute("data-over");
+    over.current = cell;
+    cell?.setAttribute("data-over", "");
+  }, []);
+
+  useEffect(() => () => markOver(null), [markOver]);
+
+  /**
+   * Assets dropped on a folder tile (`UI_SPEC.md` §4.3, ADR-0043 §5).
+   *
+   * The tile inherits the pane's rule rather than restating it: the window
+   * decides whether this is a move, and from inside a folder it always is —
+   * which is what a file manager does when a file is dragged onto a folder
+   * beside it.
+   */
+  const onDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      const row = folderAt(event.target);
+      if (row === undefined || !carriesAssets(event.dataTransfer)) return markOver(null);
+      // Both halves are required: without `preventDefault` on *every*
+      // `dragover` the browser refuses the drop, and `dropEffect` is what the
+      // cursor shows the hand.
+      event.preventDefault();
+      event.dataTransfer.dropEffect = event.ctrlKey ? "copy" : "move";
+      markOver(event.target instanceof Element ? event.target.closest(".cell") : null);
+    },
+    [folderAt, markOver],
+  );
+
+  const onDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      const row = folderAt(event.target);
+      markOver(null);
+      if (row === undefined || !carriesAssets(event.dataTransfer)) return;
+      event.preventDefault();
+      const hashes = draggedAssets(event.dataTransfer);
+      if (hashes.length > 0) folders?.onDropAssets(row, hashes, event.ctrlKey);
+    },
+    [folderAt, folders, markOver],
+  );
+
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       const direction = DIRECTIONS[event.key];
@@ -486,21 +648,30 @@ export function Grid({
         if (from === undefined) return;
         const to = selection.focused === undefined ? from : moveFocus(grid, from, direction);
         if (to === undefined) return;
+        // A folder is marked, never selected — the same thing the pointer does,
+        // and the reason the ring can rest on a tile at all.
+        if (isFolderTile(to)) selection.focusOnly(to);
         // Focus and selection are separate: holding Ctrl moves the ring alone.
-        if (event.ctrlKey || event.metaKey) selection.focus(to);
+        else if (event.ctrlKey || event.metaKey) selection.focus(to);
         else selection.click(to);
         return;
       }
 
       if (event.key === " ") {
         event.preventDefault();
+        // Nothing to toggle on a folder: it is the one thing in the grid that
+        // cannot be part of a selection.
+        if (selection.focused === undefined || isFolderTile(selection.focused)) return;
         selection.toggleFocused();
         return;
       }
       if (event.key === "Enter") {
         event.preventDefault();
         const hash = selection.focused;
-        if (hash !== undefined) onOpen?.(hash);
+        if (hash === undefined) return;
+        const row = byFolder.get(hash);
+        if (row !== undefined) return folders?.onOpen(row);
+        onOpen?.(hash);
         return;
       }
       if (event.key === "a" && (event.ctrlKey || event.metaKey)) {
@@ -510,7 +681,7 @@ export function Grid({
         selection.selectLoaded();
       }
     },
-    [grid, selection, onOpen],
+    [grid, selection, onOpen, byFolder, folders],
   );
 
   return (
@@ -544,6 +715,9 @@ export function Grid({
         onLostPointerCapture={endSweep}
         onDoubleClick={onDoubleClick}
         onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragLeave={() => markOver(null)}
+        onDrop={onDrop}
         onKeyDown={onKeyDown}
         role="listbox"
         aria-multiselectable
@@ -563,6 +737,34 @@ export function Grid({
             />
           )}
           {tiles.map((tile) => {
+            const row = byFolder.get(tile.hash);
+            if (row !== undefined && folders !== undefined) {
+              return (
+                <FolderContextMenu
+                  key={tile.hash}
+                  row={row}
+                  onNewFolder={folders.onNewFolder}
+                  onRename={folders.onRename}
+                  onMoveFolder={folders.onMoveFolder}
+                  onDelete={folders.onDelete}
+                >
+                  <ConnectedFolderCell
+                    row={row}
+                    view={view}
+                    x={tile.x}
+                    y={tile.y}
+                    width={tile.width}
+                    height={tile.height}
+                    selection={selection}
+                    // The grid is itself inside the asset menu's trigger, so
+                    // without this a right-click here opens both menus over one
+                    // another. Radix's own handler is merged onto the same
+                    // element and still runs; what stops is the bubble.
+                    onContextMenu={stopBubble}
+                  />
+                </FolderContextMenu>
+              );
+            }
             const asset = byHash.get(tile.hash);
             return asset === undefined ? null : (
               <ConnectedCell
@@ -669,6 +871,54 @@ function ConnectedCell({
       importedAt={asset.importedAt}
     />
   );
+}
+
+/**
+ * A folder tile's subscription, which is the focus bit and nothing else.
+ *
+ * The mark on a folder is the ring: a folder is never selected, because the
+ * selection is what every edit reads (ADR-0043 §4). The props and the ref are
+ * forwarded because this sits inside a Radix trigger — the folder's own menu,
+ * the same one the tree draws.
+ */
+const ConnectedFolderCell = forwardRef<
+  HTMLDivElement,
+  {
+    readonly row: SidebarFolderRow;
+    readonly view: GridView;
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+    readonly selection: SelectionStore;
+  } & React.ComponentPropsWithoutRef<"div">
+>(function ConnectedFolderCell({ row, view, x, y, width, height, selection, ...rest }, ref) {
+  const id = folderTileId(row.folder);
+  const subscribe = useMemo(() => selection.subscribe(id), [selection, id]);
+  const snapshot = useCallback(() => selection.stateOf(id), [selection, id]);
+  const state = useSyncExternalStore(subscribe, snapshot, snapshot);
+
+  return (
+    <FolderCell
+      {...rest}
+      ref={ref}
+      id={id}
+      name={row.name}
+      count={row.count}
+      x={x}
+      y={y}
+      width={width}
+      height={height}
+      caption={CAPTION}
+      isFocused={(state & FOCUSED) !== 0}
+      view={view}
+    />
+  );
+});
+
+/** Keeps a right-click on a folder tile out of the asset menu's trigger. */
+function stopBubble(event: React.MouseEvent): void {
+  event.stopPropagation();
 }
 
 /**
