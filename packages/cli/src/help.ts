@@ -457,10 +457,8 @@ ${GLOBAL}`,
 Not reversible, and not what \`Delete\` does in the window — see \`roost trash\`.
 This is what emptying the trash sends.
 
-The row goes, and so do the bytes it owned under originals/ (ADR-0031). A
-referenced original is never touched: those bytes are your own file in your own
-directory. \`roost doctor --reclaim\` remains, for objects orphaned by anything
-other than a removal.
+The row goes, and so does its file under files/ (ADR-0031). \`roost doctor
+--reclaim\` remains, for files orphaned by anything other than a removal.
 
 Usage: roost remove <ASSET>... [OPTIONS]
 
@@ -470,9 +468,14 @@ ${GLOBAL}`,
   doctor: `Check a library against itself.
 
 Roost keeps three copies of the truth: the journal, the index, and the bytes
-under originals/. \`roost rebuild\` proves the first two agree. This checks the
-third: objects with no row, rows with no bytes, referenced originals that moved,
-search rows for assets that are gone, and files in journal/ that replay skips.
+under files/. \`roost rebuild\` proves the first two agree. This checks the
+third: files with no row, rows with no file, one id under two extensions, names
+under files/ that are not ids, search rows for assets that are gone, and files
+in journal/ that replay skips.
+
+A file whose bytes have moved on is **not** damage: it is a workspace, and an
+application saving over a file is what one is for. It is work for the derive
+queue, and \`roost thumb\` is what does it.
 
 Exits 1 when it finds damage, so a scheduled run is a check rather than a report
 nobody reads. Files nothing references are not damage — they cost space.

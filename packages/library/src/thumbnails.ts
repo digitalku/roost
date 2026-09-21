@@ -15,7 +15,7 @@ import type { Library } from "./library.js";
  * rather than only the ones `sharp` decodes.
  *
  * Thumbnails are derived data: a rebuild discards them and running this
- * restores them from `originals/`.
+ * restores them from `files/`.
  */
 
 export interface ThumbnailReport {

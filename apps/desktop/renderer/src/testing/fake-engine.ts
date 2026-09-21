@@ -133,7 +133,7 @@ export interface FakeEngineOptions {
   readonly exportReport?: Partial<WireExportReport>;
   /** How many assets `assets:emptyTrash` reports having removed. */
   readonly trashSize?: number;
-  /** Bytes a removal reports having freed from `originals/` (ADR-0031). */
+  /** Bytes a removal reports having freed from `files/` (ADR-0031). */
   readonly freedBytes?: number;
   /** What `library:reclaimable` answers with; the reclaim itself echoes it. */
   readonly reclaimable?: WireReclaimable;

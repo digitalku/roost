@@ -362,7 +362,7 @@ function extensionOf(detail: WireAssetDetail): string {
  *
  * **The extension is not in the field.** `ext` is decided once, at import, from
  * the file that arrived, and `asset_rename` has never touched it — so typing
- * over `.txt` here renamed nothing: the column, the object under `originals/`,
+ * over `.txt` here renamed nothing: the column, the file under `files/`,
  * the kind the grid draws and everything that reads them all went on saying
  * `txt`, and the panel was the only place in the application that claimed
  * otherwise. A field that cannot change a thing should not offer to. The

@@ -288,7 +288,7 @@ describe("importing", () => {
     const everything = await importInto(library, [source], { includeHidden: true });
     expect(everything.scanned).toBe(3);
 
-    // Pointing an import at the library itself must not walk `originals/` and
+    // Pointing an import at the library itself must not walk `files/` and
     // re-import every object under a new name. Asserted on `scanned`, not on
     // `imported`: the objects are byte-identical to what produced them, so they
     // would deduplicate and `imported` would read zero either way.

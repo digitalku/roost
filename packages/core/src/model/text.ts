@@ -22,7 +22,7 @@
  * produce.
  *
  * Composition never changes what a name *means*, so this is safe to apply to
- * anything a person will see. It is not applied to files under `originals/`,
+ * anything a person will see. It is not applied to files under `files/`,
  * which are named by hash and contain no letters at all.
  */
 export function toNfc(text: string): string {

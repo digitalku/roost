@@ -32,7 +32,6 @@ export const ERROR_CODES = [
   "not_an_eagle_library",
   "not_a_video",
   "not_editable",
-  "not_in_object_store",
   "schema_too_new",
   "unknown_asset",
   "unknown_comment",
@@ -136,22 +135,6 @@ export class IoError extends RoostError {
   constructor(operation: string, path: string, cause: unknown) {
     const errno = cause instanceof Error && "code" in cause ? String(cause.code) : "unknown";
     super(`${operation} failed on ${path}: ${errno}`, { operation, path, errno });
-  }
-}
-
-/**
- * Asked for the object-store path of an asset that is not in the object store.
- *
- * This is what `ReferencedStorage.locate` raises, and it is a design decision
- * rather than a gap: a referenced asset's location is `assets.ref_path`,
- * user-chosen and not derivable from a hash. A stub that guessed would be worse
- * than a failure.
- */
-export class NotInObjectStoreError extends RoostError {
-  readonly code = "not_in_object_store";
-
-  constructor(hash: string) {
-    super("Asset is not in the object store; its path is recorded in the index", { hash });
   }
 }
 

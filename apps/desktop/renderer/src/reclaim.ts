@@ -43,7 +43,7 @@ export function useReclaim({ onNote, onProblem, onConfirm }: ReclaimOptions): ()
 
         onConfirm({
           title: `Reclaim ${bytes(size)}?`,
-          body: `${counted(objects)} ${objects === 1 ? "file" : "files"} under originals/ belong to no asset in this library. Deleting them frees ${bytes(size)} and cannot be undone: an orphan is not in the journal, so no rebuild brings it back.`,
+          body: `${counted(objects)} ${objects === 1 ? "file" : "files"} under files/ belong to no asset in this library. Deleting them frees ${bytes(size)} and cannot be undone: an orphan is not in the journal, so no rebuild brings it back.`,
           confirmLabel: "Reclaim",
           run: () => {
             void invoke({ type: "library:reclaim" }).then((done) => {

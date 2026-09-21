@@ -20,7 +20,6 @@ export {
   isErrorCode,
   isWireError,
   MigrationFailedError,
-  NotInObjectStoreError,
   RemoteError,
   RoostError,
   SchemaTooNewError,

@@ -158,13 +158,13 @@ export class InvalidMomentError extends RoostError {
 }
 
 /**
- * An edit aimed at an asset whose bytes are not ours to replace (ADR-0026 §3).
+ * An edit aimed at an asset that is not in a state to be edited.
  *
- * A referenced asset lives in a user directory, and invariant 6 forbids writing
- * there under any framing. The offer is to duplicate it into the library and
- * edit that, which is a new file that happens to share an ancestor — never a
- * managed asset that quietly supersedes the user's own and leaves it on disk,
- * unchanged and now wrong.
+ * Version 1 raised this for a `referenced` asset, whose bytes were a file in a
+ * user directory that invariant 6 forbade writing to. Version 2 has one storage
+ * mode and every asset's bytes are the library's to replace (RL-19, RL-20), so
+ * what is left is the trash: restoring an asset is a deliberate act, and a save
+ * that quietly resurrected one would be a surprise pointing the wrong way.
  */
 export class NotEditableError extends RoostError {
   readonly code = "not_editable";

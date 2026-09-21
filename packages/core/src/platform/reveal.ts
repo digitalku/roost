@@ -53,10 +53,9 @@ async function showItemsOverDbus(path: string): Promise<void> {
  * one, and none of them will ever open inside a webview. Rather than showing
  * the user a dead end, hand the file to the tool that owns it.
  *
- * Read-only in spirit but not in fact: the external application may well write
- * to the file. For a managed original that would break content addressing, so
- * callers reach here for referenced assets, or accept that the object no longer
- * matches its hash — `roost doctor` is what notices.
+ * The application it hands the file to may well write to it, and under version
+ * 2 that is the point rather than a hazard (RL-20): the asset keeps its id, and
+ * the watcher notices the save and derives it again (ADR-0047).
  */
 export async function openExternally(path: string): Promise<void> {
   requireLinux("opening a file with its default application");

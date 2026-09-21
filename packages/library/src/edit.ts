@@ -379,7 +379,7 @@ export async function removeComment(library: Library, id: number): Promise<void>
  *
  * **The journal records where to look, never the pixels.** A rebuild replays
  * `poster_set` into `assets.poster_ms` and the derive pass re-extracts the
- * frame, so the thumbnail comes back from `originals/` plus the journal like
+ * frame, so the thumbnail comes back from `files/` plus the journal like
  * every other derived artefact (invariant 1). Storing the image would be base64
  * in a text file, which the forbidden-patterns list refuses twice over.
  *
@@ -544,7 +544,7 @@ export async function emptyTrash(library: Library): Promise<Removal> {
  * Not what `Delete` does — see {@link trashAssets}. This is what "Empty trash"
  * and "Delete permanently" send, and what `roost remove` has always done.
  *
- * **The managed object goes with the row** (ADR-0031, amending ADR-0022 §"What
+ * **The file goes with the row** (ADR-0031, amending ADR-0022 §"What
  * already exists"). It did not until 2026-09-06: the bytes stayed until someone
  * ran `roost doctor --reclaim`, on the reasoning that deleting a person's only
  * copy should not be a side effect of a metadata edit. That reasoning survives

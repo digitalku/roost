@@ -319,7 +319,7 @@ export type Request =
    * row and is reversible. Nothing is emptied on a schedule.
    */
   | { readonly type: "asset:subtitleDelete"; readonly id: string; readonly track: string }
-  /** Renames what the library shows. Nothing under `originals/` is touched. */
+  /** Renames what the library shows. Nothing under `files/` is touched (RL-9). */
   | { readonly type: "asset:rename"; readonly id: string; readonly name: string }
   | {
       readonly type: "asset:tagAdd";
@@ -481,7 +481,7 @@ export type Request =
    * Remove the selection from the library, permanently.
    *
    * What "Delete permanently" sends. Not reversible: the row, everything
-   * hanging off it, and the bytes it owned under `originals/` are all gone
+   * hanging off it, and its file under `files/` are all gone
    * (ADR-0031). A referenced original is never touched.
    */
   | { readonly type: "assets:remove"; readonly ids: readonly string[] }
@@ -516,7 +516,7 @@ export type Request =
    *
    * The one place Roost writes into a user's directory, and it does so only
    * because the user picked the directory in a dialog and asked for it by name.
-   * Nothing under `originals/` is moved, modified, or removed — an export is a
+   * Nothing under `files/` is moved, modified, or removed — an export is a
    * copy out (RL-16 is about the reverse direction).
    */
   | {
@@ -581,9 +581,9 @@ export type Request =
   /**
    * Import an Eagle library, translating its metadata (ADR-0032).
    *
-   * `managed` by default and by intention: `referenced` would leave every asset
-   * pointing into the Eagle library, so deleting it afterwards would empty
-   * Roost. Eagle's own library is only ever read.
+   * The bytes are **copied** by default: moving them would empty the Eagle
+   * library the person may still want, and `take` is what says otherwise
+   * (RL-26). Eagle's own library is only ever read.
    */
   | { readonly type: "eagle:import"; readonly path: string; readonly take: Take }
   /**

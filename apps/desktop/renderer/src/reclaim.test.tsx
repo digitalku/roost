@@ -80,7 +80,7 @@ describe("reclaiming space", () => {
 
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog.textContent).toContain("Reclaim 3.0 MiB?");
-    expect(dialog.textContent).toContain("12 files under originals/");
+    expect(dialog.textContent).toContain("12 files under files/");
     // Nothing is deleted on the way to the question.
     expect(engine.seen.filter((request) => request.type === "library:reclaim")).toHaveLength(0);
 

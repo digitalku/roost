@@ -18,7 +18,7 @@ export async function* discover(
   libraryRoot: string,
   includeHidden = false,
 ): AsyncGenerator<string> {
-  // Importing a library into itself would walk `originals/` and re-import every
+  // Importing a library into itself would walk `files/` and re-import every
   // object under a new name.
   const root = await realpath(libraryRoot).catch(() => resolve(libraryRoot));
 
