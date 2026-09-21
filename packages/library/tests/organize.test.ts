@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type ContentHash, DEFAULT_PAGE_LIMIT, IndexSink, withoutDerived } from "@roost/core";
+import { type AssetId, DEFAULT_PAGE_LIMIT, IndexSink, withoutDerived } from "@roost/core";
 import {
   AmbiguousFolderNameError,
   addComment,
@@ -61,7 +61,7 @@ const PAGE = { limit: DEFAULT_PAGE_LIMIT };
 describe("organizing a library", () => {
   let dir: string;
   let library: Library;
-  let hashes: ContentHash[];
+  let ids: AssetId[];
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "roost-organize-"));
@@ -76,7 +76,7 @@ describe("organizing a library", () => {
 
     library = await Library.create(join(dir, "library"), "test");
     await importInto(library, [source]);
-    hashes = library.db.repo.allHashes();
+    ids = library.db.repo.allIds();
   });
 
   afterEach(async () => {
@@ -84,8 +84,7 @@ describe("organizing a library", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  const names = (hits: readonly { origName: string }[]): string[] =>
-    hits.map((hit) => hit.origName).sort();
+  const names = (hits: readonly { name: string }[]): string[] => hits.map((hit) => hit.name).sort();
 
   /** Every journal line written so far, parsed. */
   const journalLines = async (): Promise<Record<string, unknown>[]> => {
@@ -101,7 +100,7 @@ describe("organizing a library", () => {
     // Invariant 9, checked against the file rather than against the report: a
     // row with no journal line is data loss the next rebuild would reveal, and
     // the index alone cannot tell the two cases apart.
-    await tagAdd(library, [hashes[0] as ContentHash], ["wood"]);
+    await tagAdd(library, [ids[0] as AssetId], ["wood"]);
     await library.journal.sync();
 
     const month = (await library.journal.months())[0] as string;
@@ -115,20 +114,20 @@ describe("organizing a library", () => {
   });
 
   it("finds by tag, and stops finding once the tag is gone", async () => {
-    await tagAdd(library, hashes, ["shared"]);
-    await tagAdd(library, [hashes[0] as ContentHash], ["only-one"]);
+    await tagAdd(library, ids, ["shared"]);
+    await tagAdd(library, [ids[0] as AssetId], ["only-one"]);
 
     expect(count(library, "tag:shared")).toBe(3);
     expect(count(library, "tag:only-one")).toBe(1);
     expect(count(library, "tag:shared -tag:only-one")).toBe(2);
 
-    await tagRemove(library, [hashes[0] as ContentHash], ["only-one"]);
+    await tagRemove(library, [ids[0] as AssetId], ["only-one"]);
     expect(count(library, "tag:only-one")).toBe(0);
   });
 
   it("merges a rename onto an existing tag rather than failing", async () => {
-    await tagAdd(library, [hashes[0] as ContentHash], ["draft"]);
-    await tagAdd(library, [hashes[1] as ContentHash], ["wip"]);
+    await tagAdd(library, [ids[0] as AssetId], ["draft"]);
+    await tagAdd(library, [ids[1] as AssetId], ["wip"]);
 
     await tagRename(library, "draft", "wip");
 
@@ -140,8 +139,8 @@ describe("organizing a library", () => {
     const design = await createFolder(library, "Design", null);
     const icons = await createFolder(library, "Icons", design);
 
-    await addToFolder(library, [hashes[0] as ContentHash], design);
-    await addToFolder(library, [hashes[1] as ContentHash], icons);
+    await addToFolder(library, [ids[0] as AssetId], design);
+    await addToFolder(library, [ids[1] as AssetId], icons);
 
     expect(count(library, "folder:Design")).toBe(2);
     expect(count(library, "folder:Design/Icons")).toBe(1);
@@ -259,7 +258,7 @@ describe("organizing a library", () => {
 
   it("keeps the assets when a folder is deleted", async () => {
     const folder = await createFolder(library, "Temporary", null);
-    await addToFolder(library, hashes, folder);
+    await addToFolder(library, ids, folder);
     expect(count(library, "folder:Temporary")).toBe(3);
 
     await deleteFolder(library, folder);
@@ -278,67 +277,69 @@ describe("organizing a library", () => {
    * decided from its scheme where it is shown, not here.
    */
   it("stores a source as typed, and clears it on a blank", async () => {
-    const hash = hashes[0] as ContentHash;
+    const asset = ids[0] as AssetId;
 
-    await setSource(library, hash, "  instagram.com/p/xyz  ");
-    expect(library.db.repo.assetDetail(hash)?.sourceUrl).toBe("instagram.com/p/xyz");
+    await setSource(library, asset, "  instagram.com/p/xyz  ");
+    expect(library.db.repo.assetDetail(asset)?.sourceUrl).toBe("instagram.com/p/xyz");
 
-    await setSource(library, hash, "   ");
-    expect(library.db.repo.assetDetail(hash)?.sourceUrl).toBe(null);
+    await setSource(library, asset, "   ");
+    expect(library.db.repo.assetDetail(asset)?.sourceUrl).toBe(null);
 
     // And it survives losing the index, because it is a journal line first
     // (invariant 9) — the whole reason it is an op rather than a column write.
-    await setSource(library, hash, "https://example.com/a");
+    await setSource(library, asset, "https://example.com/a");
     await library.rebuild();
-    expect(library.db.repo.assetDetail(hash)?.sourceUrl).toBe("https://example.com/a");
+    expect(library.db.repo.assetDetail(asset)?.sourceUrl).toBe("https://example.com/a");
   });
 
   it("rates, notes, and still finds a favourite, and refuses a rating the schema has no room for", async () => {
-    await rate(library, [hashes[0] as ContentHash], 4);
+    await rate(library, [ids[0] as AssetId], 4);
     // Journalled directly: nothing authors a favourite any more (ADR-0029), but
     // `is:favorite` stays in the grammar, because a smart folder that says it
     // must still parse — so what a library already holds is still findable.
-    await apply(library, [{ op: "favorite_set", hash: hashes[1] as ContentHash, favorite: true }]);
-    await setNote(library, hashes[2] as ContentHash, "  needs a crop  ");
+    await apply(library, [{ op: "favorite_set", asset: ids[1] as AssetId, favorite: true }]);
+    await setNote(library, ids[2] as AssetId, "  needs a crop  ");
 
     expect(count(library, "rating:>=4")).toBe(1);
     expect(count(library, "is:favorite")).toBe(1);
     expect(count(library, "is:unrated")).toBe(2);
-    expect(library.db.repo.assetDetail(hashes[2] as ContentHash)?.note).toBe("needs a crop");
+    expect(library.db.repo.assetDetail(ids[2] as AssetId)?.note).toBe("needs a crop");
 
-    await expect(rate(library, [hashes[0] as ContentHash], 9)).rejects.toBeInstanceOf(
-      InvalidRatingError,
-    );
+    await expect(rate(library, [ids[0] as AssetId], 9)).rejects.toBeInstanceOf(InvalidRatingError);
     // A note of nothing but whitespace clears the note rather than storing one,
     // which would show as an empty badge on the asset forever.
-    await setNote(library, hashes[2] as ContentHash, "   ");
-    expect(library.db.repo.assetDetail(hashes[2] as ContentHash)?.note).toBe(null);
+    await setNote(library, ids[2] as AssetId, "   ");
+    expect(library.db.repo.assetDetail(ids[2] as AssetId)?.note).toBe(null);
   });
 
   it("renames what the library shows, and the full-text index with it", async () => {
-    // Found by name rather than by position: `allHashes()` is ordered by hash,
+    // Found by name rather than by position: `allIds()` is ordered by id,
     // which says nothing about which file it came from.
-    const alpha = search(library, "alpha", PAGE)[0]?.hash as ContentHash;
-    const hash = resolveAsset(library, alpha.slice(0, 8));
-    await renameAsset(library, hash, "renamed-on-purpose.png");
+    const alpha = search(library, "alpha", PAGE)[0]?.id as AssetId;
+    const id = resolveAsset(library, alpha.slice(0, 8));
+    await renameAsset(library, id, "renamed-on-purpose");
 
-    expect(names(search(library, "renamed-on-purpose", PAGE))).toEqual(["renamed-on-purpose.png"]);
+    // The name carries no extension (RL-33), and renaming touches no file: the
+    // one on disk is named by the id and cannot need to move.
+    expect(names(search(library, "renamed-on-purpose", PAGE))).toEqual(["renamed-on-purpose"]);
     expect(search(library, "alpha", PAGE)).toHaveLength(0);
+    expect(library.db.repo.assetDetail(id)?.ext).toBe("png");
   });
 
   it("resolves a prefix, and refuses one that names nothing", () => {
-    expect(resolveAsset(library, (hashes[0] as string).slice(0, 10))).toBe(hashes[0]);
-    expect(() => resolveAsset(library, "ffffffffff")).toThrow(UnknownAssetError);
-    // Not hex at all is the same mistake, reported the same way.
-    expect(() => resolveAsset(library, "not-a-hash")).toThrow(UnknownAssetError);
+    expect(resolveAsset(library, (ids[0] as string).slice(0, 10))).toBe(ids[0]);
+    // A prefix of the right shape that matches nothing, and one that is not an
+    // id at all, are the same mistake reported the same way.
+    expect(() => resolveAsset(library, "ZZZZZZZZZZ")).toThrow(UnknownAssetError);
+    expect(() => resolveAsset(library, "not-an-id")).toThrow(UnknownAssetError);
   });
 
   it("removes the row and deletes the bytes it owned", async () => {
-    const hash = hashes[0] as ContentHash;
-    const detail = library.db.repo.assetDetail(hash);
-    const path = library.storageFor("managed").locate(hash, detail?.ext ?? "");
+    const asset = ids[0] as AssetId;
+    const detail = library.db.repo.assetDetail(asset);
+    const path = library.storage.locate(asset, detail?.ext ?? "");
 
-    const removal = await removeAssets(library, [hash]);
+    const removal = await removeAssets(library, [asset]);
 
     expect(library.stats().assets).toBe(2);
     expect(library.db.repo.orphanSearchRows()).toBe(0);
@@ -349,19 +350,20 @@ describe("organizing a library", () => {
     expect(removal).toEqual({ assets: 1, bytes: detail?.size });
   });
 
-  it("never deletes a referenced original, and says it freed nothing", async () => {
-    // Invariant 6: those bytes are the user's own file in the user's own
-    // directory. The count of assets removed is the same; the bytes are not.
+  it("leaves the file it copied from where the person left it", async () => {
+    // Version 1 had a second storage mode and a rule about never writing into
+    // a user's directory; version 2 has one mode (RL-19) and the rule it keeps
+    // is RL-26's — a copy leaves the source alone, and the report says which.
     const outside = join(dir, "outside");
     await mkdir(outside, { recursive: true });
-    const path = join(outside, "linked.bin");
-    await writeFile(path, "referenced payload");
-    await importInto(library, [outside], { mode: "referenced" });
-    const hash = library.db.repo.allHashes().find((one) => !hashes.includes(one)) as ContentHash;
+    const path = join(outside, "kept.bin");
+    await writeFile(path, "payload");
 
-    const removal = await removeAssets(library, [hash]);
+    const report = await importInto(library, [outside], { take: "copy" });
+    expect(report).toMatchObject({ imported: 1, copied: 1, moved: 0 });
 
-    expect(removal).toEqual({ assets: 1, bytes: 0 });
+    const id = library.db.repo.allIds().find((one) => !ids.includes(one)) as AssetId;
+    await removeAssets(library, [id]);
     await expect(readFile(path)).resolves.toBeInstanceOf(Buffer);
   });
 
@@ -382,10 +384,10 @@ describe("organizing a library", () => {
   it("hands a sidebar the query that selects each row", async () => {
     const design = await createFolder(library, "Design", null);
     const icons = await createFolder(library, "Icons", design);
-    await addToFolder(library, [hashes[0] as ContentHash], icons);
+    await addToFolder(library, [ids[0] as AssetId], icons);
 
     const group = await createTagGroup(library, "Material");
-    await tagAdd(library, [hashes[1] as ContentHash], ["oak wood"]);
+    await tagAdd(library, [ids[1] as AssetId], ["oak wood"]);
     await setTagGroup(library, ["oak wood"], group);
 
     const sidebar = readSidebar(library);
@@ -439,37 +441,37 @@ describe("organizing a library", () => {
     // ADR-0033. The default is the shelf, not what was on it.
     const keep = await createFolder(library, "Keep", null);
     const inner = await createFolder(library, "Inner", keep);
-    await addToFolder(library, [hashes[0] as ContentHash], inner);
+    await addToFolder(library, [ids[0] as AssetId], inner);
 
     expect(await deleteFolder(library, keep)).toEqual({ trashed: 0 });
-    expect(library.db.repo.assetDetail(hashes[0] as ContentHash)?.trashedAt).toBeNull();
-    expect(library.db.repo.assetDetail(hashes[0] as ContentHash)?.folders).toEqual([]);
+    expect(library.db.repo.assetDetail(ids[0] as AssetId)?.trashedAt).toBeNull();
+    expect(library.db.repo.assetDetail(ids[0] as AssetId)?.folders).toEqual([]);
 
     const gone = await createFolder(library, "Gone", null);
     const under = await createFolder(library, "Under", gone);
     // One asset in the folder and one in its child, and one of them in both:
     // the subtree goes, and nothing is journalled twice.
-    await addToFolder(library, [hashes[0] as ContentHash], gone);
-    await addToFolder(library, [hashes[0] as ContentHash, hashes[1] as ContentHash], under);
+    await addToFolder(library, [ids[0] as AssetId], gone);
+    await addToFolder(library, [ids[0] as AssetId, ids[1] as AssetId], under);
 
     expect(await deleteFolder(library, gone, { trashContents: true })).toEqual({ trashed: 2 });
-    expect(library.db.repo.assetDetail(hashes[0] as ContentHash)?.trashedAt).not.toBeNull();
-    expect(library.db.repo.assetDetail(hashes[1] as ContentHash)?.trashedAt).not.toBeNull();
+    expect(library.db.repo.assetDetail(ids[0] as AssetId)?.trashedAt).not.toBeNull();
+    expect(library.db.repo.assetDetail(ids[1] as AssetId)?.trashedAt).not.toBeNull();
     // Trashed, not removed: the rows are still there to be restored.
-    expect(library.db.repo.stats().assets).toBe(hashes.length);
+    expect(library.db.repo.stats().assets).toBe(ids.length);
   });
 
   it("pages without an offset, and stops at the last short page", async () => {
     const collected: string[] = [];
-    for (const page of pages(library, "", 2)) collected.push(...page.map((hit) => hit.hash));
+    for (const page of pages(library, "", 2)) collected.push(...page.map((hit) => hit.id));
 
     expect(collected).toHaveLength(3);
     expect(new Set(collected).size).toBe(3);
   });
 
   it("hides a trashed asset from every query but the one that asks for it", async () => {
-    const [first] = hashes as [ContentHash, ContentHash, ContentHash];
-    await tagAdd(library, hashes, ["shared"]);
+    const [first] = ids as [AssetId, AssetId, AssetId];
+    await tagAdd(library, ids, ["shared"]);
     await rate(library, [first], 5);
 
     await trashAssets(library, [first]);
@@ -487,7 +489,7 @@ describe("organizing a library", () => {
   it("keeps everything a trashed asset carried, and gives it all back", async () => {
     // The whole reason trash is a column rather than a `remove` (ADR-0022): the
     // bytes could be imported again, and forty tags applied by hand could not.
-    const [first] = hashes as [ContentHash, ContentHash, ContentHash];
+    const [first] = ids as [AssetId, AssetId, AssetId];
     const folder = await createFolder(library, "Moodboards", null);
     await addToFolder(library, [first], folder);
     await tagAdd(library, [first], ["timber"]);
@@ -511,10 +513,10 @@ describe("organizing a library", () => {
     // A count beside a query has to be the count of that query. The sidebar
     // saying 3 while the grid shows 2 is the version of this that shipped in
     // every implementation that added trash to an existing schema.
-    const [first] = hashes as [ContentHash, ContentHash, ContentHash];
+    const [first] = ids as [AssetId, AssetId, AssetId];
     const folder = await createFolder(library, "Moodboards", null);
-    await addToFolder(library, hashes, folder);
-    await tagAdd(library, hashes, ["shared"]);
+    await addToFolder(library, ids, folder);
+    await tagAdd(library, ids, ["shared"]);
 
     await trashAssets(library, [first]);
 
@@ -525,7 +527,7 @@ describe("organizing a library", () => {
   });
 
   it("empties the trash by removing exactly what is in it", async () => {
-    const [first, second] = hashes as [ContentHash, ContentHash, ContentHash];
+    const [first, second] = ids as [AssetId, AssetId, AssetId];
     await trashAssets(library, [first, second]);
     await restoreAssets(library, [second]);
 
@@ -539,7 +541,7 @@ describe("organizing a library", () => {
   });
 
   it("re-stamps rather than refusing when something is trashed twice", async () => {
-    const [first] = hashes as [ContentHash, ContentHash, ContentHash];
+    const [first] = ids as [AssetId, AssetId, AssetId];
     await trashAssets(library, [first]);
     const firstTime = library.db.repo.trashedAt(first);
     expect(typeof firstTime).toBe("number");
@@ -552,12 +554,12 @@ describe("organizing a library", () => {
   });
 
   it("keeps a comment at the moment it was left at", async () => {
-    const hash = hashes[0] as ContentHash;
-    const id = await addComment(library, hash, 91_500, "the cut lands early");
-    expect(comments(library, hash)).toEqual([
+    const asset = ids[0] as AssetId;
+    const id = await addComment(library, asset, 91_500, "the cut lands early");
+    expect(comments(library, asset)).toEqual([
       {
         id,
-        hash,
+        assetId: asset,
         atMs: 91_500,
         body: "the cut lands early",
         createdAt: expect.any(Number),
@@ -569,17 +571,17 @@ describe("organizing a library", () => {
   it("takes a comment about the asset rather than about a moment in it", async () => {
     // The null is what lets an asset with no timeline carry comments at all,
     // which is why this table is not video-only (ADR-0023).
-    const hash = hashes[0] as ContentHash;
-    await addComment(library, hash, null, "no timeline here");
-    expect(comments(library, hash)[0]?.atMs).toBeNull();
+    const asset = ids[0] as AssetId;
+    await addComment(library, asset, null, "no timeline here");
+    expect(comments(library, asset)[0]?.atMs).toBeNull();
   });
 
   it("lists timed comments in timeline order and untimed ones last", async () => {
-    const hash = hashes[0] as ContentHash;
-    await addComment(library, hash, null, "about the whole thing");
-    await addComment(library, hash, 5_000, "later");
-    await addComment(library, hash, 1_000, "earlier");
-    expect(comments(library, hash).map((c) => c.body)).toEqual([
+    const asset = ids[0] as AssetId;
+    await addComment(library, asset, null, "about the whole thing");
+    await addComment(library, asset, 5_000, "later");
+    await addComment(library, asset, 1_000, "earlier");
+    expect(comments(library, asset).map((c) => c.body)).toEqual([
       "earlier",
       "later",
       "about the whole thing",
@@ -589,29 +591,29 @@ describe("organizing a library", () => {
   it("edits a comment in place, keeping its id and its place in the list", async () => {
     // Remove-and-re-add would move it to the end of a list ordered by creation,
     // and somebody who fixed a typo did not ask for that.
-    const hash = hashes[0] as ContentHash;
-    const first = await addComment(library, hash, 1_000, "first");
-    await addComment(library, hash, 2_000, "second");
+    const asset = ids[0] as AssetId;
+    const first = await addComment(library, asset, 1_000, "first");
+    await addComment(library, asset, 2_000, "second");
 
     await setComment(library, first, 1_000, "first, corrected");
-    const listed = comments(library, hash);
+    const listed = comments(library, asset);
     expect(listed.map((c) => c.body)).toEqual(["first, corrected", "second"]);
     expect(listed[0]?.id).toBe(first);
     expect(listed[0]?.updatedAt).toEqual(expect.any(Number));
   });
 
   it("moves a comment to another moment without losing it", async () => {
-    const hash = hashes[0] as ContentHash;
-    const id = await addComment(library, hash, 1_000, "here");
+    const asset = ids[0] as AssetId;
+    const id = await addComment(library, asset, 1_000, "here");
     await setComment(library, id, 9_000, "here");
-    expect(comments(library, hash)[0]?.atMs).toBe(9_000);
+    expect(comments(library, asset)[0]?.atMs).toBe(9_000);
   });
 
   it("removes a comment, and refuses to touch one that is gone", async () => {
-    const hash = hashes[0] as ContentHash;
-    const id = await addComment(library, hash, 1_000, "temporary");
+    const asset = ids[0] as AssetId;
+    const id = await addComment(library, asset, 1_000, "temporary");
     await removeComment(library, id);
-    expect(comments(library, hash)).toEqual([]);
+    expect(comments(library, asset)).toEqual([]);
     await expect(removeComment(library, id)).rejects.toBeInstanceOf(UnknownCommentError);
     await expect(setComment(library, id, null, "back")).rejects.toBeInstanceOf(UnknownCommentError);
   });
@@ -619,34 +621,34 @@ describe("organizing a library", () => {
   it("refuses an empty body rather than deleting the comment", async () => {
     // Emptying the box and removing the comment are different intentions, and
     // only one of them can be undone by typing again.
-    const hash = hashes[0] as ContentHash;
-    await expect(addComment(library, hash, 0, "   ")).rejects.toBeInstanceOf(EmptyCommentError);
-    const id = await addComment(library, hash, 0, "real");
+    const asset = ids[0] as AssetId;
+    await expect(addComment(library, asset, 0, "   ")).rejects.toBeInstanceOf(EmptyCommentError);
+    const id = await addComment(library, asset, 0, "real");
     await expect(setComment(library, id, 0, "")).rejects.toBeInstanceOf(EmptyCommentError);
-    expect(comments(library, hash)).toHaveLength(1);
+    expect(comments(library, asset)).toHaveLength(1);
   });
 
   it("refuses a moment that is not one", async () => {
-    const hash = hashes[0] as ContentHash;
-    await expect(addComment(library, hash, -1, "before the start")).rejects.toBeInstanceOf(
+    const asset = ids[0] as AssetId;
+    await expect(addComment(library, asset, -1, "before the start")).rejects.toBeInstanceOf(
       InvalidMomentError,
     );
-    await expect(addComment(library, hash, 1.5, "half a millisecond")).rejects.toBeInstanceOf(
+    await expect(addComment(library, asset, 1.5, "half a millisecond")).rejects.toBeInstanceOf(
       InvalidMomentError,
     );
   });
 
   it("refuses a comment on an asset the library does not hold", async () => {
-    await expect(
-      addComment(library, "f".repeat(64) as ContentHash, 0, "ghost"),
-    ).rejects.toBeInstanceOf(UnknownAssetError);
+    await expect(addComment(library, "f".repeat(64) as AssetId, 0, "ghost")).rejects.toBeInstanceOf(
+      UnknownAssetError,
+    );
   });
 
   it("journals every comment before indexing it", async () => {
     // Invariant 9, stated the way this suite states it above: a row with no
     // journal line is data loss the next rebuild would reveal.
-    const hash = hashes[0] as ContentHash;
-    const id = await addComment(library, hash, 91_500, "the cut lands early");
+    const asset = ids[0] as AssetId;
+    const id = await addComment(library, asset, 91_500, "the cut lands early");
     await setComment(library, id, 91_000, "two frames early");
     await removeComment(library, id);
 
@@ -654,14 +656,14 @@ describe("organizing a library", () => {
     expect(ours.map((line) => line.op)).toEqual(["comment_add", "comment_set", "comment_remove"]);
     // Milliseconds in `at`, seconds in `ts`: two different clocks, kept apart
     // by name so neither can be read as the other (ADR-0023).
-    expect(ours[0]).toMatchObject({ id, hash, at: 91_500, body: "the cut lands early" });
+    expect(ours[0]).toMatchObject({ id, asset, at: 91_500, body: "the cut lands early" });
     expect(ours[1]).toMatchObject({ id, at: 91_000 });
     expect(ours[2]).toEqual({ ts: expect.any(Number), op: "comment_remove", id });
   });
 
   it("keeps comments through the trash and takes them on a remove", async () => {
-    const kept = hashes[0] as ContentHash;
-    const doomed = hashes[1] as ContentHash;
+    const kept = ids[0] as AssetId;
+    const doomed = ids[1] as AssetId;
     await addComment(library, kept, 1_000, "survives");
     await addComment(library, doomed, 1_000, "goes with it");
 
@@ -684,35 +686,40 @@ describe("organizing a library", () => {
    * inspector uses, so a `.mp4` is a video whether or not ffmpeg is installed
    * on the machine running this suite.
    */
-  const importVideo = async (name = "clip.mp4"): Promise<ContentHash> => {
+  const importVideo = async (name = "clip.mp4"): Promise<AssetId> => {
     const source = join(dir, "video");
     await mkdir(source, { recursive: true });
     await writeFile(join(source, name), `not really a video: ${name}`);
     await importInto(library, [join(source, name)]);
-    const found = library.db.repo
-      .allHashes()
-      .find((hash) => library.db.repo.findAsset(hash)?.origName === name);
+    // Matched on the name **and** the extension: a name carries none (RL-33),
+    // so `clip.mp4` is the name `clip` and the extension `mp4`.
+    const stem = name.slice(0, name.lastIndexOf("."));
+    const ext = name.slice(name.lastIndexOf(".") + 1);
+    const found = library.db.repo.allIds().find((id) => {
+      const summary = library.db.repo.findAsset(id);
+      return summary?.name === stem && summary.ext === ext;
+    });
     if (found === undefined) throw new Error("the video did not import");
     return found;
   };
 
   it("pins a thumbnail to a moment, and journals where to look rather than the picture", async () => {
-    const hash = await importVideo();
-    expect(await setPoster(library, hash, 91_500)).toBe(true);
-    expect(poster(library, hash)).toBe(91_500);
+    const asset = await importVideo();
+    expect(await setPoster(library, asset, 91_500)).toBe(true);
+    expect(poster(library, asset)).toBe(91_500);
 
     const ours = (await journalLines()).filter((line) => line.op === "poster_set");
-    expect(ours).toEqual([{ ts: expect.any(Number), op: "poster_set", hash, at: 91_500 }]);
+    expect(ours).toEqual([{ ts: expect.any(Number), op: "poster_set", asset, at: 91_500 }]);
     // The instruction, never the pixels: a journal carrying an image would be
     // base64 in a text file, which the forbidden-patterns list refuses twice.
     expect(JSON.stringify(ours[0])).not.toMatch(/data:|base64/);
   });
 
   it("clears back to the default frame with the same op", async () => {
-    const hash = await importVideo();
-    await setPoster(library, hash, 91_500);
-    expect(await setPoster(library, hash, null)).toBe(true);
-    expect(poster(library, hash)).toBeNull();
+    const asset = await importVideo();
+    await setPoster(library, asset, 91_500);
+    expect(await setPoster(library, asset, null)).toBe(true);
+    expect(poster(library, asset)).toBeNull();
 
     const ours = (await journalLines()).filter((line) => line.op === "poster_set");
     expect(ours.map((line) => line.at)).toEqual([91_500, null]);
@@ -721,26 +728,26 @@ describe("organizing a library", () => {
   it("writes nothing when the thumbnail is already where it is being put", async () => {
     // An append-only file is read by people, and a line that changes nothing is
     // a line they have to rule out.
-    const hash = await importVideo();
-    await setPoster(library, hash, 91_500);
-    expect(await setPoster(library, hash, 91_500)).toBe(false);
+    const asset = await importVideo();
+    await setPoster(library, asset, 91_500);
+    expect(await setPoster(library, asset, 91_500)).toBe(false);
 
     const ours = (await journalLines()).filter((line) => line.op === "poster_set");
     expect(ours).toHaveLength(1);
   });
 
   it("clears nothing when the thumbnail is already on the default frame", async () => {
-    const hash = await importVideo();
-    expect(await setPoster(library, hash, null)).toBe(false);
+    const asset = await importVideo();
+    expect(await setPoster(library, asset, null)).toBe(false);
     expect((await journalLines()).filter((line) => line.op === "poster_set")).toEqual([]);
   });
 
   it("drops the preview it can no longer draw, and queues what it could not redraw", async () => {
-    const hash = await importVideo();
-    library.db.repo.putThumbnail(hash, GRID_SIZE, 8, 8, Buffer.from("grid"));
-    library.db.repo.putThumbnail(hash, PREVIEW_SIZE, 8, 8, Buffer.from("preview"));
+    const asset = await importVideo();
+    library.db.repo.putThumbnail(asset, GRID_SIZE, 8, 8, Buffer.from("grid"));
+    library.db.repo.putThumbnail(asset, PREVIEW_SIZE, 8, 8, Buffer.from("preview"));
 
-    await setPoster(library, hash, 91_500);
+    await setPoster(library, asset, 91_500);
 
     // The bytes here are not a video, so the immediate redraw fails — which is
     // also what a machine without ffmpeg looks like. The preview size is made
@@ -748,8 +755,8 @@ describe("organizing a library", () => {
     // outlive the frame it was drawn from; the grid size stays until something
     // replaces it, because a cell that goes blank is worse than one that is a
     // quarter of a second stale.
-    expect(library.db.repo.thumbnail(hash, PREVIEW_SIZE)).toBeUndefined();
-    expect(library.db.repo.thumbnail(hash, GRID_SIZE)).toBeDefined();
+    expect(library.db.repo.thumbnail(asset, PREVIEW_SIZE)).toBeUndefined();
+    expect(library.db.repo.thumbnail(asset, GRID_SIZE)).toBeDefined();
     // Queued, so the picture arrives whenever it can rather than not at all.
     expect(queueStatus(library).ready).toBeGreaterThan(0);
   });
@@ -758,15 +765,15 @@ describe("organizing a library", () => {
     // Audio has no picture to take and a document already has a page. A
     // journal line that means nothing is one a later build has to keep
     // understanding.
-    await expect(setPoster(library, hashes[0] as ContentHash, 1_000)).rejects.toBeInstanceOf(
+    await expect(setPoster(library, ids[0] as AssetId, 1_000)).rejects.toBeInstanceOf(
       NotAVideoError,
     );
     expect((await journalLines()).filter((line) => line.op === "poster_set")).toEqual([]);
   });
 
   it("refuses a negative moment, as a comment's does", async () => {
-    const hash = await importVideo();
-    await expect(setPoster(library, hash, -1)).rejects.toBeInstanceOf(InvalidMomentError);
+    const asset = await importVideo();
+    await expect(setPoster(library, asset, -1)).rejects.toBeInstanceOf(InvalidMomentError);
   });
 
   it("rebuilds to the same library after every kind of edit", async () => {
@@ -774,29 +781,29 @@ describe("organizing a library", () => {
     // index without reaching the journal, the rebuilt index would differ here.
     const design = await createFolder(library, "Design", null);
     const icons = await createFolder(library, "Icons", design);
-    await addToFolder(library, [hashes[0] as ContentHash], icons);
+    await addToFolder(library, [ids[0] as AssetId], icons);
     await moveFolder(library, icons, null);
 
     const group = await createTagGroup(library, "Material");
-    await tagAdd(library, hashes, ["wood"]);
+    await tagAdd(library, ids, ["wood"]);
     await setTagGroup(library, ["wood"], group);
     await tagRename(library, "wood", "timber");
-    await rate(library, [hashes[0] as ContentHash], 5);
-    await apply(library, [{ op: "favorite_set", hash: hashes[1] as ContentHash, favorite: true }]);
-    await setNote(library, hashes[2] as ContentHash, "a note");
-    const comment = await addComment(library, hashes[0] as ContentHash, 91_500, "a comment");
+    await rate(library, [ids[0] as AssetId], 5);
+    await apply(library, [{ op: "favorite_set", asset: ids[1] as AssetId, favorite: true }]);
+    await setNote(library, ids[2] as AssetId, "a note");
+    const comment = await addComment(library, ids[0] as AssetId, 91_500, "a comment");
     await setComment(library, comment, 91_000, "an edited comment");
-    await addComment(library, hashes[0] as ContentHash, null, "and one about the asset");
-    const doomedComment = await addComment(library, hashes[0] as ContentHash, 1, "removed again");
+    await addComment(library, ids[0] as AssetId, null, "and one about the asset");
+    const doomedComment = await addComment(library, ids[0] as AssetId, 1, "removed again");
     await removeComment(library, doomedComment);
-    await renameAsset(library, hashes[2] as ContentHash, "renamed.jpg");
+    await renameAsset(library, ids[2] as AssetId, "renamed.jpg");
     const clip = await importVideo("pinned.mp4");
     await setPoster(library, clip, 91_500);
     await createSmartFolder(library, "Five stars", "rating:5", null);
-    await removeAssets(library, [hashes[1] as ContentHash]);
-    await trashAssets(library, [hashes[2] as ContentHash]);
-    await trashAssets(library, [hashes[0] as ContentHash]);
-    await restoreAssets(library, [hashes[0] as ContentHash]);
+    await removeAssets(library, [ids[1] as AssetId]);
+    await trashAssets(library, [ids[2] as AssetId]);
+    await trashAssets(library, [ids[0] as AssetId]);
+    await restoreAssets(library, [ids[0] as AssetId]);
 
     const before = withoutDerived(library.stats());
     const found = names(search(library, "tag:timber", PAGE));
@@ -813,7 +820,7 @@ describe("organizing a library", () => {
     expect(count(library, "is:trashed")).toBe(1);
     // Comments come back with their moments, their edits, and their absences:
     // the removed one must not reappear, and the edited one must not revert.
-    expect(comments(library, hashes[0] as ContentHash).map((c) => [c.atMs, c.body])).toEqual([
+    expect(comments(library, ids[0] as AssetId).map((c) => [c.atMs, c.body])).toEqual([
       [91_000, "an edited comment"],
       [null, "and one about the asset"],
     ]);
@@ -834,7 +841,7 @@ describe("organizing a library", () => {
     // person actually wrote was the one thing search could not find.
 
     it("finds an asset by a word in its note", async () => {
-      await setNote(library, hashes[0] as ContentHash, "needs a reshoot before the deadline");
+      await setNote(library, ids[0] as AssetId, "needs a reshoot before the deadline");
 
       expect(count(library, "reshoot")).toBe(1);
       // Typed, not composed: bare words are already free-text terms, so the
@@ -843,7 +850,7 @@ describe("organizing a library", () => {
     });
 
     it("finds an asset by a word in a comment, and stops when the comment goes", async () => {
-      const id = await addComment(library, hashes[1] as ContentHash, 4200, "the grade is too warm");
+      const id = await addComment(library, ids[1] as AssetId, 4200, "the grade is too warm");
 
       expect(count(library, "grade")).toBe(1);
 
@@ -852,10 +859,10 @@ describe("organizing a library", () => {
     });
 
     it("follows an edit rather than keeping what was written first", async () => {
-      await setNote(library, hashes[0] as ContentHash, "provisional");
-      const id = await addComment(library, hashes[0] as ContentHash, null, "ask marketing");
+      await setNote(library, ids[0] as AssetId, "provisional");
+      const id = await addComment(library, ids[0] as AssetId, null, "ask marketing");
 
-      await setNote(library, hashes[0] as ContentHash, "approved");
+      await setNote(library, ids[0] as AssetId, "approved");
       await setComment(library, id, null, "marketing approved it");
 
       expect(count(library, "provisional")).toBe(0);
@@ -866,15 +873,15 @@ describe("organizing a library", () => {
     it("keeps the name and the tags searchable beside them", async () => {
       // The table was dropped and rebuilt by the migration, so the two columns
       // that were already there are worth asserting are still there.
-      await tagAdd(library, [hashes[2] as ContentHash], ["mahogany"]);
+      await tagAdd(library, [ids[2] as AssetId], ["mahogany"]);
 
       expect(count(library, "gamma")).toBe(1);
       expect(count(library, "mahogany")).toBe(1);
     });
 
     it("clears the note from the index when the note is cleared", async () => {
-      await setNote(library, hashes[0] as ContentHash, "temporary");
-      await setNote(library, hashes[0] as ContentHash, null);
+      await setNote(library, ids[0] as AssetId, "temporary");
+      await setNote(library, ids[0] as AssetId, null);
 
       expect(count(library, "temporary")).toBe(0);
     });

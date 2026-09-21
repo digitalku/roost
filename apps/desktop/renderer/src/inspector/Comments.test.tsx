@@ -20,7 +20,7 @@ import type { TagChoice } from "./TagField.js";
  * would show up here rather than in a window.
  */
 
-const HASH = fakeDetail(1).hash;
+const HASH = fakeDetail(1).id;
 
 /** Comments do not touch the tag field; it needs a vocabulary all the same. */
 const VOCABULARY: readonly TagChoice[] = [];
@@ -34,7 +34,7 @@ describe("comments", () => {
     install(engine);
     render(
       <Inspector
-        hashes={[HASH]}
+        ids={[HASH]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={[]}
@@ -199,7 +199,7 @@ describe("comments", () => {
   });
 
   it("does not carry a half-typed comment to the next asset", async () => {
-    // The composer is keyed on the hash. Without that, selecting another asset
+    // The composer is keyed on the id. Without that, selecting another asset
     // would leave the draft — and the moment — sitting in the field, ready to
     // be sent against something it was not written about.
     engine = new FakeEngine({ details: [fakeDetail(1), fakeDetail(2)] });
@@ -207,7 +207,7 @@ describe("comments", () => {
     const user = userEvent.setup();
     const view = render(
       <Inspector
-        hashes={[HASH]}
+        ids={[HASH]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={[]}
@@ -218,7 +218,7 @@ describe("comments", () => {
 
     view.rerender(
       <Inspector
-        hashes={[fakeDetail(2).hash]}
+        ids={[fakeDetail(2).id]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={[]}

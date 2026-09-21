@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseContentHash } from "@roost/core";
+import { parseAssetId } from "@roost/core";
 import { gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { importInto } from "../src/import.js";
@@ -38,7 +38,7 @@ async function manifestFile(name: string, body: unknown): Promise<string> {
 }
 
 const GOOD = {
-  roost_library_version: 1,
+  roost_library_version: 2,
   id: "e0ec4720-c791-4a56-84a5-2c7fc11bb00e",
   name: "Fixture",
   created_at: 1789344118,
@@ -78,13 +78,30 @@ describe("validating library.json (RL-5, RL-5b)", () => {
   });
 
   it("refuses a format version from a later build without touching the directory", async () => {
-    const root = await manifestFile("from-the-future", { ...GOOD, roost_library_version: 2 });
+    const root = await manifestFile("from-the-future", { ...GOOD, roost_library_version: 3 });
     await expect(readManifest(root)).rejects.toMatchObject({ code: "library_too_new" });
 
     // RL-6's second half: nothing is created, and no cache is rebuilt. A higher
     // version means the meaning of the bytes has changed, so every guess an
     // older build could make is a wrong one.
     await expect(readFile(join(root, "index.db"))).rejects.toThrow();
+  });
+
+  it("refuses a Format 1 library by name, and before anything else (RL-6a)", async () => {
+    // **Before the other three fields**, deliberately, and that is why a
+    // version 1 manifest missing an `id` reports the format rather than the
+    // missing field: a different format version may spell those fields
+    // differently, so reading them first would be answering a question about a
+    // document this build cannot read.
+    const root = await manifestFile("version-one", { ...GOOD, roost_library_version: 1 });
+    await expect(readManifest(root)).rejects.toMatchObject({ code: "library_format_1" });
+
+    const bare = await manifestFile("version-one-bare", { roost_library_version: 1 });
+    await expect(readManifest(bare)).rejects.toMatchObject({ code: "library_format_1" });
+
+    // Nothing is read, repaired or converted: converting is a separate tool's
+    // job, run deliberately, writing a new library beside the old one.
+    expect((await readdir(root)).sort()).toEqual(["library.json"]);
   });
 });
 
@@ -124,7 +141,7 @@ describe("rewriting library.json (RL-5a)", () => {
   });
 });
 
-describe("filenames in the journal (RL-36)", () => {
+describe("filenames in the journal (RL-49)", () => {
   it("records a decomposed filename composed", async () => {
     const library = await Library.create(join(dir, "nfc.roost"), "NFC");
     try {
@@ -138,18 +155,20 @@ describe("filenames in the journal (RL-36)", () => {
       const decomposed = "cafe\u0301 mo\u0308bel.png";
       await writeFile(join(source, decomposed), await gradient(40, 24, 7, "png"));
 
-      await importInto(library, [source], { mode: "managed" });
+      await importInto(library, [source], { take: "copy" });
 
-      const [hash] = library.db.repo.allHashes();
+      const [hash] = library.db.repo.allIds();
       expect(hash).toBeDefined();
-      expect(library.db.repo.assetDetail(parseContentHash(hash as string))?.origName).toBe(
-        "caf\u00e9 m\u00f6bel.png",
+      // The name carries no extension (RL-33), so what is normalised is the
+      // name a person reads.
+      expect(library.db.repo.assetDetail(parseAssetId(hash as string))?.name).toBe(
+        "caf\u00e9 m\u00f6bel",
       );
 
       const month = (await library.journal.months())[0];
       const line = await readFile(library.journal.pathFor(month as string), "utf8");
-      expect(line).toContain("caf\u00e9 m\u00f6bel.png");
-      expect(line).not.toContain(decomposed);
+      expect(line).toContain("caf\u00e9 m\u00f6bel");
+      expect(line).not.toContain("cafe\u0301 mo\u0308bel");
     } finally {
       await library.close();
     }
@@ -166,7 +185,7 @@ describe("meeting a library whose cache is not ours (RL-2, RL-11)", () => {
     const source = join(dir, "source");
     await mkdir(source, { recursive: true });
     await writeFile(join(source, "one.png"), await gradient(32, 32, 3, "png"));
-    await importInto(first, [source], { mode: "managed" });
+    await importInto(first, [source], { take: "copy" });
     expect(first.stats().assets).toBe(1);
     await first.close();
 
@@ -188,8 +207,8 @@ describe("meeting a library whose cache is not ours (RL-2, RL-11)", () => {
     const source = join(dir, "more");
     await mkdir(source, { recursive: true });
     await writeFile(join(source, "two.png"), await gradient(32, 32, 4, "png"));
-    await importInto(first, [source], { mode: "managed" });
-    const [hash] = first.db.repo.allHashes();
+    await importInto(first, [source], { take: "copy" });
+    const [hash] = first.db.repo.allIds();
     await first.close();
 
     // Another implementation, appending an operation of its own while this one
@@ -198,16 +217,16 @@ describe("meeting a library whose cache is not ours (RL-2, RL-11)", () => {
     const month = "2026-03";
     await writeFile(
       join(root, "journal", `${month}.jsonl`),
-      `{"ts":1772000000,"op":"rate","hash":"${hash}","rating":5}\n` +
-        `{"ts":1772000001,"op":"win.shell_pin","hash":"${hash}"}\n`,
+      `{"ts":1772000000,"op":"rate","asset":"${hash}","rating":5}\n` +
+        `{"ts":1772000001,"op":"win.shell_pin","asset":"${hash}"}\n`,
       "utf8",
     );
 
     const second = await Library.open(root);
     try {
-      expect(second.db.repo.assetDetail(parseContentHash(hash as string))?.rating).toBe(5);
+      expect(second.db.repo.assetDetail(parseAssetId(hash as string))?.rating).toBe(5);
 
-      // RL-28: the person is told, and told whose it is. Held in the index so
+      // RL-40: the person is told, and told whose it is. Held in the index so
       // that the *next* open can say it too, without replaying to find out.
       expect(second.notice.skipped).toEqual([
         { op: "win.shell_pin", count: 1, platform: "win", platformLabel: "Roost for Windows" },
@@ -244,12 +263,12 @@ describe("meeting a library whose cache is not ours (RL-2, RL-11)", () => {
     await writeFile(join(source, "clip.bin"), Buffer.alloc(2048, 7));
 
     const first = await Library.create(root, "Derived");
-    await importInto(first, [source], { mode: "managed" });
-    const [raw] = first.db.repo.allHashes();
-    const hash = parseContentHash(raw as string);
+    await importInto(first, [source], { take: "copy" });
+    const [raw] = first.db.repo.allIds();
+    const hash = parseAssetId(raw as string);
     expect(first.db.repo.assetDetail(hash)?.width).toBeNull();
 
-    first.db.repo.putDerived(hash, { width: 1920, height: 1080, durationMs: 42_000 });
+    first.db.repo.putDerived(hash, { width: 1920, height: 1080, durationMs: 42_000 }, 1);
     first.db.repo.putThumbnail(hash, 256, 256, 144, Buffer.from([1, 2, 3]));
     // A library from before the mark existed, which is every library there is.
     first.db.repo.setMeta("journal.folded", "");
@@ -276,7 +295,7 @@ describe("meeting a library whose cache is not ours (RL-2, RL-11)", () => {
     const source = join(dir, "quiet-source");
     await mkdir(source, { recursive: true });
     await writeFile(join(source, "three.png"), await gradient(32, 32, 5, "png"));
-    await importInto(first, [source], { mode: "managed" });
+    await importInto(first, [source], { take: "copy" });
     const month = (await first.journal.months())[0] as string;
     const fileSize = (await stat(first.journal.pathFor(month))).size;
     await first.close();

@@ -179,5 +179,5 @@ export async function remove(
 function freedLine(count: number): string {
   return count === 0
     ? "No bytes were freed: nothing removed was stored in this library."
-    : `Freed ${bytes(count)} from originals/.`;
+    : `Freed ${bytes(count)} from files/.`;
 }

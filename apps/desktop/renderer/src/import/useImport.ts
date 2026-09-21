@@ -1,6 +1,6 @@
 import type {
   ImportProgress,
-  StorageMode,
+  Take,
   WireEagleReport,
   WireFiled,
   WireImportReport,
@@ -57,7 +57,7 @@ export interface Importing {
   /** Starts an import. Ignored while one is running. */
   readonly start: (paths: readonly string[]) => void;
   /** Imports an Eagle library, whole (ADR-0032). Ignored while one is running. */
-  readonly startEagle: (path: string, mode?: StorageMode) => void;
+  readonly startEagle: (path: string, mode?: Take) => void;
   /** Puts the last outcome away. */
   readonly dismiss: () => void;
   /** The duplicates a finished run is waiting for an answer about. */
@@ -134,7 +134,7 @@ export function useImport(onFinished: () => void, folder: number | null): Import
     (paths: readonly string[]) => {
       if (paths.length === 0) return;
       run(async () => {
-        // Managed, and no tags: the mode belongs in a preference and the tags
+        // Managed, and no tags: the take belongs in a preference and the tags
         // in an import dialog, neither of which exists yet. `TODO.md` §M3.
         //
         // The folder is the one the window was showing when the run started
@@ -143,7 +143,7 @@ export function useImport(onFinished: () => void, folder: number | null): Import
         const answer = await invoke({
           type: "import:paths",
           paths,
-          mode: "managed",
+          take: "copy",
           tags: [],
           folder,
         });
@@ -154,10 +154,10 @@ export function useImport(onFinished: () => void, folder: number | null): Import
   );
 
   const startEagle = useCallback(
-    (path: string, mode: StorageMode = "managed") => {
+    (path: string, take: Take = "copy") => {
       if (path.trim() === "") return;
       run(async () => {
-        const answer = await invoke({ type: "eagle:import", path, mode });
+        const answer = await invoke({ type: "eagle:import", path, take });
         return answer.ok ? { kind: "eagle", report: answer.value } : answer.problem;
       });
     },

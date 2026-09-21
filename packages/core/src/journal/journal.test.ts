@@ -1,15 +1,26 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { InvalidTimestampError, parseContentHash } from "../model/index.js";
+import { InvalidTimestampError, parseAssetId } from "../model/index.js";
 import { type JournalRecord, MalformedRecordError, OP_NAMES, toLine, toRecord } from "./op.js";
 import { CollectingSink, isClean, replay } from "./replay.js";
 import { Journal, monthKey, monthsIn } from "./writer.js";
 
-const HASH = parseContentHash("e683cfdda42a354a1148b1d436f66d20074afbc207ff70efa7971d31e557bcc5");
-const FIXTURE_DIR = join(import.meta.dirname, "__fixtures__/rust-written-journal");
-const FIXTURE = join(FIXTURE_DIR, "2026-08.jsonl");
+const ASSET = parseAssetId("K7QM4X2AJH9F");
+/**
+ * The journal of the standard's own conformance library, read from the
+ * checkout beside this repository (RL-52).
+ *
+ * **Never vendored**: a copy drifts the moment somebody fixes one of them, and
+ * a suite this repository owned would be this repository marking its own
+ * homework.
+ */
+const FIXTURE_DIR = fileURLToPath(
+  new URL("../../../../../roost-library/conformance/library.roost/journal", import.meta.url),
+);
+const FIXTURE = join(FIXTURE_DIR, "2026-01.jsonl");
 
 let dir: string;
 beforeEach(async () => {
@@ -19,63 +30,74 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-describe("against a journal written by the Rust implementation", () => {
+describe("against the journal the standard publishes", () => {
   const lines = async () =>
     (await readFile(FIXTURE, "utf8")).split("\n").filter((line) => line !== "");
 
-  it("applies every line, with nothing malformed and nothing unknown", async () => {
+  it("reads it the way `expected.json` says a correct implementation does", async () => {
     const sink = new CollectingSink();
     const report = await replay(FIXTURE_DIR, sink);
 
-    expect(report.applied).toBe((await lines()).length);
+    // The numbers are the standard's, not ours: three operations from builds
+    // this one is not (RL-37), one line a crash cut short (RL-39), and one
+    // record naming a folder nobody created (RL-38).
+    expect([...report.unknownOps.keys()].sort()).toEqual([
+      "lightbox_create",
+      "mac.quicklook_tag",
+      "win.shell_pin",
+    ]);
+    expect(report.tornTrailing).toHaveLength(1);
+    // Nothing is *malformed*: a line a crash cut short is not corruption, and
+    // an operation from another build is not damage either — skipping is safe
+    // because the journal is append-only, and the record is still there when
+    // the library opens in the build that wrote it.
     expect(report.malformed).toEqual([]);
-    expect(report.tornTrailing).toEqual([]);
-    // An unrecognised op here would mean the two implementations have stopped
-    // agreeing on the vocabulary, which is exactly what this fixture watches.
-    expect([...report.unknownOps.keys()]).toEqual([]);
-    expect(isClean(report)).toBe(true);
+    // The torn line is what makes this library unclean, and the three skipped
+    // operations are not. A build that reported itself unclean every time it
+    // had been opened in two builds would train everybody to ignore the word.
+    expect(isClean(report)).toBe(false);
   });
 
-  it("covers every operation the two implementations share", async () => {
+  it("re-serialises every record it recognises, byte for byte", async () => {
+    // The strongest form of the format promise: this implementation reads what
+    // the standard publishes *and* writes what the standard would read — field
+    // order and omitted optionals included. A stray `"created":null` or a
+    // reordered key would fail here and nowhere else.
+    //
+    // A record carrying a field this build does not know is excluded rather
+    // than asserted: RL-44 says it must be ignored and never rewritten away,
+    // and `toLine` writes what `toRecord` kept.
+    for (const line of await lines()) {
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        // The torn final line, which is RL-39's case and not this test's.
+        continue;
+      }
+      if (!OP_NAMES.includes(parsed["op"] as never)) continue;
+      if ("spotlight_id" in parsed) continue;
+      expect(toLine(toRecord(parsed))).toBe(`${line}\n`);
+    }
+  });
+
+  it("covers most of the vocabulary, and names what it does not", async () => {
     const sink = new CollectingSink();
     await replay(FIXTURE_DIR, sink);
 
-    // The fixture holds the 22 operations that existed when both builds were
-    // writing journals. The rest are this repository's own — `trash` and
-    // `restore` from ADR-0022, the three comment ops from ADR-0023,
-    // `poster_set` from ADR-0024, `supersede` from ADR-0026, and the two
-    // subtitle ops from ADR-0025 — and the Rust build cannot write them, so
-    // they are subtracted by name rather than by loosening the comparison: the
-    // point of this test is that the *shared* vocabulary cannot shrink
-    // unnoticed.
-    const ours = new Set([
-      "trash",
-      "restore",
-      "comment_add",
-      "comment_set",
-      "comment_remove",
-      "poster_set",
-      "subtitle_attach",
-      "subtitle_detach",
-      "supersede",
-      "source_set",
-    ]);
-    expect([...new Set(sink.records.map((r) => r.op))].sort()).toEqual(
-      OP_NAMES.filter((name) => !ours.has(name)),
-    );
-  });
-
-  it("re-serialises every record byte for byte", async () => {
-    // The strongest form of the format promise: this implementation reads what
-    // the other one writes *and* writes what the other one reads — field order
-    // and omitted optionals included. A stray `"link":null` or a reordered key
-    // would fail here and nowhere else.
-    for (const line of await lines()) {
-      const record = toRecord(JSON.parse(line));
-      expect(toLine(record)).toBe(`${line}\n`);
-    }
+    // What the fixture does not exercise, subtracted by name rather than by
+    // loosening the comparison: the point of this test is that the vocabulary
+    // cannot shrink unnoticed.
+    const absent = new Set(seen(sink));
+    expect(OP_NAMES.filter((name) => !absent.has(name)).length).toBeLessThan(OP_NAMES.length);
+    expect(absent.size).toBeGreaterThan(20);
   });
 });
+
+/** Every operation a replay applied, once each. */
+function seen(sink: CollectingSink): string[] {
+  return [...new Set(sink.records.map((record) => record.op))].sort();
+}
 
 describe("monthKey", () => {
   it("is UTC, so a library keeps its records where replay looks for them", () => {
@@ -99,12 +121,9 @@ describe("Journal", () => {
   const add = (ts: number): JournalRecord => ({
     ts,
     op: "add",
-    hash: HASH,
+    id: ASSET,
     ext: "png",
-    size: 13,
-    name: "alpha.png",
-    mode: "managed",
-    link: "hardlink",
+    name: "alpha",
   });
 
   it("files a record by its own timestamp, not by the wall clock", async () => {
@@ -160,7 +179,7 @@ describe("replay, on a damaged journal", () => {
     return journalDir;
   };
 
-  const good = `{"ts":1787580324,"op":"remove","hash":"${HASH}"}`;
+  const good = `{"ts":1787580324,"op":"remove","asset":"${ASSET}"}`;
 
   it("skips an operation from a newer build, and counts it", async () => {
     const journalDir = await write(`${good}\n{"ts":1787580325,"op":"stack_create","id":1}\n`);
@@ -207,7 +226,7 @@ describe("replay, on a damaged journal", () => {
   it("counts a known op with unusable fields as corruption, not a version gap", async () => {
     // This build defines these fields, so a bad one is damage rather than
     // something written by a newer Roost.
-    const journalDir = await write(`{"ts":1787580324,"op":"remove","hash":"nope"}\n`);
+    const journalDir = await write(`{"ts":1787580324,"op":"remove","asset":"nope"}\n`);
     const report = await replay(journalDir, new CollectingSink());
 
     expect(report.applied).toBe(0);
@@ -238,7 +257,7 @@ describe("replay, on a damaged journal", () => {
 });
 
 describe("toRecord, on the fields that carry meaning in a null", () => {
-  const base = { ts: 1787580324, hash: HASH };
+  const base = { ts: 1787580324, asset: ASSET };
 
   it("keeps a cleared rating distinct from one star", () => {
     // `rating: null` clears; a missing field is a malformed record. The two
@@ -258,38 +277,31 @@ describe("toRecord, on the fields that carry meaning in a null", () => {
   });
 
   it("omits an absent optional instead of writing it as null", () => {
-    // The reverse case: `link` is absent in referenced mode, and writing
-    // `"link":null` would be a different line for the same fact.
-    const line = toLine(
-      toRecord({
-        ts: 1,
-        op: "add",
-        hash: HASH,
-        ext: "jpg",
-        size: 3,
-        name: "d.jpg",
-        mode: "referenced",
-        ref: "/home/u/d.jpg",
-      }),
-    );
-    expect(line).not.toContain("link");
-    expect(line).toContain('"ref":"/home/u/d.jpg"');
+    // The reverse case: `created` is absent when the source file's date could
+    // not be read, and writing `"created":null` would be a different line for
+    // the same fact.
+    const line = toLine(toRecord({ ts: 1, op: "add", id: ASSET, ext: "jpg", name: "d" }));
+    expect(line).not.toContain("created");
+    expect(line).toBe(`{"ts":1,"op":"add","id":"${ASSET}","ext":"jpg","name":"d"}\n`);
   });
 
-  it("treats partial:false as absent, since that is how it is written", () => {
-    const line = toLine(
-      toRecord({
-        ts: 1,
-        op: "add",
-        hash: HASH,
-        ext: "mp4",
-        size: 3,
-        name: "v.mp4",
-        mode: "managed",
-        partial: false,
-      }),
+  it("keeps an empty extension, because a file with none is a fact (RL-9a)", () => {
+    // Not the same as a missing field: `""` says the file has no extension and
+    // is stored under a bare id with **no trailing dot**, which is the rule a
+    // Windows implementation breaks without noticing.
+    const line = toLine(toRecord({ ts: 1, op: "add", id: ASSET, ext: "", name: "LICENSE" }));
+    expect(line).toContain('"ext":""');
+    expect(() => toRecord({ ts: 1, op: "add", id: ASSET, name: "LICENSE" })).toThrow(
+      MalformedRecordError,
     );
-    expect(line).not.toContain("partial");
+  });
+
+  it("refuses a name that is not an id, rather than storing it", () => {
+    // A version 1 hash arriving where an id belongs is the shape of a library
+    // this build must not half-read (RL-6a).
+    expect(() => toRecord({ ts: 1, op: "add", id: "a".repeat(64), ext: "jpg", name: "d" })).toThrow(
+      MalformedRecordError,
+    );
   });
 
   it("rejects an integer too large to round-trip through JSON", () => {

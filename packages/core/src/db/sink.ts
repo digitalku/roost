@@ -4,7 +4,7 @@ import {
   MalformedRecordError,
   type ReplaySink,
 } from "../journal/index.js";
-import type { ContentHash } from "../model/index.js";
+import type { AssetId } from "../model/index.js";
 import type { Db } from "./database.js";
 import type { IdentifiedTable, Repo } from "./repo.js";
 
@@ -21,7 +21,7 @@ export const REBUILD_BATCH_SIZE = 10_000;
 
 /** Something a record needs to already exist. */
 type Referent =
-  | { readonly kind: "asset"; readonly hash: ContentHash }
+  | { readonly kind: "asset"; readonly asset: AssetId }
   | { readonly kind: IdentifiedTable; readonly id: number };
 
 /** What each table is called when a person is told about it. */
@@ -30,10 +30,11 @@ const REFERENT_NAMES: Readonly<Record<IdentifiedTable, string>> = {
   smart_folders: "smart folder",
   tag_groups: "tag group",
   asset_comments: "comment",
+  watched_roots: "watched root",
 };
 
 /**
- * What a record names that must already be in the library (RL-26a).
+ * What a record names that must already be in the library (RL-38).
  *
  * Exhaustive over `Op`, and written out rather than inferred from the schema's
  * foreign keys on purpose. The schema is a **cache** — the format says so,
@@ -49,7 +50,7 @@ const REFERENT_NAMES: Readonly<Record<IdentifiedTable, string>> = {
  * its own entity into being.
  */
 function referentsOf(record: JournalRecord): readonly Referent[] {
-  const asset = (hash: ContentHash): readonly Referent[] => [{ kind: "asset", hash }];
+  const asset = (id: AssetId): readonly Referent[] => [{ kind: "asset", asset: id }];
 
   switch (record.op) {
     case "add":
@@ -57,6 +58,7 @@ function referentsOf(record: JournalRecord): readonly Referent[] {
     case "smart_folder_create":
     case "tag_group_create":
     case "tag_rename":
+    case "watch_add":
       return [];
     case "remove":
     case "trash":
@@ -69,19 +71,18 @@ function referentsOf(record: JournalRecord): readonly Referent[] {
     case "source_set":
     case "favorite_set":
     case "poster_set":
-    case "supersede":
     case "comment_add":
-      return asset(record.hash);
+      return asset(record.asset);
     case "subtitle_attach":
     case "subtitle_detach":
       return [
-        { kind: "asset", hash: record.hash },
-        { kind: "asset", hash: record.track },
+        { kind: "asset", asset: record.asset },
+        { kind: "asset", asset: record.track },
       ];
     case "folder_add":
     case "folder_remove":
       return [
-        { kind: "asset", hash: record.hash },
+        { kind: "asset", asset: record.asset },
         { kind: "folders", id: record.folder },
       ];
     case "folder_rename":
@@ -101,6 +102,8 @@ function referentsOf(record: JournalRecord): readonly Referent[] {
     case "comment_set":
     case "comment_remove":
       return [{ kind: "asset_comments", id: record.id }];
+    case "watch_remove":
+      return [{ kind: "watched_roots", id: record.id }];
     default: {
       const unhandled: never = record;
       throw new MalformedRecordError("op", `unhandled operation: ${JSON.stringify(unhandled)}`);
@@ -150,7 +153,7 @@ export class IndexSink implements ReplaySink {
    *
    * @throws DanglingReferenceError when the record names something that is not
    * in the library. Nothing is written for it, and nothing is invented to make
-   * it fit (RL-26a).
+   * it fit (RL-38).
    */
   apply(record: JournalRecord): void {
     if (!this.#db.inTransaction) {
@@ -189,8 +192,8 @@ export class IndexSink implements ReplaySink {
   #requireReferents(record: JournalRecord): void {
     for (const referent of referentsOf(record)) {
       if (referent.kind === "asset") {
-        if (this.#repo.hasAsset(referent.hash)) continue;
-        throw new DanglingReferenceError(record.op, "asset", referent.hash);
+        if (this.#repo.hasAsset(referent.asset)) continue;
+        throw new DanglingReferenceError(record.op, "asset", referent.asset);
       }
       if (this.#repo.hasRow(referent.kind, referent.id)) continue;
       throw new DanglingReferenceError(record.op, REFERENT_NAMES[referent.kind], referent.id);
@@ -204,31 +207,31 @@ export class IndexSink implements ReplaySink {
         repo.applyAdd(record.ts, record);
         return;
       case "remove":
-        repo.applyRemove(record.hash);
+        repo.applyRemove(record.asset);
         return;
       case "trash":
         // The line's own `ts` is the trashing time; the op carries no second
         // one (ADR-0022). Replay and a live edit therefore agree by
         // construction rather than by both remembering to use the same clock.
-        repo.applyTrash(record.hash, record.ts);
+        repo.applyTrash(record.asset, record.ts);
         return;
       case "restore":
-        repo.applyRestore(record.hash);
+        repo.applyRestore(record.asset);
         return;
       case "tag_add":
-        repo.applyTagAdd(record.hash, record.tags);
+        repo.applyTagAdd(record.asset, record.tags);
         return;
       case "tag_remove":
-        repo.applyTagRemove(record.hash, record.tags);
+        repo.applyTagRemove(record.asset, record.tags);
         return;
       case "folder_create":
         repo.applyFolderCreate(record.id, record.parent, record.name);
         return;
       case "folder_add":
-        repo.applyFolderAdd(record.hash, record.folder);
+        repo.applyFolderAdd(record.asset, record.folder);
         return;
       case "folder_remove":
-        repo.applyFolderRemove(record.hash, record.folder);
+        repo.applyFolderRemove(record.asset, record.folder);
         return;
       case "folder_rename":
         repo.applyFolderRename(record.id, record.name);
@@ -240,25 +243,25 @@ export class IndexSink implements ReplaySink {
         repo.applyFolderDelete(record.id);
         return;
       case "asset_rename":
-        repo.applyAssetRename(record.hash, record.name);
+        repo.applyAssetRename(record.asset, record.name);
         return;
       case "tag_rename":
         repo.applyTagRename(record.from, record.to);
         return;
       case "rate":
-        repo.applyRate(record.hash, record.rating);
+        repo.applyRate(record.asset, record.rating);
         return;
       case "note_set":
-        repo.applyNoteSet(record.hash, record.note);
+        repo.applyNoteSet(record.asset, record.note);
         return;
       case "source_set":
-        repo.applySourceSet(record.hash, record.url);
+        repo.applySourceSet(record.asset, record.url);
         return;
       case "comment_add":
         // The line's own `ts` becomes `created_at`, as `trash` does with
         // `trashed_at`: a live edit and a replay then agree by construction
         // rather than by both remembering to read the same clock.
-        repo.applyCommentAdd(record.id, record.hash, record.at, record.body, record.ts);
+        repo.applyCommentAdd(record.id, record.asset, record.at, record.body, record.ts);
         return;
       case "comment_set":
         repo.applyCommentSet(record.id, record.at, record.body, record.ts);
@@ -267,19 +270,16 @@ export class IndexSink implements ReplaySink {
         repo.applyCommentRemove(record.id);
         return;
       case "poster_set":
-        repo.applyPosterSet(record.hash, record.at);
+        repo.applyPosterSet(record.asset, record.at);
         return;
       case "favorite_set":
-        repo.applyFavoriteSet(record.hash, record.favorite);
+        repo.applyFavoriteSet(record.asset, record.favorite);
         return;
       case "subtitle_attach":
-        repo.applySubtitleAttach(record.hash, record.track, record.lang, record.label);
+        repo.applySubtitleAttach(record.asset, record.track, record.lang, record.label);
         return;
       case "subtitle_detach":
-        repo.applySubtitleDetach(record.hash, record.track);
-        return;
-      case "supersede":
-        repo.applySupersede(record.hash, record.to);
+        repo.applySubtitleDetach(record.asset, record.track);
         return;
       case "smart_folder_create":
         repo.applySmartFolderCreate(record.id, record.parent, record.name, record.query);
@@ -301,6 +301,12 @@ export class IndexSink implements ReplaySink {
         return;
       case "tag_group_set":
         repo.applyTagGroupSet(record.tag, record.group);
+        return;
+      case "watch_add":
+        repo.applyWatchAdd(record.id, record.path, record.take);
+        return;
+      case "watch_remove":
+        repo.applyWatchRemove(record.id);
         return;
       default: {
         // `record` narrows to `never` only if every operation above is

@@ -87,7 +87,7 @@ describe("the grid", () => {
     // Chromium owns the decode and the cache.
     const { assets } = show(4);
     const image = document.querySelector<HTMLImageElement>(".cell-image");
-    expect(image?.getAttribute("src")).toBe(`roost://thumb/${assets[0]?.hash}@256`);
+    expect(image?.getAttribute("src")).toBe(`roost://thumb/${assets[0]?.id}@256`);
   });
 
   it("hides a thumbnail that could not be loaded, so the placeholder shows", () => {
@@ -159,7 +159,7 @@ describe("the grid", () => {
     expect(selection.selected()).toHaveLength(3);
 
     await user.pointer({ keys: "[MouseRight]", target: cells[7] as HTMLElement });
-    expect(selection.selected()).toEqual([assets[7]?.hash]);
+    expect(selection.selected()).toEqual([assets[7]?.id]);
   });
 
   it("selects with a click, adds with ctrl, and extends with shift", async () => {
@@ -167,17 +167,17 @@ describe("the grid", () => {
     const cells = screen.getAllByRole("option");
 
     await user.click(cells[0] as HTMLElement);
-    expect(selection.selected()).toEqual([assets[0]?.hash]);
+    expect(selection.selected()).toEqual([assets[0]?.id]);
 
     await user.keyboard("{Control>}");
     await user.click(cells[3] as HTMLElement);
     await user.keyboard("{/Control}");
-    expect(selection.selected()).toEqual([assets[0]?.hash, assets[3]?.hash]);
+    expect(selection.selected()).toEqual([assets[0]?.id, assets[3]?.id]);
 
     await user.keyboard("{Shift>}");
     await user.click(cells[5] as HTMLElement);
     await user.keyboard("{/Shift}");
-    expect(selection.selected()).toEqual([3, 4, 5].map((i) => assets[i]?.hash));
+    expect(selection.selected()).toEqual([3, 4, 5].map((i) => assets[i]?.id));
   });
 
   it("clears when the click lands on the background", async () => {
@@ -214,7 +214,7 @@ describe("the grid", () => {
     const { assets } = show(40);
     // Across the first row, into the third column and no further.
     drag([0, 0], [600, 10]);
-    expect(selection.selected()).toEqual([assets[0]?.hash, assets[1]?.hash, assets[2]?.hash]);
+    expect(selection.selected()).toEqual([assets[0]?.id, assets[1]?.id, assets[2]?.id]);
   });
 
   it("takes a cell the sweep only touches, rather than one it encloses", () => {
@@ -222,7 +222,7 @@ describe("the grid", () => {
     // cell is routinely taller than the sweep meant to catch it.
     const { assets } = show(40);
     drag([0, 0], [4, 4]);
-    expect(selection.selected()).toEqual([assets[0]?.hash]);
+    expect(selection.selected()).toEqual([assets[0]?.id]);
   });
 
   it("adds to the selection when the drag starts with ctrl held", () => {
@@ -231,10 +231,10 @@ describe("the grid", () => {
       button: 0,
       pointerId: 1,
     });
-    expect(selection.selected()).toEqual([assets[8]?.hash]);
+    expect(selection.selected()).toEqual([assets[8]?.id]);
 
     drag([0, 0], [300, 10], { ctrlKey: true });
-    expect(selection.selected()).toEqual([assets[0]?.hash, assets[1]?.hash, assets[8]?.hash]);
+    expect(selection.selected()).toEqual([assets[0]?.id, assets[1]?.id, assets[8]?.id]);
   });
 
   it("stays a click when the pointer barely moves, and still clears", () => {
@@ -243,7 +243,7 @@ describe("the grid", () => {
       button: 0,
       pointerId: 1,
     });
-    expect(selection.selected()).toEqual([assets[8]?.hash]);
+    expect(selection.selected()).toEqual([assets[8]?.id]);
 
     // Two pixels of travel is a shaky hand, not a sweep — and a press on the
     // background that never becomes a drag clears on release.
@@ -255,7 +255,7 @@ describe("the grid", () => {
     // The ring does not move with a sweep, so without a guard every frame of
     // the drag would scroll the grid back to wherever focus was left.
     const { assets } = show(60);
-    const far = assets[40]?.hash;
+    const far = assets[40]?.id;
     if (far === undefined) throw new Error("expected an asset");
     act(() => selection.focus(far));
 
@@ -271,25 +271,25 @@ describe("the grid", () => {
     await user.click(screen.getAllByRole("option")[0] as HTMLElement);
 
     await user.type(grid, "{ArrowRight}");
-    expect(selection.focused).toBe(assets[1]?.hash);
-    expect(selection.selected()).toEqual([assets[1]?.hash]);
+    expect(selection.focused).toBe(assets[1]?.id);
+    expect(selection.selected()).toEqual([assets[1]?.id]);
 
     // Ctrl moves the ring alone (`UI_SPEC.md` §6).
     await user.keyboard("{Control>}{ArrowRight}{/Control}");
-    expect(selection.focused).toBe(assets[2]?.hash);
-    expect(selection.selected()).toEqual([assets[1]?.hash]);
+    expect(selection.focused).toBe(assets[2]?.id);
+    expect(selection.selected()).toEqual([assets[1]?.id]);
 
     // Space toggles what the ring is on, leaving the ring where it is.
     await user.keyboard(" ");
-    expect(selection.selected()).toEqual([assets[1]?.hash, assets[2]?.hash]);
-    expect(selection.focused).toBe(assets[2]?.hash);
+    expect(selection.selected()).toEqual([assets[1]?.id, assets[2]?.id]);
+    expect(selection.focused).toBe(assets[2]?.id);
   });
 
   it("opens the focused asset on Enter", async () => {
     const { user, assets } = show(12);
     await user.click(screen.getAllByRole("option")[4] as HTMLElement);
     await user.keyboard("{Enter}");
-    expect(onOpen).toHaveBeenCalledWith(assets[4]?.hash);
+    expect(onOpen).toHaveBeenCalledWith(assets[4]?.id);
   });
 
   it("selects what is loaded on Ctrl+A, and no more", async () => {
@@ -330,7 +330,7 @@ describe("the grid", () => {
     );
 
     expect(JSON.parse(set.get(ASSET_DRAG_TYPE) ?? "[]")).toEqual(
-      assets.slice(0, 3).map((asset) => asset.hash),
+      assets.slice(0, 3).map((asset) => asset.id),
     );
     expect(image?.node.className).toBe("drag-ghost");
     // Anchored at its own centre, so it hangs under the pointer rather than
@@ -358,7 +358,7 @@ describe("the grid", () => {
 
     // A press that turns out to be a click still collapses, on release.
     fireEvent.pointerUp(middle, { button: 0, pointerId: 1 });
-    expect(selection.selected()).toEqual([assets[1]?.hash]);
+    expect(selection.selected()).toEqual([assets[1]?.id]);
   });
 
   it("does not collapse the selection when the press becomes a drag", async () => {
@@ -382,7 +382,7 @@ describe("the grid", () => {
     fireEvent(middle, createEvent.dragStart(middle, { dataTransfer }));
 
     expect(JSON.parse(set.get(ASSET_DRAG_TYPE) ?? "[]")).toEqual(
-      assets.slice(0, 3).map((asset) => asset.hash),
+      assets.slice(0, 3).map((asset) => asset.id),
     );
     // And the release at the end of the drag must not collapse it either.
     fireEvent.pointerUp(middle, { button: 0, pointerId: 1 });
@@ -395,7 +395,7 @@ describe("the grid", () => {
     const { user, assets } = show(12);
     await user.click(screen.getAllByRole("option")[2] as HTMLElement);
     expect(screen.getByRole("listbox").getAttribute("aria-activedescendant")).toBe(
-      `cell-${assets[2]?.hash}`,
+      `cell-${assets[2]?.id}`,
     );
     expect(screen.getAllByRole("option")[2]?.getAttribute("tabindex")).toBeNull();
   });
@@ -487,7 +487,7 @@ describe("folders in the grid", () => {
   };
 
   const tile = (folder: number): HTMLElement => {
-    const cell = document.querySelector(`[data-hash="folder-${folder}"]`);
+    const cell = document.querySelector(`[data-id="folder-${folder}"]`);
     if (!(cell instanceof HTMLElement)) throw new Error(`no tile for folder ${folder}`);
     return cell;
   };
@@ -508,8 +508,8 @@ describe("folders in the grid", () => {
   it("draws the subfolders ahead of the assets, with their counts", () => {
     show(12);
     const cells = screen.getAllByRole("option");
-    expect(cells[0]?.getAttribute("data-hash")).toBe("folder-7");
-    expect(cells[1]?.getAttribute("data-hash")).toBe("folder-8");
+    expect(cells[0]?.getAttribute("data-id")).toBe("folder-7");
+    expect(cells[1]?.getAttribute("data-id")).toBe("folder-8");
     expect(cells[0]?.getAttribute("aria-label")).toBe("Icons, folder, 3 assets");
     // Two tiles and twelve assets: the tiles are laid out, not overlaid.
     expect(cells.length).toBe(14);
@@ -529,7 +529,7 @@ describe("folders in the grid", () => {
   it("clears an asset selection when a folder is marked", async () => {
     const { user, assets } = show(12);
     await user.click(screen.getAllByRole("option")[3] as HTMLElement);
-    expect(selection.selected()).toEqual([assets[1]?.hash]);
+    expect(selection.selected()).toEqual([assets[1]?.id]);
 
     await user.click(tile(8));
     expect(selection.selected()).toEqual([]);
@@ -559,7 +559,7 @@ describe("folders in the grid", () => {
     const { user, assets } = show(12);
     await user.click(screen.getAllByRole("option")[5] as HTMLElement);
     await user.keyboard("{Control>}a{/Control}");
-    expect(selection.selected()).toEqual(assets.map((asset) => asset.hash));
+    expect(selection.selected()).toEqual(assets.map((asset) => asset.id));
 
     const grid = screen.getByRole("listbox");
     fireEvent.pointerDown(grid, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
@@ -616,10 +616,10 @@ describe("folders in the grid", () => {
       />,
     );
 
-    const hashes = [assets[0]?.hash];
+    const ids = [assets[0]?.id];
     const dataTransfer = {
       types: [ASSET_DRAG_TYPE],
-      getData: () => JSON.stringify(hashes),
+      getData: () => JSON.stringify(ids),
       dropEffect: "none",
       effectAllowed: "all",
     } as unknown as DataTransfer;
@@ -630,6 +630,6 @@ describe("folders in the grid", () => {
     Object.defineProperty(drop, "ctrlKey", { value: false });
     fireEvent(tile(7), drop);
 
-    expect(dropped).toHaveBeenCalledWith(ICONS, hashes, false);
+    expect(dropped).toHaveBeenCalledWith(ICONS, ids, false);
   });
 });

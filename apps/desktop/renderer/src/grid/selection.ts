@@ -4,7 +4,7 @@
  * `UI_SPEC.md` §6 is explicit about why: selecting one cell must not re-render
  * ten thousand others. React state one level above the grid would do exactly
  * that, and a context whose value changes on selection would do it twice. So
- * this is a plain store, cells subscribe to their own hash, and a click
+ * this is a plain store, cells subscribe to their own id, and a click
  * notifies the two cells whose state actually changed.
  *
  * The snapshot is a **number**, not an object: `useSyncExternalStore` compares
@@ -43,22 +43,22 @@ export class SelectionStore {
   }
 
   subscribe =
-    (hash: string) =>
+    (id: string) =>
     (notify: () => void): (() => void) => {
-      let listeners = this.#listeners.get(hash);
+      let listeners = this.#listeners.get(id);
       if (listeners === undefined) {
         listeners = new Set();
-        this.#listeners.set(hash, listeners);
+        this.#listeners.set(id, listeners);
       }
       listeners.add(notify);
       return () => {
         listeners.delete(notify);
-        if (listeners.size === 0) this.#listeners.delete(hash);
+        if (listeners.size === 0) this.#listeners.delete(id);
       };
     };
 
-  stateOf = (hash: string): CellState =>
-    (this.#selected.has(hash) ? SELECTED : 0) | (this.#focused === hash ? FOCUSED : 0);
+  stateOf = (id: string): CellState =>
+    (this.#selected.has(id) ? SELECTED : 0) | (this.#focused === id ? FOCUSED : 0);
 
   /**
    * A monotonic counter, bumped whenever the selection changes at all.
@@ -87,37 +87,37 @@ export class SelectionStore {
   selected(): string[] {
     // In result order rather than insertion order, because that is the order
     // everything downstream — export, tagging, the inspector — reads them in.
-    return this.#order.filter((hash) => this.#selected.has(hash));
+    return this.#order.filter((id) => this.#selected.has(id));
   }
 
   /** Replaces the selection with one cell, and anchors from it. */
-  click(hash: string): void {
+  click(id: string): void {
     this.#change(() => {
-      this.#selected = new Set([hash]);
-      this.#focused = hash;
-      this.#anchor = this.#indexOf(hash);
+      this.#selected = new Set([id]);
+      this.#focused = id;
+      this.#anchor = this.#indexOf(id);
     });
   }
 
   /** `Ctrl`-click: adds or removes one, and re-anchors there. */
-  toggle(hash: string): void {
+  toggle(id: string): void {
     this.#change(() => {
-      if (this.#selected.has(hash)) this.#selected.delete(hash);
-      else this.#selected.add(hash);
-      this.#focused = hash;
-      this.#anchor = this.#indexOf(hash);
+      if (this.#selected.has(id)) this.#selected.delete(id);
+      else this.#selected.add(id);
+      this.#focused = id;
+      this.#anchor = this.#indexOf(id);
     });
   }
 
   /** `Shift`-click: everything from the anchor to here, replacing the rest. */
-  extendTo(hash: string): void {
-    const to = this.#indexOf(hash);
+  extendTo(id: string): void {
+    const to = this.#indexOf(id);
     if (to === undefined) return;
     const from = this.#anchor ?? to;
     const [low, high] = from <= to ? [from, to] : [to, from];
     this.#change(() => {
       this.#selected = new Set(this.#order.slice(low, high + 1));
-      this.#focused = hash;
+      this.#focused = id;
       // The anchor deliberately stays put, so a second Shift-click re-measures
       // from the same place rather than from the last one.
     });
@@ -151,9 +151,9 @@ export class SelectionStore {
    * the selection (`UI_SPEC.md` §6), and moving the ring per frame would drag
    * the viewport along with it — the grid scrolls focus back into view.
    */
-  sweep(hashes: readonly string[], base?: ReadonlySet<string>): void {
+  sweep(ids: readonly string[], base?: ReadonlySet<string>): void {
     this.#change(() => {
-      this.#selected = base === undefined ? new Set(hashes) : new Set([...base, ...hashes]);
+      this.#selected = base === undefined ? new Set(ids) : new Set([...base, ...ids]);
     });
   }
 
@@ -188,7 +188,7 @@ export class SelectionStore {
    *
    * A folder tile is drawn in the grid and is **not a result**, so it must
    * never enter the selection — what `selected()` returns is read by the
-   * inspector, the trash and every edit, and a folder id among those hashes
+   * inspector, the trash and every edit, and a folder id among those ids
    * would be an edit aimed at nothing. The store stays ignorant of folders:
    * this is `click` without the one line that selects, and the order it is
    * given holds assets alone, so an id marked here is simply not in it.
@@ -202,24 +202,24 @@ export class SelectionStore {
   }
 
   /** Moves focus without touching the selection — they are separate. */
-  focus(hash: string): void {
+  focus(id: string): void {
     this.#change(() => {
-      this.#focused = hash;
+      this.#focused = id;
     });
   }
 
   /** `Space`: toggles the focused cell, leaving focus where it is. */
   toggleFocused(): void {
-    const hash = this.#focused;
-    if (hash === undefined) return;
+    const id = this.#focused;
+    if (id === undefined) return;
     this.#change(() => {
-      if (this.#selected.has(hash)) this.#selected.delete(hash);
-      else this.#selected.add(hash);
+      if (this.#selected.has(id)) this.#selected.delete(id);
+      else this.#selected.add(id);
     });
   }
 
-  #indexOf(hash: string): number | undefined {
-    const at = this.#order.indexOf(hash);
+  #indexOf(id: string): number | undefined {
+    const at = this.#order.indexOf(id);
     return at === -1 ? undefined : at;
   }
 
@@ -231,13 +231,13 @@ export class SelectionStore {
    */
   #change(mutate: () => void): void {
     const before = new Map<string, CellState>();
-    for (const hash of this.#listeners.keys()) before.set(hash, this.stateOf(hash));
+    for (const id of this.#listeners.keys()) before.set(id, this.stateOf(id));
 
     mutate();
 
-    for (const [hash, was] of before) {
-      if (this.stateOf(hash) === was) continue;
-      for (const notify of this.#listeners.get(hash) ?? []) notify();
+    for (const [id, was] of before) {
+      if (this.stateOf(id) === was) continue;
+      for (const notify of this.#listeners.get(id) ?? []) notify();
     }
     // Bumped whether or not a subscribed cell noticed: a cell scrolled out of
     // view has no listener, so the status bar cannot learn the count from the

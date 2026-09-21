@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { StorageMode } from "@roost/core";
+import type { Take } from "@roost/core";
 import {
   type EagleReport,
   type EagleSurvey,
@@ -16,7 +16,7 @@ import { bytes, plural, rate, row, seconds } from "../format.js";
 
 export interface ImportArgs {
   readonly paths: readonly string[];
-  readonly mode: StorageMode;
+  readonly take: Take;
   readonly tags: readonly string[];
   readonly includeHidden: boolean;
   /** A folder path — `Design/Icons` — for everything newly imported (ADR-0037). */
@@ -40,7 +40,7 @@ export async function runImport(
       library,
       args.paths.map((path) => resolve(path)),
       {
-        mode: args.mode,
+        take: args.take,
         tags: args.tags,
         includeHidden: args.includeHidden,
         ...(folder === undefined ? {} : { folder }),
@@ -67,18 +67,10 @@ function printReport(
 ): void {
   out(`Imported ${report.imported} of ${report.scanned} files scanned`);
   if (report.duplicates > 0) out(row("", `${report.duplicates} already in the library`, 1, 0));
-  if (report.partialDuplicates > 0) {
-    // Probable, not certain: their bytes could not be reached to confirm. Said
-    // out loud rather than folded into the duplicate count.
-    out(
-      row(
-        "",
-        `${report.partialDuplicates} matched on a partial hash that could not be verified`,
-        1,
-        0,
-      ),
-    );
-  }
+  // What happened to the source files, which RL-26 requires be said out loud:
+  // a move is not undoable by looking at the library afterwards.
+  if (report.moved > 0) out(row("", `${report.moved} moved out of where they were`, 1, 0));
+  if (report.copied > 0) out(row("", `${report.copied} copied, leaving the originals`, 1, 0));
   if (report.subtitles > 0) {
     // Said out loud because it is a journal write the run made on the user's
     // behalf, from a filename rather than from an instruction (ADR-0025 §3).
@@ -107,13 +99,6 @@ function printReport(
     out(row(stage, seconds(ms), 2, 16));
   }
 
-  if (report.partialCollisions > 0) {
-    warn("");
-    warn(
-      `${report.partialCollisions} file(s) shared a partial hash with an existing asset but not its`,
-    );
-    warn("bytes, and were refused rather than merged — merging would have lost one of the two.");
-  }
   if (report.failed.length > 0) {
     warn("");
     warn(`${report.failed.length} file(s) could not be imported:`);
@@ -126,7 +111,7 @@ function printReport(
 
 export interface EagleArgs {
   readonly path: string;
-  readonly mode: StorageMode;
+  readonly take: Take;
   readonly tags: readonly string[];
 }
 
@@ -164,7 +149,7 @@ export async function runEagleImport(
     const report = await importEagle(
       library,
       source,
-      { mode: args.mode, tags: args.tags },
+      { take: args.take, tags: args.tags },
       (done, total) => progress(`  ${done} of ${total} items`),
     );
     printEagleReport(report, out, warn);

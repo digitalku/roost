@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseRoostUrl } from "./route.js";
 
-const HASH = "a".repeat(64);
+const ID = "K7QM4X2AJH9F";
 
 /** The reason, or `null` when it parsed — so a table can assert both. */
 function reasonFor(url: string): string | null {
@@ -11,29 +11,29 @@ function reasonFor(url: string): string | null {
 
 describe("parsing a roost:// URL", () => {
   it("reads the two routes ADR-0008 defines", () => {
-    expect(parseRoostUrl(`roost://thumb/${HASH}@256`)).toEqual({
+    expect(parseRoostUrl(`roost://thumb/${ID}@256`)).toEqual({
       ok: true,
-      value: { kind: "thumb", hash: HASH, size: 256 },
+      value: { kind: "thumb", id: ID, size: 256 },
     });
-    expect(parseRoostUrl(`roost://thumb/${HASH}@512`)).toEqual({
+    expect(parseRoostUrl(`roost://thumb/${ID}@512`)).toEqual({
       ok: true,
-      value: { kind: "thumb", hash: HASH, size: 512 },
+      value: { kind: "thumb", id: ID, size: 512 },
     });
 
-    expect(parseRoostUrl(`roost://original/${HASH}`)).toEqual({
+    expect(parseRoostUrl(`roost://file/${ID}`)).toEqual({
       ok: true,
-      value: { kind: "original", hash: HASH },
+      value: { kind: "file", id: ID },
     });
   });
 
   it("ignores a query, which is a cache key rather than an address", () => {
-    // A pinned frame changes a thumbnail's pixels without changing its hash
+    // A pinned frame changes a thumbnail's pixels without changing its id
     // (ADR-0024 stage 4), so the renderer puts the moment in the query — the
     // response stays `immutable`, and a new frame is a new address. Nothing
-    // here reads it: what is addressed is still the hash and the size.
-    expect(parseRoostUrl(`roost://thumb/${HASH}@256?at=91500`)).toEqual({
+    // here reads it: what is addressed is still the id and the size.
+    expect(parseRoostUrl(`roost://thumb/${ID}@256?at=91500`)).toEqual({
       ok: true,
-      value: { kind: "thumb", hash: HASH, size: 256 },
+      value: { kind: "thumb", id: ID, size: 256 },
     });
   });
 
@@ -41,49 +41,40 @@ describe("parsing a roost:// URL", () => {
     // A free-form size would be a request to generate a thumbnail nobody
     // stored, on main's thread, for a URL a renderer bug could mint by the
     // thousand.
-    expect(reasonFor(`roost://thumb/${HASH}@257`)).toMatch(/no such thumbnail size/);
-    expect(reasonFor(`roost://thumb/${HASH}@`)).toMatch(/no such thumbnail size/);
-    expect(reasonFor(`roost://thumb/${HASH}`)).toMatch(/needs a @<size>/);
+    expect(reasonFor(`roost://thumb/${ID}@257`)).toMatch(/no such thumbnail size/);
+    expect(reasonFor(`roost://thumb/${ID}@`)).toMatch(/no such thumbnail size/);
+    expect(reasonFor(`roost://thumb/${ID}`)).toMatch(/needs a @<size>/);
   });
 
-  it("refuses anything that is not a content hash", () => {
-    for (const bad of [
-      "..",
-      "../../etc/passwd",
-      HASH.toUpperCase(),
-      `${HASH}a`,
-      HASH.slice(0, 63),
-      "",
-    ]) {
-      expect(reasonFor(`roost://original/${bad}`)).toBe("not a content hash");
+  it("refuses anything that is not an asset id", () => {
+    for (const bad of ["..", "../../etc/passwd", ID.toLowerCase(), `${ID}a`, ID.slice(0, 11), ""]) {
+      expect(reasonFor(`roost://file/${bad}`)).toBe("not an asset id");
     }
   });
 
   it("refuses a traversal however it is spelled", () => {
-    // The hash pattern is the path safety here: 64 lowercase hex characters
-    // cannot contain a separator, encoded or not, so nothing downstream has to
-    // re-check what this rejected.
-    expect(reasonFor("roost://original/%2E%2E%2F%2E%2E%2Fetc%2Fpasswd")).toBe("not a content hash");
-    expect(reasonFor(`roost://original/${HASH}%2F..%2F${HASH}`)).toBe("not a content hash");
-    expect(reasonFor("roost://original/../../etc/passwd")).toBe("not a content hash");
+    // The id pattern is the path safety here: twelve characters of Crockford
+    // base32 (RL-14) cannot contain a separator, encoded or not, so nothing
+    // downstream has to re-check what this rejected.
+    expect(reasonFor("roost://file/%2E%2E%2F%2E%2E%2Fetc%2Fpasswd")).toBe("not an asset id");
+    expect(reasonFor(`roost://file/${ID}%2F..%2F${ID}`)).toBe("not an asset id");
+    expect(reasonFor("roost://file/../../etc/passwd")).toBe("not an asset id");
   });
 
   it("refuses a route nobody registered, and a scheme that is not ours", () => {
-    expect(reasonFor(`roost://export/${HASH}`)).toMatch(/no such route/);
-    expect(reasonFor(`file:///${HASH}`)).toMatch(/expected roost:/);
+    expect(reasonFor(`roost://export/${ID}`)).toMatch(/no such route/);
+    expect(reasonFor(`file:///${ID}`)).toMatch(/expected roost:/);
     expect(reasonFor("not a url at all")).toBe("not a URL");
   });
 });
 
 describe("parsing a page URL", () => {
-  const HASH = "a".repeat(64);
-
-  it("reads the hash, the page, and the width", () => {
-    const route = parseRoostUrl(`roost://page/${HASH}/3@1024`);
+  it("reads the id, the page, and the width", () => {
+    const route = parseRoostUrl(`roost://page/${ID}/3@1024`);
 
     expect(route).toEqual({
       ok: true,
-      value: { kind: "page", hash: HASH, index: 3, width: 1024 },
+      value: { kind: "page", id: ID, index: 3, width: 1024 },
     });
   });
 
@@ -92,36 +83,36 @@ describe("parsing a page URL", () => {
     // are rendered on demand, in the process that draws the window, so a
     // free-form width would let a renderer bug ask for a ten-thousand-pixel
     // page.
-    expect(parseRoostUrl(`roost://page/${HASH}/0@4000`).ok).toBe(false);
+    expect(parseRoostUrl(`roost://page/${ID}/0@4000`).ok).toBe(false);
   });
 
   it("refuses a page number that is not one", () => {
-    expect(parseRoostUrl(`roost://page/${HASH}/-1@512`).ok).toBe(false);
-    expect(parseRoostUrl(`roost://page/${HASH}/1.5@512`).ok).toBe(false);
-    expect(parseRoostUrl(`roost://page/${HASH}/999999@512`).ok).toBe(false);
+    expect(parseRoostUrl(`roost://page/${ID}/-1@512`).ok).toBe(false);
+    expect(parseRoostUrl(`roost://page/${ID}/1.5@512`).ok).toBe(false);
+    expect(parseRoostUrl(`roost://page/${ID}/999999@512`).ok).toBe(false);
   });
 
-  it("refuses a traversal dressed as a hash, like every other route", () => {
+  it("refuses a traversal dressed as an id, like every other route", () => {
     expect(parseRoostUrl("roost://page/../../etc/passwd/0@512").ok).toBe(false);
   });
 
   it("needs both halves of the address", () => {
-    expect(parseRoostUrl(`roost://page/${HASH}@512`).ok).toBe(false);
-    expect(parseRoostUrl(`roost://page/${HASH}/0`).ok).toBe(false);
+    expect(parseRoostUrl(`roost://page/${ID}@512`).ok).toBe(false);
+    expect(parseRoostUrl(`roost://page/${ID}/0`).ok).toBe(false);
   });
 });
 
 describe("a rendition's address", () => {
-  it("takes a hash and nothing else", () => {
+  it("takes an id and nothing else", () => {
     // A route of its own because what comes back is not the file's bytes
     // (ADR-0040 §7): HEIC assembled, a RAW's embedded JPEG, a TIFF re-encoded.
-    expect(parseRoostUrl(`roost://render/${HASH}`)).toEqual({
+    expect(parseRoostUrl(`roost://render/${ID}`)).toEqual({
       ok: true,
-      value: { kind: "render", hash: HASH },
+      value: { kind: "render", id: ID },
     });
   });
 
-  it("refuses anything that is not a hash", () => {
+  it("refuses anything that is not an id", () => {
     expect(parseRoostUrl("roost://render/../../etc/passwd").ok).toBe(false);
   });
 });

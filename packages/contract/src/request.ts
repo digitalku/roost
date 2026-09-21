@@ -3,9 +3,9 @@ import {
   type Checked,
   isRecord,
   ok,
+  readAssetId,
+  readAssetIdArray,
   readBoolean,
-  readHash,
-  readHashArray,
   readInteger,
   readNonEmpty,
   readNullable,
@@ -19,7 +19,7 @@ import type {
   LibraryStats,
   LibrarySummary,
   QueryCheck,
-  StorageMode,
+  Take,
   WireAbout,
   WireAssetDetail,
   WireCreated,
@@ -55,8 +55,8 @@ import {
   SORT_KEYS,
   type SortKey,
   STARS,
-  STORAGE_MODES,
   TAG_RULES,
+  TAKES,
 } from "./dto.js";
 
 /**
@@ -216,12 +216,12 @@ export type Request =
   /**
    * Everything the inspector shows about one asset.
    *
-   * `null` rather than a failure when the hash is not in the library: a
+   * `null` rather than a failure when the id is not in the library: a
    * selection can outlive the asset it points at — another window removed it,
    * or a rebuild dropped a row — and an empty inspector is the right answer to
    * that, not an error dialog.
    */
-  | { readonly type: "asset:detail"; readonly hash: string }
+  | { readonly type: "asset:detail"; readonly id: string }
   /**
    * What a selection of several assets shares, and what it does not.
    *
@@ -229,7 +229,7 @@ export type Request =
    * inspector cannot fetch a detail each: a selection is routinely hundreds of
    * rows, and what it draws is a summary of them rather than each of them.
    */
-  | { readonly type: "asset:summary"; readonly hashes: readonly string[] }
+  | { readonly type: "asset:summary"; readonly ids: readonly string[] }
   /**
    * Set or clear a rating on every selected asset.
    *
@@ -239,19 +239,19 @@ export type Request =
    */
   | {
       readonly type: "asset:rate";
-      readonly hashes: readonly string[];
+      readonly ids: readonly string[];
       readonly rating: number | null;
     }
   /** `null` clears the note, and so does an all-whitespace one. */
-  | { readonly type: "asset:note"; readonly hash: string; readonly note: string | null }
+  | { readonly type: "asset:note"; readonly id: string; readonly note: string | null }
   /**
    * Where the file came from (ADR-0030). `null` clears it, and so does an
    * all-whitespace value.
    *
-   * One hash, like the note and unlike the rating: a source is one asset's
+   * One asset, like the note and unlike the rating: a source is one asset's
    * answer, and writing one across a selection is a mistake with no undo.
    */
-  | { readonly type: "asset:source"; readonly hash: string; readonly url: string | null }
+  | { readonly type: "asset:source"; readonly id: string; readonly url: string | null }
   /**
    * Pin a video's thumbnail to a moment, or let it go back to the default
    * (ADR-0024 stage 4).
@@ -264,18 +264,17 @@ export type Request =
    * The engine refuses it for anything that is not a video, and pinning the
    * moment it is already pinned to writes nothing.
    */
-  | { readonly type: "asset:poster"; readonly hash: string; readonly atMs: number | null }
+  | { readonly type: "asset:poster"; readonly id: string; readonly atMs: number | null }
   /**
    * Creates an asset from text the window holds, under a name the user chose
    * (ADR-0026 §4).
    *
    * `text` may be empty, and usually is: **New file** asks for a name and
-   * nothing else. The cost is real and is reported rather than prevented —
-   * every empty file has one hash and `assets.hash` is the primary key, so the
-   * library holds one empty file however many are made.
+   * nothing else. Two empty files made deliberately are two assets in version
+   * 2 — an id is minted rather than derived from the bytes (RL-13) — where
+   * version 1 answered with the one empty file it already held.
    *
-   * Answers the hash and whether it is new; identical bytes are one asset, so a
-   * file that already exists comes back with `created: false`.
+   * Answers the new asset's id.
    */
   | { readonly type: "asset:create"; readonly name: string; readonly text: string }
   /**
@@ -286,25 +285,26 @@ export type Request =
    * are imported, image bytes are imported under a synthesised name, text comes
    * back for a draft, and a URL is left alone — pasting never fetches.
    */
-  | { readonly type: "clipboard:paste"; readonly mode: StorageMode }
+  | { readonly type: "clipboard:paste"; readonly take: Take }
   /**
    * Imports files and attaches them to this asset as caption tracks
    * (ADR-0025).
    *
    * One request rather than an import followed by an attach: apart, the two
    * have a state between them — a track imported and not attached is a stray
-   * text asset in the grid — and the renderer would have to learn the hash of
+   * text asset in the grid — and the renderer would have to learn the id of
    * something it only handed over a path to.
    *
-   * Always imported **managed**, whatever the default mode is: the whole point
-   * of a track being an asset is that it survives its source.
+   * Always **copied into the library**, which in version 2 is the only place an
+   * asset's bytes can be (RL-19): the whole point of a track being an asset is
+   * that it survives its source.
    *
    * Answers how many were attached. Files that are not subtitles are ignored
    * rather than refused, because the chooser can return a folder's worth.
    */
   | {
       readonly type: "asset:addSubtitle";
-      readonly hash: string;
+      readonly id: string;
       readonly paths: readonly string[];
     }
   /**
@@ -318,17 +318,17 @@ export type Request =
    * `Delete` means what it means everywhere else — the trash, which keeps the
    * row and is reversible. Nothing is emptied on a schedule.
    */
-  | { readonly type: "asset:subtitleDelete"; readonly hash: string; readonly track: string }
+  | { readonly type: "asset:subtitleDelete"; readonly id: string; readonly track: string }
   /** Renames what the library shows. Nothing under `originals/` is touched. */
-  | { readonly type: "asset:rename"; readonly hash: string; readonly name: string }
+  | { readonly type: "asset:rename"; readonly id: string; readonly name: string }
   | {
       readonly type: "asset:tagAdd";
-      readonly hashes: readonly string[];
+      readonly ids: readonly string[];
       readonly tags: readonly string[];
     }
   | {
       readonly type: "asset:tagRemove";
-      readonly hashes: readonly string[];
+      readonly ids: readonly string[];
       readonly tags: readonly string[];
     }
   /**
@@ -348,12 +348,12 @@ export type Request =
    */
   | {
       readonly type: "asset:folderAdd";
-      readonly hashes: readonly string[];
+      readonly ids: readonly string[];
       readonly folder: number;
     }
   | {
       readonly type: "asset:folderRemove";
-      readonly hashes: readonly string[];
+      readonly ids: readonly string[];
       readonly folder: number;
     }
   /**
@@ -391,7 +391,7 @@ export type Request =
    * Add a comment to one asset, at a moment or about the whole of it (ADR-0023).
    *
    * `atMs` is milliseconds into the medium; `null` is a comment about the
-   * asset, which is what lets a `.zip` carry one. One hash rather than the
+   * asset, which is what lets a `.zip` carry one. One asset rather than the
    * selection: a comment is a paragraph about one thing, for the reason
    * `UI_SPEC.md` §3.2 keeps the note off a multi-selection.
    *
@@ -400,14 +400,15 @@ export type Request =
    */
   | {
       readonly type: "comment:add";
-      readonly hash: string;
+      /** The asset the comment is about. Named apart from a comment's own id, exactly as the journal names them apart. */
+      readonly asset: string;
       readonly atMs: number | null;
       readonly body: string;
     }
   /**
    * Edit a comment in place, keeping its identity and its place in the list.
    *
-   * By id rather than by hash and index: an index would name a different
+   * By its own id rather than by asset and index: an index would name a different
    * comment the moment another window added one, and the id is what the
    * journal already carries.
    */
@@ -425,7 +426,7 @@ export type Request =
    * desktop. `CONCEPT.md` §5 — a library holds anything, so a format Roost
    * cannot draw must not be a dead end.
    */
-  | { readonly type: "asset:openExternally"; readonly hash: string }
+  | { readonly type: "asset:openExternally"; readonly id: string }
   /**
    * Hand a URL to the desktop's browser (ADR-0030 §5).
    *
@@ -444,11 +445,11 @@ export type Request =
    * Show one asset in the desktop's file manager, selected.
    *
    * Answered by **main**, for the reason `asset:openExternally` gives, and with
-   * the same rule: the renderer asks by hash and learns only whether the
+   * the same rule: the renderer asks by id and learns only whether the
    * desktop did something. A path is what main acts on, never what the renderer
    * receives.
    */
-  | { readonly type: "asset:reveal"; readonly hash: string }
+  | { readonly type: "asset:reveal"; readonly id: string }
   /**
    * Put the selection's paths on the clipboard, one per line.
    *
@@ -457,7 +458,7 @@ export type Request =
    * user asked for it, it goes to them rather than to the renderer, and the
    * renderer learns only whether anything was copied.
    */
-  | { readonly type: "asset:copyPath"; readonly hashes: readonly string[] }
+  | { readonly type: "asset:copyPath"; readonly ids: readonly string[] }
   /**
    * Puts the selection on the clipboard as **files**, for pasting into a file
    * manager or anything else that takes them (ADR-0034).
@@ -466,7 +467,7 @@ export type Request =
    * that reaches a terminal and a text field, and a file manager ignores it.
    * Both are offered, because they answer different questions.
    */
-  | { readonly type: "asset:copyFiles"; readonly hashes: readonly string[] }
+  | { readonly type: "asset:copyFiles"; readonly ids: readonly string[] }
   /**
    * Move the selection to the trash, or bring it back out (ADR-0022).
    *
@@ -474,8 +475,8 @@ export type Request =
    * metadata is lost — a trashed asset keeps its tags, rating, note, and folder
    * memberships, and simply stops matching every query but `is:trashed`.
    */
-  | { readonly type: "assets:trash"; readonly hashes: readonly string[] }
-  | { readonly type: "assets:restore"; readonly hashes: readonly string[] }
+  | { readonly type: "assets:trash"; readonly ids: readonly string[] }
+  | { readonly type: "assets:restore"; readonly ids: readonly string[] }
   /**
    * Remove the selection from the library, permanently.
    *
@@ -483,7 +484,7 @@ export type Request =
    * hanging off it, and the bytes it owned under `originals/` are all gone
    * (ADR-0031). A referenced original is never touched.
    */
-  | { readonly type: "assets:remove"; readonly hashes: readonly string[] }
+  | { readonly type: "assets:remove"; readonly ids: readonly string[] }
   /**
    * Remove everything the trash holds, and answer with what went.
    *
@@ -520,7 +521,7 @@ export type Request =
    */
   | {
       readonly type: "assets:export";
-      readonly hashes: readonly string[];
+      readonly ids: readonly string[];
       readonly destination: string;
     }
   /**
@@ -537,7 +538,7 @@ export type Request =
   | {
       readonly type: "import:paths";
       readonly paths: readonly string[];
-      readonly mode: StorageMode;
+      readonly take: Take;
       /** Applied to everything imported in this run. */
       readonly tags: readonly string[];
       /**
@@ -560,7 +561,7 @@ export type Request =
    * belongs to as many folders as it was put in — so nothing is taken out of
    * anywhere, and the dialog's other choice writes nothing at all.
    *
-   * The hashes are not sent. The engine kept the list from the run that
+   * The ids are not sent. The engine kept the list from the run that
    * reported them, because a large re-import produces more of them than a
    * window should be handed and then handed back.
    */
@@ -584,7 +585,7 @@ export type Request =
    * pointing into the Eagle library, so deleting it afterwards would empty
    * Roost. Eagle's own library is only ever read.
    */
-  | { readonly type: "eagle:import"; readonly path: string; readonly mode: StorageMode }
+  | { readonly type: "eagle:import"; readonly path: string; readonly take: Take }
   /**
    * What the derive queue is holding, and what this machine can draw.
    *
@@ -965,44 +966,44 @@ export const REQUEST_VALIDATORS: {
   },
 
   "asset:detail": (source) => {
-    const hash = readHash(source, "hash");
-    return hash.ok ? ok({ type: "asset:detail", hash: hash.value }) : hash;
+    const id = readAssetId(source, "id");
+    return id.ok ? ok({ type: "asset:detail", id: id.value }) : id;
   },
 
   "asset:summary": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    if (!hashes.ok) return hashes;
-    return ok({ type: "asset:summary", hashes: hashes.value });
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
+    return ok({ type: "asset:summary", ids: ids.value });
   },
 
   "asset:rate": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    if (!hashes.ok) return hashes;
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
     const rating = readNullable(source, "rating", readInteger);
     if (!rating.ok) return rating;
     // The range is checked by the engine, which owns `MAX_RATING`. What is
     // checked here is that it is an integer or an explicit null — the shape,
     // not the rule.
-    return ok({ type: "asset:rate", hashes: hashes.value, rating: rating.value });
+    return ok({ type: "asset:rate", ids: ids.value, rating: rating.value });
   },
 
   "asset:note": (source) => {
-    const hash = readHash(source, "hash");
-    if (!hash.ok) return hash;
+    const id = readAssetId(source, "id");
+    if (!id.ok) return id;
     const note = readNullable(source, "note", readString);
     if (!note.ok) return note;
-    return ok({ type: "asset:note", hash: hash.value, note: note.value });
+    return ok({ type: "asset:note", id: id.value, note: note.value });
   },
 
   "asset:source": (source) => {
-    const hash = readHash(source, "hash");
-    if (!hash.ok) return hash;
+    const id = readAssetId(source, "id");
+    if (!id.ok) return id;
     // No shape beyond "a string or an explicit null": what counts as a source
     // is the user's to decide (ADR-0030 §2), and the scheme is read where the
     // value is *opened*, not where it is stored.
     const url = readNullable(source, "url", readString);
     if (!url.ok) return url;
-    return ok({ type: "asset:source", hash: hash.value, url: url.value });
+    return ok({ type: "asset:source", id: id.value, url: url.value });
   },
 
   "link:open": (source) => {
@@ -1011,11 +1012,11 @@ export const REQUEST_VALIDATORS: {
   },
 
   "asset:poster": (source) => {
-    const hash = readHash(source, "hash");
-    if (!hash.ok) return hash;
+    const id = readAssetId(source, "id");
+    if (!id.ok) return id;
     const atMs = readMoment(source);
     if (!atMs.ok) return atMs;
-    return ok({ type: "asset:poster", hash: hash.value, atMs: atMs.value });
+    return ok({ type: "asset:poster", id: id.value, atMs: atMs.value });
   },
 
   "asset:create": (source) => {
@@ -1029,68 +1030,68 @@ export const REQUEST_VALIDATORS: {
   },
 
   "clipboard:paste": (source) => {
-    const mode = readOneOf(source, "mode", STORAGE_MODES);
-    return mode.ok ? ok({ type: "clipboard:paste", mode: mode.value }) : mode;
+    const take = readOneOf(source, "take", TAKES);
+    return take.ok ? ok({ type: "clipboard:paste", take: take.value }) : take;
   },
 
   "asset:addSubtitle": (source) => {
-    const hash = readHash(source, "hash");
-    if (!hash.ok) return hash;
+    const id = readAssetId(source, "id");
+    if (!id.ok) return id;
     const paths = readStringArray(source, "paths");
     if (!paths.ok) return paths;
     if (paths.value.length === 0) return bad("paths: expected at least one");
     if (paths.value.some((path) => path.trim() === "")) {
       return bad("paths: expected non-empty strings");
     }
-    return ok({ type: "asset:addSubtitle", hash: hash.value, paths: paths.value });
+    return ok({ type: "asset:addSubtitle", id: id.value, paths: paths.value });
   },
 
   "asset:subtitleDelete": (source) => {
-    const hash = readHash(source, "hash");
-    if (!hash.ok) return hash;
-    const track = readHash(source, "track");
+    const id = readAssetId(source, "id");
+    if (!id.ok) return id;
+    const track = readAssetId(source, "track");
     if (!track.ok) return track;
-    return ok({ type: "asset:subtitleDelete", hash: hash.value, track: track.value });
+    return ok({ type: "asset:subtitleDelete", id: id.value, track: track.value });
   },
 
   "asset:rename": (source) => {
-    const hash = readHash(source, "hash");
-    if (!hash.ok) return hash;
+    const id = readAssetId(source, "id");
+    if (!id.ok) return id;
     const name = readNonEmpty(source, "name");
     if (!name.ok) return name;
-    return ok({ type: "asset:rename", hash: hash.value, name: name.value });
+    return ok({ type: "asset:rename", id: id.value, name: name.value });
   },
 
   "asset:tagAdd": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    if (!hashes.ok) return hashes;
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
     const tags = readStringArray(source, "tags");
     if (!tags.ok) return tags;
-    return ok({ type: "asset:tagAdd", hashes: hashes.value, tags: tags.value });
+    return ok({ type: "asset:tagAdd", ids: ids.value, tags: tags.value });
   },
 
   "asset:tagRemove": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    if (!hashes.ok) return hashes;
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
     const tags = readStringArray(source, "tags");
     if (!tags.ok) return tags;
-    return ok({ type: "asset:tagRemove", hashes: hashes.value, tags: tags.value });
+    return ok({ type: "asset:tagRemove", ids: ids.value, tags: tags.value });
   },
 
   "asset:folderAdd": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    if (!hashes.ok) return hashes;
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
     const folder = readFolder(source);
     if (!folder.ok) return folder;
-    return ok({ type: "asset:folderAdd", hashes: hashes.value, folder: folder.value });
+    return ok({ type: "asset:folderAdd", ids: ids.value, folder: folder.value });
   },
 
   "asset:folderRemove": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    if (!hashes.ok) return hashes;
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
     const folder = readFolder(source);
     if (!folder.ok) return folder;
-    return ok({ type: "asset:folderRemove", hashes: hashes.value, folder: folder.value });
+    return ok({ type: "asset:folderRemove", ids: ids.value, folder: folder.value });
   },
 
   "folder:create": (source) => {
@@ -1132,13 +1133,13 @@ export const REQUEST_VALIDATORS: {
   },
 
   "comment:add": (source) => {
-    const hash = readHash(source, "hash");
-    if (!hash.ok) return hash;
+    const asset = readAssetId(source, "asset");
+    if (!asset.ok) return asset;
     const atMs = readMoment(source);
     if (!atMs.ok) return atMs;
     const body = readNonEmpty(source, "body");
     if (!body.ok) return body;
-    return ok({ type: "comment:add", hash: hash.value, atMs: atMs.value, body: body.value });
+    return ok({ type: "comment:add", asset: asset.value, atMs: atMs.value, body: body.value });
   },
 
   "comment:set": (source) => {
@@ -1157,38 +1158,38 @@ export const REQUEST_VALIDATORS: {
   },
 
   "asset:openExternally": (source) => {
-    const hash = readHash(source, "hash");
-    return hash.ok ? ok({ type: "asset:openExternally", hash: hash.value }) : hash;
+    const id = readAssetId(source, "id");
+    return id.ok ? ok({ type: "asset:openExternally", id: id.value }) : id;
   },
 
   "asset:reveal": (source) => {
-    const hash = readHash(source, "hash");
-    return hash.ok ? ok({ type: "asset:reveal", hash: hash.value }) : hash;
+    const id = readAssetId(source, "id");
+    return id.ok ? ok({ type: "asset:reveal", id: id.value }) : id;
   },
 
   "asset:copyPath": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    return hashes.ok ? ok({ type: "asset:copyPath", hashes: hashes.value }) : hashes;
+    const ids = readAssetIdArray(source, "ids");
+    return ids.ok ? ok({ type: "asset:copyPath", ids: ids.value }) : ids;
   },
 
   "asset:copyFiles": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    return hashes.ok ? ok({ type: "asset:copyFiles", hashes: hashes.value }) : hashes;
+    const ids = readAssetIdArray(source, "ids");
+    return ids.ok ? ok({ type: "asset:copyFiles", ids: ids.value }) : ids;
   },
 
   "assets:trash": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    return hashes.ok ? ok({ type: "assets:trash", hashes: hashes.value }) : hashes;
+    const ids = readAssetIdArray(source, "ids");
+    return ids.ok ? ok({ type: "assets:trash", ids: ids.value }) : ids;
   },
 
   "assets:restore": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    return hashes.ok ? ok({ type: "assets:restore", hashes: hashes.value }) : hashes;
+    const ids = readAssetIdArray(source, "ids");
+    return ids.ok ? ok({ type: "assets:restore", ids: ids.value }) : ids;
   },
 
   "assets:remove": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    return hashes.ok ? ok({ type: "assets:remove", hashes: hashes.value }) : hashes;
+    const ids = readAssetIdArray(source, "ids");
+    return ids.ok ? ok({ type: "assets:remove", ids: ids.value }) : ids;
   },
 
   "assets:emptyTrash": () => ok({ type: "assets:emptyTrash" }),
@@ -1198,11 +1199,11 @@ export const REQUEST_VALIDATORS: {
   "library:reclaim": () => ok({ type: "library:reclaim" }),
 
   "assets:export": (source) => {
-    const hashes = readHashArray(source, "hashes");
-    if (!hashes.ok) return hashes;
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
     const destination = readNonEmpty(source, "destination");
     if (!destination.ok) return destination;
-    return ok({ type: "assets:export", hashes: hashes.value, destination: destination.value });
+    return ok({ type: "assets:export", ids: ids.value, destination: destination.value });
   },
 
   "import:paths": (source) => {
@@ -1212,8 +1213,8 @@ export const REQUEST_VALIDATORS: {
     if (paths.value.some((path) => path.trim() === "")) {
       return bad("paths: expected non-empty strings");
     }
-    const mode = readOneOf(source, "mode", STORAGE_MODES);
-    if (!mode.ok) return mode;
+    const take = readOneOf(source, "take", TAKES);
+    if (!take.ok) return take;
     const tags = readStringArray(source, "tags");
     if (!tags.ok) return tags;
     // `null` is an import into no folder at all, which is what an import made
@@ -1223,7 +1224,7 @@ export const REQUEST_VALIDATORS: {
     return ok({
       type: "import:paths",
       paths: paths.value,
-      mode: mode.value,
+      take: take.value,
       tags: tags.value,
       folder: folder.value,
     });
@@ -1242,9 +1243,9 @@ export const REQUEST_VALIDATORS: {
   "eagle:import": (source) => {
     const path = readNonEmpty(source, "path");
     if (!path.ok) return path;
-    const mode = readOneOf(source, "mode", STORAGE_MODES);
-    if (!mode.ok) return mode;
-    return ok({ type: "eagle:import", path: path.value, mode: mode.value });
+    const take = readOneOf(source, "take", TAKES);
+    if (!take.ok) return take;
+    return ok({ type: "eagle:import", path: path.value, take: take.value });
   },
 
   "derive:status": () => ok({ type: "derive:status" }),
@@ -1376,7 +1377,7 @@ function readCursor(value: unknown): Checked<WireCursor | null> {
   if (value === null) return ok(null);
   if (!isRecord(value)) return bad("expected null or an object");
   // The key is whatever the order made of the last row (ADR-0039 §4) — a
-  // timestamp, a size, a folded name, a rotated hash — so this checks that it
+  // timestamp, a size, a folded name, a rotated id — so this checks that it
   // is one of the two things a sort key can be and nothing more. A cursor is
   // the engine's own words handed back; validating its *meaning* here would be
   // the contract holding a second opinion about the order.
@@ -1385,9 +1386,9 @@ function readCursor(value: unknown): Checked<WireCursor | null> {
     return bad("key: expected a number or a string");
   }
   if (typeof key === "number" && !Number.isFinite(key)) return bad("key: expected a finite number");
-  const hash = readHash(value, "hash");
-  if (!hash.ok) return hash;
-  return ok({ key, hash: hash.value });
+  const id = readAssetId(value, "id");
+  if (!id.ok) return id;
+  return ok({ key, id: id.value });
 }
 
 /** The order a page is asked for, or `null` for the default (ADR-0039). */

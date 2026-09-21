@@ -1,22 +1,21 @@
 import { extname } from "node:path";
 import {
-  type AssetDetail,
+  type AssetId,
   type CommentRow,
-  type ContentHash,
   IndexSink,
   JOB_PRIORITY,
   type JournalRecord,
   logger,
+  mintAssetId,
   type Op,
   type SubtitleRow,
   toNfc,
 } from "@roost/core";
-import { hashBytes } from "@roost/media";
 import { formatFromExtension, kindOf, PREVIEW_SIZE } from "@roost/media/serving";
 import { parse } from "@roost/search";
 import {
   AmbiguousFolderNameError,
-  AmbiguousHashError,
+  AmbiguousIdError,
   DuplicateFolderNameError,
   EditTooLargeError,
   EmptyCommentError,
@@ -97,25 +96,30 @@ function kinds(records: readonly JournalRecord[]): string {
 }
 
 /**
- * Resolves a full hash or an unambiguous prefix to an asset.
+ * Resolves a full id or an unambiguous prefix to an asset.
  *
  * A prefix matching nothing and a prefix matching two assets are different
  * mistakes, so they raise different errors. The second must never quietly pick
  * one: the two are unrelated files.
+ *
+ * **Upper-cased, not lower-cased.** An id is Crockford base32 in upper case
+ * (RL-14), so somebody typing one in lower case has typed the right id in the
+ * wrong case rather than a different one — and the alphabet has no letter whose
+ * case could make it ambiguous.
  */
-export function resolveAsset(library: Library, needle: string): ContentHash {
-  const wanted = needle.trim().toLowerCase();
-  if (wanted === "" || !/^[0-9a-f]+$/.test(wanted)) throw new UnknownAssetError(needle);
+export function resolveAsset(library: Library, needle: string): AssetId {
+  const wanted = needle.trim().toUpperCase();
+  if (wanted === "" || !/^[0-9A-HJKMNP-TV-Z]+$/.test(wanted)) throw new UnknownAssetError(needle);
 
-  const found = library.db.repo.resolveHashPrefix(wanted);
+  const found = library.db.repo.resolveIdPrefix(wanted);
   const [first] = found;
   if (first === undefined) throw new UnknownAssetError(needle);
-  if (found.length > 1) throw new AmbiguousHashError(needle);
+  if (found.length > 1) throw new AmbiguousIdError(needle);
   return first;
 }
 
-function requireAsset(library: Library, hash: ContentHash): void {
-  if (library.db.repo.findAsset(hash) === undefined) throw new UnknownAssetError(hash);
+function requireAsset(library: Library, id: AssetId): void {
+  if (library.db.repo.findAsset(id) === undefined) throw new UnknownAssetError(id);
 }
 
 /**
@@ -185,7 +189,7 @@ function cleanNames(names: readonly string[], what: string): string[] {
 
 export async function tagAdd(
   library: Library,
-  assets: readonly ContentHash[],
+  assets: readonly AssetId[],
   tags: readonly string[],
 ): Promise<void> {
   const cleaned = cleanNames(tags, "tag");
@@ -193,14 +197,14 @@ export async function tagAdd(
     library,
     assets.map((hash) => {
       requireAsset(library, hash);
-      return { op: "tag_add", hash, tags: cleaned } as const;
+      return { op: "tag_add", asset: hash, tags: cleaned } as const;
     }),
   );
 }
 
 export async function tagRemove(
   library: Library,
-  assets: readonly ContentHash[],
+  assets: readonly AssetId[],
   tags: readonly string[],
 ): Promise<void> {
   const cleaned = cleanNames(tags, "tag");
@@ -208,7 +212,7 @@ export async function tagRemove(
     library,
     assets.map((hash) => {
       requireAsset(library, hash);
-      return { op: "tag_remove", hash, tags: cleaned } as const;
+      return { op: "tag_remove", asset: hash, tags: cleaned } as const;
     }),
   );
 }
@@ -269,7 +273,7 @@ export function resolveTagGroup(library: Library, name: string): number {
 
 export async function rate(
   library: Library,
-  assets: readonly ContentHash[],
+  assets: readonly AssetId[],
   rating: number | null,
 ): Promise<void> {
   if (rating !== null && (!Number.isInteger(rating) || rating < 1 || rating > MAX_RATING)) {
@@ -279,7 +283,7 @@ export async function rate(
     library,
     assets.map((hash) => {
       requireAsset(library, hash);
-      return { op: "rate", hash, rating } as const;
+      return { op: "rate", asset: hash, rating } as const;
     }),
   );
 }
@@ -288,14 +292,10 @@ export async function rate(
  * `null` clears the note, and so does an all-whitespace one: storing that would
  * show an empty note badge on the asset forever.
  */
-export async function setNote(
-  library: Library,
-  hash: ContentHash,
-  note: string | null,
-): Promise<void> {
+export async function setNote(library: Library, hash: AssetId, note: string | null): Promise<void> {
   requireAsset(library, hash);
   const trimmed = note === null ? null : note.trim();
-  return apply(library, [{ op: "note_set", hash, note: trimmed === "" ? null : trimmed }]);
+  return apply(library, [{ op: "note_set", asset: hash, note: trimmed === "" ? null : trimmed }]);
 }
 
 /**
@@ -314,12 +314,12 @@ export async function setNote(
  */
 export async function setSource(
   library: Library,
-  hash: ContentHash,
+  hash: AssetId,
   url: string | null,
 ): Promise<void> {
   requireAsset(library, hash);
   const trimmed = url === null ? null : url.trim();
-  return apply(library, [{ op: "source_set", hash, url: trimmed === "" ? null : trimmed }]);
+  return apply(library, [{ op: "source_set", asset: hash, url: trimmed === "" ? null : trimmed }]);
 }
 
 // --- Comments (ADR-0023) -----------------------------------------------------
@@ -337,14 +337,14 @@ export async function setSource(
  */
 export async function addComment(
   library: Library,
-  hash: ContentHash,
+  hash: AssetId,
   atMs: number | null,
   body: string,
 ): Promise<number> {
   requireAsset(library, hash);
   const id = library.db.repo.nextCommentId();
   await apply(library, [
-    { op: "comment_add", id, hash, at: requireMoment(atMs), body: requireBody(body) },
+    { op: "comment_add", id, asset: hash, at: requireMoment(atMs), body: requireBody(body) },
   ]);
   return id;
 }
@@ -396,14 +396,14 @@ export async function removeComment(library: Library, id: number): Promise<void>
  */
 export async function setPoster(
   library: Library,
-  hash: ContentHash,
+  hash: AssetId,
   atMs: number | null,
 ): Promise<boolean> {
   requireVideo(library, hash);
   const at = atMs === null ? null : requireMoment(atMs);
   if (library.db.repo.posterOf(hash) === at) return false;
 
-  await apply(library, [{ op: "poster_set", hash, at }]);
+  await apply(library, [{ op: "poster_set", asset: hash, at }]);
   // Dropped before anything else: the preview size is made on first use and
   // never revisited, so one left behind would outlive the frame it was drawn
   // from if the redraw below cannot run.
@@ -417,7 +417,7 @@ export async function setPoster(
 }
 
 /** The moment a thumbnail is pinned to, or `null` for the default frame. */
-export function poster(library: Library, hash: ContentHash): number | null {
+export function poster(library: Library, hash: AssetId): number | null {
   requireAsset(library, hash);
   return library.db.repo.posterOf(hash);
 }
@@ -429,7 +429,7 @@ export function poster(library: Library, hash: ContentHash): number | null {
  * the window's does: `@roost/media` owns that table, and a second answer here
  * would disagree with the inspector the first time a format is added.
  */
-function requireVideo(library: Library, hash: ContentHash): void {
+function requireVideo(library: Library, hash: AssetId): void {
   const asset = library.db.repo.findAsset(hash);
   if (asset === undefined) throw new UnknownAssetError(hash);
   const kind = kindOf(formatFromExtension(asset.ext));
@@ -437,7 +437,7 @@ function requireVideo(library: Library, hash: ContentHash): void {
 }
 
 /** The comments on one asset, timed ones first and in timeline order. */
-export function comments(library: Library, hash: ContentHash): readonly CommentRow[] {
+export function comments(library: Library, hash: AssetId): readonly CommentRow[] {
   requireAsset(library, hash);
   return library.db.repo.commentsFor(hash);
 }
@@ -466,16 +466,16 @@ function requireMoment(atMs: number | null): number | null {
 }
 
 /**
- * Renames what the library shows. The file on disk keeps its hash filename
- * (invariant 2) — nothing under `originals/` is touched.
+ * Renames what the library shows.
+ *
+ * The file on disk is named by the id (RL-9), so nothing under `files/` is
+ * touched — a rename cannot fail on a locked file, an invalid character or a
+ * path that grew too long, and it costs the same for one asset as for five
+ * hundred. The name carries no extension (RL-33).
  */
-export async function renameAsset(
-  library: Library,
-  hash: ContentHash,
-  name: string,
-): Promise<void> {
+export async function renameAsset(library: Library, hash: AssetId, name: string): Promise<void> {
   requireAsset(library, hash);
-  return apply(library, [{ op: "asset_rename", hash, name: cleanName(name, "name") }]);
+  return apply(library, [{ op: "asset_rename", asset: hash, name: cleanName(name, "name") }]);
 }
 
 /**
@@ -483,44 +483,43 @@ export async function renameAsset(
  *
  * What `Delete` means. The row and everything hanging off it stay — tags,
  * rating, note, folder memberships, thumbnail — and only what sees the asset
- * changes. Nothing on disk moves, in either storage mode.
+ * changes. Nothing on disk moves.
  *
  * Trashing something already in the trash is not an error: it re-stamps
  * `trashed_at` with the later time, which is what somebody who trashed,
  * restored, and trashed again would expect Trash to show.
  */
-export async function trashAssets(library: Library, assets: readonly ContentHash[]): Promise<void> {
+export async function trashAssets(library: Library, assets: readonly AssetId[]): Promise<void> {
   return apply(
     library,
     assets.map((hash) => {
       requireAsset(library, hash);
-      return { op: "trash", hash } as const;
+      return { op: "trash", asset: hash } as const;
     }),
   );
 }
 
 /** Brings assets back out of the trash. Restoring a live asset is a no-op. */
-export async function restoreAssets(
-  library: Library,
-  assets: readonly ContentHash[],
-): Promise<void> {
+export async function restoreAssets(library: Library, assets: readonly AssetId[]): Promise<void> {
   return apply(
     library,
     assets.map((hash) => {
       requireAsset(library, hash);
-      return { op: "restore", hash } as const;
+      return { op: "restore", asset: hash } as const;
     }),
   );
 }
 
-/** What a removal took out of the library, and out of the object store. */
+/** What a removal took out of the library, and out of `files/`. */
 export interface Removal {
   readonly assets: number;
   /**
-   * Bytes deleted from `originals/`.
+   * Bytes deleted from `files/`.
    *
-   * Not the size of what was removed: a referenced asset's bytes are the user's
-   * own file and are never touched, so it counts nothing here.
+   * As far as anything knows: a size is derived (RL-22), so an asset nothing
+   * has read yet counts nothing here even though its file is deleted. The
+   * number is what was freed to the best of the index's knowledge, not a
+   * measurement taken at the moment of deletion.
    */
   readonly bytes: number;
 }
@@ -536,7 +535,7 @@ export interface Removal {
  * are not looking, is not one this project ships (ADR-0022).
  */
 export async function emptyTrash(library: Library): Promise<Removal> {
-  return removeAssets(library, library.db.repo.trashedHashes());
+  return removeAssets(library, library.db.repo.trashedIds());
 }
 
 /**
@@ -554,40 +553,35 @@ export async function emptyTrash(library: Library): Promise<Removal> {
  * a confirmation, on an asset already in the trash; a user who does that and
  * finds their disk no smaller has been told something untrue.
  *
- * **A referenced original is never touched** (invariant 6). Those bytes are the
- * user's own file in the user's own directory, and Roost has no business in it;
- * `ReferencedStorage.remove` is a no-op for the same reason, so the mode is
- * read here to know what was *freed* rather than to decide what to spare.
+ * **There is one storage mode** (RL-19), so there is nothing to spare and no
+ * user directory to stay out of: every asset's bytes are inside the library,
+ * and the row and the file go together.
  *
  * Order matters: journal, then index, then bytes. A crash between the last two
  * leaves an object nothing references, which `roost doctor` reports and
  * `--reclaim` collects. The reverse order would delete bytes for a removal no
  * replay knows about.
  */
-export async function removeAssets(
-  library: Library,
-  assets: readonly ContentHash[],
-): Promise<Removal> {
+export async function removeAssets(library: Library, assets: readonly AssetId[]): Promise<Removal> {
   // Read where the bytes are before deleting the rows that say so.
-  const objects = assets.map((hash) => {
-    const record = library.db.repo.findOriginal(hash);
-    if (record === undefined) throw new UnknownAssetError(hash);
-    return { hash, ext: record.ext, size: record.size, mode: record.storageMode };
+  const files = assets.map((id) => {
+    const record = library.db.repo.findFile(id);
+    if (record === undefined) throw new UnknownAssetError(id);
+    return { id, ext: record.ext, size: record.size };
   });
 
   await apply(
     library,
-    objects.map(({ hash }) => ({ op: "remove", hash }) as const),
+    files.map(({ id }) => ({ op: "remove", asset: id }) as const),
   );
 
-  const storage = library.storageFor("managed");
+  const storage = library.storage;
   let bytes = 0;
-  for (const object of objects) {
-    if (object.mode !== "managed") continue;
-    await storage.remove(object.hash, object.ext);
-    bytes += object.size;
+  for (const file of files) {
+    await storage.remove(file.id, file.ext);
+    bytes += file.size ?? 0;
   }
-  return { assets: objects.length, bytes };
+  return { assets: files.length, bytes };
 }
 
 // --- Folders -----------------------------------------------------------------
@@ -677,7 +671,7 @@ export async function deleteFolder(
   // Trash before delete, and in one batch: after the folder is gone there is
   // nothing left saying what was in it, so a second call could not find them.
   await apply(library, [
-    ...held.map((hash) => ({ op: "trash", hash }) as const),
+    ...held.map((hash) => ({ op: "trash", asset: hash }) as const),
     { op: "folder_delete", id },
   ]);
   return { trashed: held.length };
@@ -685,7 +679,7 @@ export async function deleteFolder(
 
 export async function addToFolder(
   library: Library,
-  assets: readonly ContentHash[],
+  assets: readonly AssetId[],
   folder: number,
 ): Promise<void> {
   requireFolder(library, folder);
@@ -693,20 +687,20 @@ export async function addToFolder(
     library,
     assets.map((hash) => {
       requireAsset(library, hash);
-      return { op: "folder_add", hash, folder } as const;
+      return { op: "folder_add", asset: hash, folder } as const;
     }),
   );
 }
 
 export async function removeFromFolder(
   library: Library,
-  assets: readonly ContentHash[],
+  assets: readonly AssetId[],
   folder: number,
 ): Promise<void> {
   requireFolder(library, folder);
   return apply(
     library,
-    assets.map((hash) => ({ op: "folder_remove", hash, folder }) as const),
+    assets.map((hash) => ({ op: "folder_remove", asset: hash, folder }) as const),
   );
 }
 
@@ -788,145 +782,56 @@ export function resolveSmartFolder(library: Library, name: string): number {
 export const MAX_EDIT_BYTES = 2 * 1024 * 1024;
 
 /**
- * Saves edited bytes as a **new asset**, and marks the old one superseded
- * (ADR-0026).
+ * Saves edited bytes over the asset's own file (ADR-0046, superseding
+ * ADR-0026).
  *
- * A save cannot be a write here: identity is the content hash, so changed bytes
- * are a different asset at a different address. What travels is everything a
- * person authored — tags, folders, rating, note, favourite, the pinned poster
- * moment, and the comments — each through the operation that owns it, so a
- * rebuild reconstructs the carry-over from the journal rather than from this
- * function.
+ * **A save is a write now.** Identity is an id (RL-13), and the bytes under it
+ * are allowed to change at any time (RL-20) — so editing a file produces the
+ * same asset, keeps its tags, its folders, its rating, its note, its comments
+ * and its place in every list, and **journals nothing at all** (RL-23). What
+ * version 1 needed for this — a second `add`, a carry-over of everything a
+ * person had written, and a `supersede` chain — is gone with the decision that
+ * made it necessary.
  *
- * Answers the new hash, which is the old one when the bytes did not change.
+ * What it does instead is forget what was derived from the old bytes: the size,
+ * the hash, the dimensions and every thumbnail describe a file that no longer
+ * exists, and a cell drawn from one of them would be a picture of the past. The
+ * derive is queued at interactive priority, because somebody is looking at it.
  *
- * Three things it refuses, each for a reason that is not a policy choice:
- * a **referenced** asset, because its bytes are in a user directory and
- * invariant 6 forbids writing there; a **trashed** asset, because superseding
- * it would produce a live replacement and make editing a way of undeleting; and
- * anything over {@link MAX_EDIT_BYTES}, because a partial read must never be
- * saved over a whole file.
+ * Two refusals, each for a reason that is not a policy choice: a **trashed**
+ * asset, because editing something in the trash is a gesture with no meaning
+ * until it is restored; and anything over {@link MAX_EDIT_BYTES}, because a
+ * partial read must never be saved over a whole file.
  */
-export async function saveEdit(
-  library: Library,
-  hash: ContentHash,
-  bytes: Uint8Array,
-): Promise<ContentHash> {
-  const before = library.db.repo.assetDetail(hash);
-  if (before === undefined) throw new UnknownAssetError(hash);
-  if (before.storageMode === "referenced") {
-    throw new NotEditableError(hash, "it lives in your own directory and Roost never writes there");
-  }
+export async function saveEdit(library: Library, id: AssetId, bytes: Uint8Array): Promise<void> {
+  const before = library.db.repo.assetDetail(id);
+  if (before === undefined) throw new UnknownAssetError(id);
   if (before.trashedAt !== null) {
-    throw new NotEditableError(hash, "it is in the trash — restore it first");
+    throw new NotEditableError(id, "it is in the trash — restore it first");
   }
   if (bytes.length > MAX_EDIT_BYTES) {
     throw new EditTooLargeError(bytes.length, MAX_EDIT_BYTES);
   }
 
-  const hashed = hashBytes(bytes);
-  // Saving without changing anything writes nothing. An append-only journal is
-  // read by people, and `supersede` pointing an asset at itself is both a lie
-  // and a cycle.
-  if (hashed.hash === hash) return hash;
+  await library.storage.writeBytes(bytes, id, before.ext);
 
-  const placed = await library.storageFor("managed").putBytes(bytes, hashed.hash, before.ext);
-  const ops: Op[] = [];
+  // Nothing is appended to the journal, so nothing here can be "journal first":
+  // the index is a cache of what the bytes are, and this is the cache being
+  // told it is stale. A crash before the derive runs leaves an asset with no
+  // size and no thumbnail, which the next sweep fixes — the shape every derived
+  // column is allowed to fail in.
+  library.db.transaction(() => {
+    library.db.repo.clearDerived(id);
+    library.db.repo.dropThumbnails(id);
+  });
+  enqueueDerives(library, [id], JOB_PRIORITY.interactive);
 
-  // The replacement may already exist — editing a file into exactly the
-  // contents of another one is dedupe, not a collision, and the `add` would be
-  // a second line for a row that is already there.
-  if (library.db.repo.findAsset(hashed.hash) === undefined) {
-    const add: Record<string, unknown> = {
-      op: "add",
-      hash: hashed.hash,
-      ext: before.ext,
-      size: hashed.size,
-      name: before.origName,
-      mode: "managed",
-    };
-    if (placed.linkMethod !== null) add["link"] = placed.linkMethod;
-    if (hashed.isPartial) add["partial"] = true;
-    ops.push(add as unknown as Op);
-  }
-
-  ops.push(...carryOver(library, before, hashed.hash));
-  ops.push({ op: "supersede", hash, to: hashed.hash });
-
-  await apply(library, ops);
-  enqueueDerives(library, [hashed.hash], JOB_PRIORITY.interactive);
-
-  log.info("asset superseded by an edit", { from: hash, to: hashed.hash, ops: ops.length });
-  return hashed.hash;
-}
-
-/**
- * Everything user-authored on `before`, spelled as operations against `to`.
- *
- * Each goes through the op that owns it rather than through a copy in SQL,
- * because the journal is the record and the index is derived from it: a
- * carry-over the journal does not describe would vanish on the next rebuild
- * (invariant 1).
- *
- * **A comment is copied, not moved.** The old version keeps its own — it is
- * still a row somebody can open — so the copies are new rows with new ids, and
- * their `created_at` is the time of the save rather than of the original
- * remark. That is the cost of a comment being about *an asset* rather than
- * about a lineage, and it is cheaper than the alternative, which is a comment
- * that belongs to two assets and can be edited from either.
- */
-function carryOver(library: Library, before: AssetDetail, to: ContentHash): Op[] {
-  const repo = library.db.repo;
-  const ops: Op[] = [];
-
-  if (before.tags.length > 0) ops.push({ op: "tag_add", hash: to, tags: before.tags });
-  for (const folder of repo.folderIdsFor(before.hash)) {
-    ops.push({ op: "folder_add", hash: to, folder });
-  }
-  if (before.rating !== null) ops.push({ op: "rate", hash: to, rating: before.rating });
-  if (before.note !== null) ops.push({ op: "note_set", hash: to, note: before.note });
-  // Superseding does not change where the bytes originally came from.
-  if (before.sourceUrl !== null) {
-    ops.push({ op: "source_set", hash: to, url: before.sourceUrl });
-  }
-  // Carried even though nothing can set one any more (ADR-0029): an asset that
-  // *has* a favourite from before it was retired keeps it across an edit, or
-  // `is:favorite` would quietly stop finding a file somebody edited.
-  if (before.isFavorite) ops.push({ op: "favorite_set", hash: to, favorite: true });
-  if (before.posterMs !== null) ops.push({ op: "poster_set", hash: to, at: before.posterMs });
-
-  let id = repo.nextCommentId();
-  for (const comment of repo.commentsFor(before.hash)) {
-    ops.push({ op: "comment_add", id, hash: to, at: comment.atMs, body: comment.body });
-    id += 1;
-  }
-
-  return ops;
-}
-
-/**
- * Points one asset at the version that replaced it, or clears the mark.
- *
- * The operation behind {@link saveEdit}, exposed on its own so the CLI can
- * record a supersession the window would have made — and so undoing one is the
- * same op with `to` absent, rather than a second operation meaning the reverse.
- */
-export async function supersedeAsset(
-  library: Library,
-  hash: ContentHash,
-  to: ContentHash | null,
-): Promise<void> {
-  requireAsset(library, hash);
-  if (to !== null) {
-    requireAsset(library, to);
-    if (to === hash) throw new NotEditableError(hash, "an asset cannot supersede itself");
-  }
-  return apply(library, [{ op: "supersede", hash, to }]);
+  log.info("asset edited in place", { asset: id, bytes: bytes.length });
 }
 
 /**
  * Creates an asset from bytes the application produced, under a name the user
- * chose (ADR-0026 §4).
+ * chose.
  *
  * The window's **New File**: a draft is a name and a buffer until it is saved,
  * and this is the save. It is not an import — there is no source file, and the
@@ -934,55 +839,40 @@ export async function supersedeAsset(
  * the ordinary `add`, so nothing downstream has to know where the bytes came
  * from.
  *
- * Answers the hash and whether it is new.
- *
- * **An empty file is allowed, and there can only ever be one.** Every empty
- * file has the same BLAKE3 hash and `assets.hash` is the primary key, so the
- * second one made answers with the first — under the first one's name, because
- * that is the one somebody has been using. Refusing instead was tried on
- * 2026-09-03 and withdrawn on 2026-09-05: the caller asks for a file with a
- * name, and it is the caller's business what it holds.
- *
- * Identical bytes are one asset by invariant 1, so writing a file that already
- * exists answers with it and `created: false` rather than a second row. The
- * name of the one already there wins, because it is the one somebody has been
- * using.
+ * **Every call makes an asset**, including two empty files in a row. Version 1
+ * could not: every empty file had one hash and the hash was the primary key, so
+ * the second answered with the first, under the first one's name. An id is
+ * minted rather than derived (RL-13), so two files a person made deliberately
+ * are two assets — which is what they asked for both times.
  */
 export async function createAsset(
   library: Library,
   name: string,
   bytes: Uint8Array,
-): Promise<{ readonly hash: ContentHash; readonly created: boolean }> {
+): Promise<AssetId> {
   const clean = cleanName(name, "file");
   if (bytes.length > MAX_EDIT_BYTES) throw new EditTooLargeError(bytes.length, MAX_EDIT_BYTES);
 
   // The importer's rule, spelled the same way: the **last** extension
-  // component, lowercased, without the dot, so `notes.tar.gz` is `<hash>.gz`
-  // and a name with no extension is a bare hash with no trailing dot. One
-  // asset must not reach two addresses depending on which door it came in by.
+  // component, lowercased, without the dot, so `notes.tar.gz` is `<id>.gz` and
+  // a name with no extension is a bare id with no trailing dot (RL-9, RL-9a).
   const ext = extname(clean).replace(/^\./, "").toLowerCase();
-  const hashed = hashBytes(bytes);
+  const display = ext === "" ? clean : clean.slice(0, clean.length - ext.length - 1);
 
-  const existing = library.db.repo.findAsset(hashed.hash);
-  if (existing !== undefined) return { hash: hashed.hash, created: false };
+  const id = mintAssetId((candidate) => library.db.repo.hasAsset(candidate));
+  await library.storage.writeBytes(bytes, id, ext);
 
-  const placed = await library.storageFor("managed").putBytes(bytes, hashed.hash, ext);
-  const add: Record<string, unknown> = {
-    op: "add",
-    hash: hashed.hash,
-    ext,
-    size: hashed.size,
-    name: clean,
-    mode: "managed",
-  };
-  if (placed.linkMethod !== null) add["link"] = placed.linkMethod;
-  if (hashed.isPartial) add["partial"] = true;
+  // Field by field rather than by spreading: an object carrying `undefined`
+  // serialises differently from one missing the key (`op.ts`). Nothing about
+  // the bytes is here — the size and the hash are derived (RL-22), and the
+  // derive queued below is what learns them.
+  const add: Record<string, unknown> = { op: "add", id, ext, name: display };
 
   await apply(library, [add as unknown as Op]);
-  enqueueDerives(library, [hashed.hash], JOB_PRIORITY.interactive);
+  enqueueDerives(library, [id], JOB_PRIORITY.interactive);
 
-  log.info("asset created from bytes", { hash: hashed.hash, size: hashed.size });
-  return { hash: hashed.hash, created: true };
+  log.info("asset created from bytes", { asset: id, size: bytes.length });
+  return id;
 }
 
 /**
@@ -999,15 +889,15 @@ export async function createAsset(
  */
 export async function attachSubtitle(
   library: Library,
-  hash: ContentHash,
-  track: ContentHash,
+  hash: AssetId,
+  track: AssetId,
   options: { readonly lang?: string; readonly label?: string } = {},
 ): Promise<void> {
   requireAsset(library, hash);
   requireAsset(library, track);
   if (hash === track) throw new NotEditableError(hash, "an asset cannot caption itself");
 
-  const op: Record<string, unknown> = { op: "subtitle_attach", hash, track };
+  const op: Record<string, unknown> = { op: "subtitle_attach", asset: hash, track };
   const lang = options.lang?.trim();
   if (lang !== undefined && lang !== "") op["lang"] = lang;
   const label = options.label?.trim();
@@ -1019,11 +909,11 @@ export async function attachSubtitle(
 /** Un-says it. Both assets stay; only the sentence goes. */
 export async function detachSubtitle(
   library: Library,
-  hash: ContentHash,
-  track: ContentHash,
+  hash: AssetId,
+  track: AssetId,
 ): Promise<void> {
   requireAsset(library, hash);
-  return apply(library, [{ op: "subtitle_detach", hash, track }]);
+  return apply(library, [{ op: "subtitle_detach", asset: hash, track }]);
 }
 
 /**
@@ -1044,19 +934,19 @@ export async function detachSubtitle(
  */
 export async function deleteSubtitle(
   library: Library,
-  hash: ContentHash,
-  track: ContentHash,
+  hash: AssetId,
+  track: AssetId,
 ): Promise<void> {
   requireAsset(library, hash);
   requireAsset(library, track);
   return apply(library, [
-    { op: "subtitle_detach", hash, track },
-    { op: "trash", hash: track },
+    { op: "subtitle_detach", asset: hash, track },
+    { op: "trash", asset: track },
   ]);
 }
 
 /** The caption tracks attached to an asset, in the order they were attached. */
-export function subtitles(library: Library, hash: ContentHash): SubtitleRow[] {
+export function subtitles(library: Library, hash: AssetId): SubtitleRow[] {
   requireAsset(library, hash);
   return library.db.repo.subtitlesFor(hash);
 }

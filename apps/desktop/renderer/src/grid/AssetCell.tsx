@@ -9,7 +9,7 @@ import type { GridView } from "./layout.js";
  * `UI_SPEC.md` §6 makes this non-negotiable, and the reason is arithmetic: at
  * four hundred cells on screen, one freshly-allocated object prop per cell is
  * four hundred re-renders per selection change. There are no callbacks here
- * either — the grid listens once, on the container, and reads the hash back off
+ * either — the grid listens once, on the container, and reads the id back off
  * the DOM. One listener, not four hundred closures.
  *
  * The thumbnail is an `<img>` pointed at `roost://`, so its bytes never pass
@@ -24,8 +24,8 @@ import type { GridView } from "./layout.js";
  * focusable themselves, which is what `UI_SPEC.md` §6 asks for. Declared beside
  * the element that carries it, so the two spellings cannot drift.
  */
-export function cellId(hash: string): string {
-  return `cell-${hash}`;
+export function cellId(id: string): string {
+  return `cell-${id}`;
 }
 
 /**
@@ -46,7 +46,7 @@ function hideBroken(event: React.SyntheticEvent<HTMLImageElement>): void {
 /**
  * And shows it again when one arrives.
  *
- * A cell is keyed on its hash, so today the hiding above cannot outlive the
+ * A cell is keyed on its id, so today the hiding above cannot outlive the
  * asset it was for. That is a property of the grid rather than of this file,
  * and the panel that lacked it drew nothing at all for an hour on 2026-09-05
  * (`thumbnail.ts`). Pairing the two here costs a stable function reference.
@@ -56,7 +56,7 @@ function showLoaded(event: React.SyntheticEvent<HTMLImageElement>): void {
 }
 
 export interface AssetCellProps {
-  readonly hash: string;
+  readonly id: string;
   readonly name: string;
   readonly ext: string;
   /** Part of the thumbnail's address, not something the cell draws. */
@@ -82,7 +82,7 @@ export interface AssetCellProps {
 }
 
 export const AssetCell = memo(function AssetCell({
-  hash,
+  id,
   posterMs,
   name,
   ext,
@@ -105,9 +105,9 @@ export const AssetCell = memo(function AssetCell({
     return (
       // biome-ignore lint/a11y/useFocusableInteractive: one tab stop; see below
       <div
-        id={cellId(hash)}
+        id={cellId(id)}
         className="cell"
-        data-hash={hash}
+        data-id={id}
         data-view={view}
         data-selected={isSelected || undefined}
         data-focused={isFocused || undefined}
@@ -115,7 +115,7 @@ export const AssetCell = memo(function AssetCell({
         aria-selected={isSelected}
         aria-label={name}
         // A primitive, not a handler: the grid listens once for `dragstart` on
-        // its container and reads the hash back off the DOM, the way it does
+        // its container and reads the id back off the DOM, the way it does
         // for every other gesture (`UI_SPEC.md` §6).
         draggable
         style={{ transform: `translate(${x}px, ${y}px)`, width, height }}
@@ -124,7 +124,7 @@ export const AssetCell = memo(function AssetCell({
           <span className="cell-kind">{kind}</span>
           <img
             className="cell-image"
-            src={gridSrc(hash, posterMs)}
+            src={gridSrc(id, posterMs)}
             alt=""
             loading="lazy"
             decoding="async"
@@ -159,9 +159,9 @@ export const AssetCell = memo(function AssetCell({
      */
     // biome-ignore lint/a11y/useFocusableInteractive: see above
     <div
-      id={cellId(hash)}
+      id={cellId(id)}
       className="cell"
-      data-hash={hash}
+      data-id={id}
       data-selected={isSelected || undefined}
       data-focused={isFocused || undefined}
       role="option"
@@ -182,7 +182,7 @@ export const AssetCell = memo(function AssetCell({
         <span className="cell-kind">{kind}</span>
         <img
           className="cell-image"
-          src={gridSrc(hash, posterMs)}
+          src={gridSrc(id, posterMs)}
           alt=""
           loading="lazy"
           decoding="async"

@@ -1,11 +1,10 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ContentHash } from "@roost/core";
+import type { AssetId } from "@roost/core";
 import {
   addComment,
   addToFolder,
-  apply,
   createAsset,
   createFolder,
   EditTooLargeError,
@@ -16,12 +15,9 @@ import {
   rate,
   saveEdit,
   setNote,
-  setSource,
-  supersedeAsset,
   tagAdd,
   trashAssets,
 } from "@roost/library";
-import { buildQuery, parse } from "@roost/search";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const text = (body: string): Uint8Array => new TextEncoder().encode(body);
@@ -30,7 +26,7 @@ describe("saving an edit", () => {
   let dir: string;
   let source: string;
   let library: Library;
-  let note: ContentHash;
+  let note: AssetId;
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "roost-save-"));
@@ -40,9 +36,9 @@ describe("saving an edit", () => {
 
     library = await Library.create(join(dir, "library"), "test");
     await importInto(library, [source]);
-    const [first] = library.db.repo.search({ sql: "1", params: [] }, { limit: 10 });
+    const [first] = library.db.repo.allIds();
     if (first === undefined) throw new Error("nothing imported");
-    note = first.hash;
+    note = first;
   });
 
   afterEach(async () => {
@@ -50,100 +46,77 @@ describe("saving an edit", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("writes a new asset and leaves the old one whole", async () => {
-    const after = await saveEdit(library, note, text("second draft\n"));
+  it("writes over the asset's own file, and it is the same asset", async () => {
+    // The whole of what version 2 changed here (ADR-0046, superseding
+    // ADR-0026): identity is an id, the bytes under it may change at any time
+    // (RL-20), and a save is therefore a write rather than a second asset.
+    const path = library.storage.locate(note, "txt");
 
-    expect(after).not.toBe(note);
-    // The old bytes are still at the old address. A save is not a write
-    // (ADR-0026), and invariant 6 does not bend for our own files either.
-    const managed = library.storageFor("managed");
-    expect(await readFile(managed.locate(note, "txt"), "utf8")).toBe("first draft\n");
-    expect(await readFile(managed.locate(after, "txt"), "utf8")).toBe("second draft\n");
+    await saveEdit(library, note, text("second draft\n"));
 
-    const before = library.db.repo.assetDetail(note);
-    expect(before?.supersededBy).toBe(after);
-    expect(library.db.repo.assetDetail(after)?.supersededBy).toBeNull();
-    // The name travels: the file is still the user's `notes.txt`.
-    expect(library.db.repo.assetDetail(after)?.origName).toBe("notes.txt");
+    expect(await readFile(path, "utf8")).toBe("second draft\n");
+    expect(library.db.repo.allIds()).toEqual([note]);
+    expect(library.db.repo.assetDetail(note)?.name).toBe("notes");
   });
 
-  it("carries everything a person authored to the new version", async () => {
-    await tagAdd(library, [note], ["draft", "writing"]);
-    const folder = await createFolder(library, "Notes", null);
+  it("keeps everything a person said about it", async () => {
+    // Version 1 had to carry all of this across to a new asset, through the
+    // operation that owned each piece. Here there is nothing to carry: the row
+    // is the same row.
+    await tagAdd(library, [note], ["draft"]);
+    const folder = await createFolder(library, "Writing", null);
     await addToFolder(library, [note], folder);
     await rate(library, [note], 4);
-    await setNote(library, note, "for the talk");
-    await setSource(library, note, "https://example.com/brief");
-    // Journalled directly: nothing authors a favourite any more (ADR-0029),
-    // and the carry-over exists precisely for the assets that already have one.
-    await apply(library, [{ op: "favorite_set", hash: note, favorite: true }]);
-    await addComment(library, note, null, "check the second paragraph");
+    await setNote(library, note, "for review");
+    await addComment(library, note, null, "the second paragraph repeats itself");
 
-    const after = await saveEdit(library, note, text("second draft\n"));
-    const detail = library.db.repo.assetDetail(after);
+    await saveEdit(library, note, text("second draft\n"));
 
-    expect(detail?.tags).toEqual(["draft", "writing"]);
-    expect(detail?.folders.map((folder) => folder.path)).toEqual(["Notes"]);
-    expect(detail?.rating).toBe(4);
-    expect(detail?.note).toBe("for the talk");
-    // Replacing an asset's bytes does not change where they came from.
-    expect(detail?.sourceUrl).toBe("https://example.com/brief");
-    expect(detail?.isFavorite).toBe(true);
-    expect(library.db.repo.commentsFor(after).map((row) => row.body)).toEqual([
-      "check the second paragraph",
-    ]);
-    // Copied, not moved: the old version is still a row somebody can open, and
-    // it keeps its own remark.
+    expect(library.db.repo.assetDetail(note)).toMatchObject({
+      tags: ["draft"],
+      rating: 4,
+      note: "for review",
+    });
+    expect(library.db.repo.assetDetail(note)?.folders).toHaveLength(1);
     expect(library.db.repo.commentsFor(note)).toHaveLength(1);
   });
 
-  it("survives a rebuild, because every carry-over is a journal line", async () => {
-    await tagAdd(library, [note], ["draft"]);
-    await rate(library, [note], 3);
-    const after = await saveEdit(library, note, text("second draft\n"));
+  it("journals nothing at all, because the journal is not about the bytes", async () => {
+    // RL-23. The record of what the file holds is the file; a journal line per
+    // save would fill it with what the disk already says, and would make an
+    // edit something a rebuild had to replay.
+    const before = await readFile(join(library.journal.dir, "2026-09.jsonl"), "utf8").catch(
+      async () => {
+        const [month] = await library.journal.months();
+        return readFile(join(library.journal.dir, `${month}.jsonl`), "utf8");
+      },
+    );
 
-    await library.rebuild();
+    await saveEdit(library, note, text("second draft\n"));
 
-    const detail = library.db.repo.assetDetail(after);
-    expect(detail?.tags).toEqual(["draft"]);
-    expect(detail?.rating).toBe(3);
-    expect(library.db.repo.assetDetail(note)?.supersededBy).toBe(after);
+    const [month] = await library.journal.months();
+    const after = await readFile(join(library.journal.dir, `${month}.jsonl`), "utf8");
+    expect(after).toBe(before);
   });
 
-  it("takes the superseded version out of every search but its own", async () => {
-    const after = await saveEdit(library, note, text("second draft\n"));
+  it("forgets what it derived from the bytes that are gone", async () => {
+    // A size, a hash and a thumbnail all describe a file that no longer exists.
+    // Keeping them would draw a cell from a picture of the past.
+    const first = library.db.repo.assetDetail(note);
+    expect(first?.size).toBeGreaterThan(0);
+    expect(first?.contentHash).toMatch(/^[0-9a-f]{64}$/);
+    library.db.repo.putThumbnail(note, 256, 16, 16, Buffer.from([0x00]));
 
-    const live = library.db.repo.search(buildQuery("notes"), { limit: 10 });
-    expect(live.map((hit) => hit.hash)).toEqual([after]);
+    await saveEdit(library, note, text("a much longer second draft\n"));
 
-    const old = library.db.repo.search(buildQuery("is:superseded"), { limit: 10 });
-    expect(old.map((hit) => hit.hash)).toEqual([note]);
-    // Parsing it is what makes the flag real rather than a string that compiles.
-    expect(() => parse("is:superseded")).not.toThrow();
-  });
-
-  it("writes nothing when the bytes did not change", async () => {
-    // An append-only journal is read by people, and `supersede` pointing an
-    // asset at itself would be both a lie and a cycle.
-    expect(await saveEdit(library, note, text("first draft\n"))).toBe(note);
-    expect(library.db.repo.assetDetail(note)?.supersededBy).toBeNull();
-    expect(library.db.repo.search({ sql: "1", params: [] }, { limit: 10 })).toHaveLength(1);
-  });
-
-  it("deduplicates into an asset that already exists", async () => {
-    await writeFile(join(source, "other.txt"), "second draft\n");
-    await importInto(library, [join(source, "other.txt")]);
-    const other = library.db.repo
-      .search({ sql: "1", params: [] }, { limit: 10 })
-      .map((hit) => hit.hash)
-      .filter((hash) => hash !== note);
-
-    const after = await saveEdit(library, note, text("second draft\n"));
-
-    // Identical bytes are one asset by invariant 1. Editing one file into
-    // another's contents is dedupe, not a collision.
-    expect(other).toContain(after);
-    expect(library.db.repo.assetDetail(note)?.supersededBy).toBe(after);
+    expect(library.db.repo.assetDetail(note)).toMatchObject({
+      size: null,
+      contentHash: null,
+      derivedAt: null,
+    });
+    expect(library.db.repo.thumbnail(note, 256)).toBeUndefined();
+    // And the derive is queued, because somebody is looking at it.
+    expect(library.db.repo.jobCounts()[0]?.state).toBe("ready");
   });
 
   it("refuses to edit what it must not write", async () => {
@@ -151,85 +124,57 @@ describe("saving an edit", () => {
       saveEdit(library, note, new Uint8Array(MAX_EDIT_BYTES + 1)),
     ).rejects.toBeInstanceOf(EditTooLargeError);
 
+    // A partial read must never be saved over a whole file, which is the one
+    // way editing could destroy one rather than replace it.
+    expect(await readFile(library.storage.locate(note, "txt"), "utf8")).toBe("first draft\n");
+  });
+
+  it("refuses a trashed asset until it is restored", async () => {
     await trashAssets(library, [note]);
-    // Superseding a trashed asset would produce a live replacement, which makes
-    // editing a way of undeleting.
-    await expect(saveEdit(library, note, text("second draft\n"))).rejects.toBeInstanceOf(
-      NotEditableError,
-    );
+    await expect(saveEdit(library, note, text("no"))).rejects.toBeInstanceOf(NotEditableError);
+  });
+});
+
+describe("creating an asset from bytes the window typed", () => {
+  let dir: string;
+  let library: Library;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "roost-create-"));
+    library = await Library.create(join(dir, "library"), "test");
   });
 
-  it("refuses a referenced asset, because its bytes are the user's own", async () => {
-    await writeFile(join(source, "kept.txt"), "not ours\n");
-    await importInto(library, [join(source, "kept.txt")], { mode: "referenced" });
-    const referenced = library.db.repo
-      .search({ sql: "1", params: [] }, { limit: 10 })
-      .map((hit) => hit.hash)
-      .find((hash) => library.db.repo.assetDetail(hash)?.storageMode === "referenced");
-    if (referenced === undefined) throw new Error("nothing referenced");
-
-    await expect(saveEdit(library, referenced, text("ours now\n"))).rejects.toBeInstanceOf(
-      NotEditableError,
-    );
-    // And the user's file is untouched, which is the point of refusing.
-    expect(await readFile(join(source, "kept.txt"), "utf8")).toBe("not ours\n");
+  afterEach(async () => {
+    await library.close();
+    await rm(dir, { recursive: true, force: true });
   });
 
-  it("creates a file from bytes the window typed", async () => {
-    const made = await createAsset(library, "todo.md", text("- write it down\n"));
-    expect(made.created).toBe(true);
+  it("writes the file and journals an ordinary add", async () => {
+    const id = await createAsset(library, "shopping.md", text("- milk\n"));
 
-    const detail = library.db.repo.assetDetail(made.hash);
-    expect(detail?.origName).toBe("todo.md");
-    // The importer's rule, so one asset cannot reach two addresses depending on
-    // which door it came in by: the last component, lowercased, no dot.
-    expect(detail?.ext).toBe("md");
-    expect(detail?.storageMode).toBe("managed");
-    expect(await readFile(library.storageFor("managed").locate(made.hash, "md"), "utf8")).toBe(
-      "- write it down\n",
-    );
+    expect(library.db.repo.assetDetail(id)).toMatchObject({ name: "shopping", ext: "md" });
+    expect(await readFile(library.storage.locate(id, "md"), "utf8")).toBe("- milk\n");
+    await expect(stat(library.storage.locate(id, "md"))).resolves.toBeTruthy();
   });
 
-  it("holds one empty file however many are made", async () => {
-    // Every empty file has the same BLAKE3 hash and `assets.hash` is the
-    // primary key, so the second answers with the first — under the first
-    // one's name, because that is the one somebody has been using. Refusing
-    // instead was tried on 2026-09-03 and withdrawn on 2026-09-05.
-    const first = await createAsset(library, "empty.txt", new Uint8Array(0));
-    expect(first.created).toBe(true);
+  it("makes two empty files rather than one", async () => {
+    // Version 1 could not: every empty file had one hash and the hash was the
+    // primary key, so the second answered with the first, under the first
+    // one's name. An id is minted rather than derived (RL-13), so two files a
+    // person made deliberately are two assets — which is what they asked for
+    // both times.
+    const first = await createAsset(library, "one.md", text(""));
+    const second = await createAsset(library, "two.md", text(""));
 
-    const second = await createAsset(library, "another.md", new Uint8Array(0));
-    expect(second).toEqual({ hash: first.hash, created: false });
-    expect(library.db.repo.assetDetail(first.hash)?.origName).toBe("empty.txt");
-    // And it is a real asset: bytes on disk, at the address its hash names.
-    expect(await readFile(library.storageFor("managed").locate(first.hash, "txt"), "utf8")).toBe(
-      "",
-    );
-  });
-
-  it("answers with the asset that already holds those bytes", async () => {
-    const first = await createAsset(library, "one.txt", text("the same words\n"));
-    const again = await createAsset(library, "two.txt", text("the same words\n"));
-
-    expect(again).toEqual({ hash: first.hash, created: false });
-    // The name of the one already there wins, because it is the one somebody
-    // has been using.
-    expect(library.db.repo.assetDetail(first.hash)?.origName).toBe("one.txt");
+    expect(first).not.toBe(second);
+    expect(library.db.repo.allIds()).toHaveLength(2);
+    expect(library.db.repo.assetDetail(second)?.name).toBe("two");
   });
 
   it("survives a rebuild, because creating one is an ordinary add", async () => {
-    const made = await createAsset(library, "todo.md", text("- write it down\n"));
+    const id = await createAsset(library, "kept.md", text("# kept\n"));
     await library.rebuild();
-    expect(library.db.repo.assetDetail(made.hash)?.origName).toBe("todo.md");
-  });
 
-  it("clears a supersession with the same op and no target", async () => {
-    const after = await saveEdit(library, note, text("second draft\n"));
-    await supersedeAsset(library, note, null);
-
-    expect(library.db.repo.assetDetail(note)?.supersededBy).toBeNull();
-    // Both are current now, which is what "this is current again" has to mean.
-    const live = library.db.repo.search(buildQuery("notes"), { limit: 10 });
-    expect(live.map((hit) => hit.hash).sort()).toEqual([note, after].sort());
+    expect(library.db.repo.assetDetail(id)?.name).toBe("kept");
   });
 });

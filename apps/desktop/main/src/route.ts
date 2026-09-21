@@ -1,6 +1,6 @@
 import type { Checked } from "@roost/contract";
 import { bad, ok } from "@roost/contract";
-import { type ContentHash, isContentHash } from "@roost/core";
+import { type AssetId, isAssetId } from "@roost/core";
 import { THUMBNAIL_SIZES } from "@roost/media/serving";
 
 /**
@@ -13,8 +13,8 @@ import { THUMBNAIL_SIZES } from "@roost/media/serving";
  * `protocol.ts` stays a handler rather than a parser.
  */
 export type Route =
-  | { readonly kind: "thumb"; readonly hash: ContentHash; readonly size: ThumbSize }
-  | { readonly kind: "original"; readonly hash: ContentHash }
+  | { readonly kind: "thumb"; readonly id: AssetId; readonly size: ThumbSize }
+  | { readonly kind: "file"; readonly id: AssetId }
   /**
    * A caption track, always answered as WebVTT (ADR-0025).
    *
@@ -23,7 +23,7 @@ export type Route =
    * people have is SubRip. Serving the original bytes under a `text/vtt`
    * content type would be a lie that shows an empty track and no error.
    */
-  | { readonly kind: "subtitle"; readonly hash: ContentHash }
+  | { readonly kind: "subtitle"; readonly id: AssetId }
   /**
    * A picture a browser can draw, for an asset whose own bytes are not one
    * (ADR-0040 §7).
@@ -33,10 +33,10 @@ export type Route =
    * re-encoded — and an address that promises the file's bytes must hand back
    * the file's bytes.
    */
-  | { readonly kind: "render"; readonly hash: ContentHash }
+  | { readonly kind: "render"; readonly id: AssetId }
   | {
       readonly kind: "page";
-      readonly hash: ContentHash;
+      readonly id: AssetId;
       /** Zero-based, as the document backend counts. */
       readonly index: number;
       readonly width: PageWidth;
@@ -67,13 +67,13 @@ function isThumbSize(value: number): value is ThumbSize {
 }
 
 /**
- * Parses `roost://thumb/<hash>@<size>` or `roost://original/<hash>`.
+ * Parses `roost://thumb/<id>@<size>` or `roost://file/<id>`.
  *
- * **The hash is validated before anything touches the filesystem**, and
- * `isContentHash` accepts only 64 lowercase hex characters — so `..`, a
- * separator, and a percent-encoded one are all rejected as hashes rather than
- * handled as traversal. That is the whole of the path safety here, and it is
- * why nothing below re-checks it.
+ * **The id is validated before anything touches the filesystem**, and
+ * `isAssetId` accepts only twelve characters of Crockford base32 (RL-14) — so
+ * `..`, a separator, and a percent-encoded one are all rejected as ids rather
+ * than handled as traversal. That is the whole of the path safety here, and it
+ * is why nothing below re-checks it.
  *
  * The size is not free-form. Serving `@37` would mean generating a thumbnail
  * nobody stored, on main's thread, for a URL a renderer bug could mint by the
@@ -89,22 +89,22 @@ export function parseRoostUrl(url: string): Checked<Route> {
   }
   if (parsed.protocol !== "roost:") return bad(`expected roost:, got ${parsed.protocol}`);
 
-  // The scheme is registered as standard, so `thumb` and `original` arrive as
-  // the host and the rest as an absolute path.
+  // The scheme is registered as standard, so `thumb` and `file` arrive as the
+  // host and the rest as an absolute path.
   const rest = decodeURIComponent(parsed.pathname).replace(/^\//, "");
 
   if (parsed.host === "thumb") {
     const at = rest.lastIndexOf("@");
     if (at === -1) return bad("a thumbnail URL needs a @<size>");
-    const hash = rest.slice(0, at);
-    if (!isContentHash(hash)) return bad("not a content hash");
+    const id = rest.slice(0, at);
+    if (!isAssetId(id)) return bad("not an asset id");
     const size = Number(rest.slice(at + 1));
     if (!isThumbSize(size)) return bad(`no such thumbnail size: ${rest.slice(at + 1)}`);
-    return ok({ kind: "thumb", hash, size });
+    return ok({ kind: "thumb", id, size });
   }
 
   if (parsed.host === "page") {
-    // `<hash>/<index>@<width>`: the page is part of the path because it is part
+    // `<id>/<index>@<width>`: the page is part of the path because it is part
     // of what is being addressed, and the width is a rendering choice, spelled
     // the way a thumbnail's size is.
     const at = rest.lastIndexOf("@");
@@ -112,8 +112,8 @@ export function parseRoostUrl(url: string): Checked<Route> {
     const slash = rest.indexOf("/");
     if (slash === -1) return bad("a page URL needs a page number");
 
-    const hash = rest.slice(0, slash);
-    if (!isContentHash(hash)) return bad("not a content hash");
+    const id = rest.slice(0, slash);
+    if (!isAssetId(id)) return bad("not an asset id");
 
     const index = Number(rest.slice(slash + 1, at));
     if (!Number.isInteger(index) || index < 0 || index > MAX_PAGE_INDEX) {
@@ -123,22 +123,24 @@ export function parseRoostUrl(url: string): Checked<Route> {
     const width = Number(rest.slice(at + 1));
     if (!isPageWidth(width)) return bad(`no such page width: ${rest.slice(at + 1)}`);
 
-    return ok({ kind: "page", hash, index, width });
+    return ok({ kind: "page", id, index, width });
   }
 
-  if (parsed.host === "original") {
-    if (!isContentHash(rest)) return bad("not a content hash");
-    return ok({ kind: "original", hash: rest });
+  // `file` rather than version 1's `original`: there are no originals any
+  // more, only the asset's file, which the person is free to edit (RL-20).
+  if (parsed.host === "file") {
+    if (!isAssetId(rest)) return bad("not an asset id");
+    return ok({ kind: "file", id: rest });
   }
 
   if (parsed.host === "subtitle") {
-    if (!isContentHash(rest)) return bad("not a content hash");
-    return ok({ kind: "subtitle", hash: rest });
+    if (!isAssetId(rest)) return bad("not an asset id");
+    return ok({ kind: "subtitle", id: rest });
   }
 
   if (parsed.host === "render") {
-    if (!isContentHash(rest)) return bad("not a content hash");
-    return ok({ kind: "render", hash: rest });
+    if (!isAssetId(rest)) return bad("not an asset id");
+    return ok({ kind: "render", id: rest });
   }
 
   return bad(`no such route: ${parsed.host}`);

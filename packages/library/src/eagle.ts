@@ -1,6 +1,6 @@
 import { opendir, readFile, stat } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { type ContentHash, logger, type Op, type StorageMode, toNfc } from "@roost/core";
+import { type AssetId, logger, type Op, type Take, toNfc } from "@roost/core";
 import {
   apply,
   comments as commentsOn,
@@ -170,11 +170,16 @@ export interface EagleReport {
 
 export interface EagleImportOptions {
   /**
-   * Defaults to `managed`, and that default is the point (ADR-0032 §5):
-   * referenced would leave every asset pointing into the Eagle library, so
-   * deleting it afterwards would empty Roost.
+   * Whether the Eagle library's files are moved into Roost or copied.
+   *
+   * **Copied by default**, and that default is the point: an Eagle library the
+   * person may still want to open is not something an import should empty. It
+   * is the version 2 shape of ADR-0032 §5's answer — that version had two
+   * storage modes and this one has one (RL-19), so the question is no longer
+   * *where do the bytes live* but *what happens to the file we took them from*
+   * (RL-26).
    */
-  readonly mode?: StorageMode;
+  readonly take?: Take;
   /**
    * Applied to every asset this run resolves, alongside the item's own tags.
    *
@@ -531,14 +536,14 @@ export async function importEagle(
   const started = performance.now();
   const survey = await surveyEagle(root);
   const { folders, tagGroups } = await readEagleRoot(root);
-  const mode: StorageMode = options.mode ?? "managed";
+  const take: Take = options.take ?? "copy";
   const extraTags = options.tags ?? [];
 
   log.info("importing an Eagle library", {
     root,
     version: survey.version,
     items: survey.items,
-    mode,
+    take,
   });
 
   // Folders first: an item's `folder_add` names a folder that has to exist.
@@ -574,7 +579,7 @@ export async function importEagle(
     await importChunk(
       library,
       chunk,
-      mode,
+      take,
       extraTags,
       folderIds,
       seen,
@@ -705,7 +710,7 @@ function mergeTags(own: readonly string[], extra: readonly string[]): string[] {
  */
 type Written = Map<string, { rated?: true; noted?: true; sourced?: true }>;
 
-function remember(written: Written, hash: ContentHash, field: "rated" | "noted" | "sourced"): void {
+function remember(written: Written, hash: AssetId, field: "rated" | "noted" | "sourced"): void {
   const held = written.get(hash) ?? {};
   held[field] = true;
   written.set(hash, held);
@@ -730,7 +735,7 @@ interface Counts {
 async function importChunk(
   library: Library,
   chunk: readonly EagleEntry[],
-  mode: StorageMode,
+  take: Take,
   extraTags: readonly string[],
   /** Eagle's folder ids, mapped onto this library's by {@link createFolders}. */
   folderIds: ReadonlyMap<string, number>,
@@ -741,7 +746,7 @@ async function importChunk(
   /** Called once per item whose bytes have been placed, for the progress line. */
   onItem: () => void,
 ): Promise<void> {
-  const hashes = new Map<string, ContentHash>();
+  const ids = new Map<string, AssetId>();
   const sources: string[] = [];
   /** The chunk's originals, so progress counts *items* and not files. */
   const originals = new Set<string>();
@@ -754,9 +759,9 @@ async function importChunk(
   }
 
   const report = await importInto(library, sources, {
-    mode,
-    onAsset: (path, hash) => {
-      hashes.set(path, hash);
+    take,
+    onAsset: (path, id) => {
+      ids.set(path, id);
       // A subtitle is a second file for one item (ADR-0025), so counting files
       // here would run the progress past the total the survey showed.
       if (originals.has(path)) onItem();
@@ -777,7 +782,7 @@ async function importChunk(
   const already = new Set<string>();
 
   for (const entry of chunk) {
-    const hash = entry.file === undefined ? undefined : hashes.get(entry.file);
+    const hash = entry.file === undefined ? undefined : ids.get(entry.file);
     if (hash === undefined) continue;
     if (seen.has(hash)) counts.collapsed += 1;
     seen.add(hash);
@@ -790,7 +795,7 @@ async function importChunk(
     }
     const tags = mergeTags(item.tags, extraTags);
     if (tags.length > 0) {
-      ops.push({ op: "tag_add", hash, tags });
+      ops.push({ op: "tag_add", asset: hash, tags });
       counts.tagged += 1;
     }
     for (const folder of item.folders) {
@@ -798,7 +803,7 @@ async function importChunk(
       // membership behind when a folder is deleted, and the sample library had
       // exactly that.
       const id = folderIds.get(folder);
-      if (id !== undefined) ops.push({ op: "folder_add", hash, folder: id });
+      if (id !== undefined) ops.push({ op: "folder_add", asset: hash, folder: id });
     }
     // Eagle fills what is empty and never overwrites what somebody wrote here
     // (ADR-0032 §8). The row is read once for all three, and `written` carries
@@ -811,21 +816,21 @@ async function importChunk(
 
     if (item.star !== undefined) {
       if (held?.rating === null && mine?.rated !== true) {
-        ops.push({ op: "rate", hash, rating: item.star });
+        ops.push({ op: "rate", asset: hash, rating: item.star });
         counts.ratings += 1;
         remember(written, hash, "rated");
       } else counts.preserved += 1;
     }
     if (item.note !== undefined) {
       if (held?.note === null && mine?.noted !== true) {
-        ops.push({ op: "note_set", hash, note: item.note });
+        ops.push({ op: "note_set", asset: hash, note: item.note });
         counts.notes += 1;
         remember(written, hash, "noted");
       } else counts.preserved += 1;
     }
     if (item.url !== undefined) {
       if (held?.sourceUrl === null && mine?.sourced !== true) {
-        ops.push({ op: "source_set", hash, url: item.url });
+        ops.push({ op: "source_set", asset: hash, url: item.url });
         counts.sources += 1;
         remember(written, hash, "sourced");
       } else counts.preserved += 1;
@@ -838,7 +843,13 @@ async function importChunk(
       const key = `${hash}\u0000${comment.atMs}\u0000${comment.body}`;
       if (already.has(key)) continue;
       already.add(key);
-      ops.push({ op: "comment_add", id: commentId, hash, at: comment.atMs, body: comment.body });
+      ops.push({
+        op: "comment_add",
+        id: commentId,
+        asset: hash,
+        at: comment.atMs,
+        body: comment.body,
+      });
       commentId += 1;
       counts.comments += 1;
     }
@@ -846,7 +857,7 @@ async function importChunk(
     // marks the row and keeps the rest (ADR-0022), but a reader watching the
     // journal should see the asset furnished before it is put away.
     if (item.trashed) {
-      ops.push({ op: "trash", hash });
+      ops.push({ op: "trash", asset: hash });
       counts.trashed += 1;
     }
   }

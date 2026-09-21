@@ -44,10 +44,10 @@ try {
   // The derive pass, because frame stepping is arithmetic on the probed frame
   // rate: importing alone records neither `video.fps` nor a duration.
   await generateMissing(library);
-  const hash = pageOf(library, "", { limit: 1 })[0].hash;
-  await addComment(library, hash, 5000, "the cut lands early");
-  await addComment(library, hash, 15_000, "hold two frames");
-  await addComment(library, hash, null, "the export is 8-bit");
+  const id = pageOf(library, "", { limit: 1 })[0].id;
+  await addComment(library, id, 5000, "the cut lands early");
+  await addComment(library, id, 15_000, "hold two frames");
+  await addComment(library, id, null, "the export is 8-bit");
   // A caption track on the clip the grid opens on. Written here rather than
   // taken from a fixture file so the words under test are in one place.
   const srt = join(dir, "clip.srt");
@@ -56,7 +56,7 @@ try {
     "1\n00:00:01,000 --> 00:00:08,000\nthe first line, with a comma\n\n2\n00:00:09,000 --> 00:00:18,000\nthe second line\n",
     "utf8",
   );
-  await addSubtitles(library, hash, [srt]);
+  await addSubtitles(library, id, [srt]);
 } finally {
   await library.close();
 }

@@ -638,7 +638,7 @@ try {
   await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === ASSETS);
   await clickFirstCell();
   const dragged = await cdp.evaluate(
-    "document.querySelector('.cell[aria-selected=\"true\"]')?.dataset.hash ?? null",
+    "document.querySelector('.cell[aria-selected=\"true\"]')?.dataset.id ?? null",
   );
 
   // The ghost only exists between `dragstart` and the next frame, so it is
@@ -711,7 +711,7 @@ try {
   // the one still in `Alpha`.
   const filedIn = await cdp.evaluate(
     `window.roost
-      .invoke({ type: "asset:detail", hash: ${JSON.stringify(dragged)} })
+      .invoke({ type: "asset:detail", id: ${JSON.stringify(dragged)} })
       .then((o) => o.value.folders.map((f) => f.path))`,
   );
   check(
@@ -730,7 +730,7 @@ try {
   const cells = await cdp.evaluate(`
     [...document.querySelectorAll(".cell")].slice(0, 2).map((cell) => {
       const r = cell.getBoundingClientRect();
-      return { hash: cell.dataset.hash, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      return { id: cell.dataset.id, x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
     })`);
   await cdp.mouse.click(cells[0].x, cells[0].y);
   // A real Ctrl-click, so the selection is built the way a person builds one.
@@ -746,7 +746,7 @@ try {
   // instead of a drag.
   const second = await cdp.evaluate(`
     (() => {
-      const el = document.querySelector('.cell[data-hash="${cells[1].hash}"]');
+      const el = document.querySelector('.cell[data-id="${cells[1].id}"]');
       if (el === null) return null;
       const r = el.getBoundingClientRect();
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };

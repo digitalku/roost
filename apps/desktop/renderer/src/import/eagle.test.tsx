@@ -113,7 +113,7 @@ describe("importing an Eagle library", () => {
         path: EAGLE,
         // Managed, and not by accident: referenced would leave every asset
         // pointing into the Eagle library (ADR-0032 §5).
-        mode: "managed",
+        take: "copy",
       }),
     );
     await screen.findByText(/14 from Eagle · 2 folders · 6 comments/);

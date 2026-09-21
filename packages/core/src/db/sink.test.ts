@@ -4,7 +4,7 @@ import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AddRecord } from "../journal/index.js";
-import { parseContentHash } from "../model/index.js";
+import { ID_ALPHABET, parseAssetId } from "../model/index.js";
 import { Db } from "./database.js";
 import { IndexSink } from "./sink.js";
 
@@ -12,12 +12,9 @@ function record(n: number): { ts: number; op: "add" } & AddRecord {
   return {
     ts: 1_700_000_000,
     op: "add",
-    hash: parseContentHash(n.toString(16).padStart(64, "0")),
+    id: parseAssetId(`${ID_ALPHABET[n % 32] ?? "0"}${String(n).padStart(11, "0")}`),
     ext: "png",
-    size: 1,
-    name: `asset-${n}.png`,
-    mode: "managed",
-    link: "hardlink",
+    name: `asset-${n}`,
   };
 }
 

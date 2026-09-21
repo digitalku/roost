@@ -11,7 +11,7 @@
  * a drag from the type list alone. That is why each of these is a pair.
  */
 
-/** Content hashes, as JSON. The selection, not the cell under the pointer. */
+/** Content ids, as JSON. The selection, not the cell under the pointer. */
 export const ASSET_DRAG_TYPE = "application/x-roost-assets";
 
 /** One folder id, as text. A folder is dragged alone; there is no multi-select. */
@@ -27,7 +27,7 @@ export function carriesFolder(transfer: DataTransfer | null): boolean {
 }
 
 /**
- * The hashes a drop is carrying, or none.
+ * The ids a drop is carrying, or none.
  *
  * Parsed defensively: `dataTransfer` is a channel anything on the page can
  * write to, and a payload that is not an array of strings is a drag this window
@@ -38,7 +38,7 @@ export function draggedAssets(transfer: DataTransfer | null): readonly string[] 
   try {
     const parsed: unknown = JSON.parse(transfer.getData(ASSET_DRAG_TYPE));
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((hash): hash is string => typeof hash === "string");
+    return parsed.filter((id): id is string => typeof id === "string");
   } catch {
     return [];
   }

@@ -21,12 +21,12 @@ import { Transport } from "./Transport.js";
  * (`CONCEPT.md` §5), so what Roost cannot draw gets its thumbnail, its
  * metadata, and **Open externally** rather than a dead end.
  *
- * Bytes arrive over `roost://original/<hash>`, which answers range requests —
+ * Bytes arrive over `roost://file/<id>`, which answers range requests —
  * which is what makes a `<video>` seek rather than download (ADR-0008).
  */
 
 export interface PreviewPaneProps {
-  readonly hash: string;
+  readonly id: string;
   /**
    * Bumped by the caller when something outside the pane changed the library.
    *
@@ -108,7 +108,7 @@ function mediaKey(key: string): boolean {
 }
 
 export function PreviewPane({
-  hash,
+  id,
   generation,
   hasPrevious,
   hasNext,
@@ -155,20 +155,20 @@ export function PreviewPane({
     let current = true;
     // Not cleared on a re-read of the same asset: blanking the pane on every
     // announced change would restart a video that is playing. A different
-    // asset replaces the element anyway, because `Stage` is keyed on the hash.
-    setDetail((held) => (held?.hash === hash ? held : undefined));
+    // asset replaces the element anyway, because `Stage` is keyed on the id.
+    setDetail((held) => (held?.id === id ? held : undefined));
     // Back to the first page: stepping to the next asset must not open it at
     // page forty because that is where the last document was left.
-    setPage((at) => (detailHash.current === hash ? at : 0));
-    detailHash.current = hash;
+    setPage((at) => (detailHash.current === id ? at : 0));
+    detailHash.current = id;
     void (async () => {
-      const outcome = await invoke({ type: "asset:detail", hash });
+      const outcome = await invoke({ type: "asset:detail", id });
       if (current && outcome.ok && outcome.value !== null) setDetail(outcome.value);
     })();
     return () => {
       current = false;
     };
-  }, [hash, generation]);
+  }, [id, generation]);
 
   // The pane takes focus when it opens: it is the thing the keyboard is now
   // for, and a preview that needs a click before the arrow keys work is a
@@ -299,7 +299,7 @@ export function PreviewPane({
 /**
  * What the asset renders as.
  *
- * Keyed on the hash so that stepping to the next asset replaces the element
+ * Keyed on the id so that stepping to the next asset replaces the element
  * rather than reusing it: a `<video>` given a new `src` keeps the old one's
  * playback state, and a paused frame from the previous asset is worse than a
  * blank one.
@@ -322,21 +322,19 @@ function Stage({
   readonly fitVideo: boolean;
   readonly onFitVideo: (on: boolean) => void;
 }): React.JSX.Element {
-  const original = `roost://original/${detail.hash}`;
+  const original = `roost://file/${detail.id}`;
 
   if (detail.kind === "image") {
     // A rendition where a browser cannot read the file itself — HEIC, RAW, TIFF
     // (ADR-0040 §7). Everything else is the original, which is what makes an SVG
     // stay a vector.
-    const src = detail.browserDrawable ? original : `roost://render/${detail.hash}`;
+    const src = detail.browserDrawable ? original : `roost://render/${detail.id}`;
     // An SVG renders through the same `<img>`, which is what sandboxes it:
     // scripts in an image do not run, and neither do external references.
-    // Keyed on the hash like every other kind here, which is also what puts the
+    // Keyed on the id like every other kind here, which is also what puts the
     // zoom back to the fit on the way to the next asset: a scale belongs to the
     // photograph somebody is looking at, not to the pane.
-    return (
-      <Picture key={detail.hash} detail={detail} src={src} controls={tools} ref={pictureRef} />
-    );
+    return <Picture key={detail.id} detail={detail} src={src} controls={tools} ref={pictureRef} />;
   }
 
   if (detail.kind === "video" || detail.kind === "audio") {
@@ -345,7 +343,7 @@ function Stage({
      *
      * **`browserDrawable` is an answer about an `<img>`**, and it is false for
      * every video and audio format there is — so asking it here sent a `<video>`
-     * to `roost://render/<hash>`, which answers *"no rendition for mp4"* with a
+     * to `roost://render/<id>`, which answers *"no rendition for mp4"* with a
      * 404. Every video and every sound in the library opened blank from the day
      * ADR-0040 §7 arrived (2026-09-10) until this was found on 2026-09-13. The
      * tests missed it because `fakeDetail` says `browserDrawable: true` for
@@ -354,7 +352,7 @@ function Stage({
      */
     return (
       <Player
-        key={detail.hash}
+        key={detail.id}
         detail={detail}
         src={original}
         tools={tools}
@@ -369,18 +367,12 @@ function Stage({
   // its thumbnail rather than to a pager with one page in it.
   if (detail.kind === "document" && detail.pageCount !== null && detail.pageCount > 0) {
     return (
-      <Pages
-        key={detail.hash}
-        detail={detail}
-        pages={detail.pageCount}
-        page={page}
-        onTurn={onTurn}
-      />
+      <Pages key={detail.id} detail={detail} pages={detail.pageCount} page={page} onTurn={onTurn} />
     );
   }
 
   if (detail.kind === "font") {
-    return <Specimen key={detail.hash} detail={detail} />;
+    return <Specimen key={detail.id} detail={detail} />;
   }
 
   return <Fallback detail={detail} />;
@@ -403,7 +395,7 @@ function frameRate(recorded: string | undefined): number | null {
 /**
  * A document, one page at a time (`UI_SPEC.md` §7).
  *
- * Each page is an `<img>` pointed at `roost://page/<hash>/<n>@1024`, rendered
+ * Each page is an `<img>` pointed at `roost://page/<id>/<n>@1024`, rendered
  * on demand by main and cached by Chromium — the same arrangement as a
  * thumbnail, and for the same reason: bytes do not travel through IPC
  * (invariant 12), and a library that stored a picture per page would be storing
@@ -430,7 +422,7 @@ function Pages({
     <div className="preview-pages">
       <img
         className="preview-media"
-        src={`roost://page/${detail.hash}/${shown}@1024`}
+        src={`roost://page/${detail.id}/${shown}@1024`}
         alt={`Page ${shown + 1} of ${pages}`}
       />
       <div className="preview-pager">
@@ -592,7 +584,7 @@ function Player({
     void (async () => {
       const chosen = await invoke({ type: "dialog:chooseSubtitle" });
       if (!chosen.ok || chosen.value === null || chosen.value.length === 0) return;
-      await invoke({ type: "asset:addSubtitle", hash: detail.hash, paths: chosen.value });
+      await invoke({ type: "asset:addSubtitle", id: detail.id, paths: chosen.value });
     })();
   };
 
@@ -643,7 +635,7 @@ function Player({
             onError={failed}
           >
             {tracks.map((track) => (
-              <Caption key={track.hash} track={track} />
+              <Caption key={track.id} track={track} />
             ))}
           </audio>
         ) : (
@@ -662,7 +654,7 @@ function Player({
             onError={failed}
           >
             {tracks.map((track) => (
-              <Caption key={track.hash} track={track} />
+              <Caption key={track.id} track={track} />
             ))}
           </video>
         )}
@@ -748,7 +740,7 @@ function Arrow({ back = false }: { readonly back?: boolean }): React.JSX.Element
  * turns itself on is the thing people go looking for the button to turn off.
  * The transport's CC menu is that button, and it starts at Off.
  *
- * The `src` is `roost://subtitle/<hash>` and not `roost://original/`, because
+ * The `src` is `roost://subtitle/<id>` and not `roost://file/`, because
  * what comes back is a conversion: `<track>` accepts WebVTT and nothing else,
  * and the format people have is SubRip.
  */
@@ -756,7 +748,7 @@ function Caption({ track }: { readonly track: WireSubtitle }): React.JSX.Element
   return (
     <track
       kind="subtitles"
-      src={`roost://subtitle/${track.hash}`}
+      src={`roost://subtitle/${track.id}`}
       label={track.label ?? track.lang ?? track.name}
       {...(track.lang === null ? {} : { srcLang: track.lang })}
     />
@@ -778,7 +770,7 @@ function Specimen({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
     <div className="preview-specimen">
       <img
         className="preview-media"
-        src={previewSrc(detail.hash, detail.posterMs)}
+        src={previewSrc(detail.id, detail.posterMs)}
         alt={`Specimen of ${family}`}
         onLoad={showLoaded}
         onError={fallbackToGrid}
@@ -788,7 +780,7 @@ function Specimen({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
       </p>
       <button
         type="button"
-        onClick={() => void invoke({ type: "asset:openExternally", hash: detail.hash })}
+        onClick={() => void invoke({ type: "asset:openExternally", id: detail.id })}
       >
         Open externally
       </button>
@@ -811,7 +803,7 @@ function Fallback({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
         <span className="cell-kind">{detail.ext === "" ? "file" : detail.ext}</span>
         <img
           className="cell-image"
-          src={previewSrc(detail.hash, detail.posterMs)}
+          src={previewSrc(detail.id, detail.posterMs)}
           alt=""
           decoding="async"
           onLoad={showLoaded}
@@ -822,7 +814,7 @@ function Fallback({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
       <button
         type="button"
         data-variant="primary"
-        onClick={() => void invoke({ type: "asset:openExternally", hash: detail.hash })}
+        onClick={() => void invoke({ type: "asset:openExternally", id: detail.id })}
       >
         Open externally
       </button>

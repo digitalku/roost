@@ -227,19 +227,9 @@ function toFlag(value: string, at: number): Flag {
       return "rated";
     case "unrated":
       return "unrated";
-    case "managed":
-      return "managed";
-    case "referenced":
-      return "referenced";
-    case "partial-hash":
-    case "partial":
-      return "partial-hash";
     case "trashed":
     case "trash":
       return "trashed";
-    case "superseded":
-    case "old":
-      return "superseded";
     case "subtitle":
     case "subtitles":
       return "subtitle";

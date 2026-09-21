@@ -83,7 +83,7 @@ const PER_COMMAND: Readonly<Record<Command, string>> = {
   init: `Create a new library.
 
 A library is a folder ending in .roost, the way an Eagle library ends in
-.library — one object in a file manager rather than a directory of hashes. The
+.library — one object in a file manager rather than a directory of files. The
 suffix is added if it is missing, so \`roost init ~/Photos\` and
 \`roost init ~/Photos.roost\` create the same thing. The path actually used is
 printed.
@@ -97,8 +97,9 @@ ${GLOBAL}`,
 
   import: `Import files and directories into a library.
 
-Originals are never moved, modified, or deleted. Identical bytes deduplicate
-against what the library already holds, so re-importing a folder is a no-op.
+A file is copied into the library by default and may be moved instead; the
+report says which happened. A file whose bytes the library already holds is
+skipped and counted, so re-importing a folder is a no-op.
 
 Usage: roost import <PATH>... [OPTIONS]
        roost import --from-eagle <LIBRARY> [OPTIONS]
@@ -111,8 +112,8 @@ thumbnails, colour palettes, smart folders, and its "date added" — is listed b
 
 Options:
 ${LIBRARY_FLAG}
-      --mode <MODE>      managed (copy into the library) or referenced (leave
-                         the file where it is). Default: managed
+      --take <TAKE>      copy (leave the source where it is) or move (take it
+                         out of where it was). Default: copy
       --tag <TAG>        Apply to everything imported in this run. Repeatable
       --hidden           Descend into dot-directories and import dotfiles
       --folder <PATH>    Put everything newly imported in this folder, by path
@@ -195,7 +196,7 @@ Usage: roost query <QUERY>... [OPTIONS]
 Examples:
   roost query 'tag:wood rating:>=4'
   roost query 'ext:png OR ext:jpg' --limit 20
-  roost query 'is:untagged' --hashes | xargs roost tag add --tag triage
+  roost query 'is:untagged' --ids | xargs roost tag add --tag triage
   roost query 'size:>10mb' --count
   roost query --count -- '-tag:wip'
   roost query 'tag:wood' --sort name --asc
@@ -209,7 +210,7 @@ Options:
 ${LIBRARY_FLAG}
       --limit <N>        Stop after this many results. Default: 50
       --count            Print the number of matches instead of the matches
-      --hashes           Print one hash per line, for piping into another command
+      --ids              Print one id per line, for piping into another command
       --sort <KEY>       added, created, name, size, rating, or random.
                          Default: added
       --asc              Reverse the order. Every key runs the way it is usually
@@ -221,7 +222,7 @@ ${GLOBAL}`,
 
 Usage: roost show <ASSET> [OPTIONS]
 
-<ASSET> is a full hash or an unambiguous prefix.
+<ASSET> is a full id or an unambiguous prefix.
 
 Options:
 ${LIBRARY_FLAG}
@@ -354,20 +355,17 @@ ${LIBRARY_FLAG}
       --remove <ID>      Remove a comment
 ${GLOBAL}`,
 
-  save: `Replace an asset's contents with a file's, as a new version.
+  save: `Write a file's bytes over an asset's own file.
 
 Usage: roost save <ASSET> <FILE>
-       roost save <ASSET> --clear
 
-Identity here is the content hash, so a save is not a write: the new bytes
-become a **new asset** and the old one is marked superseded, which takes it out
-of every view but \`is:superseded\`. Everything you authored travels with it —
-tags, folders, rating, note, favourite, the pinned frame, and the comments.
+Identity is an id, so a save **is** a write: the bytes under it change and it is
+the same asset afterwards, keeping its tags, folders, rating, note and comments.
+Nothing is journalled — the journal records what you said about a file, never
+what the file currently holds.
 
-Nothing is destroyed and nothing expires. An old version is still a row, and
-removing one is \`roost remove\` on it: a second, deliberate gesture.
-
-With --clear the asset stops being superseded and is current again.
+What is thrown away is only what was derived from the bytes that are gone: the
+size, the dimensions and the thumbnails. \`roost thumb\` draws them again.
 
 Refused for an asset whose bytes are your own — a referenced original lives in
 your directory, and Roost never writes there — and for one in the trash, since
@@ -424,8 +422,9 @@ ${GLOBAL}`,
 
   rename: `Change an asset's display name.
 
-The file on disk keeps its hash filename, as it always does — this changes what
-the library shows, not what is stored.
+The file on disk is named by the asset's id, so nothing there moves — this
+changes what the library shows, not what is stored. The name carries no
+extension: what a window shows is the name joined to the extension on disk.
 
 Usage: roost rename <ASSET> <NAME> [OPTIONS]
 
@@ -476,18 +475,19 @@ third: objects with no row, rows with no bytes, referenced originals that moved,
 search rows for assets that are gone, and files in journal/ that replay skips.
 
 Exits 1 when it finds damage, so a scheduled run is a check rather than a report
-nobody reads. Objects nothing references are not damage — they cost space.
+nobody reads. Files nothing references are not damage — they cost space.
 
 Usage: roost doctor [OPTIONS]
 
 Options:
 ${LIBRARY_FLAG}
-      --deep             Re-hash every object and compare it to its filename.
-                         The only check that catches silent corruption, and it
-                         reads the whole library
-      --reclaim          Delete the objects nothing references. Refused when the
-                         index and the object store disagree, because an orphan
-                         is only an orphan relative to the index — run
+      --deep             Re-hash every file and compare it to what was last
+                         derived from it. It reads the whole library, and what
+                         it finds is *changed* bytes rather than damaged ones:
+                         an edit and bit rot are indistinguishable here
+      --reclaim          Delete the files nothing references. Refused when the
+                         index and the disk disagree, because an orphan is only
+                         an orphan relative to the index — run
                          \`roost rebuild\` first
       --force            Reclaim even then, for bytes a rebuild cannot bring
                          back. The deletion is permanent

@@ -18,15 +18,15 @@ import { type TagChoice, TagField } from "./TagField.js";
  * Everything known about the selection, all of it editable.
  *
  * **The selection, not the focused asset.** Until 2026-08-30 this panel took one
- * hash and every edit sent `[detail.hash]`, so selecting five assets and adding
+ * id and every edit sent `[detail.id]`, so selecting five assets and adding
  * a tag tagged one of them — reported from real use, and invisible to any test
- * that only asked whether the tag arrived. The contract has taken `hashes` as an
+ * that only asked whether the tag arrived. The contract has taken `ids` as an
  * array since M2 and the engine has always written one journal batch for all of
  * them; the interface was the whole of the bug.
  *
  * One asset and several are **the same components** given different data, which
  * is what stops the bug coming back for one path and not the other: `Rating`,
- * the favourite button, and `TagEditor` all take a list of hashes and never
+ * the favourite button, and `TagEditor` all take a list of ids and never
  * learn how long it is.
  *
  * **Every edit reads the record back** rather than trusting what it sent. That
@@ -61,7 +61,7 @@ export interface InspectorProps {
    * — it is what the read effect depends on, and a fresh array per render would
    * re-read the library on every keystroke elsewhere in the window.
    */
-  readonly hashes: readonly string[];
+  readonly ids: readonly string[];
   /** Bumped by the caller when something outside the inspector changed. */
   readonly generation: number;
   /**
@@ -90,7 +90,7 @@ export interface InspectorProps {
    * until the view was left and come back to. Optional because the panel works
    * without a grid behind it, which is what every test of it renders.
    */
-  readonly onRenamed?: (hash: string, name: string) => void;
+  readonly onRenamed?: (id: string, name: string) => void;
   /**
    * Show what this query selects, replacing what is on screen.
    *
@@ -102,7 +102,7 @@ export interface InspectorProps {
 }
 
 export function Inspector({
-  hashes,
+  ids,
   generation,
   vocabulary,
   folders,
@@ -125,10 +125,10 @@ export function Inspector({
   const read = useCallback(async () => {
     const ticket = latest.current + 1;
     latest.current = ticket;
-    const only = hashes.length === 1 ? hashes[0] : undefined;
+    const only = ids.length === 1 ? ids[0] : undefined;
 
     if (only !== undefined) {
-      const outcome = await invoke({ type: "asset:detail", hash: only });
+      const outcome = await invoke({ type: "asset:detail", id: only });
       if (latest.current !== ticket) return;
       setSummary(undefined);
       // A selection can outlive the asset it points at; `null` is the answer to
@@ -138,7 +138,7 @@ export function Inspector({
     }
 
     setDetail(undefined);
-    if (hashes.length === 0) {
+    if (ids.length === 0) {
       setSummary(undefined);
       return;
     }
@@ -146,10 +146,10 @@ export function Inspector({
     // One request for the whole selection rather than a detail each: a
     // selection is routinely hundreds of rows, and what this draws is a summary
     // of them.
-    const outcome = await invoke({ type: "asset:summary", hashes });
+    const outcome = await invoke({ type: "asset:summary", ids });
     if (latest.current !== ticket) return;
     setSummary(outcome.ok ? outcome.value : undefined);
-  }, [hashes]);
+  }, [ids]);
 
   /*
    * `generation` is a trigger, not a value the body reads: something outside
@@ -160,7 +160,7 @@ export function Inspector({
     void read();
   }, [read, generation]);
 
-  if (hashes.length === 0) {
+  if (ids.length === 0) {
     return (
       <aside className="inspector" aria-label="Inspector">
         <div className="inspector-empty">
@@ -174,7 +174,7 @@ export function Inspector({
   if (summary !== undefined) {
     return (
       <Selection
-        hashes={hashes}
+        ids={ids}
         summary={summary}
         vocabulary={vocabulary}
         folders={folders}
@@ -202,7 +202,7 @@ export function Inspector({
         <span className="cell-kind">{detail.ext === "" ? "file" : detail.ext}</span>
         <img
           className="cell-image"
-          src={previewSrc(detail.hash, detail.posterMs)}
+          src={previewSrc(detail.id, detail.posterMs)}
           alt=""
           decoding="async"
           draggable={false}
@@ -213,10 +213,10 @@ export function Inspector({
 
       <NameField detail={detail} onRenamed={onRenamed} onSaved={read} />
 
-      <Rating value={detail.rating} mixed={false} hashes={hashes} onSaved={read} />
+      <Rating value={detail.rating} mixed={false} ids={ids} onSaved={read} />
 
       <TagEditor
-        hashes={hashes}
+        ids={ids}
         shared={detail.tags}
         partial={NO_TAGS}
         vocabulary={vocabulary}
@@ -224,7 +224,7 @@ export function Inspector({
         onSaved={read}
       />
       <FolderEditor
-        hashes={hashes}
+        ids={ids}
         shared={detail.folders}
         partial={NO_FOLDERS}
         tree={folders}
@@ -233,17 +233,17 @@ export function Inspector({
       />
       <NoteField detail={detail} onSaved={read} />
       <SourceField detail={detail} onSaved={read} />
-      {/* Keyed on the hash so a half-typed comment does not follow the
+      {/* Keyed on the id so a half-typed comment does not follow the
           selection onto the next asset: the drafts here belong to the asset
           they were started on, and React would otherwise keep them across a
           change of `detail`. */}
-      <Comments key={detail.hash} detail={detail} onSaved={read} />
+      <Comments key={detail.id} detail={detail} onSaved={read} />
       <Subtitles detail={detail} onSaved={read} />
       <Metadata detail={detail} />
 
       <button
         type="button"
-        onClick={() => void invoke({ type: "asset:openExternally", hash: detail.hash })}
+        onClick={() => void invoke({ type: "asset:openExternally", id: detail.id })}
       >
         Open externally
       </button>
@@ -287,7 +287,7 @@ function Subtitles({
     <section className="subtitles" aria-label="Subtitles">
       <ul className="subtitle-list">
         {detail.subtitles.map((track) => (
-          <li key={track.hash} className="subtitle">
+          <li key={track.id} className="subtitle">
             <span className="subtitle-line">
               <span className="subtitle-name" title={track.name}>
                 {track.label ?? track.name}
@@ -298,14 +298,14 @@ function Subtitles({
               <button
                 type="button"
                 title="Open in the application that owns it"
-                onClick={() => void invoke({ type: "asset:openExternally", hash: track.hash })}
+                onClick={() => void invoke({ type: "asset:openExternally", id: track.id })}
               >
                 Open
               </button>
               <button
                 type="button"
                 title="Show the file where it lives"
-                onClick={() => void invoke({ type: "asset:reveal", hash: track.hash })}
+                onClick={() => void invoke({ type: "asset:reveal", id: track.id })}
               >
                 Show in file manager
               </button>
@@ -320,8 +320,8 @@ function Subtitles({
                   void (async () => {
                     await invoke({
                       type: "asset:subtitleDelete",
-                      hash: detail.hash,
-                      track: track.hash,
+                      id: detail.id,
+                      track: track.id,
                     });
                     onSaved();
                   })();
@@ -358,7 +358,7 @@ function extensionOf(detail: WireAssetDetail): string {
 
 /**
  * The display name, and the panel's heading (`UI_SPEC.md` §3.10). The file on
- * disk keeps its hash filename (invariant 3).
+ * disk keeps its id filename (invariant 3).
  *
  * **The extension is not in the field.** `ext` is decided once, at import, from
  * the file that arrived, and `asset_rename` has never touched it — so typing
@@ -390,7 +390,7 @@ function NameField({
   onSaved,
 }: {
   readonly detail: WireAssetDetail;
-  readonly onRenamed: ((hash: string, name: string) => void) | undefined;
+  readonly onRenamed: ((id: string, name: string) => void) | undefined;
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
   const extension = extensionOf(detail);
@@ -432,11 +432,11 @@ function NameField({
     // sent and `useStoredValue` adopts what the library actually stored, which
     // is how a typed trailing space disappears from the field.
     saved.current = draft;
-    void invoke({ type: "asset:rename", hash: detail.hash, name }).then((outcome) => {
+    void invoke({ type: "asset:rename", id: detail.id, name }).then((outcome) => {
       // The name that was sent, and `cleanName` only trims — which this has
       // already done. Told after the engine confirms, never before: a cell
       // showing a name the write then refused is worse than a stale one.
-      if (outcome.ok) onRenamed?.(detail.hash, name);
+      if (outcome.ok) onRenamed?.(detail.id, name);
       return onSaved();
     });
   };
@@ -476,13 +476,13 @@ function NameField({
 function Rating({
   value,
   mixed,
-  hashes,
+  ids,
   onSaved,
 }: {
   readonly value: number | null;
   /** The selection disagrees. Distinct from `null`, which is "none is rated". */
   readonly mixed: boolean;
-  readonly hashes: readonly string[];
+  readonly ids: readonly string[];
   readonly onSaved: () => Promise<void>;
 }): React.JSX.Element {
   return (
@@ -501,7 +501,7 @@ function Rating({
             // always sets.
             void invoke({
               type: "asset:rate",
-              hashes,
+              ids,
               rating: !mixed && value === star ? null : star,
             }).then(onSaved);
           }}
@@ -527,14 +527,14 @@ function Rating({
  * second gesture to learn.
  */
 function TagEditor({
-  hashes,
+  ids,
   shared,
   partial,
   vocabulary,
   onPick,
   onSaved,
 }: {
-  readonly hashes: readonly string[];
+  readonly ids: readonly string[];
   readonly shared: readonly string[];
   readonly partial: readonly string[];
   readonly vocabulary: readonly TagChoice[];
@@ -561,11 +561,11 @@ function TagEditor({
   );
 
   const add = (tag: string): void => {
-    void invoke({ type: "asset:tagAdd", hashes, tags: [tag] }).then(onSaved);
+    void invoke({ type: "asset:tagAdd", ids, tags: [tag] }).then(onSaved);
   };
 
   const remove = (tag: string): void => {
-    void invoke({ type: "asset:tagRemove", hashes, tags: [tag] }).then(onSaved);
+    void invoke({ type: "asset:tagRemove", ids, tags: [tag] }).then(onSaved);
   };
 
   /**
@@ -591,7 +591,7 @@ function TagEditor({
           <li className="tag" {...(only ? { "data-partial": "" } : {})}>
             <span
               {...(only
-                ? { title: `Only some of the ${hashes.length} selected assets carry this` }
+                ? { title: `Only some of the ${ids.length} selected assets carry this` }
                 : {})}
             >
               {tag}
@@ -661,14 +661,14 @@ function TagEditor({
  * button is an `×` like a tag's rather than a word like `Delete`.
  */
 function FolderEditor({
-  hashes,
+  ids,
   shared,
   partial,
   tree,
   onPick,
   onSaved,
 }: {
-  readonly hashes: readonly string[];
+  readonly ids: readonly string[];
   readonly shared: readonly WireFolderRef[];
   readonly partial: readonly WireFolderRef[];
   readonly tree: readonly SidebarFolderRow[];
@@ -685,11 +685,11 @@ function FolderEditor({
   const queries = useMemo(() => new Map(tree.map((row) => [row.folder, row.query])), [tree]);
 
   const add = (folder: number): void => {
-    void invoke({ type: "asset:folderAdd", hashes, folder }).then(onSaved);
+    void invoke({ type: "asset:folderAdd", ids, folder }).then(onSaved);
   };
 
   const remove = (folder: number): void => {
-    void invoke({ type: "asset:folderRemove", hashes, folder }).then(onSaved);
+    void invoke({ type: "asset:folderRemove", ids, folder }).then(onSaved);
   };
 
   /**
@@ -712,7 +712,7 @@ function FolderEditor({
           disabled={query === undefined}
           title={
             only
-              ? `Only some of the ${hashes.length} selected assets are in ${folder.path}`
+              ? `Only some of the ${ids.length} selected assets are in ${folder.path}`
               : folder.path
           }
           onClick={() => {
@@ -754,14 +754,14 @@ function FolderEditor({
  * all of them is the misreading this whole change exists to correct.
  */
 function Selection({
-  hashes,
+  ids,
   summary,
   vocabulary,
   folders,
   onPick,
   onSaved,
 }: {
-  readonly hashes: readonly string[];
+  readonly ids: readonly string[];
   readonly summary: WireSelectionSummary;
   readonly vocabulary: readonly TagChoice[];
   readonly folders: readonly SidebarFolderRow[];
@@ -772,15 +772,10 @@ function Selection({
     <aside className="inspector" aria-label="Inspector">
       <h2 className="inspector-count">{counted(summary.count)} assets</h2>
 
-      <Rating
-        value={summary.rating}
-        mixed={summary.ratingMixed}
-        hashes={hashes}
-        onSaved={onSaved}
-      />
+      <Rating value={summary.rating} mixed={summary.ratingMixed} ids={ids} onSaved={onSaved} />
 
       <TagEditor
-        hashes={hashes}
+        ids={ids}
         shared={summary.sharedTags}
         partial={summary.partialTags}
         vocabulary={vocabulary}
@@ -789,7 +784,7 @@ function Selection({
       />
 
       <FolderEditor
-        hashes={hashes}
+        ids={ids}
         shared={summary.sharedFolders}
         partial={summary.partialFolders}
         tree={folders}
@@ -834,10 +829,10 @@ function NoteField({
     saved.current = draft;
     void invoke({
       type: "asset:note",
-      hash: detail.hash,
+      id: detail.id,
       note: draft.trim() === "" ? null : draft,
     }).then(onSaved);
-  }, [draft, detail.hash, onSaved]);
+  }, [draft, detail.id, onSaved]);
 
   useEffect(() => {
     const timer = setTimeout(save, NOTE_IDLE_MS);
@@ -891,10 +886,10 @@ function SourceField({
     saved.current = draft;
     void invoke({
       type: "asset:source",
-      hash: detail.hash,
+      id: detail.id,
       url: draft.trim() === "" ? null : draft,
     }).then(onSaved);
-  }, [draft, detail.hash, onSaved]);
+  }, [draft, detail.id, onSaved]);
 
   useEffect(() => {
     const timer = setTimeout(save, NOTE_IDLE_MS);
@@ -986,7 +981,10 @@ function useStoredValue(
 function Metadata({ detail }: { readonly detail: WireAssetDetail }): React.JSX.Element {
   const rows: readonly (readonly [string, string])[] = [
     ["Kind", detail.ext === "" ? "unknown" : detail.ext.toUpperCase()],
-    ["Size", bytes(detail.size)],
+    // Every derived field reads "not read yet" rather than a zero: in version
+    // 2 a size is a fact about bytes nothing has looked at until something has
+    // (RL-22), and "0 bytes" would be a measurement nobody took.
+    ["Size", detail.size === null ? "not read yet" : bytes(detail.size)],
     // A font's stored size is its specimen sheet's, kept so the grid can lay the
     // cell out. It is not a fact about the typeface, so it is not shown here.
     ...(detail.width === null || detail.height === null || detail.kind === "font"
@@ -998,13 +996,12 @@ function Metadata({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
     // rather than the map's, so a font always reads family-then-style and two
     // assets of the same kind line up.
     ...propertyRows(detail.props),
-    ["Storage", detail.storageMode],
-    ...(detail.refPath === null ? [] : ([["Path", detail.refPath]] as const)),
+
     ["Imported", when(detail.importedAt)],
     ...(detail.createdAt === null ? [] : ([["Created", when(detail.createdAt)]] as const)),
-    // The hash last, and in full: it is the asset's identity (invariant 1) and
+    // The id last, and in full: it is the asset's identity (invariant 1) and
     // the thing a bug report needs, but it is not what anyone reads first.
-    ["Hash", detail.hash],
+    ["Id", detail.id],
   ];
 
   return (

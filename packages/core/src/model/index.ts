@@ -1,14 +1,19 @@
 export {
-  type ContentHash,
-  isContentHash,
-  parseContentHash,
+  type AssetId,
+  ID_ALPHABET,
+  ID_LENGTH,
+  isAssetId,
+  mintAssetId,
+  parseAssetId,
   shardOf,
-} from "./content-hash.js";
+} from "./asset-id.js";
+export { type ContentHash, isContentHash, parseContentHash } from "./content-hash.js";
 export {
   ERROR_CODES,
   type ErrorCode,
   type ErrorDetail,
   fromWire,
+  InvalidAssetIdError,
   InvalidContentHashError,
   InvalidTimestampError,
   IoError,
@@ -44,11 +49,11 @@ export {
   type SortKey,
 } from "./sort.js";
 export {
-  isLinkMethod,
-  isStorageMode,
-  LINK_METHODS,
-  type LinkMethod,
-  STORAGE_MODES,
-  type StorageMode,
-} from "./storage.js";
+  isPlacement,
+  isTake,
+  PLACEMENTS,
+  type Placement,
+  TAKES,
+  type Take,
+} from "./take.js";
 export { toNfc } from "./text.js";

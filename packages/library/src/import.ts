@@ -1,19 +1,22 @@
-import { open, realpath, stat } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { stat } from "node:fs/promises";
+import { basename, extname } from "node:path";
 import {
   type AddRecord,
+  type AssetId,
   type ContentHash,
+  type DerivedMetadata,
   IndexSink,
   type JournalRecord,
   logger,
+  mintAssetId,
   type Storage,
-  type StorageMode,
+  type Take,
   toNfc,
 } from "@roost/core";
 import { hashFile, probe } from "@roost/media";
 import { mapWithConcurrency } from "./concurrency.js";
 import { discover } from "./discover.js";
-import { PartialHashCollisionError, UnknownFolderError } from "./error.js";
+import { UnknownFolderError } from "./error.js";
 import { enqueueDerives } from "./jobs.js";
 import type { Library } from "./library.js";
 import { nowUnix } from "./library.js";
@@ -23,12 +26,19 @@ import { attachSiblings, isSubtitlePath } from "./subtitles.js";
  * The import pipeline.
  *
  * ```text
- * discover → hash → dedupe → place → probe → journal → index
+ * discover → hash → duplicate check → mint → place → probe → journal → index
  * ```
  *
  * The ordering of the last two is not negotiable: the journal is appended and
  * flushed **before** the index is touched. A row in `index.db` with no journal
  * line is silent data loss on the next rebuild (invariant 9).
+ *
+ * **What version 2 moved.** An asset's identity is now an id minted here
+ * (RL-13), not the hash of its bytes, so placing a file can no longer be
+ * idempotent by construction and deduplication is a *decision* rather than a
+ * consequence. The hash is still taken — it is what the duplicate check reads —
+ * but as derived data (RL-18), written into the index beside the size and the
+ * modification time rather than into the journal (RL-23).
  */
 
 const log = logger("import");
@@ -46,7 +56,7 @@ const BATCH_SIZE = 500;
  *
  * The count is unbounded and the list is not: re-importing a directory of a
  * hundred thousand files is the ordinary way to produce a hundred thousand
- * duplicates, and no dialog reads them out. The full set of *hashes* is kept
+ * duplicates, and no dialog reads them out. The full set of *ids* is kept
  * (ADR-0037 §3.1) — it is what the folder is filled from — but the names are
  * only ever a preview.
  */
@@ -70,16 +80,20 @@ const DUPLICATE_PREVIEW = 200;
  */
 const CONCURRENCY = 8;
 
-/**
- * Read size when comparing two files that share a partial hash.
- *
- * Matches the hasher's own buffer, since both are sequential reads of a file
- * large enough to have been partially hashed in the first place.
- */
-const COMPARE_BUFFER_BYTES = 256 * 1024;
-
 export interface ImportOptions {
-  readonly mode?: StorageMode;
+  /**
+   * What happens to the source file: moved into the library, or copied and
+   * left where it was (RL-26).
+   *
+   * `copy` by default, because an import somebody typed is not a request to
+   * rearrange their disk. A watched root decides this once when it is
+   * registered and defaults the other way, for the opposite reason: an inbox is
+   * not a place to leave things.
+   *
+   * Whichever happens, the report says so — RL-26 requires the person be told,
+   * and a move is not undoable by looking at the library afterwards.
+   */
+  readonly take?: Take;
   /** Applied to everything imported in this run. */
   readonly tags?: readonly string[];
   /** Whether to descend into dot-directories and import dotfiles. */
@@ -102,7 +116,7 @@ export interface ImportOptions {
    */
   readonly folder?: number;
   /**
-   * Called with the content hash of each file that resolved, new or already
+   * Called with the id of the asset each file resolved to, new or already
    * present.
    *
    * The Eagle importer is what needs it (ADR-0032 §3): an item's tags have to
@@ -113,7 +127,7 @@ export interface ImportOptions {
    * It fires *before* the batch is committed, so the row does not exist yet.
    * Collect here; act after {@link importInto} returns.
    */
-  readonly onAsset?: (path: string, hash: ContentHash) => void;
+  readonly onAsset?: (path: string, id: AssetId) => void;
 }
 
 /**
@@ -150,23 +164,27 @@ export interface ImportReport {
   scanned: number;
   imported: number;
   /**
-   * Files already in the library. Deduplication is structural — identical bytes
-   * have one address — so this is the ordinary outcome of re-importing.
+   * How many source files were moved, and how many were copied.
+   *
+   * Both counted rather than one implied from the other, because a run can
+   * legitimately do both: a move across filesystems falls back to a copy and an
+   * unlink, and a file that could not be unlinked afterwards is still a copy
+   * from the person's point of view. RL-26 asks that they be told which
+   * happened, and a number is how.
+   */
+  moved: number;
+  copied: number;
+  /**
+   * Files whose bytes the library already holds.
+   *
+   * **A decision rather than a consequence, in version 2.** Identity is an id
+   * now, so nothing stops two assets holding identical bytes; what this build
+   * does at import is skip the file and report it, because re-importing a
+   * directory is the ordinary way to produce these and nobody means to double
+   * their library by doing it. The format takes no view — a hash is derived
+   * data and deduplication is an application's business (RL-18).
    */
   duplicates: number;
-  /**
-   * Duplicates decided by a partial hash whose bytes could not be reached to
-   * confirm: a referenced original that has moved, or an import running in
-   * referenced mode, where there is no object store to compare against. These
-   * are *probable* rather than certain, and counted separately so the number is
-   * visible instead of implied.
-   */
-  partialDuplicates: number;
-  /**
-   * Files refused because their partial hash matched an existing asset but
-   * their bytes did not.
-   */
-  partialCollisions: number;
   bytes: number;
   /**
    * Subtitles attached to the file they were found beside (ADR-0025 §3).
@@ -185,12 +203,12 @@ export interface ImportReport {
   subtitlesUnattached: number;
   readonly failed: ImportFailure[];
   /**
-   * Every asset this run found already here, in walk order (ADR-0037 §3.1).
+   * The asset each duplicate resolved to, in walk order (ADR-0037 §3.1).
    *
-   * Hashes rather than paths, because what they are *for* is a `folder_add`.
-   * The list is the run's, and lives as long as the report does.
+   * Ids rather than paths, because what they are *for* is a `folder_add`. The
+   * list is the run's, and lives as long as the report does.
    */
-  readonly duplicateHashes: ContentHash[];
+  readonly duplicateIds: AssetId[];
   /**
    * The first {@link DUPLICATE_PREVIEW} of them by name, for a dialog to draw.
    *
@@ -214,14 +232,14 @@ function emptyReport(): ImportReport {
     },
     scanned: 0,
     imported: 0,
+    moved: 0,
+    copied: 0,
     duplicates: 0,
-    partialDuplicates: 0,
-    partialCollisions: 0,
     bytes: 0,
     subtitles: 0,
     subtitlesUnattached: 0,
     failed: [],
-    duplicateHashes: [],
+    duplicateIds: [],
     duplicateNames: [],
   };
 }
@@ -245,10 +263,9 @@ export async function importInto(
 ): Promise<ImportReport> {
   const started = performance.now();
   const report = emptyReport();
-  const mode: StorageMode = options.mode ?? "managed";
-  const storage = library.storageFor(mode);
+  const storage = library.storage;
   const run: Run = {
-    mode,
+    take: options.take ?? "copy",
     tags: options.tags ?? [],
     folder: options.folder,
     onAsset: options.onAsset,
@@ -261,27 +278,34 @@ export async function importInto(
     throw new UnknownFolderError(run.folder);
   }
 
-  let batch: JournalRecord[] = [];
+  let batch: Ingested[] = [];
   /**
    * The subtitles this run brought in, paired with their source paths.
    *
-   * Only subtitles: the media file beside one is found by hashing it
+   * Only subtitles: the media file beside one is found by looking it up
    * afterwards rather than by remembering every video the walk passed
    * (`subtitles.ts`), so this list is as long as the number of `.srt` files and
    * not as long as the library.
    */
-  const tracks: { path: string; hash: ContentHash }[] = [];
+  const tracks: { path: string; id: AssetId }[] = [];
 
   /**
-   * Hashes journalled in the current batch but not yet visible to a reader.
+   * Files hashed in this batch but not yet visible to a reader.
    *
-   * Without this, two identical files in one batch both look new and the second
-   * silently overwrites the first's row instead of deduplicating. The source
-   * path travels with the hash so that a partial-hash duplicate against a file
-   * from this same batch can still be compared in full — the original is never
-   * moved, so its path stays readable.
+   * Without this, two identical files in one batch both look new and the
+   * library gains two assets from one gesture. The id travels with the hash so
+   * that the second copy reports the same duplicate the first one became.
    */
-  const pending = new Map<string, string>();
+  const pending = new Map<ContentHash, AssetId>();
+
+  /**
+   * Ids minted in this batch, for RL-15.
+   *
+   * An id is checked against the library before it is written, and rows for
+   * this batch do not exist yet — so the check has to see what has been minted
+   * since the last commit as well.
+   */
+  const minted = new Set<AssetId>();
 
   const walker = discover(sources, library.root, options.includeHidden ?? false);
   for (;;) {
@@ -302,7 +326,7 @@ export async function importInto(
 
     const ingested = await mapWithConcurrency(window, CONCURRENCY, async (path) => {
       try {
-        return await ingest(library, storage, path, run, pending, report);
+        return await ingest(library, storage, path, run, pending, minted, report);
       } catch (error) {
         // One file that cannot be read must not end an import of ten thousand.
         report.failed.push({
@@ -319,13 +343,14 @@ export async function importInto(
     // log, and two runs over one directory should produce the same file.
     for (const result of ingested) {
       if (result === undefined) continue;
-      batch.push(...result.records);
-      if (isSubtitlePath(result.path)) tracks.push({ path: result.path, hash: result.hash });
+      batch.push(result);
+      if (isSubtitlePath(result.path)) tracks.push({ path: result.path, id: result.id });
     }
 
     await commit(library, batch, report.timings);
     batch = [];
     pending.clear();
+    minted.clear();
   }
 
   // After every batch is committed, because attaching is itself a journal
@@ -340,8 +365,9 @@ export async function importInto(
   log.info("import complete", {
     scanned: report.scanned,
     imported: report.imported,
+    moved: report.moved,
+    copied: report.copied,
     duplicates: report.duplicates,
-    partialDuplicates: report.partialDuplicates,
     failed: report.failed.length,
     bytes: report.bytes,
     ms: Math.round(report.elapsed),
@@ -362,62 +388,57 @@ export async function importInto(
  * are resolved when the run starts, and `ingest` is called once per file.
  */
 interface Run {
-  readonly mode: StorageMode;
+  readonly take: Take;
   readonly tags: readonly string[];
   readonly folder: number | undefined;
-  readonly onAsset: ((path: string, hash: ContentHash) => void) | undefined;
+  readonly onAsset: ((path: string, id: AssetId) => void) | undefined;
 }
 
-/** Who, if anyone, already holds an incoming file's hash. */
-type Claim =
-  /** Nothing in the library has this hash. */
-  | { readonly kind: "free" }
-  /** Something has it, and its bytes are readable at this path. */
-  | { readonly kind: "held"; readonly path: string }
-  /**
-   * Something has it, but its bytes cannot be reached from here — a referenced
-   * original, which lives outside the object store.
-   */
-  | { readonly kind: "out-of-reach" };
+/**
+ * One file's worth of work, waiting to be committed.
+ *
+ * The records and the derived data travel together because they are written in
+ * one transaction: the journal line says an asset exists, and what the file
+ * measured is a fact about the bytes that nothing journals (RL-23).
+ */
+interface Ingested {
+  readonly id: AssetId;
+  readonly path: string;
+  readonly records: readonly JournalRecord[];
+  readonly derived: DerivedMetadata;
+}
 
 /**
- * Hashes, deduplicates, places, and probes one file, returning the records it
- * owes the journal. `undefined` when the asset is already present.
+ * Hashes, checks for a duplicate, mints an id, places the file, and probes it,
+ * returning the work the commit owes. `undefined` when the library already
+ * holds these bytes.
  */
 async function ingest(
   library: Library,
   storage: Storage,
   path: string,
   run: Run,
-  pending: Map<string, string>,
+  pending: Map<ContentHash, AssetId>,
+  minted: Set<AssetId>,
   report: ImportReport,
-): Promise<{ hash: ContentHash; path: string; records: JournalRecord[] } | undefined> {
-  const { mode, tags, onAsset } = run;
+): Promise<Ingested | undefined> {
+  const { tags, onAsset } = run;
   const hashStarted = performance.now();
   const hashed = await hashFile(path);
   report.timings.hashing += performance.now() - hashStarted;
 
   const dedupeStarted = performance.now();
-  const claim = resolveClaim(library, hashed.hash, pending);
-  // Claimed **synchronously**, in the same turn as the lookup that found it
-  // free. JavaScript cannot interleave without an `await`, so this is the
-  // atomic compare-and-set the concurrent walk needs: two identical files in
-  // flight at once would otherwise both look new, and the second would silently
-  // overwrite the first's row instead of deduplicating.
-  if (claim.kind === "free") pending.set(hashed.hash, path);
+  const existing = pending.get(hashed.hash) ?? library.db.repo.assetsWithHash(hashed.hash)[0];
   report.timings.dedupe += performance.now() - dedupeStarted;
 
-  if (claim.kind !== "free") {
-    // Throws on a partial-hash collision, which is why the hook comes after:
-    // a refused file is not this path's asset.
-    await recordDuplicate(claim, path, hashed.isPartial, report);
-    // After `recordDuplicate`, never before it: a partial-hash collision is a
-    // refusal, not a duplicate, and it leaves by throwing.
-    report.duplicateHashes.push(hashed.hash);
+  if (existing !== undefined) {
+    report.duplicates += 1;
+    report.duplicateIds.push(existing);
     if (report.duplicateNames.length < DUPLICATE_PREVIEW) {
       report.duplicateNames.push(basename(path));
     }
-    onAsset?.(path, hashed.hash);
+    onAsset?.(path, existing);
+
     // Importing a file the library has already trashed brings it back.
     // Otherwise the import would report a duplicate and the asset would stay
     // invisible, which reads as the import having silently done nothing — and
@@ -425,218 +446,151 @@ async function ingest(
     // user wants it. `add` is not journalled again: nothing about the asset
     // changed, and re-adding would rewrite `imported_at` and move it to the
     // top of a grid it has been in for months (ADR-0022).
-    // A number, not merely "not null": `trashedAt` answers `undefined` for a
-    // hash with no row, which is what an in-batch duplicate looks like — the
+    //
+    // A number, not merely "not null": `trashedAt` answers `undefined` for an
+    // id with no row, which is what an in-batch duplicate looks like — the
     // first copy is journalled but not yet indexed. Restoring that would write
     // a journal line for an asset nothing has added.
-    if (typeof library.db.repo.trashedAt(hashed.hash) === "number") {
+    if (typeof library.db.repo.trashedAt(existing) === "number") {
       const ts = nowUnix();
-      return { hash: hashed.hash, path, records: [{ ts, op: "restore", hash: hashed.hash }] };
+      return {
+        id: existing,
+        path,
+        records: [{ ts, op: "restore", asset: existing }],
+        derived: {},
+      };
     }
     return undefined;
   }
 
-  // `extname` gives the **last** component with its dot; the spec stores it
-  // lowercased and without one. So `b.tar.gz` is `<hash>.gz`, and a file with
-  // no extension is a bare `<hash>` with no trailing dot. Getting this wrong
-  // puts one asset at two addresses across the two implementations, and the
-  // object store cannot catch it — storage is handed the extension, it does not
-  // choose it.
+  // RL-15: minted against the library *and* against this batch, because the
+  // rows for it do not exist yet. Claimed synchronously, in the same turn as
+  // the check — JavaScript cannot interleave without an `await`, which is what
+  // makes this the atomic compare-and-set a concurrent walk needs.
+  const id = mintAssetId(
+    (candidate) => minted.has(candidate) || library.db.repo.hasAsset(candidate),
+  );
+  minted.add(id);
+  pending.set(hashed.hash, id);
+
+  // `extname` gives the **last** component with its dot; the format stores it
+  // lowercased and without one (RL-9). So `b.tar.gz` is `<id>.gz`, and a file
+  // with no extension is a bare `<id>` with **no trailing dot** (RL-9a).
   const ext = extname(path).replace(/^\./, "").toLowerCase();
 
   const placeStarted = performance.now();
-  const placed = await storage.put(path, hashed.hash, ext);
+  const placed = await storage.put(path, id, ext, run.take);
   report.timings.placing += performance.now() - placeStarted;
+  if (placed.take === "move") report.moved += 1;
+  else report.copied += 1;
 
   // Dimensions come from the header, not from decoding pixels, so this is cheap
-  // enough to run on every file. They go in the journal rather than being
-  // re-derived: a referenced asset's file may be gone by rebuild time.
+  // enough to run on every file — and it is what lets the grid lay a cell out
+  // before any thumbnail exists. They are **derived** (RL-22): they go into the
+  // index beside the hash, never into the journal, because the next save of
+  // this file may change them.
   const probeStarted = performance.now();
-  const probed = await probe(path).catch(() => undefined);
+  const probed = await probe(placed.path).catch(() => undefined);
   report.timings.probing += performance.now() - probeStarted;
 
+  // The stored file's own modification time, not the source's: it is half of
+  // what a later sweep compares to decide whether the bytes have changed since,
+  // and a copy does not carry the original's date over.
+  const stored = await stat(placed.path).catch(() => undefined);
+
+  const derived: DerivedMetadata = {
+    size: hashed.size,
+    contentHash: hashed.hash,
+    ...(stored === undefined ? {} : { mtime: Math.floor(stored.mtimeMs / 1000) }),
+    ...(probed?.width === undefined ? {} : { width: probed.width }),
+    ...(probed?.height === undefined ? {} : { height: probed.height }),
+  };
+
+  // The source file's own date, which nothing can recover once it is here: the
+  // stored file's date becomes the date of the last edit the moment anybody
+  // saves it. This is the one fact about a file that the journal carries.
   const created = await stat(path)
     .then((info) => Math.floor(info.mtimeMs / 1000))
     .catch(() => undefined);
 
   const add: Record<string, unknown> = {
-    hash: hashed.hash,
+    id,
     ext,
-    size: hashed.size,
-    // NFC, because the filesystem hands out whichever encoding it stored and
-    // macOS stores a different one (RL-36). The journal is the durable copy, so
-    // it is the one that has to be stable.
-    name: toNfc(basename(path)),
-    mode,
+    // The display name: the filename **without** its extension (RL-33), in NFC
+    // because the filesystem hands out whichever encoding it stored and macOS
+    // stores a different one (RL-49). The journal is the durable copy, so it is
+    // the one that has to be stable.
+    name: toNfc(nameOf(path, ext)),
   };
   // Built field by field rather than by spreading: an object carrying
   // `undefined` serialises differently from one missing the key, and the
   // journal's format turns on exactly that difference (`op.ts`).
-  if (placed.linkMethod !== undefined) add["link"] = placed.linkMethod;
-  if (probed?.width !== undefined) add["w"] = probed.width;
-  if (probed?.height !== undefined) add["h"] = probed.height;
   if (created !== undefined) add["created"] = created;
-  if (mode === "referenced") {
-    add["ref"] = await realpath(path).catch(() => resolve(path));
-  }
-  if (hashed.isPartial) add["partial"] = true;
 
   const ts = nowUnix();
   const records: JournalRecord[] = [{ ts, op: "add", ...(add as unknown as AddRecord) }];
-  if (tags.length > 0) records.push({ ts, op: "tag_add", hash: hashed.hash, tags: [...tags] });
+  if (tags.length > 0) records.push({ ts, op: "tag_add", asset: id, tags: [...tags] });
   // In the same batch as the `add`, so a crash between them is not a file in
   // the library that nobody put anywhere (invariant 9).
   if (run.folder !== undefined) {
-    records.push({ ts, op: "folder_add", hash: hashed.hash, folder: run.folder });
+    records.push({ ts, op: "folder_add", asset: id, folder: run.folder });
   }
 
   report.imported += 1;
   report.bytes += hashed.size;
-  onAsset?.(path, hashed.hash);
-  return { hash: hashed.hash, path, records };
+  onAsset?.(path, id);
+  return { id, path, records, derived };
 }
 
 /**
- * Where the bytes already under `hash` are, if anything holds it.
+ * The display name for a file: its basename with the extension taken off.
  *
- * **Resolved from the existing asset's storage mode, not from this import's.**
- * The Rust build located through the incoming mode's store, which made every
- * cross-mode case unreachable: importing in referenced mode against a managed
- * asset would ask `ReferencedStorage` for a path, be refused, and merge on
- * probability even though the bytes were sitting in the object store. It was
- * pessimistic in both directions, and `TODO.md` carried the referenced half as
- * deferred because reaching `ref_path` at this point was the missing piece.
+ * The extension is taken off by **length**, from the extension already derived
+ * for the filename, rather than by running `extname` a second time: the two
+ * would disagree on a name like `archive.tar.gz`, where the stored extension is
+ * `gz`, and a display name that kept half an extension is worse than one that
+ * kept none.
  *
- * It is not missing: `findOriginal` returns it in the same row as the mode. The
- * effect is narrow but it is the safe direction — a partial-hash collision in
- * referenced mode is now refused rather than silently merged, which is the
- * protection managed mode already had.
+ * A dotfile keeps its whole name. `.bashrc` has no extension as far as RL-9 is
+ * concerned — `extname` answers `""` for it — so there is nothing to take off.
  */
-function resolveClaim(
-  library: Library,
-  hash: ContentHash,
-  pending: ReadonlyMap<string, string>,
-): Claim {
-  const inBatch = pending.get(hash);
-  if (inBatch !== undefined) return { kind: "held", path: inBatch };
-
-  const original = library.db.repo.findOriginal(hash);
-  if (original === undefined) return { kind: "free" };
-
-  if (original.storageMode === "referenced") {
-    // A referenced original is not in the store at all; its location is
-    // user-chosen and recorded in the index. It may also have moved since,
-    // which the byte comparison discovers rather than this function.
-    return original.refPath === null
-      ? { kind: "out-of-reach" }
-      : { kind: "held", path: original.refPath };
-  }
-
-  // A managed original sits at the one path the store derives from its hash —
-  // the only place in the workspace allowed to do that (invariant 2).
-  return { kind: "held", path: library.storageFor("managed").locate(hash, original.ext) };
-}
-
-async function recordDuplicate(
-  claim: Claim,
-  path: string,
-  isPartial: boolean,
-  report: ImportReport,
-): Promise<void> {
-  // A full hash is the whole file, so a match is already proof.
-  if (!isPartial) {
-    report.duplicates += 1;
-    return;
-  }
-
-  if (claim.kind === "out-of-reach") {
-    report.duplicates += 1;
-    report.partialDuplicates += 1;
-    return;
-  }
-  if (claim.kind === "free") return;
-
-  // Only files over 50 MiB reach here, so the full read is paid on the rare
-  // duplicate rather than on every import.
-  switch (await compare(path, claim.path)) {
-    case "same":
-      report.duplicates += 1;
-      return;
-    case "unreadable":
-      report.duplicates += 1;
-      report.partialDuplicates += 1;
-      return;
-    case "different":
-      report.partialCollisions += 1;
-      throw new PartialHashCollisionError(path, claim.path);
-  }
-}
-
-/** What comparing an incoming file against the bytes under its hash proved. */
-type Comparison = "same" | "different" | "unreadable";
-
-/**
- * Compares two files byte for byte, stopping at the first difference.
- *
- * A comparison rather than a second hash: it short-circuits, and the question
- * here is "are these the same file", not "what is this file called".
- *
- * **Sizes are not a shortcut.** The size is hashed as the partial hash's
- * prefix, so two files with equal partial hashes necessarily have equal sizes —
- * comparing them proves nothing. A mismatch would instead mean the stored file
- * is not what the index says it is, which proves nothing about the incoming
- * file either, so it reads as `unreadable`.
- */
-async function compare(incoming: string, existing: string): Promise<Comparison> {
-  let left: Awaited<ReturnType<typeof open>>;
-  let right: Awaited<ReturnType<typeof open>>;
-  try {
-    left = await open(incoming, "r");
-  } catch {
-    return "unreadable";
-  }
-  try {
-    right = await open(existing, "r");
-  } catch {
-    await left.close();
-    return "unreadable";
-  }
-
-  try {
-    const [leftInfo, rightInfo] = await Promise.all([left.stat(), right.stat()]);
-    if (leftInfo.size !== rightInfo.size) return "unreadable";
-
-    const a = Buffer.allocUnsafe(COMPARE_BUFFER_BYTES);
-    const b = Buffer.allocUnsafe(COMPARE_BUFFER_BYTES);
-    for (;;) {
-      const read = await left.read(a, 0, COMPARE_BUFFER_BYTES, null);
-      if (read.bytesRead === 0) return "same";
-      const other = await right.read(b, 0, read.bytesRead, null);
-      if (other.bytesRead !== read.bytesRead) return "unreadable";
-      if (!a.subarray(0, read.bytesRead).equals(b.subarray(0, read.bytesRead))) return "different";
-    }
-  } catch {
-    return "unreadable";
-  } finally {
-    await left.close();
-    await right.close();
-  }
+function nameOf(path: string, ext: string): string {
+  const base = basename(path);
+  if (ext === "") return base;
+  const suffix = `.${ext}`;
+  return base.toLowerCase().endsWith(suffix) ? base.slice(0, base.length - suffix.length) : base;
 }
 
 /** Journal first, then index. Never the other way around. */
 async function commit(
   library: Library,
-  batch: readonly JournalRecord[],
+  batch: readonly Ingested[],
   timings: ImportTimings,
 ): Promise<void> {
+  if (batch.length === 0) return;
+
+  const records = batch.flatMap((item) => [...item.records]);
+
   const journalStarted = performance.now();
-  await library.journal.appendAll(batch);
+  await library.journal.appendAll(records);
   timings.journaling += performance.now() - journalStarted;
 
+  const now = nowUnix();
   const indexStarted = performance.now();
   library.db.transaction(() => {
     const sink = new IndexSink(library.db);
-    for (const record of batch) sink.apply(record);
+    for (const record of records) sink.apply(record);
+
+    // What the file measured, written in the same transaction as the row it is
+    // about. It is derived data (RL-22) and nothing journals it, so a crash
+    // between the two would leave an asset whose size and hash nobody knows
+    // until the derive pass reaches it — correct, but slower and, for the
+    // duplicate check, blind in the meantime.
+    for (const item of batch) {
+      if (Object.keys(item.derived).length > 0) {
+        library.db.repo.putDerived(item.id, item.derived, now);
+      }
+    }
 
     // Queued in the same transaction as the rows they are about (§5 step 8).
     // Committing an asset without the intent to derive it would leave it with
@@ -644,7 +598,7 @@ async function commit(
     // between two transactions is exactly when that happens.
     enqueueDerives(
       library,
-      batch.filter((record) => record.op === "add").map((record) => record.hash),
+      records.filter((record) => record.op === "add").map((record) => record.id),
     );
   });
   timings.indexing += performance.now() - indexStarted;

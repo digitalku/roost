@@ -5,10 +5,10 @@
  * not swept by the marquee, and not counted in what the grid says it is
  * showing. What it shares with an asset cell is the layout — it is laid out by
  * the same arithmetic, ahead of the first page — and that is why it needs an id
- * that can travel through `layout()` and `SelectionStore` beside a hash.
+ * that can travel through `layout()` and `SelectionStore` beside a id.
  *
  * The prefix is safe against a collision by construction: an asset is addressed
- * by its BLAKE3 digest, which is 64 hexadecimal characters, so no hash begins
+ * by its BLAKE3 digest, which is 64 hexadecimal characters, so no id begins
  * with a letter outside `a`–`f` and none of them can spell this.
  */
 
@@ -32,7 +32,7 @@ export function isFolderTile(id: string): boolean {
   return id.startsWith(PREFIX);
 }
 
-/** The folder a tile id names, or `undefined` for an asset's hash. */
+/** The folder a tile id names, or `undefined` for an asset's id. */
 export function folderIdOf(id: string): number | undefined {
   if (!isFolderTile(id)) return undefined;
   const parsed = Number.parseInt(id.slice(PREFIX.length), 10);

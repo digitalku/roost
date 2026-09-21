@@ -2,17 +2,17 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Db, INDEX_FILE, IndexSink, ManagedStorage, parseContentHash } from "@roost/core";
+import { Db, FileStore, INDEX_FILE, IndexSink, parseAssetId } from "@roost/core";
 import { makePdf } from "@roost/media/testing/pdf-fixture";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AssetServer } from "./assets.js";
 
-const MANAGED = parseContentHash("a".repeat(64));
-const REFERENCED = parseContentHash("b".repeat(64));
-const NO_THUMB = parseContentHash("c".repeat(64));
-const ABSENT = parseContentHash("d".repeat(64));
-const TRACK = parseContentHash("f".repeat(64));
-const ASS = parseContentHash("9".repeat(64));
+const PICTURE = parseAssetId("AAAAAAAAAAAA");
+const SECOND = parseAssetId("BBBBBBBBBBBB");
+const NO_THUMB = parseAssetId("CCCCCCCCCCCC");
+const ABSENT = parseAssetId("DDDDDDDDDDDD");
+const TRACK = parseAssetId("FFFFFFFFFFFF");
+const ASS = parseAssetId("999999999999");
 
 /** 1000 bytes whose value at index i is i % 251, so a slice identifies itself. */
 const BYTES = Uint8Array.from({ length: 1000 }, (_, i) => i % 251);
@@ -31,13 +31,17 @@ describe("serving bytes over roost://", () => {
     root = await mkdtemp(join(tmpdir(), "roost-assets-"));
     outside = await mkdtemp(join(tmpdir(), "roost-elsewhere-"));
 
-    const storage = new ManagedStorage(root);
-    const managedPath = storage.locate(MANAGED, "png");
-    await mkdir(dirname(managedPath), { recursive: true });
-    await writeFile(managedPath, BYTES);
+    const storage = new FileStore(root);
+    const picturePath = storage.locate(PICTURE, "png");
+    await mkdir(dirname(picturePath), { recursive: true });
+    await writeFile(picturePath, BYTES);
 
-    const referencedPath = join(outside, "held.jpg");
-    await writeFile(referencedPath, BYTES.slice(0, 10));
+    // A second asset, inside the library like every other one: version 2 has
+    // one storage mode (RL-19), so `outside` is only somewhere to move a file
+    // *to* in the test that makes one go missing.
+    const secondPath = storage.locate(SECOND, "jpg");
+    await mkdir(dirname(secondPath), { recursive: true });
+    await writeFile(secondPath, BYTES.slice(0, 10));
 
     const trackPath = storage.locate(TRACK, "srt");
     await mkdir(dirname(trackPath), { recursive: true });
@@ -49,50 +53,39 @@ describe("serving bytes over roost://", () => {
       sink.apply({
         ts: 1,
         op: "add",
-        hash: MANAGED,
+        id: PICTURE,
         ext: "png",
-        size: BYTES.length,
-        name: "a.png",
-        mode: "managed",
+        name: "a",
       });
       sink.apply({
         ts: 1,
         op: "add",
-        hash: REFERENCED,
+        id: SECOND,
         ext: "jpg",
-        size: 10,
-        name: "b.jpg",
-        mode: "referenced",
-        ref: referencedPath,
+        name: "b",
       });
       sink.apply({
         ts: 1,
         op: "add",
-        hash: NO_THUMB,
+        id: NO_THUMB,
         ext: "mp4",
-        size: 4,
-        name: "c.mp4",
-        mode: "managed",
+        name: "c",
       });
       sink.apply({
         ts: 1,
         op: "add",
-        hash: TRACK,
+        id: TRACK,
         ext: "srt",
-        size: SRT.length,
-        name: "film.srt",
-        mode: "managed",
+        name: "film",
       });
       sink.apply({
         ts: 1,
         op: "add",
-        hash: ASS,
+        id: ASS,
         ext: "ass",
-        size: 4,
-        name: "film.ass",
-        mode: "managed",
+        name: "film",
       });
-      db.repo.putThumbnail(MANAGED, 256, 256, 160, WEBP);
+      db.repo.putThumbnail(PICTURE, 256, 256, 160, WEBP);
     });
     db.close();
 
@@ -107,7 +100,7 @@ describe("serving bytes over roost://", () => {
   });
 
   it("returns a thumbnail with a cache header that says it can never change", async () => {
-    const response = await get(`roost://thumb/${MANAGED}@256`);
+    const response = await get(`roost://thumb/${PICTURE}@256`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/webp");
     expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
@@ -118,7 +111,7 @@ describe("serving bytes over roost://", () => {
     // The grid learns a thumbnail is absent by asking. `roost-old` measured it
     // re-asking on every scroll back over a folder of videos, so the 404 is
     // cacheable — briefly, because an import may be generating one right now.
-    for (const url of [`roost://thumb/${NO_THUMB}@256`, `roost://thumb/${MANAGED}@512`]) {
+    for (const url of [`roost://thumb/${NO_THUMB}@256`, `roost://thumb/${PICTURE}@512`]) {
       const response = await get(url);
       expect(response.status).toBe(404);
       expect(response.headers.get("cache-control")).toBe("public, max-age=10");
@@ -126,7 +119,7 @@ describe("serving bytes over roost://", () => {
   });
 
   it("streams a managed original whole", async () => {
-    const response = await get(`roost://original/${MANAGED}`);
+    const response = await get(`roost://file/${PICTURE}`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect(response.headers.get("content-length")).toBe("1000");
@@ -135,7 +128,7 @@ describe("serving bytes over roost://", () => {
   });
 
   it("answers a range with 206 and the exact bytes asked for", async () => {
-    const response = await get(`roost://original/${MANAGED}`, { range: "bytes=100-199" });
+    const response = await get(`roost://file/${PICTURE}`, { range: "bytes=100-199" });
     expect(response.status).toBe(206);
     expect(response.headers.get("content-range")).toBe("bytes 100-199/1000");
     expect(response.headers.get("content-length")).toBe("100");
@@ -143,33 +136,35 @@ describe("serving bytes over roost://", () => {
   });
 
   it("answers a suffix range, which is how a player finds an MP4's index", async () => {
-    const response = await get(`roost://original/${MANAGED}`, { range: "bytes=-16" });
+    const response = await get(`roost://file/${PICTURE}`, { range: "bytes=-16" });
     expect(response.status).toBe(206);
     expect(response.headers.get("content-range")).toBe("bytes 984-999/1000");
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(BYTES.slice(984));
   });
 
   it("answers 416 for a range past the end, and says how big the file is", async () => {
-    const response = await get(`roost://original/${MANAGED}`, { range: "bytes=5000-" });
+    const response = await get(`roost://file/${PICTURE}`, { range: "bytes=5000-" });
     expect(response.status).toBe(416);
     expect(response.headers.get("content-range")).toBe("bytes */1000");
   });
 
-  it("serves a referenced original from where the user keeps it", async () => {
-    const response = await get(`roost://original/${REFERENCED}`);
+  it("serves a second asset from the one place its bytes can be", async () => {
+    const response = await get(`roost://file/${SECOND}`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/jpeg");
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(BYTES.slice(0, 10));
   });
 
-  it("404s a referenced original the user has moved away", async () => {
-    await rm(join(outside, "held.jpg"));
-    expect((await get(`roost://original/${REFERENCED}`)).status).toBe(404);
+  it("404s an asset whose file has gone (RL-25)", async () => {
+    // The row stays — it carries everything the person wrote about it — and the
+    // grid draws a cell with no picture rather than nothing at all.
+    await rm(new FileStore(root).locate(SECOND, "jpg"));
+    expect((await get(`roost://file/${SECOND}`)).status).toBe(404);
   });
 
   it("gives HEAD the headers and no body", async () => {
     const response = await server.handle(
-      new Request(`roost://original/${MANAGED}`, { method: "HEAD" }),
+      new Request(`roost://file/${PICTURE}`, { method: "HEAD" }),
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("content-length")).toBe("1000");
@@ -178,7 +173,7 @@ describe("serving bytes over roost://", () => {
 
   it("refuses a method that is not a read", async () => {
     const response = await server.handle(
-      new Request(`roost://original/${MANAGED}`, { method: "POST" }),
+      new Request(`roost://file/${PICTURE}`, { method: "POST" }),
     );
     expect(response.status).toBe(405);
     expect(response.headers.get("allow")).toBe("GET, HEAD");
@@ -204,7 +199,7 @@ describe("serving bytes over roost://", () => {
      * page, unlike a picture or a film, which are drawn and played. This scheme
      * is `standard`, so its origin is its host — `roost://subtitle/…` is
      * cross-origin to the window however the window was loaded, and to
-     * `roost://original/…` as well. Without the header the track ends at
+     * `roost://file/…` as well. Without the header the track ends at
      * `readyState 3` with no cues and nothing said anywhere, which is how it
      * was reported on 2026-09-08.
      */
@@ -216,10 +211,10 @@ describe("serving bytes over roost://", () => {
     // `crossorigin`, so its own bytes are a CORS request too — and an error is
     // as much an answer as a body.
     for (const url of [
-      `roost://original/${MANAGED}`,
-      `roost://thumb/${MANAGED}@256`,
+      `roost://file/${PICTURE}`,
+      `roost://thumb/${PICTURE}@256`,
       `roost://subtitle/${ASS}`,
-      `roost://original/${ABSENT}`,
+      `roost://file/${ABSENT}`,
       "roost://export/nonsense",
     ]) {
       expect((await get(url)).headers.get("access-control-allow-origin")).toBe(allowed);
@@ -236,28 +231,28 @@ describe("serving bytes over roost://", () => {
 
   it("400s a URL that is not a route, and 404s an asset that is not there", async () => {
     expect((await get("roost://thumb/not-a-hash@256")).status).toBe(400);
-    expect((await get(`roost://export/${MANAGED}`)).status).toBe(400);
-    expect((await get(`roost://original/${ABSENT}`)).status).toBe(404);
+    expect((await get(`roost://export/${PICTURE}`)).status).toBe(400);
+    expect((await get(`roost://file/${ABSENT}`)).status).toBe(404);
   });
 
   it("serves nothing once the library is closed", async () => {
     // Not merely tidiness: a request that arrived after a close must not answer
     // with bytes from the library that is no longer open.
     server.detach();
-    expect((await get(`roost://thumb/${MANAGED}@256`)).status).toBe(404);
-    expect((await get(`roost://original/${MANAGED}`)).status).toBe(404);
+    expect((await get(`roost://thumb/${PICTURE}@256`)).status).toBe(404);
+    expect((await get(`roost://file/${PICTURE}`)).status).toBe(404);
   });
 });
 
 describe("serving a document page", () => {
   let root: string;
   let server: AssetServer;
-  const DOC = parseContentHash("e".repeat(64));
+  const DOC = parseAssetId("EEEEEEEEEEEE");
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "roost-pages-"));
 
-    const storage = new ManagedStorage(root);
+    const storage = new FileStore(root);
     const path = storage.locate(DOC, "pdf");
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, makePdf([{ colour: [255, 0, 0] }, { colour: [0, 0, 255] }]));
@@ -268,11 +263,9 @@ describe("serving a document page", () => {
       sink.apply({
         ts: 1,
         op: "add",
-        hash: DOC,
+        id: DOC,
         ext: "pdf",
-        size: 1,
-        name: "report.pdf",
-        mode: "managed",
+        name: "report",
       });
     });
     db.close();
@@ -315,7 +308,7 @@ describe("serving a document page", () => {
   });
 
   it("answers 404 for an asset that is not a document at all", async () => {
-    const absent = parseContentHash("f".repeat(64));
+    const absent = parseAssetId("FFFFFFFFFFFF");
 
     expect((await get(`roost://page/${absent}/0@512`)).status).toBe(404);
   });

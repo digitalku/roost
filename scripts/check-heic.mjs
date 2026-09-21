@@ -126,7 +126,7 @@ try {
       });
       check(
         "the pane asks for a rendition rather than the file a browser cannot read",
-        picture.src === `roost://render/${await hashIn(root)}`,
+        picture.src === `roost://render/${await idIn(root)}`,
         `src=${picture.src}`,
       );
       check(
@@ -209,8 +209,8 @@ async function library({ derive = true } = {}) {
   return join(root, "HEIC.roost");
 }
 
-/** The one asset's hash, for asserting the address the pane asked for. */
-async function hashIn(root) {
+/** The one asset's id, for asserting the address the pane asked for. */
+async function idIn(root) {
   const opened = await Library.open(root, { readOnly: true });
   try {
     return opened.db.repo.allHashes()[0];

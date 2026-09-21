@@ -1,18 +1,34 @@
 import type { Database, Statement } from "better-sqlite3";
 import type { AddRecord } from "../journal/index.js";
-import type { ContentHash, JobKind, JobState, LinkMethod, Sort, SortKey } from "../model/index.js";
+import type {
+  AssetId,
+  ContentHash,
+  JobKind,
+  JobState,
+  Sort,
+  SortKey,
+  Take,
+} from "../model/index.js";
 import { DEFAULT_SORT, rotationFor } from "../model/index.js";
 import type { Cursor, CursorKey, Filter, Page, SearchHit } from "./query.js";
 
 /**
- * The four tables whose ids the journal mints explicitly (RL-25).
+ * The tables whose ids the journal mints explicitly (RL-17, RL-35).
  *
  * A closed union rather than a string, because these names are interpolated
  * into SQL: SQLite cannot parameterise a table name, so the only safe way to
- * write one statement for four tables is to make the compiler prove the name
+ * write one statement for five tables is to make the compiler prove the name
  * came from this list. Invariant 5 binds *user input*, and none of this is.
+ *
+ * Assets are not among them, and cannot be: an asset's identity is a string
+ * minted at random (RL-14), never a number taken from a maximum.
  */
-export type IdentifiedTable = "folders" | "smart_folders" | "tag_groups" | "asset_comments";
+export type IdentifiedTable =
+  | "folders"
+  | "smart_folders"
+  | "tag_groups"
+  | "asset_comments"
+  | "watched_roots";
 
 /** Where the high-water mark for each of those lives in `meta`. */
 const ID_WATERMARK_PREFIX = "max_id.";
@@ -27,14 +43,21 @@ const ID_WATERMARK_PREFIX = "max_id.";
  */
 export interface Stats {
   readonly assets: number;
-  readonly managed: number;
-  readonly referenced: number;
-  readonly partialHashes: number;
+  /**
+   * Assets whose bytes have not been read yet.
+   *
+   * Version 2 has this state and version 1 could not: an `add` no longer
+   * carries a size, so a row exists from the moment it is journalled and every
+   * fact about the file arrives afterwards, from the derive pass (RL-22).
+   */
+  readonly underived: number;
+  /** As far as anything has read. A file edited since is a bigger or smaller one. */
   readonly totalBytes: number;
   readonly tags: number;
   readonly tagGroups: number;
   readonly folders: number;
   readonly smartFolders: number;
+  readonly watchedRoots: number;
   readonly rated: number;
   readonly favorites: number;
   readonly notes: number;
@@ -51,18 +74,22 @@ export interface Stats {
  * Use this, not a whole-object comparison, to check a rebuilt index against
  * what it replaced. Thumbnails are derived and deliberately absent from the
  * journal, so a *correct* rebuild must come back without them — comparing every
- * field would report that correct behaviour as a violation of invariant 1.
+ * field would report that correct behaviour as a violation of invariant 1. In
+ * version 2 the same is true of every column a derive fills, which is what puts
+ * `underived` and `totalBytes` here beside them.
  */
 export function withoutDerived(stats: Stats): Stats {
-  return { ...stats, thumbnails: 0 };
+  return { ...stats, thumbnails: 0, underived: 0, totalBytes: 0 };
 }
 
-/** What the index knows about an asset, for deduplication checks. */
+/** What the index knows about an asset, for duplicate reports and listings. */
 export interface AssetSummary {
-  readonly hash: ContentHash;
-  readonly size: number;
+  readonly id: AssetId;
+  /** `null` until the file has been read once. */
+  readonly size: number | null;
   readonly ext: string;
-  readonly origName: string;
+  /** The display name, without the extension (RL-33). */
+  readonly name: string;
 }
 
 /**
@@ -80,25 +107,26 @@ export interface AssetJudgements {
 }
 
 /**
- * Where an asset's bytes are, and how big they are.
+ * What is needed to find and serve an asset's bytes.
  *
- * Leaner than {@link AssetDetail} on purpose: serving a file needs four columns
- * and no joins, and this runs on every preview the window opens.
+ * Two columns, because version 2 needs two: the id names the file and the
+ * extension completes the name (RL-9). There is no mode to branch on and no
+ * path to read — every asset's bytes are under `files/` (RL-19).
+ *
+ * `size` comes along because the window asks for it in the same breath, and it
+ * is `null` until something has read the file. A stale size is ordinary rather
+ * than alarming (RL-20): the bytes may have changed since, and the next derive
+ * is what notices.
  */
-export interface OriginalRecord {
+export interface FileRecord {
   readonly ext: string;
-  readonly size: number;
-  readonly storageMode: string;
-  /** Set for referenced assets, whose bytes never entered the object store. */
-  readonly refPath: string | null;
+  readonly size: number | null;
 }
 
 /** An asset that needs a thumbnail, and where to find its bytes. */
 export interface ThumbnailTarget {
-  readonly hash: ContentHash;
+  readonly id: AssetId;
   readonly ext: string;
-  readonly storageMode: string;
-  readonly refPath: string | null;
   /**
    * The moment a video's thumbnail is pinned to, or `null` for the default
    * frame (ADR-0024 stage 4).
@@ -115,11 +143,21 @@ export interface ThumbnailTarget {
  *
  * Every field is optional and `undefined` means "did not learn this", never
  * "clear it": a backend that reports a duration and no dimensions must not
- * erase dimensions probing already found. Derived values are only ever
- * overwritten by a later derive of the same bytes, so there is nothing to
- * clear.
+ * erase dimensions probing already found.
+ *
+ * **In version 2 this is the only source of everything it carries.** The
+ * journal says nothing about the bytes (RL-23), so a size, a width or a hash is
+ * in the index because a derive put it there and for no other reason. Clearing
+ * is a separate act with its own method, for the file that changed under an id
+ * that did not ({@link Repo.clearDerived}).
  */
 export interface DerivedMetadata {
+  /** The file's size when it was read, in bytes. */
+  readonly size?: number;
+  /** Its modification time when it was read, unix seconds. */
+  readonly mtime?: number;
+  /** BLAKE3 over the whole file (RL-18). Derived, never identity. */
+  readonly contentHash?: ContentHash;
   readonly width?: number;
   readonly height?: number;
   readonly durationMs?: number;
@@ -131,11 +169,9 @@ export interface DerivedMetadata {
 /** A job claimed by a runner, with the bytes it is about. */
 export interface JobClaim {
   readonly id: number;
-  readonly hash: ContentHash;
+  readonly assetId: AssetId;
   readonly attempts: number;
   readonly ext: string;
-  readonly storageMode: string;
-  readonly refPath: string | null;
   /** The moment a video's thumbnail is pinned to (ADR-0024 stage 4). */
   readonly posterMs: number | null;
 }
@@ -156,19 +192,18 @@ export interface JobReason {
 /**
  * One asset a derive did not produce a picture for, with the file it is about.
  *
- * The name is here because a hash is not something a person can look for. What
+ * The name is here because an id is not something a person can look for. What
  * this answers is "which of my files, and what went wrong with them" — a count
  * alone leaves somebody with nothing to open.
  */
 export interface StalledJob {
-  readonly hash: ContentHash;
+  readonly assetId: AssetId;
   readonly name: string;
   readonly ext: string;
   readonly attempts: number;
   readonly reason: string;
 }
 
-/** Everything the detail view shows about one asset. */
 /**
  * What a selection of several assets shares, and what it does not.
  *
@@ -210,39 +245,35 @@ export interface FolderMembership {
   readonly path: string;
 }
 
+/** Everything the detail view shows about one asset. */
 export interface AssetDetail {
-  readonly hash: ContentHash;
+  readonly id: AssetId;
   readonly ext: string;
-  readonly size: number;
+  /**
+   * From here to {@link AssetDetail.derivedAt} everything is **derived from the
+   * bytes** (RL-22), and is `null` until they have been read.
+   *
+   * A window shows what it has and asks for the rest; it never reads a `null`
+   * here as a fact about the file. The bytes may also have changed since, which
+   * is ordinary (RL-20) rather than damage — the next derive is what notices.
+   */
+  readonly size: number | null;
   readonly width: number | null;
   readonly height: number | null;
   readonly durationMs: number | null;
   readonly pageCount: number | null;
-  readonly origName: string;
-  readonly storageMode: string;
-  /**
-   * Which rung of RL-15's ladder placed the bytes — reflink, hardlink or copy.
-   *
-   * `null` in referenced mode, where nothing was placed. RL-15a requires it be
-   * recorded on the asset, and it is read back here so that a conformance suite
-   * has something to compare rather than a column only the journal ever sees.
-   */
-  readonly linkMethod: LinkMethod | null;
-  readonly refPath: string | null;
-  readonly isPartialHash: boolean;
+  /** BLAKE3 over the whole file, lowercase hex (RL-18). Never identity. */
+  readonly contentHash: ContentHash | null;
+  /** When the derived columns above were last taken. */
+  readonly derivedAt: number | null;
+  /** The display name, without the extension (RL-33). */
+  readonly name: string;
   readonly createdAt: number | null;
   readonly importedAt: number;
   /** Unix seconds if this asset is in the trash, `null` if it is live. */
   readonly trashedAt: number | null;
   /** The moment a video's thumbnail is pinned to (ADR-0024 stage 4). */
   readonly posterMs: number | null;
-  /**
-   * The asset that replaced this one, or `null` if this is the current version
-   * (ADR-0026).
-   *
-   * One step forward, so following it walks the chain to the newest.
-   */
-  readonly supersededBy: ContentHash | null;
   readonly rating: number | null;
   readonly note: string | null;
   /** Where the file came from, as the user typed it (ADR-0030). */
@@ -262,7 +293,7 @@ export interface AssetDetail {
  * or an external tool.
  */
 export interface SubtitleRow {
-  readonly trackHash: ContentHash;
+  readonly trackId: AssetId;
   readonly lang: string | null;
   readonly label: string | null;
   readonly name: string;
@@ -291,6 +322,19 @@ export interface TagGroupRow {
 }
 
 /**
+ * A directory the library keeps an eye on.
+ *
+ * `take` is what happens to a file found there — decided once, when the root is
+ * registered, because nobody is at the screen when a watched folder catches
+ * something.
+ */
+export interface WatchedRootRow {
+  readonly id: number;
+  readonly path: string;
+  readonly take: Take;
+}
+
+/**
  * One comment, and where in the asset it sits (ADR-0023).
  *
  * `atMs` is milliseconds into the medium, or `null` for a comment about the
@@ -299,7 +343,7 @@ export interface TagGroupRow {
  */
 export interface CommentRow {
   readonly id: number;
-  readonly hash: string;
+  readonly assetId: AssetId;
   readonly atMs: number | null;
   readonly body: string;
   readonly createdAt: number;
@@ -406,61 +450,33 @@ export class Repo {
    * deletes the existing row first, and the schema's `ON DELETE CASCADE` would
    * take the asset's tags and folder memberships with it.
    *
-   * **`width` and `height` are coalesced; nothing else is.** They are the only
-   * columns here with two sources. The importer probes a header and writes what
-   * it found; a derive backend reads the file properly afterwards and fills in
-   * what the header could not say — a video whose container the probe cannot
-   * parse gets its dimensions that way and no other. So an absent `w` on an
-   * `add` means *the importer could not tell*, never *this asset has none*, and
-   * folding the record a second time must not blank an answer something else
-   * found. {@link putDerived} carries the same `coalesce` for the same reason.
-   *
-   * On a rebuild it changes nothing, because there is no conflict to resolve:
-   * the row does not exist, the INSERT applies, and the journal's value stands
-   * with `NULL` included. It matters on the fold an open performs when it finds
-   * the index behind the journal, which writes over rows that are already
-   * there — found by measuring one on 2026-09-15, where it silently squared off
-   * every asset whose dimensions had come from a derive.
+   * **Nothing derived is touched here, and that is the version 2 change.** An
+   * `add` carries an id, an extension, a name and sometimes a date; the size,
+   * the dimensions and the hash are not its business (RL-22, RL-23). Version 1
+   * carried them and had to `coalesce` two of them on a re-fold to avoid
+   * blanking what a derive had found — a class of bug that cannot occur here,
+   * because this statement never names those columns.
    */
   applyAdd(ts: number, add: AddRecord): void {
     this.#s(
-      `INSERT INTO assets (
-           hash, ext, size, width, height, orig_name, storage_mode,
-           link_method, ref_path, is_partial_hash, created_at, imported_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(hash) DO UPDATE SET
+      `INSERT INTO assets (id, ext, name, created_at, imported_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
            ext = excluded.ext,
-           size = excluded.size,
-           -- coalesce on these two and on nothing else. See the note above the
-           -- method: they are the only columns here with two sources.
-           width = coalesce(excluded.width, width),
-           height = coalesce(excluded.height, height),
-           orig_name = excluded.orig_name,
-           storage_mode = excluded.storage_mode,
-           link_method = excluded.link_method,
-           ref_path = excluded.ref_path,
-           is_partial_hash = excluded.is_partial_hash,
+           name = excluded.name,
            created_at = excluded.created_at,
            imported_at = excluded.imported_at`,
     ).run(
-      add.hash,
+      add.id,
       add.ext,
-      add.size,
-      // `?? null` throughout, never the bare `undefined`. It happens to bind as
-      // NULL today, but the journal's optional fields are exactly the ones a
-      // rebuild cannot recover from `originals/`, so nothing here rests on an
-      // undocumented convenience.
-      add.w ?? null,
-      add.h ?? null,
       add.name,
-      add.mode,
-      add.link ?? null,
-      add.ref ?? null,
-      add.partial === true ? 1 : 0,
+      // `?? null` rather than the bare `undefined`. It happens to bind as NULL
+      // today, but `created` is the one fact about a file nothing can recover
+      // afterwards, so nothing here rests on an undocumented convenience.
       add.created ?? null,
       ts,
     );
-    this.#refreshFts(add.hash);
+    this.#refreshFts(add.id);
   }
 
   /**
@@ -469,15 +485,19 @@ export class Repo {
    * Foreign keys cascade to `thumbs`, `asset_tags`, and `asset_folders`, but
    * `assets_fts` is a virtual table with no foreign keys, so its row has to go
    * explicitly or search keeps returning a deleted asset.
+   *
+   * The file under `files/` is **not** this method's business: `SPEC.md` §11.1
+   * leaves that question open, and ADR-0031 is where this build answers it — in
+   * the service that owns the bytes.
    */
-  applyRemove(hash: ContentHash): void {
+  applyRemove(id: AssetId): void {
     // Read the rowid before deleting: it is the key into the FTS table, whose
-    // `hash` column is UNINDEXED and therefore not searchable.
-    const row = this.#s("SELECT rowid FROM assets WHERE hash = ?").get(hash) as
+    // `asset_id` column is UNINDEXED and therefore not searchable.
+    const row = this.#s("SELECT rowid FROM assets WHERE id = ?").get(id) as
       | { rowid: number }
       | undefined;
 
-    this.#s("DELETE FROM assets WHERE hash = ?").run(hash);
+    this.#s("DELETE FROM assets WHERE id = ?").run(id);
 
     if (row !== undefined) {
       this.#s("DELETE FROM assets_fts WHERE rowid = ?").run(row.rowid);
@@ -495,17 +515,17 @@ export class Repo {
    * refused, so replay is order-dependent and idempotent in the way the journal
    * needs — trash, restore, trash again folds to the last one.
    */
-  applyTrash(hash: ContentHash, ts: number): void {
-    this.#s("UPDATE assets SET trashed_at = ? WHERE hash = ?").run(ts, hash);
+  applyTrash(id: AssetId, ts: number): void {
+    this.#s("UPDATE assets SET trashed_at = ? WHERE id = ?").run(ts, id);
   }
 
-  applyRestore(hash: ContentHash): void {
-    this.#s("UPDATE assets SET trashed_at = NULL WHERE hash = ?").run(hash);
+  applyRestore(id: AssetId): void {
+    this.#s("UPDATE assets SET trashed_at = NULL WHERE id = ?").run(id);
   }
 
   /** Whether an asset is in the trash. `undefined` when there is no such asset. */
-  trashedAt(hash: ContentHash): number | null | undefined {
-    const row = this.#s("SELECT trashed_at AS trashedAt FROM assets WHERE hash = ?").get(hash) as
+  trashedAt(id: AssetId): number | null | undefined {
+    const row = this.#s("SELECT trashed_at AS trashedAt FROM assets WHERE id = ?").get(id) as
       | { trashedAt: number | null }
       | undefined;
     return row === undefined ? undefined : row.trashedAt;
@@ -523,8 +543,8 @@ export class Repo {
    * them together, and a query per star would be five statements for a pane
    * that is re-read whenever anything changes.
    *
-   * Scoped the way every other view is — no trashed rows, no superseded ones —
-   * so the number beside a star is the number of assets that row would show.
+   * Scoped the way every other view is — no trashed rows — so the number beside
+   * a star is the number of assets that row would show.
    */
   ratingCounts(): { rating: number | null; count: number }[] {
     // `NULL` is in the grouping, not excluded from it: unrated is a row in the
@@ -533,7 +553,7 @@ export class Repo {
     return this.#s(
       `SELECT rating, count(*) AS count
          FROM assets
-        WHERE trashed_at IS NULL AND superseded_by IS NULL
+        WHERE trashed_at IS NULL
         GROUP BY rating`,
     ).all() as { rating: number | null; count: number }[];
   }
@@ -543,8 +563,7 @@ export class Repo {
    *
    * The **Types** facet's vocabulary (ADR-0035). Scoped like `ratingCounts`,
    * and for the same reason: these counts sit beside a query, so they have to
-   * count what that query would return — `ext:` excludes the trash and old
-   * versions, so this does too.
+   * count what that query would return.
    *
    * An asset with no extension is one row with an empty name. It is a real
    * answer to *what kinds are in here* and the facet draws it as `No extension`
@@ -555,7 +574,7 @@ export class Repo {
     return this.#s(
       `SELECT ext, count(*) AS count
          FROM assets
-        WHERE trashed_at IS NULL AND superseded_by IS NULL
+        WHERE trashed_at IS NULL
         GROUP BY ext
         ORDER BY count DESC, ext`,
     ).all() as { ext: string; count: number }[];
@@ -564,45 +583,48 @@ export class Repo {
   /**
    * Every trashed asset.
    *
-   * For "Empty trash", which turns each one into a `remove`. Ordered by hash
+   * For "Empty trash", which turns each one into a `remove`. Ordered by id
    * rather than by `trashed_at`: the answer is a set the caller journals in one
    * batch, and a total order makes two runs write the same file.
    */
-  trashedHashes(): ContentHash[] {
+  trashedIds(): AssetId[] {
     const rows = this.#s(
-      "SELECT hash FROM assets WHERE trashed_at IS NOT NULL ORDER BY hash",
-    ).all() as { hash: ContentHash }[];
-    return rows.map((row) => row.hash);
+      "SELECT id FROM assets WHERE trashed_at IS NOT NULL ORDER BY id",
+    ).all() as {
+      id: AssetId;
+    }[];
+    return rows.map((row) => row.id);
   }
 
-  applyTagAdd(hash: ContentHash, tags: readonly string[]): void {
+  applyTagAdd(id: AssetId, tags: readonly string[]): void {
     for (const tag of tags) {
       // `tags.name` is UNIQUE COLLATE NOCASE, so this both creates the tag and,
       // on a case variant, leaves the existing spelling alone.
       this.#s("INSERT OR IGNORE INTO tags (name) VALUES (?)").run(tag);
       this.#s(
-        `INSERT OR IGNORE INTO asset_tags (hash, tag_id)
+        `INSERT OR IGNORE INTO asset_tags (asset_id, tag_id)
          SELECT ?, id FROM tags WHERE name = ?`,
-      ).run(hash, tag);
+      ).run(id, tag);
     }
-    this.#refreshFts(hash);
+    this.#refreshFts(id);
   }
 
-  applyTagRemove(hash: ContentHash, tags: readonly string[]): void {
+  applyTagRemove(id: AssetId, tags: readonly string[]): void {
     for (const tag of tags) {
       this.#s(
         `DELETE FROM asset_tags
-          WHERE hash = ? AND tag_id IN (SELECT id FROM tags WHERE name = ?)`,
-      ).run(hash, tag);
+          WHERE asset_id = ? AND tag_id IN (SELECT id FROM tags WHERE name = ?)`,
+      ).run(id, tag);
     }
-    this.#refreshFts(hash);
+    this.#refreshFts(id);
   }
 
   /**
    * Creates a folder at the id the journal recorded.
    *
-   * The id is inserted verbatim rather than autoassigned: `folder_add` records
-   * refer to it, and letting SQLite choose during replay would make them dangle.
+   * The id is inserted verbatim rather than autoassigned (RL-35): `folder_add`
+   * records refer to it, and letting SQLite choose during replay would make
+   * them dangle.
    */
   applyFolderCreate(id: number, parent: number | null, name: string): void {
     this.#s(
@@ -612,15 +634,15 @@ export class Repo {
     this.noteIdUsed("folders", id);
   }
 
-  applyFolderAdd(hash: ContentHash, folder: number): void {
-    this.#s("INSERT OR IGNORE INTO asset_folders (hash, folder_id) VALUES (?, ?)").run(
-      hash,
+  applyFolderAdd(asset: AssetId, folder: number): void {
+    this.#s("INSERT OR IGNORE INTO asset_folders (asset_id, folder_id) VALUES (?, ?)").run(
+      asset,
       folder,
     );
   }
 
-  applyFolderRemove(hash: ContentHash, folder: number): void {
-    this.#s("DELETE FROM asset_folders WHERE hash = ? AND folder_id = ?").run(hash, folder);
+  applyFolderRemove(asset: AssetId, folder: number): void {
+    this.#s("DELETE FROM asset_folders WHERE asset_id = ? AND folder_id = ?").run(asset, folder);
   }
 
   applyFolderRename(id: number, name: string): void {
@@ -641,12 +663,16 @@ export class Repo {
   }
 
   /**
-   * Renames the asset's display name. The file on disk is named for its hash
-   * and is not touched (invariant 2).
+   * Renames the asset's display name.
+   *
+   * **The file on disk is not touched**, and cannot need to be: it is named by
+   * the id (RL-9), so a rename cannot fail on a locked file, an invalid
+   * character or a path that grew too long, and the name it writes carries no
+   * extension (RL-33).
    */
-  applyAssetRename(hash: ContentHash, name: string): void {
-    this.#s("UPDATE assets SET orig_name = ? WHERE hash = ?").run(name, hash);
-    this.#refreshFts(hash);
+  applyAssetRename(id: AssetId, name: string): void {
+    this.#s("UPDATE assets SET name = ? WHERE id = ?").run(name, id);
+    this.#refreshFts(id);
   }
 
   /**
@@ -676,25 +702,25 @@ export class Repo {
       this.#s("UPDATE tags SET name = ? WHERE id = ?").run(to, source.id);
     } else {
       this.#s(
-        `INSERT OR IGNORE INTO asset_tags (hash, tag_id)
-         SELECT hash, ? FROM asset_tags WHERE tag_id = ?`,
+        `INSERT OR IGNORE INTO asset_tags (asset_id, tag_id)
+         SELECT asset_id, ? FROM asset_tags WHERE tag_id = ?`,
       ).run(target.id, source.id);
       // Memberships of the source go with it, by cascade.
       this.#s("DELETE FROM tags WHERE id = ?").run(source.id);
     }
 
-    for (const hash of affected) this.#refreshFts(hash);
+    for (const id of affected) this.#refreshFts(id);
   }
 
   /** `null` clears the rating, which the schema distinguishes from one star. */
-  applyRate(hash: ContentHash, rating: number | null): void {
-    this.#s("UPDATE assets SET rating = ? WHERE hash = ?").run(rating, hash);
+  applyRate(id: AssetId, rating: number | null): void {
+    this.#s("UPDATE assets SET rating = ? WHERE id = ?").run(rating, id);
   }
 
   /** `null` clears the note. */
-  applyNoteSet(hash: ContentHash, note: string | null): void {
-    this.#s("UPDATE assets SET note = ? WHERE hash = ?").run(note, hash);
-    this.#refreshFts(hash);
+  applyNoteSet(id: AssetId, note: string | null): void {
+    this.#s("UPDATE assets SET note = ? WHERE id = ?").run(note, id);
+    this.#refreshFts(id);
   }
 
   /**
@@ -706,8 +732,8 @@ export class Repo {
    * a URL contained `/show/` would be a match with nothing on screen to explain
    * it. ADR-0030 §4 records what that costs.
    */
-  applySourceSet(hash: ContentHash, url: string | null): void {
-    this.#s("UPDATE assets SET source_url = ? WHERE hash = ?").run(url, hash);
+  applySourceSet(id: AssetId, url: string | null): void {
+    this.#s("UPDATE assets SET source_url = ? WHERE id = ?").run(url, id);
   }
 
   /**
@@ -718,20 +744,8 @@ export class Repo {
    * Nothing here touches `thumbs` — the picture is derived work, and this is
    * the instruction that produces it.
    */
-  applyPosterSet(hash: ContentHash, posterMs: number | null): void {
-    this.#s("UPDATE assets SET poster_ms = ? WHERE hash = ?").run(posterMs, hash);
-  }
-
-  /**
-   * Marks one asset as replaced by another, or `null` to make it current again
-   * (ADR-0026).
-   *
-   * Nothing here copies anything: the tags, folders, rating and the rest travel
-   * to the replacement through their own operations, so a rebuild reconstructs
-   * the carry-over from the journal rather than from a rule living in code.
-   */
-  applySupersede(hash: ContentHash, to: ContentHash | null): void {
-    this.#s("UPDATE assets SET superseded_by = ? WHERE hash = ?").run(to, hash);
+  applyPosterSet(id: AssetId, posterMs: number | null): void {
+    this.#s("UPDATE assets SET poster_ms = ? WHERE id = ?").run(posterMs, id);
   }
 
   /**
@@ -744,49 +758,49 @@ export class Repo {
    * and saying it twice is one sentence said twice.
    */
   applySubtitleAttach(
-    hash: ContentHash,
-    track: ContentHash,
+    asset: AssetId,
+    track: AssetId,
     lang: string | undefined,
     label: string | undefined,
   ): void {
     this.#s(
-      `INSERT INTO asset_subtitles (hash, track_hash, ordinal, lang, label)
+      `INSERT INTO asset_subtitles (asset_id, track_id, ordinal, lang, label)
        VALUES (
          ?, ?,
-         (SELECT count(*) FROM asset_subtitles WHERE hash = ?),
+         (SELECT count(*) FROM asset_subtitles WHERE asset_id = ?),
          ?, ?
        )
-       ON CONFLICT (hash, track_hash) DO UPDATE SET lang = excluded.lang, label = excluded.label`,
-    ).run(hash, track, hash, lang ?? null, label ?? null);
+       ON CONFLICT (asset_id, track_id) DO UPDATE SET lang = excluded.lang, label = excluded.label`,
+    ).run(asset, track, asset, lang ?? null, label ?? null);
   }
 
   /** Un-says it. Both assets stay; only the sentence goes. */
-  applySubtitleDetach(hash: ContentHash, track: ContentHash): void {
-    this.#s("DELETE FROM asset_subtitles WHERE hash = ? AND track_hash = ?").run(hash, track);
+  applySubtitleDetach(asset: AssetId, track: AssetId): void {
+    this.#s("DELETE FROM asset_subtitles WHERE asset_id = ? AND track_id = ?").run(asset, track);
   }
 
   /** The caption tracks attached to one asset, in the order they were attached. */
-  subtitlesFor(hash: ContentHash): SubtitleRow[] {
+  subtitlesFor(asset: AssetId): SubtitleRow[] {
     return this.#s(
-      `SELECT s.track_hash AS trackHash, s.lang, s.label, a.orig_name AS name, a.ext
+      `SELECT s.track_id AS trackId, s.lang, s.label, a.name AS name, a.ext
          FROM asset_subtitles s
-         JOIN assets a ON a.hash = s.track_hash
-        WHERE s.hash = ?
+         JOIN assets a ON a.id = s.track_id
+        WHERE s.asset_id = ?
         ORDER BY s.ordinal`,
-    ).all(hash) as SubtitleRow[];
+    ).all(asset) as SubtitleRow[];
   }
 
   /**
    * The folder ids one asset belongs to.
    *
-   * Ids rather than names, because this answers "put the replacement in the
-   * same folders" and `folder_add` names an id. {@link assetDetail} resolves
-   * names instead, for a person to read.
+   * Ids rather than names, because this answers "file this one where that one
+   * is" and `folder_add` names an id. {@link assetDetail} resolves names
+   * instead, for a person to read.
    */
-  folderIdsFor(hash: ContentHash): number[] {
+  folderIdsFor(asset: AssetId): number[] {
     const rows = this.#s(
-      "SELECT folder_id AS id FROM asset_folders WHERE hash = ? ORDER BY folder_id",
-    ).all(hash) as { id: number }[];
+      "SELECT folder_id AS id FROM asset_folders WHERE asset_id = ? ORDER BY folder_id",
+    ).all(asset) as { id: number }[];
     return rows.map((row) => row.id);
   }
 
@@ -799,13 +813,25 @@ export class Repo {
    * dropped or it would outlive the frame it was drawn from — a preview that
    * disagrees with its own grid cell is worse than either (ADR-0024).
    */
-  dropThumbnail(hash: ContentHash, size: number): void {
-    this.#s("DELETE FROM thumbs WHERE hash = ? AND size = ?").run(hash, size);
+  dropThumbnail(id: AssetId, size: number): void {
+    this.#s("DELETE FROM thumbs WHERE asset_id = ? AND size = ?").run(id, size);
+  }
+
+  /**
+   * Forgets every picture of one asset.
+   *
+   * Version 2's own case: the bytes behind an id may change (RL-20), and when
+   * they do, every thumbnail of that asset is a picture of a file that no
+   * longer exists. Under version 1 this could not happen — a different file was
+   * a different asset at a different address.
+   */
+  dropThumbnails(id: AssetId): void {
+    this.#s("DELETE FROM thumbs WHERE asset_id = ?").run(id);
   }
 
   /** The moment a thumbnail is pinned to, or `null` for the default frame. */
-  posterOf(hash: ContentHash): number | null {
-    const row = this.#s("SELECT poster_ms AS posterMs FROM assets WHERE hash = ?").get(hash) as
+  posterOf(id: AssetId): number | null {
+    const row = this.#s("SELECT poster_ms AS posterMs FROM assets WHERE id = ?").get(id) as
       | { posterMs: number | null }
       | undefined;
     return row?.posterMs ?? null;
@@ -820,19 +846,19 @@ export class Repo {
    */
   applyCommentAdd(
     id: number,
-    hash: ContentHash,
+    asset: AssetId,
     atMs: number | null,
     body: string,
     createdAt: number,
   ): void {
     this.#s(
-      `INSERT INTO asset_comments (id, hash, at_ms, body, created_at) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO asset_comments (id, asset_id, at_ms, body, created_at) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
-         hash = excluded.hash, at_ms = excluded.at_ms, body = excluded.body,
+         asset_id = excluded.asset_id, at_ms = excluded.at_ms, body = excluded.body,
          created_at = excluded.created_at, updated_at = NULL`,
-    ).run(id, hash, atMs, body, createdAt);
+    ).run(id, asset, atMs, body, createdAt);
     this.noteIdUsed("asset_comments", id);
-    this.#refreshFts(hash);
+    this.#refreshFts(asset);
   }
 
   /** Edits a comment in place, so it keeps its identity and its place in a list. */
@@ -861,34 +887,40 @@ export class Repo {
    * breaks the tie so two comments on the same frame keep the order they were
    * written in.
    */
-  commentsFor(hash: ContentHash): CommentRow[] {
+  commentsFor(asset: AssetId): CommentRow[] {
     return this.#s(
-      `SELECT id, hash, at_ms AS atMs, body, created_at AS createdAt, updated_at AS updatedAt
+      `SELECT id, asset_id AS assetId, at_ms AS atMs, body,
+              created_at AS createdAt, updated_at AS updatedAt
          FROM asset_comments
-        WHERE hash = ?
+        WHERE asset_id = ?
         ORDER BY at_ms IS NULL, at_ms, id`,
-    ).all(hash) as CommentRow[];
+    ).all(asset) as CommentRow[];
   }
 
   /** One comment, or `undefined` — which is how an edit learns the id is stale. */
   comment(id: number): CommentRow | undefined {
     return this.#s(
-      `SELECT id, hash, at_ms AS atMs, body, created_at AS createdAt, updated_at AS updatedAt
+      `SELECT id, asset_id AS assetId, at_ms AS atMs, body,
+              created_at AS createdAt, updated_at AS updatedAt
          FROM asset_comments WHERE id = ?`,
     ).get(id) as CommentRow | undefined;
   }
 
-  applyFavoriteSet(hash: ContentHash, favorite: boolean): void {
+  applyFavoriteSet(id: AssetId, favorite: boolean): void {
     // `better-sqlite3` refuses to bind a boolean — it accepts numbers, strings,
     // bigints, buffers, and null, and throws on anything else. The column is
     // `INTEGER CHECK (is_favorite IN (0, 1))`, so this is the conversion the
     // schema was always asking for.
-    this.#s("UPDATE assets SET is_favorite = ? WHERE hash = ?").run(favorite ? 1 : 0, hash);
+    this.#s("UPDATE assets SET is_favorite = ? WHERE id = ?").run(favorite ? 1 : 0, id);
   }
 
   /**
    * Creates a smart folder at the id the journal recorded, for the same reason
    * `folder_create` does: later records refer to it by that id.
+   *
+   * `query` is stored exactly as it arrived and is never repaired (RL-47): one
+   * this build cannot evaluate is another implementation's to run, and
+   * "fixing" it would store a query nobody wrote.
    */
   applySmartFolderCreate(id: number, parent: number | null, name: string, query: string): void {
     this.#s(
@@ -940,13 +972,43 @@ export class Repo {
     this.#s("UPDATE tags SET group_id = ? WHERE name = ?").run(group, tag);
   }
 
+  /**
+   * Registers a watched directory at the id the journal recorded.
+   *
+   * **The path is not a key; the id is.** Two `watch_add` records naming one
+   * directory are two roots and replay keeps both, because the journal said it
+   * twice and replay is not the layer that decides that was a mistake.
+   */
+  applyWatchAdd(id: number, path: string, take: Take): void {
+    this.#s(
+      `INSERT INTO watched_roots (id, path, take) VALUES (?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET path = excluded.path, take = excluded.take`,
+    ).run(id, path, take);
+    this.noteIdUsed("watched_roots", id);
+  }
+
+  applyWatchRemove(id: number): void {
+    this.#s("DELETE FROM watched_roots WHERE id = ?").run(id);
+  }
+
+  /** Every watched root, oldest first. */
+  watchedRoots(): WatchedRootRow[] {
+    return this.#s(
+      "SELECT id, path, take FROM watched_roots ORDER BY id",
+    ).all() as WatchedRootRow[];
+  }
+
+  nextWatchedRootId(): number {
+    return this.#nextId("watched_roots");
+  }
+
   // --- Internals ------------------------------------------------------------
 
-  #assetsWithTag(tagId: number): ContentHash[] {
-    const rows = this.#s("SELECT hash FROM asset_tags WHERE tag_id = ?").all(tagId) as {
-      hash: ContentHash;
+  #assetsWithTag(tagId: number): AssetId[] {
+    const rows = this.#s("SELECT asset_id AS id FROM asset_tags WHERE tag_id = ?").all(tagId) as {
+      id: AssetId;
     }[];
-    return rows.map((r) => r.hash);
+    return rows.map((r) => r.id);
   }
 
   /**
@@ -956,26 +1018,27 @@ export class Repo {
    * same state as everything else, so a rebuild cannot produce different search
    * results from an incremental build.
    *
-   * Keyed by **rowid**, deliberately. `assets_fts.hash` is an `UNINDEXED`
-   * column, so `DELETE ... WHERE hash = ?` forces a full scan of the FTS table
-   * once per imported asset — quadratic, and measured in the Rust build as a
-   * 4x throughput collapse between 20k and 100k assets. Aligning the FTS rowid
-   * with `assets.rowid` turns both the delete and the insert into rowid lookups.
+   * Keyed by **rowid**, deliberately. `assets_fts.asset_id` is an `UNINDEXED`
+   * column, so `DELETE ... WHERE asset_id = ?` forces a full scan of the FTS
+   * table once per imported asset — quadratic, and measured in the Rust build
+   * as a 4x throughput collapse between 20k and 100k assets. Aligning the FTS
+   * rowid with `assets.rowid` turns both the delete and the insert into rowid
+   * lookups.
    */
-  #refreshFts(hash: ContentHash): void {
+  #refreshFts(id: AssetId): void {
     const row = this.#s(
-      `SELECT a.rowid AS rowid, a.orig_name AS origName, a.note AS note,
+      `SELECT a.rowid AS rowid, a.name AS name, a.note AS note,
               (SELECT group_concat(t.name, ' ')
                  FROM asset_tags at JOIN tags t ON t.id = at.tag_id
-                WHERE at.hash = a.hash) AS tags,
+                WHERE at.asset_id = a.id) AS tags,
               (SELECT group_concat(c.body, ' ')
                  FROM asset_comments c
-                WHERE c.hash = a.hash) AS comments
-         FROM assets a WHERE a.hash = ?`,
-    ).get(hash) as
+                WHERE c.asset_id = a.id) AS comments
+         FROM assets a WHERE a.id = ?`,
+    ).get(id) as
       | {
           rowid: number;
-          origName: string;
+          name: string;
           note: string | null;
           tags: string | null;
           comments: string | null;
@@ -986,38 +1049,54 @@ export class Repo {
 
     this.#s("DELETE FROM assets_fts WHERE rowid = ?").run(row.rowid);
     this.#s(
-      `INSERT INTO assets_fts (rowid, hash, orig_name, tags, note, comments)
+      `INSERT INTO assets_fts (rowid, asset_id, name, tags, note, comments)
        VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(row.rowid, hash, row.origName, row.tags ?? "", row.note ?? "", row.comments ?? "");
+    ).run(row.rowid, id, row.name, row.tags ?? "", row.note ?? "", row.comments ?? "");
   }
 
   /**
    * The asset a comment belongs to, or `undefined` if the comment is gone.
    *
    * Comment operations name the comment, not the asset, but the full-text row
-   * is the asset's — so the hash has to be looked up, and for a removal it has
-   * to be looked up **before** the delete, when there is still a row to ask.
+   * is the asset's — so the id has to be looked up, and for a removal it has to
+   * be looked up **before** the delete, when there is still a row to ask.
    */
-  #commentOwner(id: number): ContentHash | undefined {
-    const row = this.#s("SELECT hash FROM asset_comments WHERE id = ?").get(id) as
-      | { hash: ContentHash }
+  #commentOwner(id: number): AssetId | undefined {
+    const row = this.#s("SELECT asset_id AS assetId FROM asset_comments WHERE id = ?").get(id) as
+      | { assetId: AssetId }
       | undefined;
-    return row?.hash;
+    return row?.assetId;
   }
 
   // --- Reads ----------------------------------------------------------------
 
-  findOriginal(hash: ContentHash): OriginalRecord | undefined {
-    return this.#s(
-      `SELECT ext, size, storage_mode AS storageMode, ref_path AS refPath
-         FROM assets WHERE hash = ?`,
-    ).get(hash) as OriginalRecord | undefined;
+  /** Where an asset's bytes are, for serving one file. */
+  findFile(id: AssetId): FileRecord | undefined {
+    return this.#s("SELECT ext, size FROM assets WHERE id = ?").get(id) as FileRecord | undefined;
   }
 
-  findAsset(hash: ContentHash): AssetSummary | undefined {
-    return this.#s("SELECT hash, size, ext, orig_name AS origName FROM assets WHERE hash = ?").get(
-      hash,
-    ) as AssetSummary | undefined;
+  findAsset(id: AssetId): AssetSummary | undefined {
+    return this.#s("SELECT id, size, ext, name FROM assets WHERE id = ?").get(id) as
+      | AssetSummary
+      | undefined;
+  }
+
+  /**
+   * The ids of every asset whose file hashed to this, oldest first.
+   *
+   * **Not identity** (RL-18), and the plural is the point: two assets may hold
+   * the same bytes, and both are real assets with their own ids, names and
+   * tags. This answers *"is this file already in here?"* for an import report
+   * (ADR-0037) and for Eagle's fill-what-is-empty rule, and decides nothing on
+   * its own.
+   *
+   * A hash is derived, so an asset nothing has read yet is in no answer here.
+   */
+  assetsWithHash(hash: ContentHash): AssetId[] {
+    const rows = this.#s(
+      "SELECT id FROM assets WHERE content_hash = ? ORDER BY imported_at, id",
+    ).all(hash) as { id: AssetId }[];
+    return rows.map((row) => row.id);
   }
 
   /**
@@ -1027,28 +1106,24 @@ export class Repo {
    * further queries: the Eagle importer asks this once per item that carries a
    * rating, a note or a URL, and it must not cost a detail each.
    */
-  judgements(hash: ContentHash): AssetJudgements | undefined {
-    return this.#s("SELECT rating, note, source_url AS sourceUrl FROM assets WHERE hash = ?").get(
-      hash,
+  judgements(id: AssetId): AssetJudgements | undefined {
+    return this.#s("SELECT rating, note, source_url AS sourceUrl FROM assets WHERE id = ?").get(
+      id,
     ) as AssetJudgements | undefined;
   }
 
   /** One asset with its tags and folder names resolved. */
-  assetDetail(hash: ContentHash): AssetDetail | undefined {
+  assetDetail(id: AssetId): AssetDetail | undefined {
     const base = this.#s(
-      `SELECT hash, ext, size, width, height, duration_ms AS durationMs,
-              page_count AS pageCount, orig_name AS origName,
-              storage_mode AS storageMode, link_method AS linkMethod,
-              ref_path AS refPath,
-              is_partial_hash AS isPartialHash, created_at AS createdAt,
+      `SELECT id, ext, size, width, height, duration_ms AS durationMs,
+              page_count AS pageCount, content_hash AS contentHash,
+              derived_at AS derivedAt, name, created_at AS createdAt,
               imported_at AS importedAt, trashed_at AS trashedAt,
               rating, note, source_url AS sourceUrl,
-              is_favorite AS isFavorite, poster_ms AS posterMs,
-              superseded_by AS supersededBy
-         FROM assets WHERE hash = ?`,
-    ).get(hash) as
-      | (Omit<AssetDetail, "isPartialHash" | "isFavorite" | "tags" | "folders" | "props"> & {
-          isPartialHash: number;
+              is_favorite AS isFavorite, poster_ms AS posterMs
+         FROM assets WHERE id = ?`,
+    ).get(id) as
+      | (Omit<AssetDetail, "isFavorite" | "tags" | "folders" | "props"> & {
           isFavorite: number;
         })
       | undefined;
@@ -1057,43 +1132,42 @@ export class Repo {
 
     const tags = this.#s(
       `SELECT t.name AS name FROM asset_tags at JOIN tags t ON t.id = at.tag_id
-        WHERE at.hash = ? ORDER BY t.name`,
-    ).all(hash) as { name: string }[];
+        WHERE at.asset_id = ? ORDER BY t.name`,
+    ).all(id) as { name: string }[];
 
     const folders = this.#s(
       pathsFrom(
         `SELECT f.id, f.parent_id, f.name, 0, 1
            FROM asset_folders af JOIN folders f ON f.id = af.folder_id
-          WHERE af.hash = ?`,
+          WHERE af.asset_id = ?`,
       ),
-    ).all(hash) as FolderRollup[];
+    ).all(id) as FolderRollup[];
 
     return {
       ...base,
-      isPartialHash: base.isPartialHash !== 0,
       isFavorite: base.isFavorite !== 0,
       tags: tags.map((t) => t.name),
       folders: folders.map(membership),
-      props: this.props(hash),
+      props: this.props(id),
     };
   }
 
   /**
    * Aggregates a selection.
    *
-   * **The hashes arrive as one JSON parameter**, not as a list of placeholders.
+   * **The ids arrive as one JSON parameter**, not as a list of placeholders.
    * `#s` caches a prepared statement per SQL string, so `IN (?, ?, ?)` would mint
    * and cache a new statement for every selection size anyone ever makes — and
    * it would run into SQLite's parameter ceiling on a large one. `json_each`
    * keeps the SQL a single constant string whatever the selection.
    */
-  selectionSummary(hashes: readonly ContentHash[]): SelectionSummary {
-    const list = JSON.stringify(hashes);
+  selectionSummary(ids: readonly AssetId[]): SelectionSummary {
+    const list = JSON.stringify(ids);
 
     const totals = this.#s(
       `SELECT count(*) AS count, coalesce(sum(size), 0) AS totalBytes,
               count(rating) AS rated, min(rating) AS lowest, max(rating) AS highest
-         FROM assets WHERE hash IN (SELECT value FROM json_each(?))`,
+         FROM assets WHERE id IN (SELECT value FROM json_each(?))`,
     ).get(list) as {
       count: number;
       totalBytes: number;
@@ -1105,7 +1179,7 @@ export class Repo {
     const tagged = this.#s(
       `SELECT t.name AS name, count(*) AS carrying
          FROM asset_tags at JOIN tags t ON t.id = at.tag_id
-        WHERE at.hash IN (SELECT value FROM json_each(?))
+        WHERE at.asset_id IN (SELECT value FROM json_each(?))
         GROUP BY t.id ORDER BY t.name`,
     ).all(list) as { name: string; carrying: number }[];
 
@@ -1117,13 +1191,13 @@ export class Repo {
       pathsFrom(
         `SELECT f.id, f.parent_id, f.name, 0, count(*)
            FROM asset_folders af JOIN folders f ON f.id = af.folder_id
-          WHERE af.hash IN (SELECT value FROM json_each(?))
+          WHERE af.asset_id IN (SELECT value FROM json_each(?))
           GROUP BY f.id`,
       ),
     ).all(list) as FolderRollup[];
 
     const kinds = this.#s(
-      `SELECT ext FROM assets WHERE hash IN (SELECT value FROM json_each(?))
+      `SELECT ext FROM assets WHERE id IN (SELECT value FROM json_each(?))
         GROUP BY ext ORDER BY count(*) DESC, ext LIMIT 5`,
     ).all(list) as { ext: string }[];
 
@@ -1152,12 +1226,10 @@ export class Repo {
   stats(): Stats {
     const totals = this.#s(
       `SELECT count(*) AS assets,
-              coalesce(sum(storage_mode = 'managed'), 0) AS managed,
-              coalesce(sum(storage_mode = 'referenced'), 0) AS referenced,
-              coalesce(sum(is_partial_hash), 0) AS partialHashes,
+              coalesce(sum(derived_at IS NULL), 0) AS underived,
               coalesce(sum(size), 0) AS totalBytes
          FROM assets`,
-    ).get() as Pick<Stats, "assets" | "managed" | "referenced" | "partialHashes" | "totalBytes">;
+    ).get() as Pick<Stats, "assets" | "underived" | "totalBytes">;
 
     return {
       ...totals,
@@ -1165,6 +1237,7 @@ export class Repo {
       tagGroups: this.#count("SELECT count(*) AS n FROM tag_groups"),
       folders: this.#count("SELECT count(*) AS n FROM folders"),
       smartFolders: this.#count("SELECT count(*) AS n FROM smart_folders"),
+      watchedRoots: this.#count("SELECT count(*) AS n FROM watched_roots"),
       rated: this.#count("SELECT count(*) AS n FROM assets WHERE rating IS NOT NULL"),
       favorites: this.#count("SELECT count(*) AS n FROM assets WHERE is_favorite = 1"),
       notes: this.#count("SELECT count(*) AS n FROM assets WHERE note IS NOT NULL"),
@@ -1182,30 +1255,29 @@ export class Repo {
    * Stores or replaces one thumbnail BLOB.
    *
    * Thumbnails are derived data and therefore never journalled: a rebuild
-   * discards them, and regenerating from `originals/` restores them.
+   * discards them, and regenerating from `files/` restores them.
    */
-  putThumbnail(hash: ContentHash, size: number, width: number, height: number, data: Buffer): void {
+  putThumbnail(id: AssetId, size: number, width: number, height: number, data: Buffer): void {
     this.#s(
-      `INSERT INTO thumbs (hash, size, width, height, data) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(hash, size) DO UPDATE SET
+      `INSERT INTO thumbs (asset_id, size, width, height, data) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(asset_id, size) DO UPDATE SET
            width = excluded.width, height = excluded.height, data = excluded.data`,
-    ).run(hash, size, width, height, data);
+    ).run(id, size, width, height, data);
   }
 
   /** One thumbnail's bytes, or `undefined` if it has not been generated. */
-  thumbnail(hash: ContentHash, size: number): Buffer | undefined {
-    const row = this.#s("SELECT data FROM thumbs WHERE hash = ? AND size = ?").get(hash, size) as
+  thumbnail(id: AssetId, size: number): Buffer | undefined {
+    const row = this.#s("SELECT data FROM thumbs WHERE asset_id = ? AND size = ?").get(id, size) as
       | { data: Buffer }
       | undefined;
     return row?.data;
   }
 
   /** Where one asset's bytes are, for generating a thumbnail on demand. */
-  thumbnailTarget(hash: ContentHash): ThumbnailTarget | undefined {
-    return this.#s(
-      `SELECT hash, ext, storage_mode AS storageMode, ref_path AS refPath, poster_ms AS posterMs
-         FROM assets WHERE hash = ?`,
-    ).get(hash) as ThumbnailTarget | undefined;
+  thumbnailTarget(id: AssetId): ThumbnailTarget | undefined {
+    return this.#s("SELECT id, ext, poster_ms AS posterMs FROM assets WHERE id = ?").get(id) as
+      | ThumbnailTarget
+      | undefined;
   }
 
   /**
@@ -1216,8 +1288,8 @@ export class Repo {
    * single-size probe would report a backfill as already done.
    *
    * `NOT EXISTS` per size rather than a join or `IN`: `thumbs` is keyed on
-   * `(hash, size)`, so each probe is a primary-key lookup instead of a set that
-   * has to be materialised first.
+   * `(asset_id, size)`, so each probe is a primary-key lookup instead of a set
+   * that has to be materialised first.
    */
   assetsMissingThumbnails(sizes: readonly number[], limit: number): ThumbnailTarget[] {
     if (sizes.length === 0) return [];
@@ -1225,12 +1297,11 @@ export class Repo {
     // Built from `sizes.length`, never from its contents — the values stay
     // bound. Every caller passes a compile-time constant, not user input.
     const probes = sizes
-      .map(() => "NOT EXISTS (SELECT 1 FROM thumbs t WHERE t.hash = a.hash AND t.size = ?)")
+      .map(() => "NOT EXISTS (SELECT 1 FROM thumbs t WHERE t.asset_id = a.id AND t.size = ?)")
       .join(" OR ");
 
     return this.#s(
-      `SELECT a.hash AS hash, a.ext AS ext, a.storage_mode AS storageMode,
-              a.ref_path AS refPath, a.poster_ms AS posterMs
+      `SELECT a.id AS id, a.ext AS ext, a.poster_ms AS posterMs
          FROM assets a
         WHERE ${probes}
         ORDER BY a.imported_at DESC
@@ -1241,44 +1312,86 @@ export class Repo {
   // --- Derived data and the job queue ---------------------------------------
   //
   // None of this is journalled: it is computed from bytes, so a rebuild drops
-  // it and re-running the derive pass restores it (`DATA_MODEL.md` §2.5).
+  // it and re-running the derive pass restores it (RL-22, RL-23).
 
   /**
    * Folds what a derive learned into the asset row and its properties.
    *
    * `coalesce(?, column)` rather than a plain assignment, so a backend that
-   * reports one field leaves the others alone. Probing at import already found
-   * an image's dimensions; a later pass that only knows a page count must not
-   * blank them.
+   * reports one field leaves the others alone: a pass that only knows a page
+   * count must not blank dimensions something else found.
+   *
+   * `derived_at` is written whenever anything is, because it is what
+   * {@link Repo.stats} counts and what a sweep compares against. Together with
+   * `size` and `mtime` it is how a changed file is noticed without reading it.
    */
-  putDerived(hash: ContentHash, meta: DerivedMetadata): void {
+  putDerived(id: AssetId, meta: DerivedMetadata, now: number): void {
     this.#s(
       `UPDATE assets
-          SET width       = coalesce(?, width),
-              height      = coalesce(?, height),
-              duration_ms = coalesce(?, duration_ms),
-              page_count  = coalesce(?, page_count)
-        WHERE hash = ?`,
+          SET size         = coalesce(?, size),
+              mtime        = coalesce(?, mtime),
+              content_hash = coalesce(?, content_hash),
+              width        = coalesce(?, width),
+              height       = coalesce(?, height),
+              duration_ms  = coalesce(?, duration_ms),
+              page_count   = coalesce(?, page_count),
+              derived_at   = ?
+        WHERE id = ?`,
     ).run(
+      meta.size ?? null,
+      meta.mtime ?? null,
+      meta.contentHash ?? null,
       meta.width ?? null,
       meta.height ?? null,
       meta.durationMs ?? null,
       meta.pageCount ?? null,
-      hash,
+      now,
+      id,
     );
 
     if (meta.props === undefined) return;
     const put = this.#s(
-      `INSERT INTO asset_props (hash, key, value) VALUES (?, ?, ?)
-       ON CONFLICT(hash, key) DO UPDATE SET value = excluded.value`,
+      `INSERT INTO asset_props (asset_id, key, value) VALUES (?, ?, ?)
+       ON CONFLICT(asset_id, key) DO UPDATE SET value = excluded.value`,
     );
-    for (const [key, value] of Object.entries(meta.props)) put.run(hash, key, value);
+    for (const [key, value] of Object.entries(meta.props)) put.run(id, key, value);
+  }
+
+  /**
+   * Forgets everything derived about one asset, so the next pass reads the file
+   * rather than trusting what is there.
+   *
+   * Version 2's own method, for the case version 1 could not have: the bytes
+   * changed under an id that did not (RL-20). Clearing rather than coalescing
+   * is the whole point — a video saved as a still would otherwise keep its
+   * duration for ever.
+   */
+  clearDerived(id: AssetId): void {
+    this.#s(
+      `UPDATE assets
+          SET size = NULL, mtime = NULL, content_hash = NULL, width = NULL,
+              height = NULL, duration_ms = NULL, page_count = NULL, derived_at = NULL
+        WHERE id = ?`,
+    ).run(id);
+    this.#s("DELETE FROM asset_props WHERE asset_id = ?").run(id);
+  }
+
+  /**
+   * What the index last saw of an asset's file, for deciding whether to read it
+   * again.
+   *
+   * `undefined` for no such asset; a row of `null`s for one nothing has read.
+   */
+  fileState(id: AssetId): { size: number | null; mtime: number | null } | undefined {
+    return this.#s("SELECT size, mtime FROM assets WHERE id = ?").get(id) as
+      | { size: number | null; mtime: number | null }
+      | undefined;
   }
 
   /** One asset's derived properties. Empty for most assets. */
-  props(hash: ContentHash): Record<string, string> {
-    const rows = this.#s("SELECT key, value FROM asset_props WHERE hash = ? ORDER BY key").all(
-      hash,
+  props(id: AssetId): Record<string, string> {
+    const rows = this.#s("SELECT key, value FROM asset_props WHERE asset_id = ? ORDER BY key").all(
+      id,
     ) as { key: string; value: string }[];
     return Object.fromEntries(rows.map((row) => [row.key, row.value]));
   }
@@ -1292,25 +1405,26 @@ export class Repo {
    * again for something that failed, or that someone is now looking at, has to
    * mean it will be tried again and tried sooner.
    */
-  enqueueJob(kind: JobKind, hash: ContentHash, priority: number, now: number): void {
+  enqueueJob(kind: JobKind, asset: AssetId, priority: number, now: number): void {
     this.#s(
-      `INSERT INTO jobs (kind, hash, priority, state, enqueued_at) VALUES (?, ?, ?, 'ready', ?)
-       ON CONFLICT(kind, hash) DO UPDATE SET
+      `INSERT INTO jobs (kind, asset_id, priority, state, enqueued_at)
+       VALUES (?, ?, ?, 'ready', ?)
+       ON CONFLICT(kind, asset_id) DO UPDATE SET
            state = 'ready',
            reason = NULL,
            priority = min(jobs.priority, excluded.priority),
            enqueued_at = excluded.enqueued_at`,
-    ).run(kind, hash, priority, now);
+    ).run(kind, asset, priority, now);
   }
 
   /**
    * Queues a derive for every asset missing a thumbnail at any of `sizes`.
    *
-   * `DO NOTHING` on conflict, unlike {@link enqueueJob}: this is the backfill
-   * sweep, and it must not disturb a job that is already blocked — a format
-   * nothing in this build can draw would otherwise be retried on every sweep,
-   * forever, and the sweep would never converge. Un-blocking is a deliberate
-   * act ({@link requeueBlocked}), taken when a backend appears.
+   * `DO NOTHING` on conflict, unlike {@link Repo.enqueueJob}: this is the
+   * backfill sweep, and it must not disturb a job that is already blocked — a
+   * format nothing in this build can draw would otherwise be retried on every
+   * sweep, forever, and the sweep would never converge. Un-blocking is a
+   * deliberate act ({@link Repo.requeueBlocked}), taken when a backend appears.
    *
    * Returns how many were added.
    */
@@ -1326,17 +1440,17 @@ export class Repo {
     // Built from `sizes.length`, never from its contents, exactly as
     // `assetsMissingThumbnails` does — the values stay bound.
     const probes = sizes
-      .map(() => "NOT EXISTS (SELECT 1 FROM thumbs t WHERE t.hash = a.hash AND t.size = ?)")
+      .map(() => "NOT EXISTS (SELECT 1 FROM thumbs t WHERE t.asset_id = a.id AND t.size = ?)")
       .join(" OR ");
 
     const result = this.#s(
-      `INSERT INTO jobs (kind, hash, priority, state, enqueued_at)
-       SELECT ?, a.hash, ?, 'ready', ?
+      `INSERT INTO jobs (kind, asset_id, priority, state, enqueued_at)
+       SELECT ?, a.id, ?, 'ready', ?
          FROM assets a
         WHERE ${probes}
         ORDER BY a.imported_at DESC
         LIMIT ?
-       ON CONFLICT(kind, hash) DO NOTHING`,
+       ON CONFLICT(kind, asset_id) DO NOTHING`,
     ).run(kind, priority, now, ...sizes, limit);
     return result.changes;
   }
@@ -1356,10 +1470,10 @@ export class Repo {
                WHERE kind = ? AND state = 'ready'
                ORDER BY priority, id
                LIMIT ?)
-       RETURNING id, hash, attempts, priority`,
+       RETURNING id, asset_id AS assetId, attempts, priority`,
     ).all(kind, limit) as {
       id: number;
-      hash: ContentHash;
+      assetId: AssetId;
       attempts: number;
       priority: number;
     }[];
@@ -1373,14 +1487,20 @@ export class Repo {
 
     const claims: JobClaim[] = [];
     for (const job of claimed) {
-      const target = this.thumbnailTarget(job.hash);
+      const target = this.thumbnailTarget(job.assetId);
       // The asset is gone: the row will cascade away with it, and there is
       // nothing to derive from.
       if (target === undefined) {
         this.completeJob(job.id);
         continue;
       }
-      claims.push({ id: job.id, attempts: job.attempts, ...target });
+      claims.push({
+        id: job.id,
+        attempts: job.attempts,
+        assetId: target.id,
+        ext: target.ext,
+        posterMs: target.posterMs,
+      });
     }
     return claims;
   }
@@ -1393,8 +1513,8 @@ export class Repo {
   /**
    * Parks a job on something the machine does not have.
    *
-   * Distinct from {@link failJob} because the fix is different: a blocked job
-   * waits for a backend to be installed or a format to become drawable, and
+   * Distinct from {@link Repo.failJob} because the fix is different: a blocked
+   * job waits for a backend to be installed or a format to become drawable, and
    * retrying it now would produce the same answer at the same cost. `reason` is
    * shown to the user, so it names the capability rather than the exception.
    */
@@ -1411,9 +1531,9 @@ export class Repo {
    * Returns claimed jobs to the queue, and reports how many.
    *
    * Run at start-up: `running` describes a process, and after a crash it
-   * describes one that no longer exists. A derive is idempotent — same bytes,
-   * same answer — so repeating one that was in flight is cheaper than
-   * establishing whether it finished.
+   * describes one that no longer exists. Repeating a derive is cheap and
+   * correct — for bytes that have not changed it lands on the same answer, and
+   * for bytes that have it lands on the right one.
    */
   resetRunningJobs(): number {
     return this.#s("UPDATE jobs SET state = 'ready' WHERE state = 'running'").run().changes;
@@ -1475,39 +1595,41 @@ export class Repo {
    */
   jobsIn(kind: JobKind, state: JobState, limit: number): StalledJob[] {
     return this.#s(
-      `SELECT j.hash AS hash, a.orig_name AS name, a.ext AS ext,
+      `SELECT j.asset_id AS assetId, a.name AS name, a.ext AS ext,
               j.attempts AS attempts, coalesce(j.reason, '') AS reason
-         FROM jobs j JOIN assets a ON a.hash = j.hash
+         FROM jobs j JOIN assets a ON a.id = j.asset_id
         WHERE j.kind = ? AND j.state = ?
         ORDER BY j.id
         LIMIT ?`,
     ).all(kind, state, limit) as StalledJob[];
   }
 
-  /** Every asset hash in the index, for comparing a rebuild against the original. */
-  allHashes(): ContentHash[] {
-    const rows = this.#s("SELECT hash FROM assets ORDER BY hash").all() as {
-      hash: ContentHash;
-    }[];
-    return rows.map((r) => r.hash);
+  /** Every asset id in the index, for comparing a rebuild against the original. */
+  allIds(): AssetId[] {
+    const rows = this.#s("SELECT id FROM assets ORDER BY id").all() as { id: AssetId }[];
+    return rows.map((r) => r.id);
   }
 
   /**
-   * Resolves a unique hash prefix to a full hash.
+   * Resolves a unique id prefix to a full id.
    *
-   * Typing 64 hex characters is not a workflow. Two matches come back as two,
+   * Twelve characters is far less to type than version 1's sixty-four, and a
+   * prefix is still what a person reaches for. Two matches come back as two,
    * not as a silent pick, because the two assets are unrelated files.
+   *
+   * The comparison is case-sensitive, as ids are: the alphabet is upper case
+   * only (RL-14), so a lower-case prefix is a typo rather than a spelling.
    */
-  resolveHashPrefix(prefix: string): ContentHash[] {
-    const rows = this.#s("SELECT hash FROM assets WHERE hash LIKE ? || '%' LIMIT 2").all(
-      prefix,
-    ) as { hash: ContentHash }[];
-    return rows.map((r) => r.hash);
+  resolveIdPrefix(prefix: string): AssetId[] {
+    const rows = this.#s("SELECT id FROM assets WHERE id LIKE ? || '%' LIMIT 2").all(prefix) as {
+      id: AssetId;
+    }[];
+    return rows.map((r) => r.id);
   }
 
   /**
    * The next free folder id — **the journal's maximum plus one**, not the
-   * table's (RL-25a).
+   * table's (RL-17, RL-36).
    *
    * The two differ the moment anything is deleted, and that is the whole point.
    * A folder created as 7 and then deleted leaves no row, so `max(id)` over the
@@ -1520,12 +1642,10 @@ export class Repo {
    * the two now hold different folders under one id with every membership
    * record ambiguous between them.
    *
-   * So the maximum is remembered rather than recomputed. {@link noteIdUsed}
+   * So the maximum is remembered rather than recomputed. {@link Repo.noteIdUsed}
    * raises the mark whenever a create is folded, and nothing ever lowers it.
-   * The table is still consulted alongside it, which is what carries an index
-   * built before this build forward without a migration: an old `index.db` has
-   * no mark, and its table maximum is the best answer available until the next
-   * rebuild writes a real one.
+   * The table is still consulted alongside it, which costs one cheap statement
+   * and covers a cache written before the mark existed.
    */
   nextFolderId(): number {
     return this.#nextId("folders");
@@ -1570,23 +1690,25 @@ export class Repo {
    *
    * On the primary key and selecting a constant, so it costs an index probe and
    * touches no row: replay asks it once per record that names an asset, which
-   * is most of a large journal.
+   * is most of a large journal. It is also RL-15's half of minting an id — the
+   * check that a newly minted one is not already in use.
    */
-  hasAsset(hash: ContentHash): boolean {
-    return this.#s("SELECT 1 FROM assets WHERE hash = ?").get(hash) !== undefined;
+  hasAsset(id: AssetId): boolean {
+    return this.#s("SELECT 1 FROM assets WHERE id = ?").get(id) !== undefined;
   }
 
-  /** The same question for the four tables whose ids the journal mints. */
+  /** The same question for the tables whose ids the journal mints. */
   hasRow(table: IdentifiedTable, id: number): boolean {
     return this.#s(`SELECT 1 FROM ${table} WHERE id = ?`).get(id) !== undefined;
   }
 
   /**
-   * Records that `id` has been used in `table`, so it is never handed out again.
+   * Records that `id` has been used in `table`, so it is never handed out again
+   * (RL-17's *never reused*).
    *
-   * Called from the four `apply*` methods that fold a create, so replay and
-   * live mutation raise the mark by the same hand — there is no second path for
-   * one of them to forget.
+   * Called from the `apply*` methods that fold a create, so replay and live
+   * mutation raise the mark by the same hand — there is no second path for one
+   * of them to forget.
    */
   noteIdUsed(table: IdentifiedTable, id: number): void {
     this.#s(
@@ -1698,7 +1820,7 @@ export class Repo {
     const rows = this.#s(
       `SELECT af.folder_id AS folderId, count(*) AS n
          FROM asset_folders af
-         JOIN assets a ON a.hash = af.hash
+         JOIN assets a ON a.id = af.asset_id
         WHERE a.trashed_at IS NULL
         GROUP BY af.folder_id`,
     ).all() as { folderId: number; n: number }[];
@@ -1714,36 +1836,40 @@ export class Repo {
    * twice; and live, because trashing what is already trashed says nothing.
    *
    * The ids arrive as one JSON parameter for the reason
-   * {@link selectionSummary} gives — a folder subtree is small, but the
+   * {@link Repo.selectionSummary} gives — a folder subtree is small, but the
    * statement stays one cached string whatever its size.
    */
-  assetsInFolders(folders: readonly number[]): ContentHash[] {
+  assetsInFolders(folders: readonly number[]): AssetId[] {
     const rows = this.#s(
-      `SELECT DISTINCT af.hash AS hash
+      `SELECT DISTINCT af.asset_id AS id
          FROM asset_folders af
-         JOIN assets a ON a.hash = af.hash
+         JOIN assets a ON a.id = af.asset_id
         WHERE af.folder_id IN (SELECT value FROM json_each(?))
           AND a.trashed_at IS NULL
-        ORDER BY af.hash`,
-    ).all(JSON.stringify(folders)) as { hash: ContentHash }[];
-    return rows.map((row) => row.hash);
+        ORDER BY af.asset_id`,
+    ).all(JSON.stringify(folders)) as { id: AssetId }[];
+    return rows.map((row) => row.id);
   }
 
   /**
    * Every tag, with its live asset count and its group.
    *
-   * The count excludes trashed assets, for the reason {@link folderCounts}
+   * The count excludes trashed assets, for the reason {@link Repo.folderCounts}
    * gives. The joins stay `LEFT` so that a tag every one of whose assets is in
    * the trash is still listed, at zero — the tag has not been deleted, and a
    * row vanishing from the sidebar is a different statement from a count
    * falling to nothing.
+   *
+   * That a tag outlives its last asset is **this build's** answer to a question
+   * the format lists as open (`SPEC.md` §11.4) and requires nobody else to
+   * share.
    */
   tags(): TagRow[] {
     return this.#s(
-      `SELECT t.name AS name, count(a.hash) AS count, g.name AS "group"
+      `SELECT t.name AS name, count(a.id) AS count, g.name AS "group"
          FROM tags t
          LEFT JOIN asset_tags at ON at.tag_id = t.id
-         LEFT JOIN assets a ON a.hash = at.hash AND a.trashed_at IS NULL
+         LEFT JOIN assets a ON a.id = at.asset_id AND a.trashed_at IS NULL
          LEFT JOIN tag_groups g ON g.id = t.group_id
         GROUP BY t.id
         ORDER BY t.name`,
@@ -1794,9 +1920,9 @@ export class Repo {
    * projection, the ordering, the keyset predicate, and the limit all stay in
    * one place. The caller contributes a predicate and its values, nothing more.
    *
-   * Ordering is `(imported_at DESC, hash)` — the exact order
-   * `idx_assets_imported` holds after migration 0003 — so both the sort and the
-   * resume are index seeks rather than a scan and a sort.
+   * Ordering is `(imported_at DESC, id DESC)` — the exact order
+   * `idx_assets_imported` holds — so both the sort and the resume are index
+   * seeks rather than a scan and a sort.
    */
   search(filter: Filter, page: Page): SearchHit[] {
     const sort = page.sort ?? DEFAULT_SORT;
@@ -1804,11 +1930,11 @@ export class Repo {
       limit: number;
       rotate: number;
       cursorKey?: CursorKey;
-      cursorHash?: string;
+      cursorId?: string;
     } = { limit: page.limit, rotate: rotationFor(sort.seed) };
     if (page.after !== undefined) {
       named.cursorKey = page.after.key;
-      named.cursorHash = page.after.hash;
+      named.cursorId = page.after.id;
     }
 
     // The filter's own `?` are positional, and a resume repeats the whole
@@ -1841,28 +1967,31 @@ export class Repo {
 /**
  * How each sort key is spelled in SQL, and whether two rows can share it.
  *
- * The expression is the **definition of the order**: migration 0014 indexes
- * exactly these, character for character, and the resume compares exactly
- * these. A second spelling anywhere is an order that pages wrongly.
+ * The expression is the **definition of the order**: the schema indexes exactly
+ * these, character for character, and the resume compares exactly these. A
+ * second spelling anywhere is an order that pages wrongly.
  *
- * Two of them coalesce a nullable column, because a NULL in a keyset comparison
- * yields NULL and silently drops rows: a file with no creation date is dated
- * when it arrived, and an unrated asset sorts below one star. `lower()` is
- * SQLite's, which folds ASCII and nothing else — the same folding
- * `@roost/library` does for folder names, chosen there for the same reason.
+ * Three of them coalesce a nullable column, because a NULL in a keyset
+ * comparison yields NULL and silently drops rows: a file with no creation date
+ * is dated when it arrived, an unrated asset sorts below one star, and — new in
+ * version 2 — an asset nothing has read yet has no size (RL-22), so sorting by
+ * size has to place it somewhere rather than losing it. `lower()` is SQLite's,
+ * which folds ASCII and nothing else — the same folding `@roost/library` does
+ * for folder names, chosen there for the same reason.
  *
  * `random` is the one with no column, no index, and no ties: a rotation of the
- * content hash by `@rotate` characters (`rotationFor`). Because the rotation is
- * a bijection of a unique hash it cannot tie, which is why it needs only one
- * seek rather than two.
+ * **id** by `@rotate` characters (`rotationFor`). Because the rotation is a
+ * bijection of a unique id it cannot tie, which is why it needs only one seek
+ * rather than two. Version 1 rotated the content hash; an id is uniformly
+ * random too (RL-14) and, unlike a hash, is never absent.
  */
 const ORDERS: Readonly<Record<SortKey, { readonly expr: string; readonly ties: boolean }>> = {
   added: { expr: "a.imported_at", ties: true },
   created: { expr: "COALESCE(a.created_at, a.imported_at)", ties: true },
-  name: { expr: "lower(a.orig_name)", ties: true },
-  size: { expr: "a.size", ties: true },
+  name: { expr: "lower(a.name)", ties: true },
+  size: { expr: "COALESCE(a.size, 0)", ties: true },
   rating: { expr: "COALESCE(a.rating, 0)", ties: true },
-  random: { expr: "substr(a.hash, @rotate + 1) || substr(a.hash, 1, @rotate)", ties: false },
+  random: { expr: "substr(a.id, @rotate + 1) || substr(a.id, 1, @rotate)", ties: false },
 };
 
 /** Whether resuming this order needs the second seek. */
@@ -1873,20 +2002,19 @@ function ties(sort: Sort): boolean {
 /**
  * Assembles the statement {@link Repo.search} runs, around a compiled filter.
  *
- * **The tie-break follows the key.** Every order is `(key, hash)` in one
- * direction, never a mixed one, and migration 0014 rebuilt the five oldest
- * indexes to match — because a mixed order is one an index can serve in a
- * single direction, and it was the reason the resume could not be written as a
- * comparison of the pair. That trap is gone; this is what replaced it.
+ * **The tie-break follows the key.** Every order is `(key, id)` in one
+ * direction, never a mixed one, and the schema's indexes are built to match —
+ * because a mixed order is one an index can serve in a single direction, and it
+ * was the reason the resume could not be written as a comparison of the pair.
  *
  * **A resume is two seeks, not one predicate.** The rows still to come are
- * those *further along the key*, plus those *with the same key and a later
- * hash*, and written as one disjunction SQLite seeks on the key alone and then
- * walks the whole run of equal keys. That is invisible until a key repeats:
- * ratings have six values, so page 500 of a rating-sorted library walked 50,000
- * rows and cost 5.8 ms against 0.06 ms for the same page written as two seeks
+ * those *further along the key*, plus those *with the same key and a later id*,
+ * and written as one disjunction SQLite seeks on the key alone and then walks
+ * the whole run of equal keys. That is invisible until a key repeats: ratings
+ * have six values, so page 500 of a rating-sorted library walked 50,000 rows
+ * and cost 5.8 ms against 0.06 ms for the same page written as two seeks
  * (measured at 95,001 assets, `docs/BENCHMARKS.md`). Each half is a range on an
- * index that already holds `(key, hash)`, so each is a seek; the halves cannot
+ * index that already holds `(key, id)`, so each is a seek; the halves cannot
  * overlap, and the first half sorts entirely before the second, so a plain
  * `UNION ALL` is already in order and needs no outer sort.
  *
@@ -1911,7 +2039,7 @@ export function searchSql(
   const beyond = sort.descending ? "<" : ">";
 
   const page = (where: string, order: string): string =>
-    `SELECT a.hash AS hash, a.orig_name AS origName, a.ext AS ext, a.size AS size,
+    `SELECT a.id AS id, a.name AS name, a.ext AS ext, a.size AS size,
             a.width AS width, a.height AS height, a.imported_at AS importedAt,
             a.rating AS rating, a.is_favorite AS isFavorite,
             a.poster_ms AS posterMs, ${expr} AS sortKey
@@ -1920,15 +2048,15 @@ export function searchSql(
       ORDER BY ${order}
       LIMIT @limit`;
 
-  const whole = `${expr} ${way}, a.hash ${way}`;
+  const whole = `${expr} ${way}, a.id ${way}`;
   if (!hasCursor) return page(`(${filterSql})`, whole);
 
   const beyondKey = page(`(${filterSql}) AND ${expr} ${beyond} @cursorKey`, whole);
   if (!canTie) return beyondKey;
 
   const sameKey = page(
-    `(${filterSql}) AND ${expr} = @cursorKey AND a.hash ${beyond} @cursorHash`,
-    `a.hash ${way}`,
+    `(${filterSql}) AND ${expr} = @cursorKey AND a.id ${beyond} @cursorId`,
+    `a.id ${way}`,
   );
   return `SELECT * FROM (${sameKey})
     UNION ALL
@@ -1939,5 +2067,5 @@ export function searchSql(
 /** The cursor that resumes a listing after the last hit on a page. */
 export function lastCursor(hits: readonly SearchHit[]): Cursor | undefined {
   const last = hits.at(-1);
-  return last === undefined ? undefined : { key: last.sortKey, hash: last.hash };
+  return last === undefined ? undefined : { key: last.sortKey, id: last.id };
 }

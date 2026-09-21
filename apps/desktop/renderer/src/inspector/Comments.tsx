@@ -199,7 +199,7 @@ function Composer({
     if (body === "") return;
     setDraft("");
     setMoment(null);
-    void invoke({ type: "comment:add", hash: detail.hash, atMs: moment, body }).then(onSaved);
+    void invoke({ type: "comment:add", asset: detail.id, atMs: moment, body }).then(onSaved);
   };
 
   return (

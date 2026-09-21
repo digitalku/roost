@@ -66,7 +66,7 @@ describe("the command line", () => {
     const { streams, out } = capture();
     expect(await run(["import", "--help"], streams)).toBe(EXIT.ok);
     expect(out.join("\n")).toContain("Usage: roost import");
-    expect(out.join("\n")).toContain("--mode <MODE>");
+    expect(out.join("\n")).toContain("--take <TAKE>");
   });
 
   it("separates a wrong command line from a failed command", async () => {
@@ -78,9 +78,9 @@ describe("the command line", () => {
 
     const badMode = capture();
     expect(
-      await run(["import", "--mode", "sideways", join(dir, "x"), "-L", dir], badMode.streams),
+      await run(["import", "--take", "sideways", join(dir, "x"), "-L", dir], badMode.streams),
     ).toBe(EXIT.usage);
-    expect(badMode.warn.join("\n")).toContain("managed or referenced");
+    expect(badMode.warn.join("\n")).toContain("move or copy");
 
     // A path that is not there and a directory that is there and holds no
     // library are different mistakes, and the message has to say which: the
@@ -122,7 +122,7 @@ describe("the command line", () => {
     // The manifest is what makes a directory a library, and the format version
     // is part of it.
     const manifest: unknown = JSON.parse(await readFile(join(root, "library.json"), "utf8"));
-    expect(manifest).toMatchObject({ roost_library_version: 1, name: "Demo" });
+    expect(manifest).toMatchObject({ roost_library_version: 2, name: "Demo" });
 
     const imported = capture();
     expect(await run(["import", corpus, "-L", root, "--tag", "demo"], imported.streams)).toBe(

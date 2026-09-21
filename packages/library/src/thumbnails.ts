@@ -1,5 +1,5 @@
 import { access } from "node:fs/promises";
-import { parseContentHash } from "@roost/core";
+import { parseAssetId } from "@roost/core";
 import { derive, EAGER_SIZES, GRID_SIZE, PREVIEW_SIZE, THUMBNAIL_SIZES } from "@roost/media";
 import { type DeriveReport, enqueueMissing, runDerives } from "./jobs.js";
 import type { Library } from "./library.js";
@@ -65,7 +65,7 @@ function asThumbnailReport(report: DeriveReport): ThumbnailReport {
     missing: report.missing,
     bytes: report.bytes,
     elapsed: report.elapsed,
-    failed: report.failures.map((failure) => ({ path: failure.hash, reason: failure.reason })),
+    failed: report.failures.map((failure) => ({ path: failure.id, reason: failure.reason })),
   };
 }
 
@@ -95,19 +95,15 @@ function asThumbnailReport(report: DeriveReport): ThumbnailReport {
  * a second here is the difference between "the picture changed" and a
  * placeholder that fills in whenever the queue gets round to it.
  *
- * Best effort. Without ffmpeg, or with a referenced original that has moved,
+ * Best effort. Without ffmpeg, or with a file that has gone missing (RL-25),
  * this answers `false` and the caller leaves the job queued — the queue reads
  * the same `poster_ms`, so nothing is lost but time.
  */
-export async function redrawPoster(library: Library, hash: string): Promise<boolean> {
-  const asset = parseContentHash(hash);
+export async function redrawPoster(library: Library, id: string): Promise<boolean> {
+  const asset = parseAssetId(id);
   const target = library.db.repo.thumbnailTarget(asset);
   if (target === undefined) return false;
-  const path =
-    target.storageMode === "referenced"
-      ? target.refPath
-      : library.storageFor("managed").locate(asset, target.ext);
-  if (path === null) return false;
+  const path = library.storage.locate(asset, target.ext);
 
   try {
     await access(path);
@@ -132,18 +128,14 @@ export async function redrawPoster(library: Library, hash: string): Promise<bool
   }
 }
 
-export async function ensurePreview(library: Library, hash: string): Promise<boolean> {
-  const asset = parseContentHash(hash);
+export async function ensurePreview(library: Library, id: string): Promise<boolean> {
+  const asset = parseAssetId(id);
   if (library.db.repo.thumbnail(asset, PREVIEW_SIZE) !== undefined) return true;
   if (library.db.repo.thumbnail(asset, GRID_SIZE) === undefined) return false;
 
   const target = library.db.repo.thumbnailTarget(asset);
   if (target === undefined) return false;
-  const path =
-    target.storageMode === "referenced"
-      ? target.refPath
-      : library.storageFor("managed").locate(asset, target.ext);
-  if (path === null) return false;
+  const path = library.storage.locate(asset, target.ext);
 
   try {
     await access(path);
@@ -164,9 +156,10 @@ export async function ensurePreview(library: Library, hash: string): Promise<boo
     });
     return outcome.thumbnails.length > 0;
   } catch {
-    // A referenced original that moved, or a backend that failed on a file it
-    // drew once. Either way the inspector falls back to the grid size, which is
-    // a softer picture rather than a broken one.
+    // A file that has gone missing, or a backend that failed on one it drew
+    // once — which version 2 makes ordinary rather than surprising, because the
+    // bytes may have been edited since (RL-20). Either way the inspector falls
+    // back to the grid size, which is a softer picture rather than a broken one.
     return false;
   }
 }

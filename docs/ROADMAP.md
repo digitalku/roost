@@ -87,18 +87,18 @@ containers where no window can open.
   are alone
 - ☑ `@roost/core` `log`: structured logger, scopes, bound fields, sinks installed by the
   binaries — and nothing written at all until one is
-- ☑ Streamed BLAKE3 including the >50 MB partial scheme and `is_partial_hash`, byte-verified
-  against digests taken from the Rust implementation — and the verification itself checked, by
-  flipping the size prefix to big-endian and watching the two partial-hash cases fail
+- ☑ Streamed BLAKE3, byte-verified against digests taken from the Rust implementation. The
+  >50 MB **partial scheme went with version 1** (ADR-0046): it existed so that a 4 GB video
+  could be *identified* without being read, and identity no longer comes from the bytes
 - ☑ `@roost/media`: magic-byte probing over 21 formats with the extension as a hint only,
   header-only dimensions, and WebP q80 thumbnails at 256/512 as BLOBs — plus the synthetic
   gradient generator `roost fixture` needs. **ADR-0013 came out of it**: `sharp`'s prebuilt
   binary segfaults inside Electron on Linux, which the CLI does not hit and M3 would have
   discovered the hard way
-- ☑ Import pipeline: discover → hash → dedupe → place → probe → journal → index, with a
-  streaming walk, batch-level deduplication, and the partial-hash collision refused rather than
-  merged. Journal before index has a test: the append is stubbed to fail and the index is
-  asserted empty
+- ☑ Import pipeline: discover → hash → duplicate check → mint → place → probe → journal →
+  index, with a streaming walk and batch-level deduplication. Journal before index has a test:
+  the append is stubbed to fail and the index is asserted empty. **The mint step and the
+  move-or-copy choice arrived with ADR-0046**; the partial-hash collision refusal left with it
 - ☑ `@roost/library`: `Library` create/open/rebuild, manifest, import, thumbnails
 - ☑ `@roost/cli`: `init`, `import`, `stats`, `rebuild`, `thumb`, `fixture` — library resolution
   the way `git` does it, results on stdout and everything else on stderr, and exit code 2 for a
@@ -196,7 +196,8 @@ Goal: the first GUI, built to `docs/UI_SPEC.md`. It is a new design; it must not
   folder" are in `TODO.md`
 - ☑ Import by drag & drop and by dialog, with live progress in the status bar. Thumbnails are
   generated in the same run, unlike the CLI's two commands, because the grid an import produces
-  is otherwise a screen of placeholders. Referenced mode and per-run tags are in `TODO.md`
+  is otherwise a screen of placeholders. Per-run tags are in `TODO.md`; **referenced mode was
+  not built and never will be** — version 2 has one storage mode (RL-19, ADR-0046)
 - ☑ CSS token check wired into the build **before the first component**
 - ☑ Frontend test harness — the thing `roost-old` never had, and the reason a transparent panel
   shipped. In place before the first component; the grid, the preview, and the inspector got
@@ -262,9 +263,30 @@ M5 and M6 are deferred at the user's request (below), so a feature they ask for 
 ask for it rather than waiting for a milestone nobody has planned yet. What has arrived that way
 is listed here, so the order stays visible instead of becoming folklore.
 
+- ☑ **Roost Library Format 2** — 2026-09-21, ADR-0046 (**accepted** the same day), from the
+  user asking
+  whether this build can be updated to the newest `../roost-library`, and then saying to switch
+  to the new system outright. The format moved to version 2 on 2026-09-20 because Roost is a
+  **workspace**: files are opened in the applications that own them, edited, and saved — and
+  version 1's identity was the hash of the bytes, so a save made a different asset. Identity is
+  now a random 12-character Crockford base32 id (RL-13), `originals/` is `files/` sharded by id,
+  the two storage modes are one, `supersede` is gone, and every fact about the bytes is derived
+  rather than journalled (RL-22, RL-23).
+
+  Two instructions from the user shaped it: a version 1 library is **refused by name** (RL-6a),
+  and the v1 code is **removed rather than parked** — no `managed`/`referenced` branch, no
+  partial-hash scheme, nothing behind a flag. The fourteen migrations were re-baselined into one,
+  because no library they could have applied to can reach this build. `../roost-library`'s
+  conformance suite passes: 6 assets, 2 folders, 1 smart folder held verbatim as unavailable
+  (RL-47), 1 watched root, 3 unknown operations skipped and reported.
+
+  **Engine-first, at the user's choosing.** The format's workspace features — editing in place
+  from an external application, the watcher, RL-9b's rename-on-disk, watched roots as a running
+  daemon — are journalled, replayed and conformant, but nothing in the window opens them yet.
+  They are in `TODO.md` §3.
 - ☑ **Conforming to the library format** — 2026-09-15, ADR-0045 (**proposed**), from the user
   asking that Roost be standardised against `../roost-library`. The format is now a separate
-  repository with numbered requirements `RL-1` … `RL-41`, an operation registry and a conformance
+  repository with numbered requirements, an operation registry and a conformance
   suite, and **no implementation owns it** — Roost is one format with an implementation per
   platform, and `roost-net` is the third. The state a correct replay of the conformance library
   produces matched this build **field for field on the first run**; what did not match was seven
@@ -317,7 +339,7 @@ is listed here, so the order stays visible instead of becoming folklore.
   **Accepted** the same day, because an edit in a content-addressed store is a new asset rather
   than a write. Four stages, **two of them done that day**. Stage 1: `text` is a kind, sniffed as
   a negative test after every signature, and the preview reads a text asset itself — a 2 MB range
-  over `roost://original/`, decoded in the renderer, with the encoding named. Stage 2: migration
+  over the asset's own bytes, decoded in the renderer, with the encoding named. Stage 2: migration
   0010, the `supersede` op, `saveEdit` with everything user-authored carried across as journal
   lines, `is:superseded` as the second scope rule, `roost save`, and the editor — with four
   refusals said out loud rather than shown as a missing button. Stage 3, **done 2026-09-04**: the menu over the grid's empty space — Paste
@@ -326,9 +348,10 @@ is listed here, so the order stays visible instead of becoming folklore.
   withdrawn the same day** at the user's word — an external editor is enough — so there is no
   `text` kind, no viewer and no editor; `roost save` keeps replacing an asset's contents from the
   CLI. **Stage 4 is not
-  started**: *Import from URL…*, invariant 7's one exception written out explicitly. One question
-  opened on the way and blocks nothing yet: *Duplicate into library to edit* cannot mean
-  duplicate, because identical bytes are one asset (`TODO.md` §3)
+  started**: *Import from URL…*, invariant 7's one exception written out explicitly.
+  **ADR-0046 superseded the reasoning on 2026-09-21**: identity is an id now, so a save is an
+  ordinary write over the file, `supersede` and `is:superseded` are gone, and the question this
+  left open — *Duplicate into library to edit* not being able to mean duplicate — went with them
 - ☐ **Subtitles** — ADR-0025, **Accepted** 2026-09-03, **stage 1 built 2026-09-05**: the `.srt` is
   an ordinary asset, the attachment is a journal line, Eagle's convention survives only as an
   import-time heuristic, and a track is served as WebVTT because `<track>` accepts nothing else.
@@ -353,7 +376,8 @@ is listed here, so the order stays visible instead of becoming folklore.
 - ☐ Dominant colour extraction → CIELAB, colour filter UI
 - ☐ Perceptual hashes → near-duplicate detection and "find similar"
 - ☐ Duplicate review UI (side-by-side, keep/discard)
-- ☐ Watched folders with auto-import
+- ☐ Watched folders with auto-import — the journal half exists (`watch_add` / `watch_remove`,
+  replayed and conformant, ADR-0046); what is missing is the daemon that acts on it
 - ☐ Version stacking
 - ☐ Timeline view
 
@@ -386,18 +410,26 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Three open, as of 2026-09-15.** **ADR-0045 — the library format is a standard** is proposed and
-**not accepted**. It is the only decision here about *who decides*: the format left this repository
-for `../roost-library`, where it is numbered `RL-1` … `RL-41` and carries its own registry,
-conformance suite and change procedure. **No rule changed in the move**, and `docs/STORAGE_SPEC.md`
-became the map from each requirement to the code that meets it rather than a document that binds
-anybody. The work is done and tested; what is outstanding is the user's word on the ADR.
+**Three open, as of 2026-09-21.** **ADR-0046 — format 2 is the only format this build reads** was
+proposed and **accepted** on 2026-09-21. It is the largest change this repository has made and the
+one with the least room to argue: the format moved to version 2 in `../roost-library` on
+2026-09-20, and an implementation does not get to stay on a version the standard has left. What the
+ADR decides is everything *around* that — refusing version 1 by name rather than converting it,
+removing the v1 code rather than parking it, re-baselining the index rather than migrating it, and
+keeping duplicate-skipping at import although identity would now permit a second asset.
 
-It also hands the user one question that is **not** ours to answer: `SPEC.md` §11.1 leaves portable
-`referenced` libraries open — named source roots, or absolute paths and a library honestly described
-as partially unreadable on another machine. This implementation must not invent source roots while
-it is open, because two implementations inventing them differently is worse than neither having
-them.
+Two things it deliberately leaves alone and the user should know are open. `SPEC.md` §11.1 —
+**does removing an asset delete its file?** — is still open in the standard; this build deletes,
+as ADR-0031 decided, and if the standard settles the other way the behaviour changes, not the
+data. And §11.4 — **does a tag with no assets survive?** — is likewise open; this build keeps it.
+
+Before it, **ADR-0045 — the library format is a standard** is proposed and
+**not accepted**. It is the only decision here about *who decides*: the format left this repository
+for `../roost-library`, where it carries its own registry, conformance suite and change procedure.
+**No rule changed in that move**, and `docs/STORAGE_SPEC.md` became the map from each requirement
+to the code that meets it rather than a document that binds anybody. The work is done and tested;
+what is outstanding is the user's word on the ADR. (The question it handed the user about portable
+`referenced` libraries **went away with version 2**, which has one storage mode.)
 
 Before it, **ADR-0044 — back, forward and up** was proposed and accepted on 2026-09-13,
 hours after ADR-0043 §8 had recorded that Roost keeps no history: the user asked for
@@ -456,7 +488,7 @@ Ordering the grid by an unindexed key cost 28–35 ms against 0.07 ms, so migrat
 indexes and rebuilds five with **the tie-break turned to follow the key** — which removes the
 mixed-order trap and lets one index serve both directions. A resume became **two seeks rather than
 one predicate**, worth 5.8 ms against 0.06 ms on a key with six distinct values. `random` is a
-seeded rotation of the content hash: the one order with no index and no possibility of one, at
+seeded rotation of the identifier: the one order with no index and no possibility of one, at
 18.4 ms a page, accepted deliberately. Group By is withdrawn rather than left disabled.
 
 Before it, as of 2026-09-08: **ADR-0038 — Roost is proprietary, and the format stays open**
@@ -541,9 +573,9 @@ The ADR keeps both halves of that argument.
 Before it, on 2026-09-03, two were decided, both on the day they were
 proposed, and the second had its first stage built the same afternoon. **ADR-0026 — an edit is
 a new asset** came from the user asking for Paste and New File on the grid's empty space and
-for text assets to be edited inside Roost; editing changes the bytes that *are* the identity,
-so a save is an import plus a `supersede`, everything hanging off the old asset travels to the
-new one, a referenced asset stays read-only because invariant 6 does not bend, and New File is
+for text assets to be edited inside Roost; editing changed the bytes that *were* the identity,
+so a save was an import plus a `supersede`, everything hanging off the old asset travelled to
+the new one, a referenced asset stayed read-only, and New File was
 a draft until it has bytes — an empty file being representable exactly once per library, which
 is the one part of the request that could not be served as asked and is said so in the ADR
 rather than quietly narrowed. **ADR-0025** — subtitles. It came from the user asking how Roost
@@ -597,12 +629,13 @@ not draw, all settled before any of them was written against:
 
 | UI primitives | `radix-ui` 1.6.7, measured against three alternatives. Native `Menu.popup()` was recommended first, on the user's request for the OS's own menus, and reversed by finding that Electron draws its own menu on Linux — the only platform v1 ships | ADR-0021 |
 
-**And two on 2026-09-03, both from asking what Eagle does and finding that its answer does not fit a content-addressed store:**
+**And two on 2026-09-03, both from asking what Eagle does and finding that its answer did not fit
+the content-addressed store Roost was then:**
 
 | Question | Outcome | Record |
 | --- | --- | --- |
-| Subtitles | The `.srt` is an ordinary content-addressed asset and the attachment is a journal line (`subtitle_attach`), so Eagle's "drop it in the folder" survives only as an import-time heuristic. An attached track leaves the grid and comes back with `is:subtitle`; cues in the index make `said:"…"` a search that answers with a moment | ADR-0025 |
-| What an edit is | A save is an import plus `supersede { from, to }`, everything user-authored carried across, `superseded_by` a column. A referenced asset is read-only. New File is a draft until it has bytes, because every empty file has one hash | ADR-0026 |
+| Subtitles | The `.srt` is an ordinary asset and the attachment is a journal line (`subtitle_attach`), so Eagle's "drop it in the folder" survives only as an import-time heuristic. An attached track leaves the grid and comes back with `is:subtitle`; cues in the index make `said:"…"` a search that answers with a moment | ADR-0025 |
+| What an edit is | ~~A save is an import plus `supersede { from, to }`~~ — **superseded by ADR-0046** on 2026-09-21. Identity is an id, so a save is a write over the asset's own file and journals nothing. New File is still a draft until it has bytes, now because a name alone does not fix an extension | ADR-0026 |
 
 **M5 and M6 are deferred**, at the user's request on 2026-08-30: feature work first, and both
 milestones get planned once the feature set has settled. Nothing below them is cancelled; the

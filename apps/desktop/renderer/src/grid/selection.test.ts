@@ -9,11 +9,11 @@ function stored(): SelectionStore {
   return store;
 }
 
-/** Subscribes every hash and counts how many were notified. */
-function watch(store: SelectionStore, hashes: readonly string[] = HASHES): () => number {
+/** Subscribes every id and counts how many were notified. */
+function watch(store: SelectionStore, ids: readonly string[] = HASHES): () => number {
   const woken = new Set<string>();
-  for (const hash of hashes) {
-    store.subscribe(hash)(() => woken.add(hash));
+  for (const id of ids) {
+    store.subscribe(id)(() => woken.add(id));
   }
   return () => woken.size;
 }

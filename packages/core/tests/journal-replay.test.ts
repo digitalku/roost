@@ -1,111 +1,102 @@
 import { fileURLToPath } from "node:url";
-import {
-  CollectingSink,
-  Db,
-  IndexSink,
-  isClean,
-  parseContentHash,
-  replay,
-  type Stats,
-  withoutDerived,
-} from "@roost/core";
+import { Db, IndexSink, type ReplayReport, replay, type Stats, withoutDerived } from "@roost/core";
 import { describe, expect, it } from "vitest";
 
 /**
- * A journal written by the Rust implementation, driven through its CLI: 27
- * lines covering all 22 operations. Committed so that "a library written by
- * `roost-old` opens here" is a test rather than a claim (`CONCEPT.md` §7).
+ * The journal of the standard's own conformance library (RL-52).
+ *
+ * Read from the checkout beside this repository and **never vendored**: a copy
+ * drifts the moment somebody fixes one of them. Fifty-two records across two
+ * months, written by hand, carrying the cases nobody writes on purpose — an
+ * operation from a later revision, one from another platform, a dangling
+ * membership, and a final line a crash cut short.
  */
-const RUST_JOURNAL = fileURLToPath(
-  new URL("../src/journal/__fixtures__/rust-written-journal", import.meta.url),
+const CONFORMANCE_JOURNAL = fileURLToPath(
+  new URL("../../../../roost-library/conformance/library.roost/journal", import.meta.url),
 );
 
-const ALPHA = parseContentHash("e683cfdda42a354a1148b1d436f66d20074afbc207ff70efa7971d31e557bcc5");
-const GAMMA = parseContentHash("a3fa38211707b91160abba1a06dc65306a14aeb2d5aea1b782580c25eee96cc8");
-
-async function foldRustJournal(db: Db): Promise<void> {
-  const report = await replay(RUST_JOURNAL, new IndexSink(db));
-  expect(isClean(report)).toBe(true);
-  expect(report.unknownOps.size).toBe(0);
+async function fold(db: Db): Promise<ReplayReport> {
+  return replay(CONFORMANCE_JOURNAL, new IndexSink(db));
 }
 
-describe("folding a journal the Rust implementation wrote", () => {
+describe("folding the journal the standard publishes", () => {
   it("lands the state its operations describe", async () => {
     const db = Db.openInMemory();
     try {
-      await foldRustJournal(db);
+      const report = await fold(db);
 
-      expect(db.repo.stats()).toEqual({
-        // Four assets were added and `gamma` was removed.
-        assets: 3,
-        managed: 2,
-        referenced: 1,
-        partialHashes: 0,
-        totalBytes: 13 + 12 + 3,
-        // `blue` was taken off the asset but the tag itself survives, and
-        // `timber` was created by the `tag_add` — the earlier `tag_rename`
-        // from `wood` found nothing to rename and correctly did nothing.
-        tags: 2,
-        // The group was created, renamed, and deleted.
-        tagGroups: 0,
-        // `Icons` was deleted; `Moodboards` remains.
-        folders: 1,
-        smartFolders: 0,
-        // Rated 4, then rated null — which the schema distinguishes from 1.
-        rated: 0,
-        favorites: 1,
-        notes: 1,
-        // The fixture is a journal the Rust build wrote, which has no comment ops.
-        comments: 0,
-        trashed: 0,
-        // Derived, and therefore deliberately absent from the journal.
-        thumbnails: 0,
-      } satisfies Stats);
+      // Six assets: seven were added and one — `draft` — was added, filed,
+      // trashed and then removed, which leaves nothing behind.
+      const stats: Stats = db.repo.stats();
+      expect(stats.assets).toBe(6);
+      expect(stats.trashed).toBe(1);
+      expect(stats.folders).toBe(2);
+      expect(stats.smartFolders).toBe(1);
+      expect(stats.watchedRoots).toBe(1);
+      expect(stats.comments).toBe(1);
 
-      expect(db.repo.assetDetail(ALPHA)).toMatchObject({
-        origName: "alpha at dusk.png",
-        note: "client approved",
-        rating: null,
-        isFavorite: true,
-        tags: ["timber"],
-        folders: [],
-      });
+      // Nothing about the bytes, because the journal says nothing about them
+      // (RL-23): every asset is waiting for a derive that has not run.
+      expect(stats.underived).toBe(6);
+      expect(stats.totalBytes).toBe(0);
 
-      expect(db.repo.assetDetail(GAMMA)).toBeUndefined();
-      expect(db.repo.orphanSearchRows()).toBe(0);
+      // The dangling `folder_add` was skipped, counted, and **not** repaired:
+      // creating folder 99 to accept the record is what RL-38 forbids.
+      expect(report.dangling).toHaveLength(1);
+      expect(db.repo.folder(99)).toBeUndefined();
     } finally {
       db.close();
     }
   });
 
-  it("reads every line the Rust implementation wrote", async () => {
-    const sink = new CollectingSink();
-    const report = await replay(RUST_JOURNAL, sink);
-    expect(report.applied).toBe(27);
-    expect(new Set(sink.records.map((r) => r.op)).size).toBe(22);
+  it("names a folder that was deleted and never hands its id out again", async () => {
+    const db = Db.openInMemory();
+    try {
+      await fold(db);
+      // Three folders were created — 7, 8 and 9 — and 9 was deleted, so two
+      // survive. `Icons` sorts before `References` because the pane lists by
+      // name.
+      expect(db.repo.folders().map((folder) => folder.id)).toEqual([8, 7]);
+
+      // **10, not 9.** The table's maximum is 8 and the journal's is 9, and an
+      // id is never handed out twice (RL-17): a second folder 9 would silently
+      // adopt the memberships of the one another build may still be holding.
+      expect(db.repo.nextFolderId()).toBe(10);
+    } finally {
+      db.close();
+    }
   });
 });
 
 describe("rebuild equivalence", () => {
   it("produces the same index as the one it replaces, derived data aside", async () => {
-    // The property invariant 1 rests on: everything in `index.db` other than
-    // the derived caches comes from the journal, so replaying it into an empty
-    // database has to land in the same place. Thumbnails are the exception the
-    // comparison has to make room for — a correct rebuild comes back without
-    // them, and comparing every field would report that as a failure.
+    // RL-53, and the property invariant 1 rests on: everything in `index.db`
+    // other than what a derive put there comes from the journal, so replaying
+    // it into an empty database has to land in the same place.
+    //
+    // In version 2 the exception is wider than version 1's. Thumbnails were
+    // always derived; now the size, the dimensions and the content hash are
+    // too (RL-22), so a correct rebuild comes back without any of them and
+    // comparing every field would report that as a failure.
     const live = Db.openInMemory();
     const rebuilt = Db.openInMemory();
     try {
-      await foldRustJournal(live);
-      live.repo.putThumbnail(ALPHA, 256, 256, 171, Buffer.from([0x00, 0x01]));
+      await fold(live);
+      const [first] = live.repo.allIds();
+      if (first === undefined) throw new Error("the fixture replayed to nothing");
+
+      live.repo.putThumbnail(first, 256, 256, 171, Buffer.from([0x00, 0x01]));
+      live.repo.putDerived(first, { size: 4096, width: 800, height: 600 }, 1_700_000_000);
       expect(live.repo.stats().thumbnails).toBe(1);
 
-      await foldRustJournal(rebuilt);
+      await fold(rebuilt);
 
       expect(withoutDerived(rebuilt.repo.stats())).toEqual(withoutDerived(live.repo.stats()));
-      expect(rebuilt.repo.allHashes()).toEqual(live.repo.allHashes());
-      for (const hash of live.repo.allHashes()) {
-        expect(rebuilt.repo.assetDetail(hash)).toEqual(live.repo.assetDetail(hash));
+      expect(rebuilt.repo.allIds()).toEqual(live.repo.allIds());
+      for (const id of live.repo.allIds()) {
+        // Compared without the derived columns, for the reason above: the same
+        // journal is the same library, and what a derive found is not in it.
+        expect(journalled(rebuilt, id)).toEqual(journalled(live, id));
       }
       expect(rebuilt.repo.stats().thumbnails).toBe(0);
     } finally {
@@ -114,3 +105,11 @@ describe("rebuild equivalence", () => {
     }
   });
 });
+
+/** One asset's detail with everything a derive fills taken out. */
+function journalled(db: Db, id: ReturnType<Db["repo"]["allIds"]>[number]): unknown {
+  const detail = db.repo.assetDetail(id);
+  if (detail === undefined) return undefined;
+  const { size, width, height, durationMs, pageCount, contentHash, derivedAt, ...said } = detail;
+  return said;
+}

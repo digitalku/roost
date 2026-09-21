@@ -46,8 +46,8 @@ export interface SkippedLine {
  * `malformed` or `tornTrailing` means the journal lost something and only the
  * user can judge whether it mattered. `unknownOps` means another build holds
  * meaning this one cannot show, which the user can act on by opening the
- * library there — RL-28 requires they be told. `dangling` is neither: it is the
- * ordinary result of a library edited from two builds, and RL-26a asks only
+ * library there — RL-40 requires they be told. `dangling` is neither: it is the
+ * ordinary result of a library edited from two builds, and RL-38 asks only
  * that it be counted and logged.
  */
 export interface ReplayReport {
@@ -58,7 +58,7 @@ export interface ReplayReport {
   readonly malformed: SkippedLine[];
   /** Trailing lines cut short by a crash mid-write. */
   readonly tornTrailing: SkippedLine[];
-  /** Records naming something that is not in the library (RL-26a). */
+  /** Records naming something that is not in the library (RL-38). */
   readonly dangling: SkippedLine[];
 }
 
@@ -67,7 +67,7 @@ export interface ReplayReport {
  * reference to something no longer there.
  *
  * Dangling references are deliberately outside this: they are a diagnostic
- * rather than damage (RL-28's last paragraph), and a library that reported
+ * rather than damage (RL-38), and a library that reported
  * itself unclean every time it had been opened in two builds would train
  * everybody to ignore the word.
  */
@@ -194,7 +194,7 @@ async function replayFile(
     if (!isOpName(op)) {
       // Written by a newer build. Skipping with a count — never an error — is
       // what lets a library opened by an older Roost survive intact
-      // (RL-26).
+      // (RL-37, RL-40).
       report.unknownOps.set(op, (report.unknownOps.get(op) ?? 0) + 1);
       return;
     }
@@ -204,7 +204,7 @@ async function replayFile(
       report.applied++;
     } catch (error) {
       // Three outcomes, not two. A record naming something that is not there is
-      // skipped and counted (RL-26a) and is not damage — the creating operation
+      // skipped and counted (RL-38) and is not damage — the creating operation
       // may have belonged to an extension this build skipped a moment ago, or
       // another implementation may have deleted the entity since. A *known* op
       // whose fields do not parse is corruption, because this build defines

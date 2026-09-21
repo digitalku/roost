@@ -7,7 +7,7 @@ import type {
   ImportSubject,
   Request,
   RequestType,
-  StorageMode,
+  Take,
   WireAbout,
   WireImportReport,
   WirePasted,
@@ -17,7 +17,7 @@ import {
   type ClosableSink,
   fileSink,
   filterSink,
-  isContentHash,
+  isAssetId,
   isLogLevel,
   type LogLevel,
   logger,
@@ -228,11 +228,11 @@ async function answerHere(
   engine: Engine,
   request: Request,
 ): Promise<string | number | boolean | readonly string[] | WirePasted | WireAbout | null> {
-  if (request.type === "asset:openExternally") return openExternally(request.hash);
-  if (request.type === "asset:reveal") return reveal(request.hash);
-  if (request.type === "asset:copyPath") return copyPaths(request.hashes);
-  if (request.type === "asset:copyFiles") return copyFiles(request.hashes);
-  if (request.type === "clipboard:paste") return paste(engine, request.mode);
+  if (request.type === "asset:openExternally") return openExternally(request.id);
+  if (request.type === "asset:reveal") return reveal(request.id);
+  if (request.type === "asset:copyPath") return copyPaths(request.ids);
+  if (request.type === "asset:copyFiles") return copyFiles(request.ids);
+  if (request.type === "clipboard:paste") return paste(engine, request.take);
   if (request.type === "clipboard:copyText") {
     clipboard.writeText(request.text);
     return true;
@@ -387,11 +387,11 @@ async function chooseSubtitle(): Promise<readonly string[] | null> {
  * The path never reaches the renderer. It asks by hash and learns only whether
  * something opened.
  */
-async function openExternally(hash: string): Promise<boolean> {
+async function openExternally(id: string): Promise<boolean> {
   // Checked again here even though the contract already did: this is the value
   // that becomes a filesystem lookup, and it is one line.
-  if (!isContentHash(hash)) return false;
-  const path = await assets.locate(hash);
+  if (!isAssetId(id)) return false;
+  const path = await assets.locate(id);
   if (path === undefined) return false;
 
   // `shell.openPath` resolves to "" on success and to a message on failure.
@@ -457,9 +457,9 @@ function about(): WireAbout {
  * is whether there was a file to show rather than whether a file manager
  * opened. Being honest about that is better than inventing a success.
  */
-async function reveal(hash: string): Promise<boolean> {
-  if (!isContentHash(hash)) return false;
-  const path = await assets.locate(hash);
+async function reveal(id: string): Promise<boolean> {
+  if (!isAssetId(id)) return false;
+  const path = await assets.locate(id);
   if (path === undefined) return false;
   shell.showItemInFolder(path);
   return true;
@@ -475,11 +475,11 @@ async function reveal(hash: string): Promise<boolean> {
  * Assets whose bytes are not on this machine are skipped rather than written as
  * a blank line: a clipboard with a hole in it is worse than a shorter one.
  */
-async function copyPaths(hashList: readonly string[]): Promise<boolean> {
+async function copyPaths(idList: readonly string[]): Promise<boolean> {
   const paths: string[] = [];
-  for (const hash of hashList) {
-    if (!isContentHash(hash)) continue;
-    const path = await assets.locate(hash);
+  for (const id of idList) {
+    if (!isAssetId(id)) continue;
+    const path = await assets.locate(id);
     if (path !== undefined) paths.push(path);
   }
   if (paths.length === 0) return false;
@@ -500,9 +500,9 @@ async function copyPaths(hashList: readonly string[]): Promise<boolean> {
  * `XDG_CURRENT_DESKTOP` is the signal, and where it says nothing the
  * standard format wins.
  */
-async function copyFiles(hashList: readonly string[]): Promise<number> {
-  const hashes = hashList.filter(isContentHash);
-  const files = await assets.stage(hashes);
+async function copyFiles(idList: readonly string[]): Promise<number> {
+  const ids = idList.filter(isAssetId);
+  const files = await assets.stage(ids);
   if (files.length === 0) return 0;
 
   const uris = files.map((file) => pathToFileURL(file).href);
@@ -536,21 +536,24 @@ const GNOME_DESKTOPS = /gnome|cinnamon|mate|unity|budgie|pantheon/i;
  * (invariant 12). The temp file is ours and is removed once the import has read
  * it — originals are never moved or deleted, and this was never one.
  */
-async function paste(engine: Engine, mode: StorageMode): Promise<WirePasted> {
+async function paste(engine: Engine, take: Take): Promise<WirePasted> {
   const paths = pathsFromUriList(
     clipboard.read("text/uri-list") || clipboard.read("x-special/gnome-copied-files"),
   );
-  if (paths.length > 0) return importVia(engine, paths, mode);
+  if (paths.length > 0) return importVia(engine, paths, take);
 
   const image = clipboard.readImage();
   if (!image.isEmpty()) {
     // PNG, because it is lossless and because the clipboard's own bitmap has no
-    // format to preserve. The name is invented — `orig_name` is NOT NULL and
+    // format to preserve. The name is invented — `assets.name` is NOT NULL and
     // there is no name to be had — and it sorts, which a random one would not.
     const temp = join(tmpdir(), pastedName(new Date(), "png"));
     await writeFile(temp, image.toPNG());
     try {
-      return await importVia(engine, [temp], "managed");
+      // Copied rather than moved: the temporary file is this function's own
+      // and is deleted below either way, so the distinction is about what the
+      // importer reports (RL-26) rather than about the file.
+      return await importVia(engine, [temp], "copy");
     } finally {
       await rm(temp, { force: true });
     }
@@ -566,14 +569,14 @@ async function paste(engine: Engine, mode: StorageMode): Promise<WirePasted> {
 async function importVia(
   engine: Engine,
   paths: readonly string[],
-  mode: StorageMode,
+  take: Take,
 ): Promise<WirePasted> {
   // No folder: a paste is ADR-0026's gesture rather than ADR-0037's, and half
   // of what it can carry — text, a URL — is not a file at all.
   const report = await engine.request({
     type: "import:paths",
     paths,
-    mode,
+    take,
     tags: [],
     folder: null,
   });

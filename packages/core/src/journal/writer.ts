@@ -15,10 +15,12 @@ export const JOURNAL_DIR = "journal";
 const BUFFER_LIMIT_BYTES = 64 * 1024;
 
 /**
- * Formats a unix timestamp as the `YYYY-MM` file key, in UTC.
+ * Formats a unix timestamp as the `YYYY-MM` file key, in UTC (RL-28a).
  *
- * UTC rather than local time, so a library carried across time zones keeps its
- * records in the files replay expects to find them in.
+ * UTC rather than local time, and that is a requirement rather than a
+ * convenience: a record written at 02:00 on 1 February in Jakarta would land in
+ * `2026-01.jsonl`, and the same library carried one time zone east would start
+ * writing the same instant into a different file.
  */
 export function monthKey(ts: number): string {
   if (!Number.isSafeInteger(ts)) throw new InvalidTimestampError(ts);
@@ -86,8 +88,8 @@ export async function strayFilesIn(dir: string): Promise<string[]> {
  * here *before* touching the index. A row that reaches `index.db` without a
  * journal line is silent data loss on the next rebuild.
  *
- * Files are opened in append mode and never rewritten in place
- * (RL-18, RL-22). Which month a record lands in follows the
+ * Files are opened in append mode and never rewritten in place (RL-27, RL-31).
+ * Which month a record lands in follows the
  * record's own `ts`, not the wall clock, so writing and replaying agree even
  * when a batch straddles midnight on the first of a month.
  *

@@ -18,9 +18,6 @@ export const FLAGS = [
   "untagged",
   "rated",
   "unrated",
-  "managed",
-  "referenced",
-  "partial-hash",
   /**
    * In the trash (ADR-0022).
    *
@@ -30,18 +27,9 @@ export const FLAGS = [
    */
   "trashed",
   /**
-   * Replaced by a newer version (ADR-0026).
-   *
-   * The second flag that changes a query's *scope* rather than narrowing it,
-   * and it is independent of the first: `is:trashed` opts out of the trash
-   * half and not of this one, because a superseded row in the trash is still a
-   * version rather than something somebody deleted.
-   */
-  "superseded",
-  /**
    * Attached as somebody's caption track (ADR-0025).
    *
-   * The third flag that changes a query's *scope*. The rule is about
+   * The second flag that changes a query's *scope*. The rule is about
    * **attachment, not format**: an `.srt` imported on its own is an ordinary
    * text asset and appears like one; it leaves the grid at the moment it
    * becomes a caption track, and comes back with this.

@@ -7,13 +7,14 @@
 export const ERROR_CODES = [
   "already_a_library",
   "ambiguous_folder_name",
-  "ambiguous_hash",
+  "ambiguous_id",
   "dangling_reference",
   "duplicate_folder_name",
   "edit_too_large",
   "empty_comment",
   "empty_name",
   "folder_cycle",
+  "invalid_asset_id",
   "invalid_content_hash",
   "invalid_library_name",
   "invalid_moment",
@@ -22,6 +23,7 @@ export const ERROR_CODES = [
   "invalid_timestamp",
   "io",
   "library_busy",
+  "library_format_1",
   "library_not_found",
   "library_too_new",
   "malformed_record",
@@ -31,7 +33,6 @@ export const ERROR_CODES = [
   "not_a_video",
   "not_editable",
   "not_in_object_store",
-  "partial_hash_collision",
   "schema_too_new",
   "unknown_asset",
   "unknown_comment",
@@ -86,6 +87,23 @@ export abstract class RoostError extends Error {
 
   toWire(): WireError {
     return { code: this.code, message: this.message, detail: this.detail };
+  }
+}
+
+/**
+ * Something that is not an id was handed to something that needed one.
+ *
+ * The value can be arbitrary input of arbitrary length, so only a bounded
+ * prefix reaches the detail — enough to recognise, not enough to fill a log.
+ */
+export class InvalidAssetIdError extends RoostError {
+  readonly code = "invalid_asset_id";
+
+  constructor(value: string) {
+    super("Not an asset id: expected 12 characters of Crockford base32, upper case", {
+      length: value.length,
+      prefix: value.slice(0, 16),
+    });
   }
 }
 

@@ -12,7 +12,7 @@ export interface QueryOptions {
   /** Print the number of matches instead of the matches. */
   readonly countOnly: boolean;
   /** One hash per line, for piping into another command. */
-  readonly hashesOnly: boolean;
+  readonly idsOnly: boolean;
   /** The order to list in (ADR-0039). Absent is newest first. */
   readonly sort?: Sort;
 }
@@ -41,15 +41,15 @@ export async function query(
         if (shown >= options.limit) return;
         shown += 1;
 
-        if (options.hashesOnly) {
-          out(hit.hash);
+        if (options.idsOnly) {
+          out(hit.id);
           continue;
         }
 
         const stars = "*".repeat(Math.max(0, Math.min(hit.rating ?? 0, 5)));
         const mark = hit.isFavorite ? "♥" : " ";
         out(
-          `${hit.hash.slice(0, 12)}  ${mark} ${stars.padEnd(5)} ${bytes(hit.size).padStart(9)}  ${hit.origName}`,
+          `${hit.id}  ${mark} ${stars.padEnd(5)} ${bytes(hit.size ?? 0).padStart(9)}  ${hit.name}`,
         );
       }
     }

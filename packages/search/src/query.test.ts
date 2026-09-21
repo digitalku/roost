@@ -141,7 +141,18 @@ describe("values", () => {
   it("accepts both spellings where English differs", () => {
     expect(term("is:favorite")).toEqual({ field: "flag", flag: "favorite" });
     expect(term("is:favourite")).toEqual({ field: "flag", flag: "favorite" });
-    expect(term("is:partial-hash")).toEqual({ field: "flag", flag: "partial-hash" });
+    expect(term("is:trash")).toEqual({ field: "flag", flag: "trashed" });
+  });
+
+  it("no longer knows version 1's flags, and says so rather than guessing", () => {
+    // `is:managed`, `is:referenced` and `is:partial-hash` described a storage
+    // mode and a hashing scheme that version 2 does not have (RL-19, RL-18).
+    // A smart folder saved with one is reported as **unavailable**, naming the
+    // part that could not be evaluated (RL-47) — which is what an unknown flag
+    // raising a query error gives the caller.
+    for (const gone of ["is:managed", "is:referenced", "is:partial-hash", "is:superseded"]) {
+      expect(kindOf(gone)).toBe("unknown-flag");
+    }
   });
 
   it("refuses a number a query language should not accept", () => {
@@ -252,56 +263,47 @@ describe("compiling", () => {
       sql: `(a.is_favorite = 1) AND ${MATCH_LIVE.sql}`,
       params: [],
     });
-    // Except the two that name a column value, which stay bound like any other.
-    expect(buildQuery("is:managed").params).toEqual(["managed"]);
+    // Version 1 had two flags that named a column *value* and bound it; every
+    // flag left is a predicate over a column, so nothing binds.
+    expect(buildQuery("is:tagged").params).toEqual([]);
   });
 
-  it("scopes every query to live, current assets", () => {
+  it("scopes every query to live assets", () => {
     // Trash is a state, not a place (ADR-0022), so a trashed asset is still a
     // row `tag:wip` would otherwise match. The scoping is what makes deleting
-    // something mean it stops turning up — and superseding is the same argument
-    // about editing (ADR-0026): every intermediate save would otherwise be in
-    // every result.
+    // something mean it stops turning up. Version 1 had a second rule about
+    // superseded versions; an edit does not make one any more (ADR-0046).
     for (const query of ["tag:wip", "is:favorite", "rating:>=4", "beach", "-tag:wip"]) {
       expect(buildQuery(query).sql.endsWith(` AND ${MATCH_LIVE.sql}`)).toBe(true);
     }
   });
 
   it("spells the scope exactly as the partial indexes require", () => {
-    // Migrations 0007 and 0010 made every grid index partial on this predicate,
-    // and SQLite uses a partial index only when the query's WHERE contains a
-    // term implying the index's. So the wording and the order are part of the
+    // Every grid index is partial on this predicate, and SQLite uses a partial
+    // index only when the query's WHERE contains a term implying the index's. So the wording and the order are part of the
     // schema, and `MATCH_LIVE` is the copy the listings use — the two must not
     // drift, or a grid stops seeking and starts scanning with nothing failing.
     expect(buildQuery("tag:wip").sql.endsWith(` AND ${MATCH_LIVE.sql}`)).toBe(true);
   });
 
   it("lets a scope flag out of its own rule and no other", () => {
-    // `is:trashed` opts out of the trash half. The superseded half stays: a
-    // superseded row in the trash is still a version rather than something
-    // somebody deleted.
-    const attached = "NOT EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_hash = a.hash)";
-    expect(buildQuery("is:trashed").sql).toBe(
-      `(a.trashed_at IS NOT NULL) AND a.superseded_by IS NULL AND ${attached}`,
-    );
-    expect(buildQuery("is:superseded").sql).toBe(
-      `(a.superseded_by IS NOT NULL) AND a.trashed_at IS NULL AND ${attached}`,
-    );
+    // `is:trashed` opts out of the trash half; the caption-track half stays.
+    const attached = "NOT EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_id = a.id)";
+    expect(buildQuery("is:trashed").sql).toBe(`(a.trashed_at IS NOT NULL) AND ${attached}`);
+
     // A track is found by naming it, and nothing else changes: an attached
     // subtitle in the trash is still a track (ADR-0025 §4).
     expect(buildQuery("is:subtitle").sql).toBe(
-      "(EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_hash = a.hash))" +
-        " AND a.trashed_at IS NULL AND a.superseded_by IS NULL",
+      "(EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_id = a.id))" +
+        " AND a.trashed_at IS NULL",
     );
-    // All three named, and the query is scoped by none of them.
-    expect(buildQuery("is:trashed AND is:superseded AND is:subtitle").sql).not.toContain("IS NULL");
+    // Both named, and the query is scoped by neither of them.
+    expect(buildQuery("is:trashed AND is:subtitle").sql).not.toContain("IS NULL");
     // Nested, so that the check is over the whole tree rather than the root.
     expect(buildQuery("is:trashed AND tag:wip").sql).not.toContain("a.trashed_at IS NULL");
     // Negated, where the default scoping would have produced the same predicate
     // anyway — opting out must not be able to widen a query.
-    expect(buildQuery("-is:trashed").sql).toBe(
-      `(NOT (a.trashed_at IS NOT NULL)) AND a.superseded_by IS NULL AND ${attached}`,
-    );
+    expect(buildQuery("-is:trashed").sql).toBe(`(NOT (a.trashed_at IS NOT NULL)) AND ${attached}`);
   });
 });
 

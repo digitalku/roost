@@ -90,21 +90,20 @@ export class LibraryTooNewError extends RoostError {
 }
 
 /**
- * The one blind spot in partial hashing, caught rather than merged.
+ * A library in Roost Library Format 1 (RL-6a).
  *
- * Two distinct files sharing a size, a first 64 KiB, and a last 64 KiB is the
- * single case the partial scheme cannot see. Merging them would lose one of the
- * two permanently, so the import declines the file instead — the spec's rule,
- * and the safe direction to be wrong in.
+ * Named rather than refused as "unsupported", because the two send a person in
+ * different directions: a version *higher* than this build's means install a
+ * newer Roost, and version 1 means this library was written by a build whose
+ * notion of identity was the hash of the bytes. Nothing here reads it, repairs
+ * it, or converts it — converting is a separate tool's job, run deliberately,
+ * writing a new library beside the old one.
  */
-export class PartialHashCollisionError extends RoostError {
-  readonly code = "partial_hash_collision";
+export class LibraryIsFormat1Error extends RoostError {
+  readonly code = "library_format_1";
 
-  constructor(path: string, existing: string) {
-    super(
-      `${path} shares a partial hash with ${existing} but differs in its bytes; refusing to merge`,
-      { path, existing },
-    );
+  constructor(root: string) {
+    super(`${root} is a Roost Library Format 1 library, which this build does not read`, { root });
   }
 }
 
@@ -191,8 +190,8 @@ export class EditTooLargeError extends RoostError {
   }
 }
 
-export class AmbiguousHashError extends RoostError {
-  readonly code = "ambiguous_hash";
+export class AmbiguousIdError extends RoostError {
+  readonly code = "ambiguous_id";
 
   constructor(needle: string) {
     super(`${needle} matches more than one asset — use a longer prefix`, { needle });

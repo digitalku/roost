@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import BetterSqlite3, { type Database, type Statement } from "better-sqlite3";
-import type { ContentHash } from "../model/index.js";
+import type { AssetId } from "../model/index.js";
 import { INDEX_FILE } from "./database.js";
-import type { OriginalRecord } from "./repo.js";
+import type { FileRecord } from "./repo.js";
 
 /**
  * A read-only view of one library's index, for the `roost://` protocol handler.
@@ -21,8 +21,8 @@ import type { OriginalRecord } from "./repo.js";
  * WAL makes concurrent readers free, so this does not contend with the engine's
  * writer and needs no coordination with it.
  *
- * The ADR called this factory `ThumbnailReader`. It answers where an original
- * lives as well, because `roost://original/<hash>` needs the same connection
+ * The ADR called this factory `ThumbnailReader`. It answers where an asset's
+ * own file is as well, because `roost://file/<id>` needs the same connection
  * and a second one would be a second exception; the name follows the job.
  */
 /**
@@ -69,31 +69,34 @@ export class ReadOnlyIndex {
   }
 
   /** One thumbnail's WebP bytes, or `undefined` if it has not been generated. */
-  thumbnail(hash: ContentHash, size: number): Buffer | undefined {
-    const row = this.#s("SELECT data FROM thumbs WHERE hash = ? AND size = ?").get(hash, size) as
+  thumbnail(id: AssetId, size: number): Buffer | undefined {
+    const row = this.#s("SELECT data FROM thumbs WHERE asset_id = ? AND size = ?").get(id, size) as
       | { data: Buffer }
       | undefined;
     return row?.data;
   }
 
-  /** Where one asset's own bytes are: the object store, or a referenced path. */
-  findOriginal(hash: ContentHash): OriginalRecord | undefined {
-    return this.#s(
-      `SELECT ext, size, storage_mode AS storageMode, ref_path AS refPath
-         FROM assets WHERE hash = ?`,
-    ).get(hash) as OriginalRecord | undefined;
+  /**
+   * What is needed to find one asset's file.
+   *
+   * Two columns in version 2 rather than four: every asset's bytes are under
+   * `files/` (RL-19), so there is no mode to branch on and no absolute path to
+   * read back. The id and the extension are the whole address (RL-9).
+   */
+  findFile(id: AssetId): FileRecord | undefined {
+    return this.#s("SELECT ext, size FROM assets WHERE id = ?").get(id) as FileRecord | undefined;
   }
 
   /**
    * The name the library shows for an asset (ADR-0034).
    *
-   * Its own statement rather than a fifth column on {@link findOriginal}: that
-   * one runs on every preview the window opens and is deliberately four columns
-   * and no joins, while this is asked once per file being handed to another
-   * application.
+   * Its own statement rather than a third column on {@link ReadOnlyIndex.findFile}:
+   * that one runs on every preview the window opens, while this is asked once
+   * per file being handed to another application. The name carries no
+   * extension (RL-33), so a caller joining the two is what produces a filename.
    */
-  displayName(hash: ContentHash): string | undefined {
-    const row = this.#s("SELECT orig_name AS name FROM assets WHERE hash = ?").get(hash) as
+  displayName(id: AssetId): string | undefined {
+    const row = this.#s("SELECT name FROM assets WHERE id = ?").get(id) as
       | { name: string }
       | undefined;
     return row?.name;

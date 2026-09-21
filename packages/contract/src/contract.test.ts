@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { readHash, readHashArray, readOneOf } from "./checked.js";
-import { STORAGE_MODES } from "./dto.js";
+import { readAssetId, readAssetIdArray, readOneOf } from "./checked.js";
+import { TAKES } from "./dto.js";
 import { checkEventEnvelope, checkReplyEnvelope, checkRequestEnvelope } from "./envelope.js";
 import { checkEvent } from "./event.js";
 import { checkRequest, MAX_PAGE_LIMIT, REQUEST_TYPES } from "./request.js";
@@ -156,7 +156,7 @@ describe("validating a page of the grid", () => {
   });
 
   it("takes a cursor back only in the shape it handed one out", () => {
-    const cursor = { key: 1_700_000_000, hash: "a".repeat(64) };
+    const cursor = { key: 1_700_000_000, id: "AAAAAAAAAAAA" };
     expect(page({ after: cursor })).toEqual({
       ok: true,
       value: { type: "assets:page", query: "", limit: 100, after: cursor, sort: null },
@@ -165,15 +165,15 @@ describe("validating a page of the grid", () => {
     // A key is a number or a string and nothing else, because that is what a
     // sort key can be (ADR-0039 §4) — the *meaning* is the engine's, and a
     // contract with an opinion about it would be a second one.
-    expect(page({ after: { key: "asset-01.png", hash: "a".repeat(64) } }).ok).toBe(true);
+    expect(page({ after: { key: "asset-01", id: "AAAAAAAAAAAA" } }).ok).toBe(true);
 
     // Every field of it, checked. A cursor is used in a keyset predicate, and
     // the renderer is the process this build assumes may be compromised.
-    expect(page({ after: { key: 1, hash: "not-a-hash" } })).toEqual({
+    expect(page({ after: { key: 1, id: "not-an-id" } })).toEqual({
       ok: false,
-      reason: "assets:page: after: hash: expected 64 lowercase hex characters",
+      reason: "assets:page: after: id: expected an asset id",
     });
-    expect(page({ after: { hash: "a".repeat(64) } })).toEqual({
+    expect(page({ after: { id: "AAAAAAAAAAAA" } })).toEqual({
       ok: false,
       reason: "assets:page: after: key: expected a number or a string",
     });
@@ -298,27 +298,27 @@ describe("validating a change of preferences", () => {
 });
 
 describe("validating a thumbnail moment", () => {
-  const HASH = "a".repeat(64);
+  const HASH = "AAAAAAAAAAAA";
 
   it("takes a moment and takes its absence", () => {
-    expect(checkRequest({ type: "asset:poster", hash: HASH, atMs: 91_500 })).toMatchObject({
+    expect(checkRequest({ type: "asset:poster", id: HASH, atMs: 91_500 })).toMatchObject({
       ok: true,
     });
     // `null` is the default frame, which is not the first one — clearing is
     // this request with the value absent rather than a request of its own.
-    expect(checkRequest({ type: "asset:poster", hash: HASH, atMs: null })).toMatchObject({
+    expect(checkRequest({ type: "asset:poster", id: HASH, atMs: null })).toMatchObject({
       ok: true,
     });
   });
 
   it("refuses a moment before the start", () => {
-    expect(checkRequest({ type: "asset:poster", hash: HASH, atMs: -1 })).toMatchObject({
+    expect(checkRequest({ type: "asset:poster", id: HASH, atMs: -1 })).toMatchObject({
       ok: false,
     });
   });
 
   it("refuses a moment that is not whole milliseconds", () => {
-    expect(checkRequest({ type: "asset:poster", hash: HASH, atMs: 1.5 })).toMatchObject({
+    expect(checkRequest({ type: "asset:poster", id: HASH, atMs: 1.5 })).toMatchObject({
       ok: false,
     });
   });
@@ -354,25 +354,25 @@ describe("validating an import's destination", () => {
     // ADR-0037: an import made outside a folder files nothing, which is an
     // answer rather than a missing field.
     expect(
-      checkRequest({ type: "import:paths", paths, mode: "managed", tags: [], folder: 3 }),
+      checkRequest({ type: "import:paths", paths, take: "copy", tags: [], folder: 3 }),
     ).toEqual({
       ok: true,
-      value: { type: "import:paths", paths, mode: "managed", tags: [], folder: 3 },
+      value: { type: "import:paths", paths, take: "copy", tags: [], folder: 3 },
     });
     expect(
-      checkRequest({ type: "import:paths", paths, mode: "managed", tags: [], folder: null }),
+      checkRequest({ type: "import:paths", paths, take: "copy", tags: [], folder: null }),
     ).toMatchObject({ ok: true, value: { folder: null } });
   });
 
   it("refuses a missing destination, and one that is not a folder id", () => {
     // Missing rather than null is a renderer that has not been rebuilt, and it
     // must fail here rather than fall through to "no folder".
-    expect(checkRequest({ type: "import:paths", paths, mode: "managed", tags: [] })).toMatchObject({
+    expect(checkRequest({ type: "import:paths", paths, take: "copy", tags: [] })).toMatchObject({
       ok: false,
     });
     for (const folder of [0, -1, 1.5, "3"]) {
       expect(
-        checkRequest({ type: "import:paths", paths, mode: "managed", tags: [], folder }),
+        checkRequest({ type: "import:paths", paths, take: "copy", tags: [], folder }),
       ).toMatchObject({ ok: false });
     }
   });
@@ -392,55 +392,57 @@ describe("validating an import's destination", () => {
 });
 
 describe("validating a comment", () => {
-  const HASH = "a".repeat(64);
+  const HASH = "AAAAAAAAAAAA";
 
   it("takes a moment or an explicit null, and nothing in between", () => {
-    expect(checkRequest({ type: "comment:add", hash: HASH, atMs: 91_500, body: "early" })).toEqual({
-      ok: true,
-      value: { type: "comment:add", hash: HASH, atMs: 91_500, body: "early" },
-    });
+    expect(checkRequest({ type: "comment:add", asset: HASH, atMs: 91_500, body: "early" })).toEqual(
+      {
+        ok: true,
+        value: { type: "comment:add", asset: HASH, atMs: 91_500, body: "early" },
+      },
+    );
 
     // `null` is a comment about the asset rather than about a moment in it,
     // which is what lets a `.zip` carry one (ADR-0023).
-    expect(checkRequest({ type: "comment:add", hash: HASH, atMs: null, body: "x" })).toEqual({
+    expect(checkRequest({ type: "comment:add", asset: HASH, atMs: null, body: "x" })).toEqual({
       ok: true,
-      value: { type: "comment:add", hash: HASH, atMs: null, body: "x" },
+      value: { type: "comment:add", asset: HASH, atMs: null, body: "x" },
     });
 
     // An absent field is not the same as an explicit null on this boundary: it
     // is a caller that forgot, and forgetting must not silently mean "about the
     // whole asset".
-    expect(checkRequest({ type: "comment:add", hash: HASH, body: "x" })).toEqual({
+    expect(checkRequest({ type: "comment:add", asset: HASH, body: "x" })).toEqual({
       ok: false,
       reason: "comment:add: atMs: expected a safe integer",
     });
   });
 
   it("refuses a moment that cannot mean anything", () => {
-    expect(checkRequest({ type: "comment:add", hash: HASH, atMs: -1, body: "x" })).toEqual({
+    expect(checkRequest({ type: "comment:add", asset: HASH, atMs: -1, body: "x" })).toEqual({
       ok: false,
       reason: "comment:add: atMs: expected zero or more milliseconds",
     });
     // Milliseconds are integers here, and a float would round differently on
     // the two sides of the wire.
-    expect(checkRequest({ type: "comment:add", hash: HASH, atMs: 91.5, body: "x" })).toEqual({
+    expect(checkRequest({ type: "comment:add", asset: HASH, atMs: 91.5, body: "x" })).toEqual({
       ok: false,
       reason: "comment:add: atMs: expected a safe integer",
     });
   });
 
   it("takes a folder by id, and refuses a number that was never one", () => {
-    expect(checkRequest({ type: "asset:folderAdd", hashes: [HASH], folder: 3 })).toEqual({
+    expect(checkRequest({ type: "asset:folderAdd", ids: [HASH], folder: 3 })).toEqual({
       ok: true,
-      value: { type: "asset:folderAdd", hashes: [HASH], folder: 3 },
+      value: { type: "asset:folderAdd", ids: [HASH], folder: 3 },
     });
     // Rowids start at one. Zero is not a folder that went away; it is a number
     // that never named one, and the difference is worth refusing at the door.
-    expect(checkRequest({ type: "asset:folderRemove", hashes: [HASH], folder: 0 })).toEqual({
+    expect(checkRequest({ type: "asset:folderRemove", ids: [HASH], folder: 0 })).toEqual({
       ok: false,
       reason: "asset:folderRemove: folder: expected a folder id",
     });
-    expect(checkRequest({ type: "asset:folderRemove", hashes: [HASH], folder: "Icons" })).toEqual({
+    expect(checkRequest({ type: "asset:folderRemove", ids: [HASH], folder: "Icons" })).toEqual({
       ok: false,
       reason: "asset:folderRemove: folder: expected a safe integer",
     });
@@ -449,7 +451,7 @@ describe("validating a comment", () => {
   it("refuses a body with nothing in it", () => {
     // The engine trims and refuses the same thing (`EmptyCommentError`); this
     // is the boundary refusing to carry it in the first place.
-    expect(checkRequest({ type: "comment:add", hash: HASH, atMs: null, body: "   " })).toEqual({
+    expect(checkRequest({ type: "comment:add", asset: HASH, atMs: null, body: "   " })).toEqual({
       ok: false,
       reason: "comment:add: body: expected a non-empty string",
     });
@@ -625,28 +627,34 @@ describe("validating an envelope", () => {
 });
 
 describe("the readers everything else is built from", () => {
-  it("accepts a content hash and nothing that merely looks like one", () => {
-    const hash = "a".repeat(64);
-    expect(readHash({ hash }, "hash")).toEqual({ ok: true, value: hash });
-    // Uppercase is refused rather than folded: the on-disk name is lowercase,
-    // so folding here would put one asset at two addresses.
-    expect(readHash({ hash: "A".repeat(64) }, "hash").ok).toBe(false);
-    expect(readHash({ hash: "a".repeat(63) }, "hash").ok).toBe(false);
-    expect(readHash({ hash: `${"a".repeat(63)}g` }, "hash").ok).toBe(false);
+  it("accepts an asset id and nothing that merely looks like one", () => {
+    const id = "K7QM4X2AJH9F";
+    expect(readAssetId({ id }, "id")).toEqual({ ok: true, value: id });
 
-    expect(readHashArray({ hashes: [hash, hash] }, "hashes").ok).toBe(true);
-    expect(readHashArray({ hashes: [hash, "nope"] }, "hashes").ok).toBe(false);
-    expect(readHashArray({ hashes: hash }, "hashes").ok).toBe(false);
+    // Lower case is refused rather than folded: Windows compares filenames
+    // without regard to case, so two ids differing only in case would be one
+    // file — which is why RL-14's alphabet is upper case only.
+    expect(readAssetId({ id: id.toLowerCase() }, "id").ok).toBe(false);
+    // The letters the alphabet leaves out, because they read as digits.
+    for (const letter of "ILOU") {
+      expect(readAssetId({ id: `${letter}7QM4X2AJH9F` }, "id").ok).toBe(false);
+    }
+    expect(readAssetId({ id: "K7QM4X2AJH9" }, "id").ok).toBe(false);
+    expect(readAssetId({ id: "K7QM4X2AJH9FF" }, "id").ok).toBe(false);
+    // A version 1 hash is not an id, which is what stops one reaching a query
+    // that would answer nothing.
+    expect(readAssetId({ id: "a".repeat(64) }, "id").ok).toBe(false);
+
+    expect(readAssetIdArray({ ids: [id, id] }, "ids").ok).toBe(true);
+    expect(readAssetIdArray({ ids: [id, "nope"] }, "ids").ok).toBe(false);
+    expect(readAssetIdArray({ ids: id }, "ids").ok).toBe(false);
   });
 
   it("lists the vocabulary when a value is not in it", () => {
-    expect(readOneOf({ mode: "managed" }, "mode", STORAGE_MODES)).toEqual({
-      ok: true,
-      value: "managed",
-    });
-    expect(readOneOf({ mode: "sideways" }, "mode", STORAGE_MODES)).toEqual({
+    expect(readOneOf({ take: "copy" }, "take", TAKES)).toEqual({ ok: true, value: "copy" });
+    expect(readOneOf({ take: "sideways" }, "take", TAKES)).toEqual({
       ok: false,
-      reason: "mode: expected one of managed, referenced",
+      reason: "take: expected one of move, copy",
     });
   });
 });

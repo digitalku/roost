@@ -3,19 +3,17 @@ import { join } from "node:path";
 import {
   acquireLock,
   Db,
+  FileStore,
   INDEX_FILE,
   IndexSink,
   type InstanceLock,
   IoError,
   Journal,
   logger,
-  ManagedStorage,
-  ReferencedStorage,
   type ReplayReport,
   replay,
   type Stats,
   type Storage,
-  type StorageMode,
 } from "@roost/core";
 import { LibraryBusyError } from "./error.js";
 import {
@@ -64,8 +62,8 @@ export interface OpenOptions {
  * An open Roost library.
  *
  * Holds the three pieces a library is on disk — the manifest, the append-only
- * journal, and the derived index. The object store is made on demand, because
- * which one applies depends on the import mode rather than on the library.
+ * journal, and the derived index. The file store is made on demand: there is
+ * one of them in version 2 (RL-19), and it holds no state worth keeping.
  */
 export class Library {
   readonly root: string;
@@ -189,9 +187,9 @@ export class Library {
     return this.#journal;
   }
 
-  /** The object store for `mode`. */
-  storageFor(mode: StorageMode): Storage {
-    return mode === "managed" ? new ManagedStorage(this.root) : new ReferencedStorage();
+  /** Where this library's asset bytes live: `files/`, and nowhere else. */
+  get storage(): Storage {
+    return new FileStore(this.root);
   }
 
   stats(): Stats {

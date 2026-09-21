@@ -288,8 +288,8 @@ describe("the library view", () => {
     // Every cell once. A grid that asked for the first page again after the
     // last one would show the same twelve rows three times over, which is what
     // it did before `paging.ts` learned to stop.
-    const hashes = screen.getAllByRole("option").map((cell) => cell.getAttribute("data-hash"));
-    expect(new Set(hashes).size).toBe(12);
+    const ids = screen.getAllByRole("option").map((cell) => cell.getAttribute("data-id"));
+    expect(new Set(ids).size).toBe(12);
   });
 
   it("puts the context menu over the previewed asset, not over the selection", async () => {
@@ -321,8 +321,8 @@ describe("the library view", () => {
     await waitFor(() => {
       const sent = engine.seen.filter((request) => request.type === "asset:copyPath");
       expect(sent).toHaveLength(1);
-      expect((sent[0] as { hashes: readonly string[] }).hashes).toEqual([
-        cells[2]?.getAttribute("data-hash"),
+      expect((sent[0] as { ids: readonly string[] }).ids).toEqual([
+        cells[2]?.getAttribute("data-id"),
       ]);
     });
   });
@@ -856,17 +856,17 @@ describe("the navigation pane, in the window", () => {
   };
 
   /**
-   * Drops `hashes` on a folder row.
+   * Drops `ids` on a folder row.
    *
    * Through `createEvent`, because React routes its own synthetic events and a
    * hand-dispatched `Event` never reaches `onDrop`.
    */
-  function dropOn(row: string, hashes: readonly string[]): void {
+  function dropOn(row: string, ids: readonly string[]): void {
     const branch = screen.getByRole("button", { name: row }).closest(".sidebar-branch");
     if (!(branch instanceof HTMLElement)) throw new Error(`no branch for ${row}`);
     const dataTransfer = {
       types: [ASSET_DRAG_TYPE],
-      getData: () => JSON.stringify(hashes),
+      getData: () => JSON.stringify(ids),
       dropEffect: "none",
       effectAllowed: "all",
     } as unknown as DataTransfer;
@@ -1067,7 +1067,7 @@ describe("the navigation pane, in the window", () => {
 
     // From "All assets" there is no folder to leave, so this is an add.
     await user.click(screen.getAllByRole("option")[0] as HTMLElement);
-    dropOn("Logos 0", [fakeAsset(0).hash]);
+    dropOn("Logos 0", [fakeAsset(0).id]);
     await waitFor(() =>
       expect(engine.seen.some((request) => request.type === "asset:folderAdd")).toBe(true),
     );
@@ -1078,7 +1078,7 @@ describe("the navigation pane, in the window", () => {
     await user.click(screen.getByRole("button", { name: "Design 2" }));
     await waitFor(() => expect(screen.getAllByRole("option").length).toBe(2));
     await user.click(screen.getAllByRole("option")[0] as HTMLElement);
-    dropOn("Logos 0", [inDesign[0]?.hash ?? ""]);
+    dropOn("Logos 0", [inDesign[0]?.id ?? ""]);
 
     await waitFor(() =>
       expect(engine.seen.some((request) => request.type === "asset:folderRemove")).toBe(true),
@@ -1148,7 +1148,7 @@ describe("the navigation pane, in the window", () => {
       expect(engine.seen.some((request) => request.type === "asset:folderRemove")).toBe(true),
     );
     const sent = [...engine.seen].reverse().find((r) => r.type === "asset:folderRemove");
-    expect(sent).toMatchObject({ hashes: [inDesign[0]?.hash], folder: 7 });
+    expect(sent).toMatchObject({ ids: [inDesign[0]?.id], folder: 7 });
     // Nothing was trashed: leaving a collection is not leaving the library.
     expect(engine.seen.some((request) => request.type === "assets:trash")).toBe(false);
 
@@ -1642,7 +1642,7 @@ describe("folders in the grid, in the window (ADR-0043)", () => {
   const tiles = (): HTMLElement[] =>
     screen
       .getAllByRole("option")
-      .filter((cell) => cell.getAttribute("data-hash")?.startsWith("folder-") === true);
+      .filter((cell) => cell.getAttribute("data-id")?.startsWith("folder-") === true);
 
   const field = (): HTMLElement => screen.getByRole("searchbox", { name: /Search/ });
 
@@ -1940,7 +1940,7 @@ describe("the preview, in the window", () => {
 
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:openExternally")).toEqual([
-        { type: "asset:openExternally", hash: assets[0]?.hash },
+        { type: "asset:openExternally", id: assets[0]?.id },
       ]),
     );
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -1965,7 +1965,7 @@ describe("the preview, in the window", () => {
     // selection" has to mean once the preview is closed again.
     expect(screen.getByText("6 assets · 1 selected")).toBeDefined();
     expect(screen.getByRole("listbox").getAttribute("aria-activedescendant")).toContain(
-      fakeAsset(2).hash,
+      fakeAsset(2).id,
     );
   });
 

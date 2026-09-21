@@ -68,19 +68,24 @@ describe("the derive queue", () => {
     expect(queueStatus(library).ready).toBe(4);
   });
 
-  it("parks a referenced original that has moved, and picks it up when it returns", async () => {
-    await importInto(library, [source], { mode: "referenced" });
-    await rename(join(source, "image-1.png"), join(dir, "moved.png"));
+  it("parks an asset whose file has gone, and picks it up when it returns", async () => {
+    await importInto(library, [source]);
+    // RL-25: the row carries everything the person wrote about it, and a
+    // missing file is a fact about today rather than a reason to drop it.
+    const id = library.db.repo.allIds()[0] as never;
+    const ext = library.db.repo.assetDetail(id)?.ext ?? "";
+    await rename(library.storage.locate(id, ext), join(dir, "moved.png"));
 
     const report = await runDerives(library, { sizes: [GRID_SIZE] });
 
     expect(report.derived).toBe(3);
     expect(report.missing).toBe(1);
-    expect(queueStatus(library).reasons).toEqual([{ reason: "missing:original", count: 1 }]);
+    expect(queueStatus(library).reasons).toEqual([{ reason: "missing:file", count: 1 }]);
 
-    // Parked rather than failed, because the fix is the file coming back.
-    await rename(join(dir, "moved.png"), join(source, "image-1.png"));
-    expect(retryBlocked(library, "missing:original")).toBe(1);
+    // Parked rather than failed, because the fix is the file coming back — to
+    // the place the id names, which is the only place it can be (RL-19).
+    await rename(join(dir, "moved.png"), library.storage.locate(id, ext));
+    expect(retryBlocked(library, "missing:file")).toBe(1);
 
     const again = await runDerives(library, { sizes: [GRID_SIZE] });
     expect(again.derived).toBe(1);
@@ -101,7 +106,7 @@ describe("the derive queue", () => {
       ]);
     await writeFile(join(source, "image-1.png"), broken(1));
     await writeFile(join(source, "image-2.png"), broken(2));
-    await importInto(library, [source], { mode: "referenced" });
+    await importInto(library, [source]);
 
     const report = await runDerives(library, { sizes: [GRID_SIZE] });
     expect(report.failed).toBe(2);
@@ -121,9 +126,11 @@ describe("the derive queue", () => {
     expect(failures.groups).toHaveLength(1);
     expect(failures.groups[0]?.count).toBe(2);
     expect(failures.groups[0]?.attempts).toBe(1);
+    // The names a person reads, extension excluded (RL-33): a dialog joins
+    // them back to the extension it is shown beside.
     expect(failures.groups[0]?.samples.map((sample) => sample.name).sort()).toEqual([
-      "image-1.png",
-      "image-2.png",
+      "image-1",
+      "image-2",
     ]);
     // The message is the backend's own, with nothing from this test in it: no
     // temporary directory, which is what would otherwise split the group.
@@ -136,7 +143,7 @@ describe("the derive queue", () => {
     // stopped being true, with nothing in the window able to release it.
     await importInto(library, [source]);
     await runDerives(library, { sizes: [GRID_SIZE] });
-    const hash = library.db.repo.allHashes()[0];
+    const hash = library.db.repo.allIds()[0];
     if (hash === undefined) throw new Error("nothing was imported");
     library.db.repo.enqueueJob("derive", hash, 10, 1_700_000_000);
     const [claim] = library.db.repo.claimJobs("derive", 1);

@@ -6,7 +6,7 @@ import { FakeEngine, fakeDetail, install } from "../testing/fake-engine.js";
 import { PreviewPane } from "./PreviewPane.js";
 import { sound } from "./sound.js";
 
-const HASH = fakeDetail(1).hash;
+const HASH = fakeDetail(1).id;
 
 describe("the preview pane", () => {
   let engine: FakeEngine;
@@ -26,7 +26,7 @@ describe("the preview pane", () => {
     install(engine);
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -73,13 +73,13 @@ describe("the preview pane", () => {
     const image = (await screen.findByRole("img", { name: "one.png" })) as HTMLImageElement;
     // Not the thumbnail: the preview is the asset, and the protocol streams it
     // rather than sending bytes through a message (ADR-0008, invariant 12).
-    expect(image.getAttribute("src")).toBe(`roost://original/${HASH}`);
+    expect(image.getAttribute("src")).toBe(`roost://file/${HASH}`);
   });
 
   it("renders an SVG through the same img, which is what sandboxes it", async () => {
     show("image", "svg");
     const image = (await screen.findByRole("img", { name: "one.svg" })) as HTMLImageElement;
-    expect(image.getAttribute("src")).toBe(`roost://original/${HASH}`);
+    expect(image.getAttribute("src")).toBe(`roost://file/${HASH}`);
     // No <object>, no <iframe>, no inline markup: scripts in an image do not
     // run, and neither do its external references.
     expect(document.querySelector("iframe, object, embed")).toBeNull();
@@ -99,10 +99,10 @@ describe("the preview pane", () => {
     show("video", "mp4", {
       durationMs: 60_000,
       subtitles: [
-        { hash: "f".repeat(64), lang: "id", label: null, name: "film.srt", servable: true },
+        { id: "f".repeat(64), lang: "id", label: null, name: "film.srt", servable: true },
         // Needs ffmpeg, so no `<track>` — one pointed at a URL answering 415 is
         // an empty track with no error anywhere (ADR-0025).
-        { hash: "9".repeat(64), lang: null, label: null, name: "film.ass", servable: false },
+        { id: "9".repeat(64), lang: null, label: null, name: "film.ass", servable: false },
       ],
     });
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
@@ -143,19 +143,19 @@ describe("the preview pane", () => {
       expect(engine.seen.map((request) => request.type)).toContain("asset:addSubtitle"),
     );
     const sent = engine.seen.find((request) => request.type === "asset:addSubtitle");
-    expect(sent).toMatchObject({ hash: HASH, paths: ["/home/you/holiday.srt"] });
+    expect(sent).toMatchObject({ id: HASH, paths: ["/home/you/holiday.srt"] });
   });
 
   it("plays the original even though no browser can draw an mp4 in an <img>", async () => {
     // The bug behind "the preview opens blank", found 2026-09-13 in the log:
     // `browserDrawable` answers about an `<img>` and is false for every video
-    // there is, so the pane was asking `roost://render/<hash>` — which replies
+    // there is, so the pane was asking `roost://render/<id>` — which replies
     // "no rendition for mp4" with a 404, and a 404 is a video that will not
     // play. Every video and every sound in the library, since ADR-0040 §7.
     show("video", "mp4", { browserDrawable: false });
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
 
-    expect(document.querySelector("video")?.getAttribute("src")).toBe(`roost://original/${HASH}`);
+    expect(document.querySelector("video")?.getAttribute("src")).toBe(`roost://file/${HASH}`);
   });
 
   it("still asks for a rendition where the <img> is the thing that cannot read it", async () => {
@@ -200,7 +200,7 @@ describe("the preview pane", () => {
     show("video", "mp4");
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
     const video = document.querySelector("video");
-    expect(video?.getAttribute("src")).toBe(`roost://original/${HASH}`);
+    expect(video?.getAttribute("src")).toBe(`roost://file/${HASH}`);
     // `controls` off is the whole of ADR-0024: the native bar is a closed
     // widget, so a comment mark could only ever sit beside the timeline.
     expect(video?.hasAttribute("controls")).toBe(false);
@@ -212,7 +212,7 @@ describe("the preview pane", () => {
     // audio file has the same timeline and the same comments (ADR-0024).
     show("audio", "mp3");
     await waitFor(() => expect(document.querySelector("audio")).not.toBeNull());
-    expect(document.querySelector("audio")?.getAttribute("src")).toBe(`roost://original/${HASH}`);
+    expect(document.querySelector("audio")?.getAttribute("src")).toBe(`roost://file/${HASH}`);
     expect(document.querySelector("audio")?.hasAttribute("controls")).toBe(false);
     expect(screen.getByRole("slider", { name: "Timeline" })).toBeDefined();
   });
@@ -271,7 +271,7 @@ describe("the preview pane", () => {
     install(engine);
     const { rerender } = render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -284,10 +284,10 @@ describe("the preview pane", () => {
     await waitFor(() => expect(document.querySelector("video")).not.toBeNull());
     const first = document.querySelector("video");
 
-    const second = fakeDetail(2).hash;
+    const second = fakeDetail(2).id;
     rerender(
       <PreviewPane
-        hash={second}
+        id={second}
         generation={0}
         hasPrevious
         hasNext
@@ -298,9 +298,7 @@ describe("the preview pane", () => {
       />,
     );
     await waitFor(() =>
-      expect(document.querySelector("video")?.getAttribute("src")).toBe(
-        `roost://original/${second}`,
-      ),
+      expect(document.querySelector("video")?.getAttribute("src")).toBe(`roost://file/${second}`),
     );
     expect(document.querySelector("video")).not.toBe(first);
   });
@@ -320,7 +318,7 @@ describe("the transport", () => {
     install(engine);
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -426,7 +424,7 @@ describe("the transport", () => {
     install(engine);
     const view = render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -444,7 +442,7 @@ describe("the transport", () => {
     engine.details.set(HASH, { ...held, durationMs: HOUR });
     view.rerender(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={1}
         hasPrevious
         hasNext
@@ -468,7 +466,7 @@ describe("the transport", () => {
     install(engine);
     const view = render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -483,10 +481,10 @@ describe("the transport", () => {
 
     await engine
       .bridge()
-      .invoke({ type: "comment:add", hash: HASH, atMs: HOUR / 2, body: "halfway" });
+      .invoke({ type: "comment:add", asset: HASH, atMs: HOUR / 2, body: "halfway" });
     view.rerender(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={1}
         hasPrevious
         hasNext
@@ -509,7 +507,7 @@ describe("the transport", () => {
     install(engine);
     const view = render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -523,7 +521,7 @@ describe("the transport", () => {
 
     view.rerender(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={1}
         hasPrevious
         hasNext
@@ -563,7 +561,7 @@ describe("the transport", () => {
     install(engine);
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -635,7 +633,7 @@ describe("the transport", () => {
     install(engine);
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -664,7 +662,7 @@ describe("the transport", () => {
     const stepped: number[] = [];
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious={false}
         hasNext
@@ -690,7 +688,7 @@ describe("the transport", () => {
     // head on 2026-09-06 at the user's request.
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -786,7 +784,7 @@ describe("what the native bar withholds", () => {
     install(engine);
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -975,7 +973,7 @@ describe("a document with pages to turn", () => {
     install(engine);
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -1036,7 +1034,7 @@ describe("a font", () => {
     install(engine);
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -1076,7 +1074,7 @@ describe("how loud the player starts", () => {
     install(new FakeEngine({ details: [fakeDetail(1, { kind, ext, name: `one.${ext}` })] }));
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -1143,7 +1141,7 @@ describe("fitting a video to the window", () => {
     install(engine);
     render(
       <PreviewPane
-        hash={HASH}
+        id={HASH}
         generation={0}
         hasPrevious
         hasNext

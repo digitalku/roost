@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ContentHash } from "@roost/core";
+import { type AssetId, withoutDerived } from "@roost/core";
 import {
   importEagle,
   Library,
@@ -389,30 +389,42 @@ describe("importing an Eagle library", () => {
 });
 
 /**
- * The hash of the asset that came in under one of `names`.
+ * The id of the asset that came in under one of `names`.
  *
- * Several names, because two items with identical bytes are one asset and
- * **which of their names it keeps is undetermined** — the first of the two the
- * directory happened to yield is the one that journalled the `add`. That is
- * content addressing working, not a bug, so the test asks for either.
+ * Several names, because two items with identical bytes become one asset — the
+ * import reports the second as a duplicate (ADR-0046 §5) — and **which of
+ * their names it keeps is undetermined**: the first of the two the directory
+ * happened to yield is the one that journalled the `add`.
+ *
+ * A name carries no extension in version 2 (RL-33), so the caller passes the
+ * filename and this compares the stem.
  */
-function hashOf(library: Library, ...names: readonly string[]): ContentHash {
-  for (const hash of library.db.repo.allHashes()) {
-    const detail = library.db.repo.assetDetail(hash);
-    if (detail !== undefined && names.includes(detail.origName)) return hash;
+function hashOf(library: Library, ...names: readonly string[]): AssetId {
+  // The extension is compared too: a name carries none (RL-33), so `clip.mp4`
+  // and `clip.srt` are one name and two assets.
+  const wanted = names.map((name) => {
+    const dot = name.lastIndexOf(".");
+    return dot === -1 ? { name, ext: "" } : { name: name.slice(0, dot), ext: name.slice(dot + 1) };
+  });
+  for (const id of library.db.repo.allIds()) {
+    const detail = library.db.repo.assetDetail(id);
+    if (detail === undefined) continue;
+    if (wanted.some((one) => one.name === detail.name && one.ext === detail.ext)) return id;
   }
   throw new Error(`no asset called ${names.join(" or ")}`);
 }
 
 /** Everything a rebuild or a second run must not change. */
 function snapshot(library: Library): unknown {
-  const hashes = library.db.repo.allHashes().slice().sort();
+  const ids = library.db.repo.allIds().slice().sort();
   return {
-    stats: library.db.repo.stats(),
+    // Without what a derive put there: a rebuild is supposed to drop the size,
+    // the dimensions and the content hash along with the thumbnails (RL-22).
+    stats: withoutDerived(library.db.repo.stats()),
     folders: library.db.repo.folders(),
     tags: library.db.repo.tags(),
-    memberships: hashes.map((hash) => library.db.repo.folderIdsFor(hash).slice().sort()),
-    comments: hashes.flatMap((hash) =>
+    memberships: ids.map((hash) => library.db.repo.folderIdsFor(hash).slice().sort()),
+    comments: ids.flatMap((hash) =>
       library.db.repo.commentsFor(hash).map(({ atMs, body }) => ({ hash, atMs, body })),
     ),
   };

@@ -20,7 +20,7 @@ const OPTIONS = {
 
 function shaped(count: number, width: number | null = 800, height: number | null = 600): Shaped[] {
   return Array.from({ length: count }, (_, i) => ({
-    hash: i.toString(16).padStart(64, "0"),
+    id: i.toString(16).padStart(64, "0"),
     width,
     height,
   }));
@@ -227,21 +227,21 @@ describe("moving focus with the arrow keys", () => {
 
   it("moves by geometry, not by index", () => {
     const grid = layout(shaped(12), uniform);
-    const first = grid.order[0]?.hash ?? "";
+    const first = grid.order[0]?.id ?? "";
     // Four columns: right is the next result, down is four along.
-    expect(moveFocus(grid, first, "right")).toBe(grid.order[1]?.hash);
-    expect(moveFocus(grid, first, "down")).toBe(grid.order[4]?.hash);
-    expect(moveFocus(grid, grid.order[5]?.hash ?? "", "up")).toBe(grid.order[1]?.hash);
-    expect(moveFocus(grid, grid.order[5]?.hash ?? "", "left")).toBe(grid.order[4]?.hash);
+    expect(moveFocus(grid, first, "right")).toBe(grid.order[1]?.id);
+    expect(moveFocus(grid, first, "down")).toBe(grid.order[4]?.id);
+    expect(moveFocus(grid, grid.order[5]?.id ?? "", "up")).toBe(grid.order[1]?.id);
+    expect(moveFocus(grid, grid.order[5]?.id ?? "", "left")).toBe(grid.order[4]?.id);
   });
 
   it("stops at the edge rather than wrapping", () => {
     // Wrapping in a grid this long is a jump of thousands of rows, which is
     // not what an arrow key means anywhere else.
     const grid = layout(shaped(12), uniform);
-    expect(moveFocus(grid, grid.order[0]?.hash ?? "", "up")).toBeUndefined();
-    expect(moveFocus(grid, grid.order[0]?.hash ?? "", "left")).toBeUndefined();
-    const last = grid.order[grid.order.length - 1]?.hash ?? "";
+    expect(moveFocus(grid, grid.order[0]?.id ?? "", "up")).toBeUndefined();
+    expect(moveFocus(grid, grid.order[0]?.id ?? "", "left")).toBeUndefined();
+    const last = grid.order[grid.order.length - 1]?.id ?? "";
     expect(moveFocus(grid, last, "down")).toBeUndefined();
     expect(moveFocus(grid, last, "right")).toBeUndefined();
   });
@@ -253,7 +253,7 @@ describe("moving focus with the arrow keys", () => {
     );
     const start = grid.columns[1]?.[2];
     const landed = grid.columns[0]?.find(
-      (tile) => tile.hash === moveFocus(grid, start?.hash ?? "", "left"),
+      (tile) => tile.id === moveFocus(grid, start?.id ?? "", "left"),
     );
 
     expect(landed).toBeDefined();
@@ -264,7 +264,7 @@ describe("moving focus with the arrow keys", () => {
     expect((landed?.y ?? 0) + (landed?.height ?? 0)).toBeGreaterThanOrEqual(centre);
   });
 
-  it("says nothing about a hash the layout does not hold", () => {
+  it("says nothing about a id the layout does not hold", () => {
     const grid = layout(shaped(4), uniform);
     expect(moveFocus(grid, "nothing", "down")).toBeUndefined();
   });

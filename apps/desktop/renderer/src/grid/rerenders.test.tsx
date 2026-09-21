@@ -21,14 +21,14 @@ import { SelectionStore } from "./selection.js";
  * other test in this directory and fail here.
  */
 
-const rendered = vi.hoisted(() => ({ hashes: [] as string[] }));
+const rendered = vi.hoisted(() => ({ ids: [] as string[] }));
 
 vi.mock("./AssetCell.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./AssetCell.js")>();
   return {
     ...actual,
     AssetCell: (props: import("./AssetCell.js").AssetCellProps) => {
-      rendered.hashes.push(props.hash);
+      rendered.ids.push(props.id);
       return createElement(actual.AssetCell, props);
     },
   };
@@ -47,7 +47,7 @@ describe("re-renders on a selection change", () => {
       });
     }
     selection = new SelectionStore();
-    rendered.hashes = [];
+    rendered.ids = [];
     vi.stubGlobal("requestAnimationFrame", (fn: FrameRequestCallback) => {
       fn(0);
       return 0;
@@ -72,13 +72,13 @@ describe("re-renders on a selection change", () => {
     expect(cells.length).toBeGreaterThan(20);
 
     await user.click(cells[0] as HTMLElement);
-    rendered.hashes = [];
+    rendered.ids = [];
 
     await user.click(cells[7] as HTMLElement);
 
     // One loses selection and focus, one gains both. Nothing else moved.
-    expect(new Set(rendered.hashes).size).toBe(2);
-    expect(rendered.hashes).toHaveLength(2);
+    expect(new Set(rendered.ids).size).toBe(2);
+    expect(rendered.ids).toHaveLength(2);
   });
 
   it("re-renders nothing when the click changes nothing", async () => {
@@ -97,9 +97,9 @@ describe("re-renders on a selection change", () => {
     const cells = screen.getAllByRole("option");
 
     await user.click(cells[3] as HTMLElement);
-    rendered.hashes = [];
+    rendered.ids = [];
     await user.click(cells[3] as HTMLElement);
 
-    expect(rendered.hashes).toEqual([]);
+    expect(rendered.ids).toEqual([]);
   });
 });

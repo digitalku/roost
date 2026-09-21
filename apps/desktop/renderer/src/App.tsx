@@ -519,11 +519,15 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
   const report = outcome.report;
   const parts = [
     `${counted(report.imported)} imported`,
-    ...(report.duplicates + report.partialDuplicates > 0
-      ? // Not a failure: identical bytes have one address (invariant 1), so
-        // re-importing a folder is the ordinary case.
-        [`${counted(report.duplicates + report.partialDuplicates)} already here`]
+    ...(report.duplicates > 0
+      ? // Not a failure: re-importing a folder is the ordinary case, and this
+        // build skips a file whose bytes are already here rather than making a
+        // second asset of them (ADR-0046 §5).
+        [`${counted(report.duplicates)} already here`]
       : []),
+    // What happened to the files themselves, which RL-26 requires be said:
+    // a move is not undoable by looking at the library afterwards.
+    ...(report.moved > 0 ? [`${counted(report.moved)} moved`] : []),
     ...(report.subtitles > 0
       ? // An attachment nobody asked for by name, made from a filename
         // (ADR-0025 §3) — so the run says it happened.
@@ -532,9 +536,7 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
     ...(report.subtitlesUnattached > 0
       ? [`${counted(report.subtitlesUnattached)} subtitles unattached`]
       : []),
-    ...(report.failed.length + report.partialCollisions > 0
-      ? [`${counted(report.failed.length + report.partialCollisions)} failed`]
-      : []),
+    ...(report.failed.length > 0 ? [`${counted(report.failed.length)} failed`] : []),
   ];
 
   return (
@@ -583,15 +585,15 @@ function eagleSaid(report: WireEagleReport): string[] {
  * menu whose first row is not what the gesture does is a menu that teaches the
  * wrong thing.
  */
-function drawable(assets: readonly AssetCard[], hash: string): boolean {
-  const card = assets.find((asset) => asset.hash === hash);
+function drawable(assets: readonly AssetCard[], id: string): boolean {
+  const card = assets.find((asset) => asset.id === id);
   return card !== undefined && card.kind !== "other";
 }
 
 /** Whether an asset is the kind a caption track can be attached to (ADR-0025). */
-function captionable(assets: readonly AssetCard[], hash: string | undefined): boolean {
-  if (hash === undefined) return false;
-  const card = assets.find((asset) => asset.hash === hash);
+function captionable(assets: readonly AssetCard[], id: string | undefined): boolean {
+  if (id === undefined) return false;
+  const card = assets.find((asset) => asset.id === id);
   return card !== undefined && (card.kind === "video" || card.kind === "audio");
 }
 
@@ -1156,7 +1158,7 @@ function LibraryView({
   const focused = selection.focused;
   /*
    * The inspector edits the **selection**, not the focused asset — it used to
-   * take one hash, and tagging five assets tagged one.
+   * take one id, and tagging five assets tagged one.
    *
    * Memoised on the revision because the array is what the inspector's read
    * effect depends on: `selected()` allocates a fresh one per call, and passing
@@ -1273,7 +1275,7 @@ function LibraryView({
   const clearSelection = useCallback(() => selection.clear(), [selection]);
 
   const trashing = useTrashActions({
-    hashes: selected,
+    ids: selected,
     onNote: noteResult,
     onProblem: setActed,
     onConfirm: setConfirming,
@@ -1323,7 +1325,7 @@ function LibraryView({
       if (target instanceof HTMLElement && isTyping(target)) return;
       if (selected.length === 0) return;
       event.preventDefault();
-      void invoke({ type: "asset:folderRemove", hashes: selected, folder }).then((outcome) => {
+      void invoke({ type: "asset:folderRemove", ids: selected, folder }).then((outcome) => {
         if (!outcome.ok) return setActed(outcome.problem);
         // The grid re-pages only when the library's counts move, and this moves
         // neither — the assets are still there and still live. Without the drop
@@ -1429,28 +1431,28 @@ function LibraryView({
    * order could lose them from both.
    */
   const dropOnFolder = useCallback(
-    (folder: SidebarFolderRow, hashes: readonly string[], copy: boolean) => {
+    (folder: SidebarFolderRow, ids: readonly string[], copy: boolean) => {
       const from = copy || openFolder === undefined ? undefined : openFolder;
       if (from?.folder === folder.folder) return;
 
       void (async () => {
-        const added = await invoke({ type: "asset:folderAdd", hashes, folder: folder.folder });
+        const added = await invoke({ type: "asset:folderAdd", ids, folder: folder.folder });
         if (!added.ok) return setActed(added.problem);
         if (from === undefined) {
-          noteResult(`Added ${assets(hashes.length)} to ${folder.name}`);
+          noteResult(`Added ${assets(ids.length)} to ${folder.name}`);
           return;
         }
         const removed = await invoke({
           type: "asset:folderRemove",
-          hashes,
+          ids,
           folder: from.folder,
         });
         if (!removed.ok) return setActed(removed.problem);
         // They have left the view they were dragged out of, so the same
         // targeted drop `Ctrl+Delete` needs applies here (`paging.drop`).
-        dropRows(hashes);
+        dropRows(ids);
         clearSelection();
-        noteResult(`Moved ${assets(hashes.length)} from ${from.name} to ${folder.name}`);
+        noteResult(`Moved ${assets(ids.length)} from ${from.name} to ${folder.name}`);
       })();
     },
     [openFolder, dropRows, clearSelection, noteResult],
@@ -1709,7 +1711,7 @@ function LibraryView({
       }
 
       void (async () => {
-        const outcome = await invoke({ type: "asset:addSubtitle", hash: film, paths });
+        const outcome = await invoke({ type: "asset:addSubtitle", id: film, paths });
         if (!outcome.ok) return setActed(outcome.problem);
 
         const { attached, ignored } = outcome.value;
@@ -1724,7 +1726,7 @@ function LibraryView({
 
   const paste = useCallback(() => {
     void (async () => {
-      const outcome = await invoke({ type: "clipboard:paste", mode: "managed" });
+      const outcome = await invoke({ type: "clipboard:paste", take: "copy" });
       if (!outcome.ok) return setActed(outcome.problem);
 
       const pasted = outcome.value;
@@ -1755,9 +1757,9 @@ function LibraryView({
    * on the card so the decision costs no round trip.
    */
   const openAsset = useCallback(
-    (hash: string) => {
-      if (!drawable(paging.assets, hash)) {
-        void invoke({ type: "asset:openExternally", hash });
+    (id: string) => {
+      if (!drawable(paging.assets, id)) {
+        void invoke({ type: "asset:openExternally", id });
         return;
       }
       setPreviewing(true);
@@ -1772,11 +1774,11 @@ function LibraryView({
    * re-renders on every scroll — and while the grid is what is on screen, there
    * is nothing to draw the answer on.
    */
-  const stepAt = showingPreview ? paging.assets.findIndex((asset) => asset.hash === focused) : -1;
+  const stepAt = showingPreview ? paging.assets.findIndex((asset) => asset.id === focused) : -1;
 
   const step = useCallback(
     (delta: -1 | 1) => {
-      const order = paging.assets.map((asset) => asset.hash);
+      const order = paging.assets.map((asset) => asset.id);
       const at = focused === undefined ? -1 : order.indexOf(focused);
       const next = order[at + delta];
       // Stops at the ends rather than wrapping. A wrap here is a jump of
@@ -1976,7 +1978,7 @@ function LibraryView({
             /* Over the asset on screen, not over the selection: "export…" while
              looking at one picture cannot sensibly mean the other eleven. */
             <AssetContextMenu
-              hashes={[focused]}
+              ids={[focused]}
               inTrash={inTrash}
               onNote={noteResult}
               onProblem={setActed}
@@ -1985,7 +1987,7 @@ function LibraryView({
               onPosterPinned={paging.pinPoster}
             >
               <PreviewPane
-                hash={focused}
+                id={focused}
                 generation={revision}
                 hasPrevious={stepAt > 0}
                 hasNext={stepAt >= 0 && stepAt + 1 < paging.assets.length}
@@ -2004,7 +2006,7 @@ function LibraryView({
             /* The menu over nothing belongs here most of all: an empty library is
              exactly where somebody wants to paste or make a file. */
             <AssetContextMenu
-              hashes={[]}
+              ids={[]}
               inTrash={inTrash}
               onNote={noteResult}
               onProblem={setActed}
@@ -2019,7 +2021,7 @@ function LibraryView({
             </AssetContextMenu>
           ) : (
             <AssetContextMenu
-              hashes={selected}
+              ids={selected}
               inTrash={inTrash}
               onNote={noteResult}
               onProblem={setActed}
@@ -2027,8 +2029,8 @@ function LibraryView({
               onGone={clearSelection}
               onPaste={paste}
               onNewFile={composeFile}
-              onOpenHere={(hash) => {
-                selection.click(hash);
+              onOpenHere={(id) => {
+                selection.click(id);
                 setPreviewing(true);
               }}
               drawable={selected.length === 1 && drawable(paging.assets, selected[0] ?? "")}
@@ -2069,7 +2071,7 @@ function LibraryView({
               onCommit={(next) => applyView({ inspectorWidth: next })}
             />
             <Inspector
-              hashes={selected}
+              ids={selected}
               generation={revision}
               vocabulary={sidebar?.tags ?? NO_TAGS}
               folders={sidebar?.folders ?? NO_FOLDERS}
@@ -2088,20 +2090,17 @@ function LibraryView({
           initialText={newFile.text}
           onClose={() => setNewFile(undefined)}
           onProblem={setActed}
-          onCreated={(hash, created, name) => {
+          onCreated={(id, name) => {
             setNewFile(undefined);
             onImported();
             // Selected rather than merely made: the file a person just made is
             // what they are looking at, and the inspector is where they would
             // tag it.
-            selection.click(hash);
-            noteResult(
-              created
-                ? `Made ${name}`
-                : newFile.text === ""
-                  ? "Roost already holds an empty file — every empty file is the same one here"
-                  : `${name} holds bytes the library already had`,
-            );
+            selection.click(id);
+            // Always made, in version 2: an id is minted rather than derived
+            // from the bytes, so a second empty file is a second asset rather
+            // than the first one handed back (ADR-0046).
+            noteResult(`Made ${name}`);
           }}
         />
       )}

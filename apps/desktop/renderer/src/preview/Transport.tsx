@@ -540,7 +540,7 @@ export function Transport({
                   </DropdownMenu.RadioItem>
                   {subtitles.map((track, index) => (
                     <DropdownMenu.RadioItem
-                      key={track.hash}
+                      key={track.id}
                       className="menu-item"
                       value={String(index)}
                     >

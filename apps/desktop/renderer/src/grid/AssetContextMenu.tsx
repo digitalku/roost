@@ -14,7 +14,7 @@ import { assets, type ConfirmRequest, useTrashActions } from "./trash-actions.js
  * copy the originals out to a folder they choose, and delete. Everything here
  * acts on the **selection**, never on the asset the pointer happens to be over
  * — that distinction was a real bug on 2026-08-30, and the fix was to give
- * every edit a list of hashes and no way to learn how long it is.
+ * every edit a list of ids and no way to learn how long it is.
  *
  * Right-clicking an asset that is not selected selects it first; right-clicking
  * one that is leaves the selection alone. `Grid` does that, because it is the
@@ -33,7 +33,7 @@ import { assets, type ConfirmRequest, useTrashActions } from "./trash-actions.js
 
 export interface AssetContextMenuProps {
   /** The selection. Empty means there is no menu to open. */
-  readonly hashes: readonly string[];
+  readonly ids: readonly string[];
   /** Whether what is on screen is the Trash place. */
   readonly inTrash: boolean;
   /** Something happened and the status bar should say so. */
@@ -49,7 +49,7 @@ export interface AssetContextMenuProps {
    *
    * Absent over the grid, where there is no player and so nothing to pin.
    */
-  readonly onPosterPinned?: (hash: string, posterMs: number | null) => void;
+  readonly onPosterPinned?: (id: string, posterMs: number | null) => void;
   /**
    * Right-clicked on the grid's empty space (ADR-0026 §5, §4).
    *
@@ -69,7 +69,7 @@ export interface AssetContextMenuProps {
    * Absent over the preview, where it is already open — and where an item
    * offering to open it again would be a row that does nothing.
    */
-  readonly onOpenHere?: (hash: string) => void;
+  readonly onOpenHere?: (id: string) => void;
   /**
    * Whether Roost can draw the one selected asset.
    *
@@ -82,7 +82,7 @@ export interface AssetContextMenuProps {
 }
 
 export function AssetContextMenu({
-  hashes,
+  ids,
   inTrash,
   onNote,
   onProblem,
@@ -95,8 +95,8 @@ export function AssetContextMenu({
   drawable,
   children,
 }: AssetContextMenuProps): React.JSX.Element {
-  const count = hashes.length;
-  const only = count === 1 ? hashes[0] : undefined;
+  const count = ids.length;
+  const only = count === 1 ? ids[0] : undefined;
   const background = count === 0 && onPaste !== undefined && onNewFile !== undefined;
   // Only over one asset: a selection of three has no double-click to agree
   // with, so the rows keep their natural order.
@@ -118,7 +118,7 @@ export function AssetContextMenu({
    */
   const pinPoster = (atMs: number | null): void => {
     if (only === undefined) return;
-    void invoke({ type: "asset:poster", hash: only, atMs }).then((outcome) => {
+    void invoke({ type: "asset:poster", id: only, atMs }).then((outcome) => {
       if (!outcome.ok) return onProblem(outcome.problem);
       // Told rather than re-read: the grid does not re-page on an edit, so the
       // card it holds would keep asking for the thumbnail's old address.
@@ -132,7 +132,7 @@ export function AssetContextMenu({
   };
 
   const copyPaths = (): void => {
-    void invoke({ type: "asset:copyPath", hashes }).then((outcome) => {
+    void invoke({ type: "asset:copyPath", ids }).then((outcome) => {
       if (!outcome.ok) onProblem(outcome.problem);
     });
   };
@@ -146,7 +146,7 @@ export function AssetContextMenu({
    * the labels say which is which.
    */
   const copyFiles = (): void => {
-    void invoke({ type: "asset:copyFiles", hashes }).then((outcome) => {
+    void invoke({ type: "asset:copyFiles", ids }).then((outcome) => {
       if (!outcome.ok) return onProblem(outcome.problem);
       onNote(
         outcome.value === 0
@@ -164,13 +164,13 @@ export function AssetContextMenu({
     if (!chosen.ok) return onProblem(chosen.problem);
     if (chosen.value === null) return;
 
-    const done = await invoke({ type: "assets:export", hashes, destination: chosen.value });
+    const done = await invoke({ type: "assets:export", ids, destination: chosen.value });
     if (!done.ok) return onProblem(done.problem);
     onNote(exportLine(done.value));
   };
 
   const { trash, restore, deletePermanently, emptyTrash } = useTrashActions({
-    hashes,
+    ids,
     onNote,
     onProblem,
     onConfirm,
@@ -196,7 +196,7 @@ export function AssetContextMenu({
       className="menu-item"
       disabled={only === undefined}
       onSelect={() => {
-        if (only !== undefined) void invoke({ type: "asset:openExternally", hash: only });
+        if (only !== undefined) void invoke({ type: "asset:openExternally", id: only });
       }}
     >
       <span className="menu-mark" />
@@ -276,7 +276,7 @@ export function AssetContextMenu({
                 className="menu-item"
                 disabled={only === undefined}
                 onSelect={() => {
-                  if (only !== undefined) void invoke({ type: "asset:reveal", hash: only });
+                  if (only !== undefined) void invoke({ type: "asset:reveal", id: only });
                 }}
               >
                 <span className="menu-mark" />

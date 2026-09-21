@@ -33,7 +33,7 @@ export interface ConfirmRequest {
 
 export interface TrashActionsOptions {
   /** The selection to act on. */
-  readonly hashes: readonly string[];
+  readonly ids: readonly string[];
   /** Something happened and the status bar should say so. */
   readonly onNote: (line: string) => void;
   readonly onProblem: (problem: WireProblem) => void;
@@ -70,17 +70,17 @@ export interface TrashActions {
 }
 
 export function useTrashActions({
-  hashes,
+  ids,
   onNote,
   onProblem,
   onConfirm,
   onGone,
 }: TrashActionsOptions): TrashActions {
   return useMemo(() => {
-    const count = hashes.length;
+    const count = ids.length;
 
     const trash = (): void => {
-      void invoke({ type: "assets:trash", hashes }).then((outcome) => {
+      void invoke({ type: "assets:trash", ids }).then((outcome) => {
         if (!outcome.ok) return onProblem(outcome.problem);
         onGone();
         onNote(`Moved ${assets(count)} to the trash`);
@@ -88,7 +88,7 @@ export function useTrashActions({
     };
 
     const restore = (): void => {
-      void invoke({ type: "assets:restore", hashes }).then((outcome) => {
+      void invoke({ type: "assets:restore", ids }).then((outcome) => {
         if (!outcome.ok) return onProblem(outcome.problem);
         onGone();
         onNote(`Restored ${assets(count)}`);
@@ -102,7 +102,7 @@ export function useTrashActions({
         body: `${capitalise(assets(count))} will be removed from the library, and the files they own will be deleted from it. Tags, ratings, notes, and folder memberships go with them, and this cannot be undone.`,
         confirmLabel: "Delete",
         run: () => {
-          void invoke({ type: "assets:remove", hashes }).then((outcome) => {
+          void invoke({ type: "assets:remove", ids }).then((outcome) => {
             if (!outcome.ok) return onProblem(outcome.problem);
             onGone();
             onNote(deleted(outcome.value.assets, outcome.value.bytes));
@@ -127,7 +127,7 @@ export function useTrashActions({
     };
 
     return { trash, restore, deletePermanently, emptyTrash };
-  }, [hashes, onNote, onProblem, onConfirm, onGone]);
+  }, [ids, onNote, onProblem, onConfirm, onGone]);
 }
 
 /**

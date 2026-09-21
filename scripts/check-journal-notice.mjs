@@ -36,21 +36,21 @@ const centreOf = (cdp, selector) =>
     return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
   })()`);
 
-/** The first asset's hash, read out of the journal this build just wrote. */
+/** The first asset's id, read out of the journal this build just wrote. */
 async function firstHash(root) {
   const dir = join(root, "journal");
   const months = (await readdir(dir)).filter((name) => name.endsWith(".jsonl")).sort();
   const text = await readFile(join(dir, months[0]), "utf8");
   for (const line of text.split("\n")) {
     const record = line.trim() === "" ? {} : JSON.parse(line);
-    if (record.op === "add") return record.hash;
+    if (record.op === "add") return record.id;
   }
   throw new Error("no add record in the fixture's journal");
 }
 
 const { dir, dispose } = await scratch("check-journal-notice");
 const root = await imageLibrary(dir, { count: 4, size: 64, name: "Shared" });
-const hash = await firstHash(root);
+const id = await firstHash(root);
 
 // A month this build never wrote, in a month it never reached. Three of the four
 // lines are operations it cannot apply; the fourth is one it can, and is what
@@ -59,10 +59,10 @@ const hash = await firstHash(root);
 await writeFile(
   join(root, "journal", "2026-03.jsonl"),
   [
-    `{"ts":1772000000,"op":"rate","hash":"${hash}","rating":5}`,
-    `{"ts":1772000001,"op":"win.shell_pin","hash":"${hash}"}`,
-    `{"ts":1772000002,"op":"win.shell_pin","hash":"${hash}"}`,
-    `{"ts":1772000003,"op":"folder_add","hash":"${hash}","folder":99}`,
+    `{"ts":1772000000,"op":"rate","id":"${id}","rating":5}`,
+    `{"ts":1772000001,"op":"win.shell_pin","id":"${id}"}`,
+    `{"ts":1772000002,"op":"win.shell_pin","id":"${id}"}`,
+    `{"ts":1772000003,"op":"folder_add","id":"${id}","folder":99}`,
     "",
   ].join("\n"),
   "utf8",

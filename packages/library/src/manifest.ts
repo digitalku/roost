@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { IoError } from "@roost/core";
 import {
   AlreadyALibraryError,
+  LibraryIsFormat1Error,
   LibraryNotFoundError,
   LibraryTooNewError,
   NotALibraryError,
@@ -11,8 +12,14 @@ import {
 /** `library.json` — what makes a directory a Roost library. */
 export const MANIFEST_FILE = "library.json";
 
-/** The library format this build writes and understands. */
-export const LIBRARY_FORMAT_VERSION = 1;
+/**
+ * The library format this build writes and understands.
+ *
+ * Roost Library Format **2** (ADR-0046). Version 1 is a different format with a
+ * different notion of identity, and this build does not read one — RL-6a makes
+ * that a refusal by name rather than a guess.
+ */
+export const LIBRARY_FORMAT_VERSION = 2;
 
 /** The four fields RL-5 requires, in the order it publishes them. */
 const REQUIRED_FIELDS = ["roost_library_version", "id", "name", "created_at"] as const;
@@ -105,6 +112,15 @@ export async function readManifest(root: string): Promise<Manifest> {
   // anything, which is the rest of RL-6.
   if (version > LIBRARY_FORMAT_VERSION) {
     throw new LibraryTooNewError(version, LIBRARY_FORMAT_VERSION);
+  }
+
+  // RL-6a, and it is a separate sentence from the one above on purpose: a
+  // version *higher* than this build's means install a newer Roost, and
+  // version 1 means a library whose identity was the hash of the bytes.
+  // Everything this build could do with one is a guess, so it names the format
+  // and stops — no reading, no repair, no conversion, nothing written.
+  if (version === 1) {
+    throw new LibraryIsFormat1Error(root);
   }
 
   const id = raw["id"];

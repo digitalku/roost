@@ -82,7 +82,7 @@ async function printCapabilities(out: (line: string) => void): Promise<void> {
 
 function print(report: DoctorReport, examples: number, out: (line: string) => void): void {
   out(
-    `Checked ${report.assets} asset(s) and ${report.objects} object(s) in ${seconds(report.elapsedMs)}`,
+    `Checked ${report.assets} asset(s) and ${report.files} file(s) in ${seconds(report.elapsedMs)}`,
   );
   // Which decoder is loaded, always: "thumbnails are slow" and "thumbnails
   // crash the engine" have the same cause and no other symptom.
@@ -98,7 +98,7 @@ function print(report: DoctorReport, examples: number, out: (line: string) => vo
       ? `  threadpool ${pool} — UV_THREADPOOL_SIZE=${availableParallelism()} makes deriving ~1.5x faster`
       : `  threadpool ${pool}`,
   );
-  if (!report.deep) out("  shallow run — pass --deep to re-hash every object");
+  if (!report.deep) out("  shallow run — pass --deep to re-hash every file");
 
   if (isClean(report)) {
     out("");
@@ -106,27 +106,38 @@ function print(report: DoctorReport, examples: number, out: (line: string) => vo
     return;
   }
 
-  section(out, "Objects nothing references", report.orphans.length, examples, () =>
-    report.orphans.map((orphan) => `${orphan.hash.slice(0, 12)}  ${bytes(orphan.bytes)}`),
+  section(out, "Files nothing references", report.orphans.length, examples, () =>
+    report.orphans.map((orphan) => `${orphan.id}  ${bytes(orphan.bytes)}`),
   );
   if (report.orphans.length > 0) {
     out(`  ${bytes(reclaimableBytes(report))} reclaimable — pass --reclaim to delete them`);
   }
 
-  section(out, "Assets whose bytes are gone", report.missingObjects.length, examples, () =>
-    report.missingObjects.map(describeMissing),
+  section(out, "Assets whose file is gone", report.missingFiles.length, examples, () =>
+    report.missingFiles.map(describeMissing),
   );
   section(
     out,
-    "Referenced originals that moved or were deleted",
-    report.missingReferences.length,
+    "Files whose name is not an id — left alone, never deleted",
+    report.unrecognised.length,
     examples,
-    () => report.missingReferences.map(describeMissing),
+    () => report.unrecognised.map((entry) => `${entry.path}  ${bytes(entry.bytes)}`),
   );
-  section(out, "Objects that no longer match their hash", report.corrupt.length, examples, () =>
-    report.corrupt.map(
-      (entry) => `${entry.expectedHash.slice(0, 12)} is now ${entry.actualHash.slice(0, 12)}`,
-    ),
+  section(out, "Ids with more than one file", report.ambiguous.length, examples, () =>
+    report.ambiguous.map((entry) => `${entry.id}  ${entry.paths.join("  ")}`),
+  );
+  // Changed, never "corrupt": an edit and bit rot are indistinguishable in
+  // version 2 (`SPEC.md` §5), and calling a person's own save damage would be
+  // crying wolf at the product's main feature.
+  section(
+    out,
+    "Files whose bytes changed since they were read",
+    report.changed.length,
+    examples,
+    () =>
+      report.changed.map(
+        (entry) => `${entry.id} is now ${entry.actualHash.slice(0, 12)} — it will be read again`,
+      ),
   );
   section(out, "Search rows for assets that are gone", report.orphanSearchRows, examples, () => []);
   section(
@@ -149,7 +160,7 @@ function print(report: DoctorReport, examples: number, out: (line: string) => vo
 }
 
 function describeMissing(missing: Missing): string {
-  return `${missing.hash.slice(0, 12)}  ${missing.origName} — expected at ${missing.expected}`;
+  return `${missing.id}  ${missing.name} — expected at ${missing.expected}`;
 }
 
 function section(

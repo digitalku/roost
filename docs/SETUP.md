@@ -15,7 +15,7 @@ Correct it in the same change if M0 lands differently.
 | Node.js | 22 LTS | Both | The system runtime for the CLI and for tests. **Not** Electron's Node, which is 24.18.1 at Electron 43 — `packages/` targets the lower of the two (ADR-0011 §5) |
 | pnpm | 10+ | Both | Workspace manager of record. `corepack enable` is enough |
 | git | any | Both | |
-| The format, checked out beside this one | — | Both | `../roost-library` holds *Roost Library Format 1* and its conformance suite. `pnpm test` runs that suite (RL-39) and **fails loudly** if the checkout is not there — see below |
+| The format, checked out beside this one | — | Both | `../roost-library` holds *Roost Library Format 2* and its conformance suite. `pnpm test` runs that suite (RL-52) and **fails loudly** if the checkout is not there — see below |
 | A C++ toolchain | `gcc-c++`, `make`, `python3` | **Linux** | `sharp` is built from source there, always — see below |
 | libvips headers | `vips-devel` 8.15+ | **Linux** | What that source build links against (ADR-0013). Not optional |
 | Electron runtime libs | nss, gtk3, libX11, alsa | **Linux** | Needed to open a window, not to run tests |

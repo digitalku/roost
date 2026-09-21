@@ -53,13 +53,7 @@ export {
   SNIFF_BYTES,
   sniff,
 } from "./format.js";
-export {
-  FULL_HASH_MAX_BYTES,
-  type Hashed,
-  hashBytes,
-  hashFile,
-  PARTIAL_WINDOW_BYTES,
-} from "./hash.js";
+export { type Hashed, hashBytes, hashFile } from "./hash.js";
 export {
   type Installable,
   type InstallOffer,

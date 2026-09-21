@@ -23,7 +23,7 @@ import { Inspector } from "./Inspector.js";
  * not hold, and these would fail.
  */
 
-const HASH = fakeDetail(1).hash;
+const HASH = fakeDetail(1).id;
 
 /**
  * A library that already has tags, for the field to suggest from.
@@ -97,12 +97,12 @@ const SIDEBAR: WireSidebar = {
 describe("the inspector", () => {
   let engine: FakeEngine;
 
-  const show = (over: Parameters<typeof fakeDetail>[1] = {}, hash: string | undefined = HASH) => {
+  const show = (over: Parameters<typeof fakeDetail>[1] = {}, id: string | undefined = HASH) => {
     engine = new FakeEngine({ details: [fakeDetail(1, over)], sidebar: SIDEBAR });
     install(engine);
     const view = render(
       <Inspector
-        hashes={hash === undefined ? [] : [hash]}
+        ids={id === undefined ? [] : [id]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -121,7 +121,7 @@ describe("the inspector", () => {
     // cannot mean "the tracks of whatever is selected" (ADR-0025).
     const { user } = show({
       subtitles: [
-        { hash: "f".repeat(64), lang: "id", label: null, name: "holiday.id.srt", servable: true },
+        { id: "f".repeat(64), lang: "id", label: null, name: "holiday.id.srt", servable: true },
       ],
     });
 
@@ -134,11 +134,11 @@ describe("the inspector", () => {
     await user.click(within(block).getByRole("button", { name: "Show in file manager" }));
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:openExternally")).toEqual([
-        { type: "asset:openExternally", hash: "f".repeat(64) },
+        { type: "asset:openExternally", id: "f".repeat(64) },
       ]),
     );
     expect(engine.seen.filter((request) => request.type === "asset:reveal")).toEqual([
-      { type: "asset:reveal", hash: "f".repeat(64) },
+      { type: "asset:reveal", id: "f".repeat(64) },
     ]);
 
     // One gesture, one request: detach *and* trash, because somebody finished
@@ -146,7 +146,7 @@ describe("the inspector", () => {
     await user.click(within(block).getByRole("button", { name: "Delete" }));
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:subtitleDelete")).toEqual([
-        { type: "asset:subtitleDelete", hash: HASH, track: "f".repeat(64) },
+        { type: "asset:subtitleDelete", id: HASH, track: "f".repeat(64) },
       ]),
     );
     // The trash, not a permanent removal — `Delete` means the same thing here
@@ -167,7 +167,7 @@ describe("the inspector", () => {
     // in it, and an empty *state* is not the shell of disabled controls the
     // old rule was avoiding (`UI_SPEC.md` §8).
     //
-    // **Rendered directly rather than through `show`.** Its `hash` parameter
+    // **Rendered directly rather than through `show`.** Its `id` parameter
     // has a default, so `show({}, undefined)` selects the default rather than
     // an empty selection — which is why the test this replaces passed while
     // asserting something else entirely: it was reading the first render,
@@ -177,7 +177,7 @@ describe("the inspector", () => {
     install(engine);
     render(
       <Inspector
-        hashes={[]}
+        ids={[]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -199,7 +199,7 @@ describe("the inspector", () => {
     install(engine);
     render(
       <Inspector
-        hashes={[HASH]}
+        ids={[HASH]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -267,7 +267,7 @@ describe("the inspector", () => {
     install(engine);
     const view = render(
       <Inspector
-        hashes={[fakeDetail(1).hash]}
+        ids={[fakeDetail(1).id]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -290,14 +290,14 @@ describe("the inspector", () => {
 
     view.rerender(
       <Inspector
-        hashes={[fakeDetail(2).hash]}
+        ids={[fakeDetail(2).id]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
         onPick={remember}
       />,
     );
-    await waitFor(() => expect(image().getAttribute("src")).toContain(fakeDetail(2).hash));
+    await waitFor(() => expect(image().getAttribute("src")).toContain(fakeDetail(2).id));
     fireEvent.load(image());
     expect(image().hidden).toBe(false);
   });
@@ -351,7 +351,7 @@ describe("the inspector", () => {
     await user.click(screen.getByRole("option", { name: /olahan-video/ }));
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:tagAdd")).toEqual([
-        { type: "asset:tagAdd", hashes: [HASH], tags: ["olahan-video"] },
+        { type: "asset:tagAdd", ids: [HASH], tags: ["olahan-video"] },
       ]),
     );
     expect((field as HTMLTextAreaElement).value).toBe("");
@@ -563,7 +563,7 @@ describe("the inspector", () => {
     install(engine);
     const { rerender } = render(
       <Inspector
-        hashes={[HASH]}
+        ids={[HASH]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -575,7 +575,7 @@ describe("the inspector", () => {
 
     rerender(
       <Inspector
-        hashes={[HASH]}
+        ids={[HASH]}
         generation={1}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -596,7 +596,7 @@ describe("the folders an asset is in", () => {
     install(engine);
     const view = render(
       <Inspector
-        hashes={[HASH]}
+        ids={[HASH]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -643,7 +643,7 @@ describe("the folders an asset is in", () => {
     await user.click(screen.getByRole("button", { name: "Remove from Design/Icons" }));
 
     await waitFor(() => expect(last("asset:folderRemove")).toBeDefined());
-    expect(last("asset:folderRemove")).toMatchObject({ hashes: [HASH], folder: 2 });
+    expect(last("asset:folderRemove")).toMatchObject({ ids: [HASH], folder: 2 });
     // A folder is a collection, so leaving one touches nothing else: no trash,
     // no removal, and no dialog in between.
     expect(engine.seen.some((request) => request.type === "assets:trash")).toBe(false);
@@ -673,7 +673,7 @@ describe("the folders an asset is in", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Icons" }));
 
     await waitFor(() => expect(last("asset:folderAdd")).toBeDefined());
-    expect(last("asset:folderAdd")).toMatchObject({ hashes: [HASH], folder: 2 });
+    expect(last("asset:folderAdd")).toMatchObject({ ids: [HASH], folder: 2 });
     // The panel reads the record back rather than drawing what it sent.
     expect(await screen.findByText("Design/Icons")).toBeDefined();
   });
@@ -683,7 +683,7 @@ describe("the folders an asset is in", () => {
     install(engine);
     render(
       <Inspector
-        hashes={[HASH]}
+        ids={[HASH]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={[]}
@@ -707,7 +707,7 @@ describe("what a re-read must and must not overwrite", () => {
     install(engine);
     render(
       <Inspector
-        hashes={[HASH]}
+        ids={[HASH]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -729,7 +729,7 @@ describe("what a re-read must and must not overwrite", () => {
     install(engine);
     const { rerender } = render(
       <Inspector
-        hashes={[HASH]}
+        ids={[HASH]}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -745,7 +745,7 @@ describe("what a re-read must and must not overwrite", () => {
     // because an unrelated asset was tagged is the bug this guards.
     rerender(
       <Inspector
-        hashes={[HASH]}
+        ids={[HASH]}
         generation={1}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -764,13 +764,13 @@ describe("what a re-read must and must not overwrite", () => {
  *
  * The bug this covers was reported from real use on 2026-08-30: selecting five
  * assets and adding a tag tagged one of them. **Every assertion here counts the
- * hashes that were sent**, because the broken version would have passed any
+ * ids that were sent**, because the broken version would have passed any
  * test that only asked whether the tag arrived.
  */
 describe("the inspector over several assets", () => {
   let engine: FakeEngine;
 
-  const THREE = [0, 1, 2].map((index) => fakeDetail(index).hash);
+  const THREE = [0, 1, 2].map((index) => fakeDetail(index).id);
 
   const show = (details: readonly Partial<WireAssetDetail>[]) => {
     engine = new FakeEngine({
@@ -780,7 +780,7 @@ describe("the inspector over several assets", () => {
     install(engine);
     const view = render(
       <Inspector
-        hashes={THREE}
+        ids={THREE}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -790,10 +790,10 @@ describe("the inspector over several assets", () => {
     return { user: userEvent.setup(), ...view };
   };
 
-  /** The hashes the last request of `type` carried. */
+  /** The ids the last request of `type` carried. */
   const sentTo = (type: string): readonly string[] => {
     const last = [...engine.seen].reverse().find((request) => request.type === type);
-    return (last as { hashes?: readonly string[] } | undefined)?.hashes ?? [];
+    return (last as { ids?: readonly string[] } | undefined)?.ids ?? [];
   };
 
   it("adds a tag to every selected asset, not to one of them", async () => {
@@ -937,7 +937,7 @@ describe("the inspector over several assets", () => {
 
     const view = render(
       <Inspector
-        hashes={THREE.slice(0, 2)}
+        ids={THREE.slice(0, 2)}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}
@@ -947,7 +947,7 @@ describe("the inspector over several assets", () => {
     await waitFor(() => expect(held).toHaveLength(1));
     view.rerender(
       <Inspector
-        hashes={THREE}
+        ids={THREE}
         generation={0}
         vocabulary={VOCABULARY}
         folders={FOLDERS}

@@ -120,7 +120,7 @@ try {
   // The asset itself, not a count of rendered cells: the grid is virtualised,
   // so how many cells exist depends on how many fit, and "one fewer" stopped
   // being true the moment the inspector started holding its width.
-  const doomed = await cdp.evaluate("document.querySelector('.cell')?.dataset.hash ?? null");
+  const doomed = await cdp.evaluate("document.querySelector('.cell')?.dataset.id ?? null");
   await clickFirstCell();
   // The layout while something is selected, so the check after the delete has
   // something to compare against.
@@ -130,7 +130,7 @@ try {
   // would pass whether the grid holds it or not.
   await cdp.keyboard.press("Delete");
   await cdp.settle(
-    `[...document.querySelectorAll(".cell")].some((c) => c.dataset.hash === ${JSON.stringify(doomed)})`,
+    `[...document.querySelectorAll(".cell")].some((c) => c.dataset.id === ${JSON.stringify(doomed)})`,
     (present) => present === false,
   );
   check("the asset leaves the grid", true, `${doomed?.slice(0, 8)}… gone`);

@@ -39,27 +39,27 @@ export async function subtitle(
       }
       for (const row of attached) {
         const language = row.lang === null ? "" : ` [${row.lang}]`;
-        streams.out(`${short(row.trackHash)}  ${row.label ?? row.name}${language}`);
+        streams.out(`${short(row.trackId)}  ${row.label ?? row.name}${language}`);
       }
       return EXIT.ok;
     }
 
-    const [trackHash] = resolveAll(library, [track]);
-    if (trackHash === undefined) throw new Error("resolveAll returned nothing for one argument");
+    const [trackId] = resolveAll(library, [track]);
+    if (trackId === undefined) throw new Error("resolveAll returned nothing for one argument");
 
     if (options.detach) {
-      await detachSubtitle(library, hash, trackHash);
-      streams.out(`${short(trackHash)} no longer captions ${short(hash)}`);
+      await detachSubtitle(library, hash, trackId);
+      streams.out(`${short(trackId)} no longer captions ${short(hash)}`);
       return EXIT.ok;
     }
 
     await attachSubtitle(
       library,
       hash,
-      trackHash,
+      trackId,
       options.lang === undefined ? {} : { lang: options.lang },
     );
-    streams.out(`${short(trackHash)} captions ${short(hash)}`);
+    streams.out(`${short(trackId)} captions ${short(hash)}`);
     return EXIT.ok;
   });
 }

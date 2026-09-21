@@ -1,34 +1,40 @@
 # Roost — Data Model
 
-Status: v3 · Last updated: 2026-08-24
+Status: v4 · Last updated: 2026-09-21
 
 > **The normative document is `SPEC.md` in [`../roost-library`](../../roost-library).** Directory
-> layout, hashing, import modes, journal format and the forbidden patterns are requirements
-> `RL-1` … `RL-41` there, and no implementation owns them (ADR-0045).
+> layout, identity, the journal format and the forbidden patterns are requirements `RL-1` … `RL-56`
+> there, and no implementation owns them (ADR-0045).
 >
 > This file holds what the format deliberately does **not** cover: the **index schema**, which
 > RL-2 puts outside it as a cache, and the **query language**, which the format calls an opaque
 > string. If anything here contradicts `SPEC.md`, the spec wins and this file is the bug.
 >
-> §2.0 is schema v1 and the thirteen sections after it are the migrations that grew it.
-> [`STORAGE_SPEC.md`](STORAGE_SPEC.md) maps each `RL-n` to the code that meets it.
+> §2.0 is the schema a Format 2 library starts with. [`STORAGE_SPEC.md`](STORAGE_SPEC.md) maps
+> each `RL-n` to the code that meets it.
 
-## Port note (2026-08-24)
+## Format 2 note (2026-09-21)
 
-Carried over from the Rust implementation at `../roost-old`, which built all of it. Nothing in
-the schema or the grammar changed when the language did, and nothing may: a library written by
-either implementation opens in the other, and a smart folder saved in one has to evaluate the
-same way in the other.
+**The numbering starts again here** (ADR-0046). Version 1's fourteen migrations described a schema
+keyed on the BLAKE3 hash of an asset's bytes, and version 2 identifies an asset by an id minted at
+random (RL-13). Nothing migrates forward: an implementation of Format 2 refuses a Format 1 library
+rather than reading it (RL-6a), so there is no database in the world at the old schema that this
+build will ever open.
 
-So **migrations 0001–0005 are carried over verbatim**, numbers included. This repository does
-not get to consolidate them into a single v5 baseline, tempting as that is with no users yet —
-a library created by `roost-old` arrives already at schema v5 with those five rows in its
-migration bookkeeping, and a fresh baseline would either re-run against it or disagree about
-what version it is. The first migration this project authors is **0006**.
+What that buys is a schema that can be read in one sitting — one baseline rather than a v1 plus
+thirteen amendments, and no column that exists only because something else used to.
 
-The RQL section below describes a grammar that exists and is tested — in the other repository.
-Here it is a specification to be implemented in M2, and the acceptance test is a corpus of
-queries with their expected compiled SQL, taken from the Rust implementation's own tests.
+The rules that survive unchanged:
+
+- **Never edit an applied migration.** Later changes go in a new numbered file.
+- **Anything user-authored needs a journal `op`**, or it is a row a rebuild cannot produce
+  (invariant 1, RL-24).
+- **Anything derived from the bytes needs none**, and in version 2 that is much more than it was:
+  the size, the dimensions, the duration, the page count and the content hash are all derived
+  (RL-22) and none of them is journalled (RL-23).
+
+Rule of thumb, and the cleanest test for whether an op is required: **if a user typed it or clicked
+it, it goes in the journal. If a machine read it out of a file, it does not.**
 
 ---
 
@@ -36,90 +42,104 @@ queries with their expected compiled SQL, taken from the Rust implementation's o
 
 For orientation only; normative text is in the spec.
 
-- **Identity is the BLAKE3 content hash.** Not a UUID, not a path. Dedupe is therefore
-  automatic: importing the same bytes twice yields one asset.
-- **`journal/YYYY-MM.jsonl` is the source of truth.** Append-only, monthly rotation.
+- **Identity is a minted id** (RL-13): twelve characters of Crockford base32, upper case, random,
+  never reused. Not the hash of the bytes, not a path, not the name.
+- **`journal/YYYY-MM.jsonl` is the source of truth.** Append-only, monthly rotation, UTC months.
 - **`index.db` is a derived cache.** Deletable at will; rebuilt by replaying the journal.
-- **`originals/<2-hex>/<full-hash>.<ext>`** — one shard level, 256 buckets, created lazily.
+- **`files/<2-char>/<id>.<ext>`** — one shard level, at most 1 024 buckets, created lazily, and
+  **editable in place**: the bytes may change at any time, by any application (RL-20).
 - **Thumbnails are WebP BLOBs inside `index.db`**, never loose files.
 - **Folders are collections** joined through `asset_folders`; assets carry no path column.
+- **A content hash is kept as a derived attribute** (RL-18), for duplicate reports and `doctor`.
+  It is never identity, never a filename, and never a reason to refuse a file.
 
-## 2. Schema growth plan
+## 2. The schema
 
-Schema v1 in the spec is deliberately minimal — it covers M1–M3. Later milestones add
-columns and tables through **numbered migrations**, never by editing an applied migration.
-Each addition also needs a journal `op` if it stores user-authored state, otherwise it
-violates invariant 6.
-
-| Milestone | Addition | Journal op needed |
-| --- | --- | --- |
-| M2 | `assets.rating`, `assets.note`, `assets.is_favorite` | yes — `rate`, `note_set`, `favorite_set` |
-| M2 | `smart_folders(id, name, query, parent_id)` | yes — `smart_folder_*` |
-| M2 | folder rename/move/delete, asset rename, tag rename | yes — new ops, see spec notes |
-| M4 | `assets.page_count`, capability/probe results | no — derived from the file |
-| M3 | `assets.trashed_at` | yes — `trash`, `restore` |
-| M5 | `asset_colors(hash, rank, l, a, b, ratio)` | no — derived |
-| M5 | `asset_hashes(hash, dhash, phash)` | no — derived |
-| M5 | `asset_stacks(stack_id, hash, position, is_cover)` | yes — user-authored grouping |
-| M5 | `watched_roots(path, recursive, enabled, last_scan)` | yes — configuration |
-| — | `asset_comments(id, hash, at_ms, body, created_at, updated_at)` | yes — `comment_add`, `comment_set`, `comment_remove` |
-| — | `assets.superseded_by` | yes — `supersede` |
-
-Rule of thumb, and the cleanest test for whether an op is required: **if a user typed it or
-clicked it, it goes in the journal. If a machine derived it from bytes, it does not.**
-
-Derived tables (`thumbs`, `assets_fts`, colors, perceptual hashes) are rebuilt by
-re-processing `originals/`, so they stay exempt from the journal.
-
-### 2.0 Migration 0001 — the index a library starts with (schema v1)
-
-**The index is not part of the library format.** RL-2 puts `index.db` outside it, as a cache
-this implementation happens to keep; another one may keep a different shape, or none. What the
-format binds is that everything here can be rebuilt from the journal and `originals/`, which is
-the only reason a cache is allowed to exist at all.
-
-It is written down because a schema nobody publishes is a schema that drifts from its migration,
-and because the numbered migrations below are all described as changes to *this*. Schema v1 —
-migrations 0001 through 0005 — is carried over verbatim from the Rust implementation, so a library
-moves between the two; this repository's own migrations start at 0006.
+### 2.0 Migration 0001 — the index a Format 2 library starts with (schema v1)
 
 ```sql
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
+-- Schema v1 of the Format 2 line, verbatim from docs/DATA_MODEL.md §2.0.
+--
+-- The index is a cache the library format deliberately does not describe
+-- (RL-2), so nothing here is binding on any other implementation. What is
+-- binding is that every row in it can be rebuilt from the journal and files/ --
+-- which is the only reason a cache is allowed to exist (RL-24).
+--
+-- This is a new baseline rather than a migration onto version 1's fourteen
+-- (ADR-0046 §2.3). Nothing is migrated: an implementation of Format 2 does not
+-- read a Format 1 library (RL-6a), so there is no database in the world at the
+-- old schema that this build will ever open.
+--
+-- Within this build it is settled all the same: do not add, rename, or reorder
+-- anything here. Later changes go in a new numbered migration. Never edit a
+-- migration that has been applied.
+--
+-- `PRAGMA journal_mode = WAL` and `PRAGMA foreign_keys = ON` are not in this
+-- file: journal_mode cannot be set inside a transaction, and foreign_keys is
+-- per-connection. Both are applied when a connection is opened, in the db module.
 
 CREATE TABLE meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
--- must contain ('schema_version', '1')
+-- must contain ('schema_version', '1') -- inserted by the migration runner
 
+-- The asset. `id` is the identity (RL-13): twelve characters of Crockford
+-- base32, minted once, never reused, and never derived from the bytes.
+--
+-- The columns below `imported_at` split in two, and the split is the whole of
+-- what Format 2 changed. Everything down to `poster_ms` is something a **person
+-- said**, and every one of them arrives through a journal operation. Everything
+-- after it is **derived from the bytes** (RL-22) and is journalled by nothing
+-- (RL-23): the file may be edited at any time by any application (RL-20), so a
+-- size or a width in the journal would be a record of what was true once.
 CREATE TABLE assets (
-  hash            TEXT PRIMARY KEY,
-  ext             TEXT NOT NULL,
-  size            INTEGER NOT NULL,
-  width           INTEGER,
-  height          INTEGER,
-  duration_ms     INTEGER,          -- video and audio only
-  orig_name       TEXT NOT NULL,
-  storage_mode    TEXT NOT NULL
-                  CHECK (storage_mode IN ('managed', 'referenced')),
-  link_method     TEXT CHECK (link_method IN ('reflink', 'hardlink', 'copy')),
-  ref_path        TEXT,             -- referenced mode only
-  is_partial_hash INTEGER NOT NULL DEFAULT 0,
-  created_at      INTEGER,          -- source file mtime, unix seconds
-  imported_at     INTEGER NOT NULL
+  id          TEXT PRIMARY KEY,
+  -- Lowercase, no dot. '' is a file with no extension (RL-9a), which is a fact
+  -- rather than a gap.
+  ext         TEXT NOT NULL,
+  -- What a person reads, **without the extension** (RL-33). What a window shows
+  -- is this joined to the extension it finds on disk.
+  name        TEXT NOT NULL,
+  -- The source file's own date at import, unix seconds. Nothing can recover it
+  -- afterwards, which is why it is the one fact about a file that is journalled.
+  created_at  INTEGER,
+  imported_at INTEGER NOT NULL,
+  rating      INTEGER CHECK (rating IS NULL OR rating BETWEEN 1 AND 5),
+  note        TEXT,
+  is_favorite INTEGER NOT NULL DEFAULT 0 CHECK (is_favorite IN (0, 1)),
+  source_url  TEXT,
+  trashed_at  INTEGER,
+  poster_ms   INTEGER CHECK (poster_ms IS NULL OR poster_ms >= 0),
+
+  -- Derived. All nullable, because nothing has been read yet when the row is
+  -- written, and all recomputed by the derive pass whenever the file changes.
+  size        INTEGER,
+  -- The file's modification time when the row below it was last derived.
+  -- Together with `size` this is how a change is noticed without reading the
+  -- file: a save changes at least one of them.
+  mtime       INTEGER,
+  -- BLAKE3 over the whole file, lowercase hex. **Derived, never identity**
+  -- (RL-18) -- duplicate detection and `doctor`, nothing more.
+  --
+  -- Spelled out rather than called `hash` so that no statement written against
+  -- version 1's schema, where `hash` was the primary key, can compile against
+  -- this one and quietly mean something else.
+  content_hash TEXT,
+  width       INTEGER,
+  height      INTEGER,
+  duration_ms INTEGER,
+  page_count  INTEGER,
+  derived_at  INTEGER
 );
 
-CREATE INDEX idx_assets_imported ON assets(imported_at DESC);
-CREATE INDEX idx_assets_ext      ON assets(ext);
-
 CREATE TABLE thumbs (
-  hash   TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
-  size   INTEGER NOT NULL,          -- longest edge: 256 or 512
-  width  INTEGER NOT NULL,
-  height INTEGER NOT NULL,
-  data   BLOB NOT NULL,             -- WebP, quality 80
-  PRIMARY KEY (hash, size)
+  asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  size     INTEGER NOT NULL,          -- longest edge: 256 or 512
+  width    INTEGER NOT NULL,
+  height   INTEGER NOT NULL,
+  data     BLOB NOT NULL,             -- WebP, quality 80
+  PRIMARY KEY (asset_id, size)
 );
 
 CREATE TABLE folders (
@@ -132,650 +152,191 @@ CREATE TABLE folders (
 CREATE INDEX idx_folders_parent ON folders(parent_id);
 
 CREATE TABLE asset_folders (
-  hash      TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
+  asset_id  TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
   folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
-  PRIMARY KEY (hash, folder_id)
+  PRIMARY KEY (asset_id, folder_id)
 );
 
 CREATE INDEX idx_asset_folders_folder ON asset_folders(folder_id);
 
-CREATE TABLE tags (
-  id   INTEGER PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE COLLATE NOCASE
-);
-
-CREATE TABLE asset_tags (
-  hash   TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
-  tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-  PRIMARY KEY (hash, tag_id)
-);
-
-CREATE INDEX idx_asset_tags_tag ON asset_tags(tag_id);
-
-CREATE VIRTUAL TABLE assets_fts USING fts5(
-  hash UNINDEXED,
-  orig_name,
-  tags,
-  tokenize = 'unicode61'
-);
-```
-
-The two `PRAGMA`s are deliberately not in the migration file: `journal_mode` cannot be set inside
-a transaction and `foreign_keys` is per-connection, so both are applied when a connection opens.
-
-### 2.1 Migration 0002 — M2 organize (schema v2)
-
-Landed 2026-08-21 in the Rust engine; carried over here unchanged. Published here rather than in the format because the
-specification's schema block is v1 and stays v1; growth lives in this file.
-`packages/core/tests/spec-conformance.test.ts` asserts the migration still matches
-this block, so the two cannot drift.
-
-```sql
-ALTER TABLE assets ADD COLUMN rating INTEGER
-      CHECK (rating IS NULL OR rating BETWEEN 1 AND 5);
-
-ALTER TABLE assets ADD COLUMN note TEXT;
-
-ALTER TABLE assets ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0
-      CHECK (is_favorite IN (0, 1));
-
-CREATE INDEX idx_assets_rating   ON assets(rating)      WHERE rating IS NOT NULL;
-CREATE INDEX idx_assets_favorite ON assets(is_favorite) WHERE is_favorite = 1;
-
-CREATE TABLE smart_folders (
-  id         INTEGER PRIMARY KEY,
-  parent_id  INTEGER REFERENCES smart_folders(id) ON DELETE CASCADE,
-  name       TEXT NOT NULL,
-  query      TEXT NOT NULL,
-  sort_order INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE INDEX idx_smart_folders_parent ON smart_folders(parent_id);
-```
-
-Three choices in that block are load-bearing:
-
-- **`rating IS NULL` means unrated**, which is not the same as a deliberate one
-  star. A `0` sentinel would make "show me everything I have not rated yet"
-  indistinguishable from "show me what I rated lowest".
-- **The indexes are partial.** `rating:>=4` and `is:favorite` select a small
-  minority of a large library; indexing only matching rows keeps both the index
-  size and the write cost proportional to what is actually rated.
-- **A smart folder stores its query, not its results.** It is evaluated on read,
-  so it cannot go stale, and `query` is parsed into bound parameters — never
-  concatenated into SQL.
-
-### 2.2 Migration 0003 — the keyset index (schema v3)
-
-Approved and landed 2026-08-21 in the Rust engine; carried over here unchanged.
-
-```sql
-DROP INDEX idx_assets_imported;
-
-CREATE INDEX idx_assets_imported ON assets(imported_at DESC, hash);
-```
-
-The grid pages on `(imported_at, hash)`, not on `imported_at` alone, because
-`imported_at` is **not unique** — a bulk import writes thousands of assets in
-the same second, and without a tie-break column keyset paging can show the same
-asset twice or skip it entirely. Holding that order in the index is what makes
-paging cost the same at row 900,000 as at row 100; without it SQLite sorts the
-second column itself, reading the whole table into a temporary B-tree to produce
-the first screen.
-
-It **replaces** the single-column index rather than joining it. An index on
-`(imported_at DESC, hash)` already serves any query that orders by
-`imported_at` alone, since that is its leading column, so keeping both would
-buy nothing and cost a second index to maintain on every insert. Roughly 90 MB
-at one million assets.
-
-### 2.3 Migration 0004 — tag groups (schema v4)
-
-Decided and landed 2026-08-21 in the Rust engine, after weighing it against hierarchical
-tags; carried over here unchanged.
-
-```sql
 CREATE TABLE tag_groups (
   id         INTEGER PRIMARY KEY,
   name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
   sort_order INTEGER NOT NULL DEFAULT 0
 );
 
-ALTER TABLE tags ADD COLUMN group_id INTEGER
-      REFERENCES tag_groups(id) ON DELETE SET NULL;
-
-CREATE INDEX idx_tags_group ON tags(group_id) WHERE group_id IS NOT NULL;
-```
-
-**Groups organize tags; they do not nest them.** `tags.name` stays globally
-`UNIQUE COLLATE NOCASE`, so `tag:icons` names exactly one tag however many
-groups exist.
-
-That is the whole reason this was chosen over hierarchical tags. Hierarchy
-would have forced `UNIQUE(parent_id, name)`, letting `design/icons` and
-`nature/icons` coexist — and from that moment `tag:icons` is ambiguous, and
-every query either has to spell out a full path or accept an answer that mixes
-two unrelated concepts. Grouping buys the readable sidebar without buying the
-ambiguity, and it is what Eagle itself does.
-
-`ON DELETE SET NULL`, never `CASCADE`: deleting an arrangement must not delete
-the tags arranged by it, nor unpick every asset carrying them.
-
-### 2.4 Migration 0005 — grid filter indexes (schema v5)
-
-Approved and landed 2026-08-24 in the Rust engine; carried over here unchanged. See `docs/adr/0006-grid-filter-indexes.md` for the measurements and the
-options it was chosen against.
-
-```sql
-DROP INDEX idx_assets_ext;
-DROP INDEX idx_assets_rating;
-DROP INDEX idx_assets_favorite;
-
-CREATE INDEX idx_assets_ext      ON assets(ext, imported_at DESC, hash);
-
-CREATE INDEX idx_assets_rating   ON assets(rating, imported_at DESC, hash)
-                                 WHERE rating IS NOT NULL;
-
-CREATE INDEX idx_assets_favorite ON assets(is_favorite, imported_at DESC, hash)
-                                 WHERE is_favorite = 1;
-```
-
-Every grid query filters, orders by `(imported_at DESC, hash)`, and takes one screen. Given a
-single-column index on the filtered column, SQLite seeks the matches through it and sorts all
-of them in a temporary B-tree to produce two hundred — so `ext:png`, matching a fifth of the
-library, read and sorted a fifth of the library for one screen: **18.9 ms at 96,666 assets**,
-against a budget of 100 ms p95 at a million. `ANALYZE` does not change the plan; SQLite costs
-the sort but not the early exit the LIMIT allows.
-
-Carrying the sort key inside the filter index means the index is already in the order asked
-for. SQLite seeks the filtered range and walks it until the LIMIT is satisfied: **0.51 ms**,
-and the cost is now the page rather than the match set.
-
-Each index **replaces** its predecessor, whose column is the new one's leading column, so
-nothing the old index answered is lost. The partial ones stay partial for the reason §2.1
-gives.
-
-`size`, `width`, `height`, and `duration` are deliberately left unindexed. Having no index is
-why SQLite already walks the ordering index and stops at the LIMIT for those terms — which is
-the plan this migration buys everywhere else. Adding one would create the problem.
-
-### 2.5 Migration 0006 — M4 derived work (schema v6)
-
-Decided and landed 2026-08-29, and **the first migration this repository authors**. Everything it
-adds is derived from bytes, so nothing here takes a journal op.
-
-```sql
-ALTER TABLE assets ADD COLUMN page_count INTEGER;
-
-CREATE TABLE asset_props (
-  hash  TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
-  key   TEXT NOT NULL,
-  value TEXT NOT NULL,
-  PRIMARY KEY (hash, key)
-) WITHOUT ROWID;
-
-CREATE TABLE jobs (
-  id          INTEGER PRIMARY KEY,
-  kind        TEXT NOT NULL,
-  hash        TEXT NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
-  priority    INTEGER NOT NULL DEFAULT 0,
-  state       TEXT NOT NULL DEFAULT 'ready'
-              CHECK (state IN ('ready', 'running', 'blocked', 'failed')),
-  attempts    INTEGER NOT NULL DEFAULT 0,
-  reason      TEXT,
-  enqueued_at INTEGER NOT NULL,
-  UNIQUE (kind, hash)
+CREATE TABLE tags (
+  id       INTEGER PRIMARY KEY,
+  name     TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  group_id INTEGER REFERENCES tag_groups(id) ON DELETE SET NULL
 );
 
-CREATE INDEX idx_jobs_ready      ON jobs(priority, id) WHERE state = 'ready';
-CREATE INDEX idx_jobs_unfinished ON jobs(kind, state)  WHERE state <> 'ready';
-```
+CREATE INDEX idx_tags_group ON tags(group_id) WHERE group_id IS NOT NULL;
 
-**`page_count` is a column and font family is not.** A page count is a number every document
-format has, it sorts, and RQL will want `pages:>10` — that is a column. A font's family name, a
-video's codec, an audio file's sample rate are open-ended, format-specific, and absent for most
-assets: a column each would be a migration per format and a mostly-null table. `asset_props` takes
-those, keyed `(hash, key)` and `WITHOUT ROWID` because the primary key *is* the row.
+CREATE TABLE asset_tags (
+  asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  tag_id   INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  PRIMARY KEY (asset_id, tag_id)
+);
 
-The key vocabulary is fixed in `@roost/media`, not open to callers, so the table cannot quietly
-become a place to stash anything:
+CREATE INDEX idx_asset_tags_tag ON asset_tags(tag_id);
 
-| Key | Set for | Example |
-| --- | --- | --- |
-| `font.family` | fonts | `Adwaita Sans` |
-| `font.style` | fonts | `Regular` |
-| `font.glyphs` | fonts | `2937` |
-| `video.codec` | video | `h264` |
-| `video.fps` | video | `30` |
-| `audio.codec` | audio | `mp3` |
-| `audio.channels` | audio | `2` |
-| `audio.sampleRate` | audio | `44100` |
+CREATE TABLE smart_folders (
+  id         INTEGER PRIMARY KEY,
+  parent_id  INTEGER REFERENCES smart_folders(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  -- Stored byte for byte, never repaired (RL-47). A query this build cannot
+  -- evaluate is one another implementation can.
+  query      TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
 
-**One job row per `(kind, hash)`, and a finished job is deleted.** The queue holds outstanding
-work, not a history: an asset's derived data is its own record that the work happened, and a table
-that accumulated a row per completed job would grow to the size of the library for no reader. What
-stays behind is what still needs attention — `blocked` for work waiting on a capability the machine
-does not have (`ARCHITECTURE.md` §3.3), `failed` for work that was tried and did not survive, both
-carrying `reason`. That is what lets the UI say *"12 videos are waiting for ffmpeg"* rather than
-showing twelve blank cells.
+CREATE INDEX idx_smart_folders_parent ON smart_folders(parent_id);
 
-**`running` is a claim, not a state that survives.** A crash leaves rows claimed by a process that
-no longer exists, so the runner resets `running` to `ready` when it starts. Re-running a derive is
-idempotent — it recomputes from the same bytes — so a job that was in flight is cheaper to repeat
-than to reason about.
-
-**The indexes match the two questions asked of this table.** `idx_jobs_ready` is partial on the
-one state a claim looks at, so the claim query never walks rows that are blocked or failed, and it
-is ordered by `(priority, id)` — which *is* the claim order, so the runner seeks and stops rather
-than sorting the backlog. `idx_jobs_unfinished` is the mirror image, for the counts the UI shows.
-Both are partial in the direction that keeps them proportional to the work outstanding rather than
-to the library.
-
-**What this costs a library that goes back.** `roost-old` understands schema v5 and refuses
-anything newer, so a library this build has opened will not open there again — measured: every one
-of its commands stops at *"library uses schema version 6, but this build supports up to 5"*,
-`rebuild` included, because it opens the library before rebuilding it. Deleting `index.db` first
-lets it in, and its own replay restores the library from the journal.
-
-**That is a fact about a discontinued build, not a cost being paid.** The user retired the
-obligation on 2026-08-29: `roost-old` is not a target, schema growth is what M4 through M7 are made
-of, and holding v5 to keep a dead build readable would trade every later milestone for it. The
-direction that still matters — a library it wrote opening *here* — is tested and unaffected.
-
-### 2.6 Migration 0007 — trash is a column (schema v7)
-
-Decided by the user on 2026-09-01 and recorded as ADR-0022: `Delete` moves an asset to the
-trash, nothing is ever emptied on a schedule, and permanent removal is a second, deliberate
-gesture.
-
-```sql
-ALTER TABLE assets ADD COLUMN trashed_at INTEGER;
-
-DROP INDEX idx_assets_imported;
-DROP INDEX idx_assets_ext;
-DROP INDEX idx_assets_rating;
-DROP INDEX idx_assets_favorite;
-
-CREATE INDEX idx_assets_imported ON assets(imported_at DESC, hash)
-                                 WHERE trashed_at IS NULL;
-
-CREATE INDEX idx_assets_ext      ON assets(ext, imported_at DESC, hash)
-                                 WHERE trashed_at IS NULL;
-
-CREATE INDEX idx_assets_rating   ON assets(rating, imported_at DESC, hash)
-                                 WHERE rating IS NOT NULL AND trashed_at IS NULL;
-
-CREATE INDEX idx_assets_favorite ON assets(is_favorite, imported_at DESC, hash)
-                                 WHERE is_favorite = 1 AND trashed_at IS NULL;
-
-CREATE INDEX idx_assets_trashed  ON assets(imported_at DESC, hash)
-                                 WHERE trashed_at IS NOT NULL;
-```
-
-**A column, because trash is a state.** A `Trash` folder was the obvious alternative and is
-wrong: a folder is a collection an asset can be in *as well as* others, so being in Trash would
-not take it out of anything. Moving the bytes to a `trash/` directory is wrong twice over — it
-breaks the content-addressed layout invariant 2 exists to protect, and for a `referenced` asset
-it would write into a user's own directory, which invariant 6 forbids.
-
-**It preserves the row, because the row is the expensive half.** `remove` already leaves the
-bytes for a deliberate `doctor --reclaim`, so the *file* had a grace period all along; what had
-none was the tags, the rating, the note, and the folder memberships. A file imported once can be
-imported again. Forty tags applied by hand over a month cannot.
-
-**The scope predicate is part of the schema.** SQLite uses a partial index only when the query's
-WHERE clause contains a term implying the index's, so `a.trashed_at IS NULL` has to be spelled
-exactly that way to keep the plans migration 0005 bought. It is written in one place —
-`@roost/search`'s compiler, which scopes every query unless it mentions `is:trashed` — and
-`repo.test.ts` asserts the plans in both directions rather than trusting it.
-
-**Nothing empties on a timer.** Eagle empties after thirty days. An application that deletes a
-person's files on a schedule, possibly while they are not looking, is not one this project ships:
-`CONCEPT.md` §2 makes the library outlive the application, and a background deleter is the one
-thing that could make that false.
-
-### 2.7 Migration 0008 — comments carry a moment (schema v8)
-
-Decided by the user on 2026-09-02 and recorded as ADR-0023, after they asked for comments at a
-video timestamp: a comment is a row of its own, the moment is a column, and the whole thing is
-journalled so that it survives a rebuild like every other thing a person types.
-
-```sql
 CREATE TABLE asset_comments (
   id         INTEGER PRIMARY KEY,
-  hash       TEXT    NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
+  asset_id   TEXT    NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  -- Milliseconds into the medium, or NULL for a comment about the asset rather
+  -- than about a moment in it. The one number in the format that is not seconds
+  -- (RL-32a).
   at_ms      INTEGER CHECK (at_ms IS NULL OR at_ms >= 0),
   body       TEXT    NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER
 );
 
-CREATE INDEX idx_comments_asset ON asset_comments(hash, at_ms, id);
-```
+CREATE INDEX idx_comments_asset ON asset_comments(asset_id, at_ms, id);
 
-**A row, not a field.** `assets.note` is one note and stays one note — the thing an asset is
-*about*. A comment is one of many and is edited on its own, so it needs an identity a journal op
-can name. The alternative, a JSON array in a column, fails on concurrent editing before it fails
-on anything else: every edit rewrites the whole array, so two windows editing two different
-comments on one asset would each write a complete set and the later one would discard the other's
-work without saying so. Per-comment ops cannot lose an edit that way.
-
-**`at_ms` is nullable, and the null means something.** No moment is a comment about the asset —
-so a `.zip` can carry comments too, and the timeline case is one value of one column rather than a
-second feature beside it. It is the one number in the format that is **not** seconds; `at` in the
-journal line is milliseconds, while the line's own `ts` stays unix seconds and is what
-`created_at` is replayed from.
-
-**Positions other than time are deliberately absent.** A PDF has pages, an image has rectangles,
-and both are different decisions. Eagle unifies all three in one comment type — worth knowing, and
-worth revisiting when the second one is actually wanted rather than guessed at here.
-
-**Cascade, so trash and remove keep meaning what they mean.** Trashing marks the asset and its
-comments stay with it, exactly as its tags do (ADR-0022); `remove` deletes the row, and the
-foreign key takes the comments with it.
-
-### 2.8 Migration 0009 — a thumbnail can be pinned to a moment (schema v9)
-
-Asked for by the user on 2026-09-02 while ADR-0024 was being written, and decided there as its
-fourth stage: right-click a video, and set the frame it is paused on as the asset's thumbnail.
-
-```sql
-ALTER TABLE assets ADD COLUMN poster_ms INTEGER CHECK (poster_ms IS NULL OR poster_ms >= 0);
-```
-
-**The thumbnail does not stop being a function of the file — it becomes a function of the file and
-one number.** That is the whole design, and it is what keeps invariant 1 intact. The journal
-records *where to look*, never the pixels: a rebuild replays `poster_set`, the derive pass
-re-extracts the frame at that offset, and the picture comes back from `originals/` plus the journal
-like every other derived artefact. Storing the image itself would be base64 in a text file, which
-the forbidden-patterns list refuses twice over.
-
-**`NULL` is the default frame, and it is not the first one.** The video backend takes a frame a
-tenth of the way in, capped at ten seconds, because a first frame tends to be a slate or a fade
-from black. Clearing is `poster_set` with `"at":null` rather than an op of its own: "use the
-default again" and "use this moment" are the same decision with one value absent.
-
-**Milliseconds, like a comment's `at_ms`**, and for the same reason — this is an offset into a
-medium, not a date.
-
-**No index.** It is read one asset at a time, by the derive pass and by nothing else, always beside
-the row it belongs to. It also travels on the grid's card and on the asset detail, because it is
-part of the thumbnail's *address*: `roost://thumb/<hash>@<size>` is served as immutable on the
-promise that a hash and a size fix the pixels, and a pinned frame is the one thing that can change
-them. The moment goes in the URL's query so the promise stays true and a changed thumbnail is a
-changed address (ADR-0008, amended).
-
-**A different ffmpeg build may land a frame away** on a long-GOP file, where a seek resolves to the
-nearest decodable frame. Acceptable, and said out loud rather than discovered in a conformance
-test: the instruction is the durable thing and the thumbnail is a cache.
-
-### 2.9 Migration 0010 — an edit is a new asset (schema v10)
-
-Decided and built 2026-09-03 as ADR-0026 stage 2, from the user asking for text to be editable
-inside Roost. Identity is the content hash, so a save cannot be a write: the new bytes are a
-different asset, and this column says which one replaced which.
-
-```sql
-ALTER TABLE assets ADD COLUMN superseded_by TEXT REFERENCES assets(hash);
-
-DROP INDEX idx_assets_imported;
-DROP INDEX idx_assets_ext;
-DROP INDEX idx_assets_rating;
-DROP INDEX idx_assets_favorite;
-DROP INDEX idx_assets_trashed;
-
-CREATE INDEX idx_assets_imported ON assets(imported_at DESC, hash)
-                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_ext      ON assets(ext, imported_at DESC, hash)
-                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_rating   ON assets(rating, imported_at DESC, hash)
-                                 WHERE rating IS NOT NULL AND trashed_at IS NULL
-                                   AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_favorite ON assets(is_favorite, imported_at DESC, hash)
-                                 WHERE is_favorite = 1 AND trashed_at IS NULL
-                                   AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_trashed  ON assets(imported_at DESC, hash)
-                                 WHERE trashed_at IS NOT NULL AND superseded_by IS NULL;
-```
-
-**It took 0010 although §2.5's table and ADR-0025 both name that number for subtitles.** The
-number goes to whatever is built, because a reserved gap is a migration that can never run: the
-runner records version numbers and applies only what is higher than the library's, so a 0010
-arriving after a library had reached 11 would be skipped in silence. **Subtitles take 0011.**
-
-**One step forward, and the chain is history.** Following `superseded_by` gives every version
-oldest to newest. Nothing prunes it and nothing expires: removing an old version is `remove` on
-that hash, a second and deliberate gesture, exactly as ADR-0022 decided for the trash.
-
-**Not the trash, and not `asset_stacks`.** The user did not delete the old version — a Trash place
-filling with intermediate saves is one nobody opens — and a stack (M5) is a *user-made* grouping of
-assets that are different things, where a version chain is automatic and directional.
-
-**The carry-over is journalled, never copied in SQL.** Tags, folders, rating, note, favourite, the
-pinned poster moment and the comments travel to the replacement through the ops that own them —
-`tag_add`, `folder_add`, `rate`, `note_set`, `favorite_set`, `poster_set`, `comment_add` — so a
-rebuild reconstructs it from the journal rather than from a rule that happened to be in the code
-which replayed it (invariant 1). A comment is **copied**: the old version keeps its own, so the
-copies are new rows whose `created_at` is the save rather than the original remark.
-
-**The five grid indexes gained the second half of the default scope.** Migration 0007 made them
-partial on `trashed_at IS NULL`; they now carry `AND superseded_by IS NULL`, and `MATCH_LIVE` plus
-`@roost/search`'s scope table spell the predicate in exactly that order. SQLite uses a partial
-index only when the query's WHERE contains a term implying the index's, so the spelling is part of
-the schema — `repo.test.ts` asserts that half the scope loses the index, which is the failure that
-would otherwise be silent and slow.
-
-### 2.10 Migration 0011 — a subtitle is an asset (schema v11)
-
-Decided as ADR-0025 on 2026-09-03 and built on 2026-09-05, from the user asking how Roost should do
-what Eagle does with an `.srt` dropped beside a video. Eagle's answer is a folder per asset, which
-this layout does not have — so adjacency cannot carry the meaning, and **the attachment is a row**.
-
-```sql
 CREATE TABLE asset_subtitles (
-  hash       TEXT    NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
-  track_hash TEXT    NOT NULL REFERENCES assets(hash) ON DELETE CASCADE,
-  ordinal    INTEGER NOT NULL,
-  lang       TEXT,
-  label      TEXT,
-  PRIMARY KEY (hash, track_hash)
+  asset_id TEXT    NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  track_id TEXT    NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  ordinal  INTEGER NOT NULL,
+  lang     TEXT,
+  label    TEXT,
+  PRIMARY KEY (asset_id, track_id)
 ) WITHOUT ROWID;
 
-CREATE INDEX idx_subtitles_track ON asset_subtitles(track_hash);
-```
+CREATE INDEX idx_subtitles_track ON asset_subtitles(track_id);
 
-**The `.srt` is an ordinary asset.** Content-addressed like everything else, which buys two things
-the convention it replaces does not have: the subtitle survives its source (delete the file from
-the disk it came from and the track is still here), and one track can caption many videos, stored
-once and attached twice.
+-- Directories the library keeps an eye on. Journalled rather than kept in
+-- settings.json, because RL-2 puts that file outside the format and "is this
+-- folder watched?" must not have a different answer in every implementation.
+CREATE TABLE watched_roots (
+  id   INTEGER PRIMARY KEY,
+  path TEXT NOT NULL,
+  take TEXT NOT NULL CHECK (take IN ('move', 'copy'))
+);
 
-**Two journal ops**, because the attachment is a judgement a person made about two files and
-nothing in either file's bytes implies it (invariant 9): `subtitle_attach { hash, track, lang?,
-label? }` and `subtitle_detach { hash, track }`. Detach un-says the sentence and deletes nothing.
+-- Anything a backend read out of a file that has no column of its own: an EXIF
+-- camera, a PDF title, a codec name. Derived, like everything else about the
+-- bytes.
+CREATE TABLE asset_props (
+  asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  key      TEXT NOT NULL,
+  value    TEXT NOT NULL,
+  PRIMARY KEY (asset_id, key)
+) WITHOUT ROWID;
 
-**`ordinal` is not carried by the op.** It is the count of what is already attached, computed at
-apply time, so a replay produces the order it recorded without the journal having to state it.
+CREATE TABLE jobs (
+  id          INTEGER PRIMARY KEY,
+  kind        TEXT NOT NULL,
+  asset_id    TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  priority    INTEGER NOT NULL DEFAULT 0,
+  state       TEXT NOT NULL DEFAULT 'ready'
+              CHECK (state IN ('ready', 'running', 'blocked', 'failed')),
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  reason      TEXT,
+  enqueued_at INTEGER NOT NULL,
+  UNIQUE (kind, asset_id)
+);
 
-**The third hidden-by-default rule, and the first that cannot be indexed.** An attached track leaves
-the grid — the rule is about *attachment, not format*, so an `.srt` imported on its own is an
-ordinary text asset and appears like one — and `is:subtitle` finds it again. Unlike `trashed_at IS
-NULL` and `superseded_by IS NULL`, `NOT EXISTS (…)` cannot be part of a partial index, because
-SQLite forbids a subquery in an index's WHERE. The grid still seeks on `idx_assets_imported` and
-pays this per row it returns, against `idx_subtitles_track`. **What it costs is owed to
-`scripts/bench-search.ts`**; ADR-0025 §4 names the fallback if it is too much — a column on
-`assets`, maintained beside the join table.
-
-`is:captioned` is the mirror, and the question nobody could ask before: *which of my videos still
-have no subtitles*.
-
-### 2.11 Migration 0012 — free text searches prose (schema v12)
-
-Decided as ADR-0027 on 2026-09-05 and built the same day, from the user asking for a search that
-finds a title, a note, or a comment. The index had two columns and both were labels; the two
-places somebody writes a sentence were not searchable at all.
-
-```sql
-DROP TABLE assets_fts;
+CREATE INDEX idx_jobs_ready      ON jobs(priority, id) WHERE state = 'ready';
+CREATE INDEX idx_jobs_unfinished ON jobs(kind, state)  WHERE state <> 'ready';
 
 CREATE VIRTUAL TABLE assets_fts USING fts5(
-  hash UNINDEXED,
-  orig_name,
+  asset_id UNINDEXED,
+  name,
   tags,
   note,
   comments,
   tokenize = 'unicode61'
 );
 
-INSERT INTO assets_fts (rowid, hash, orig_name, tags, note, comments)
-SELECT a.rowid,
-       a.hash,
-       a.orig_name,
-       coalesce((SELECT group_concat(t.name, ' ')
-                   FROM asset_tags at JOIN tags t ON t.id = at.tag_id
-                  WHERE at.hash = a.hash), ''),
-       coalesce(a.note, ''),
-       coalesce((SELECT group_concat(c.body, ' ')
-                   FROM asset_comments c
-                  WHERE c.hash = a.hash), '')
-  FROM assets a;
+-- One index per order the view menu offers (ADR-0039), each with the same
+-- tie-break as its key so that one index serves both directions. `superseded_by`
+-- is gone from every predicate here: an edit no longer makes a second asset.
+CREATE INDEX idx_assets_imported ON assets(imported_at DESC, id DESC)
+                                 WHERE trashed_at IS NULL;
+CREATE INDEX idx_assets_ext      ON assets(ext, imported_at DESC, id DESC)
+                                 WHERE trashed_at IS NULL;
+CREATE INDEX idx_assets_rating   ON assets(rating, imported_at DESC, id DESC)
+                                 WHERE rating IS NOT NULL AND trashed_at IS NULL;
+CREATE INDEX idx_assets_favorite ON assets(is_favorite, imported_at DESC, id DESC)
+                                 WHERE is_favorite = 1 AND trashed_at IS NULL;
+CREATE INDEX idx_assets_trashed  ON assets(imported_at DESC, id DESC)
+                                 WHERE trashed_at IS NOT NULL;
+CREATE INDEX idx_assets_name     ON assets(lower(name), id)
+                                 WHERE trashed_at IS NULL;
+-- `COALESCE(size, 0)` rather than `size`, and that is version 2's doing: a
+-- size is derived now (RL-22), so an asset nothing has read yet has none, and
+-- the order has to place it somewhere rather than dropping it. The index is
+-- the order's definition, so it is spelled exactly as `ORDERS` spells it.
+CREATE INDEX idx_assets_size     ON assets(COALESCE(size, 0), id)
+                                 WHERE trashed_at IS NULL;
+CREATE INDEX idx_assets_created  ON assets(COALESCE(created_at, imported_at), id)
+                                 WHERE trashed_at IS NULL;
+CREATE INDEX idx_assets_rated    ON assets(COALESCE(rating, 0), id)
+                                 WHERE trashed_at IS NULL;
 ```
 
-**Dropping an index would be alarming anywhere else in this schema.** It is free here for the
-reason invariant 1 states: `assets_fts` is derived, holding nothing `assets` and `asset_comments`
-do not, so a migration that rebuilds it recomputes rather than loses. FTS5 has no `ALTER TABLE …
-ADD COLUMN`, so this is the only shape the change has.
-
-**One row per asset, so the comments are concatenated**, exactly as the tags already are. The cost
-is a phrase that can match across the seam between two comments — nobody wrote it, and it matched.
-ADR-0027 §4 weighs that against a second FTS table with a row per comment, its own refresh path,
-and its own rebuild, and takes the seam.
-
-**No new syntax comes with it.** Bare words are already free-text terms in RQL, so the whole
-feature is reached by typing — there is no `note:` or `comment:` field, deliberately (ADR-0027 §2).
-The refresh points grow instead: `applyNoteSet`, `applyCommentAdd`, `applyCommentSet`, and
-`applyCommentRemove`, the last of which reads the comment's hash *before* the delete.
-
-### 2.12 Migration 0013 — where a file came from (schema v13)
-
-Decided as ADR-0030 on 2026-09-05 and built the same day, from the user asking for a link under the
-note, as Eagle keeps one URL per item: somewhere to record the page a file was saved off. The note
-already accepts anything, but a note is prose and this is not — it is one value with a shape, and
-what you want to do with it is click it, which a URL buried in a paragraph cannot be.
+**The two PRAGMAs are deliberately not in the migration.** `journal_mode` cannot be set inside a
+transaction and `foreign_keys` is per-connection, so both are applied when a connection is opened:
 
 ```sql
-ALTER TABLE assets ADD COLUMN source_url TEXT;
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
 ```
 
-**One per asset.** "Where did this come from" has a singular answer, and a list would immediately
-raise which of them is the one that gets clicked — the first, the newest, the one you meant. Eagle
-stores one. An asset with genuinely several sources has a note, which is what prose is for.
+**The `assets` table splits in two, and the split is what version 2 changed.** Everything down to
+`poster_ms` is something a person said, and every one of those columns arrives through a journal
+operation. Everything after it is read out of the file and is journalled by nothing — so a rebuild
+drops all of it, and the derive pass puts it back.
 
-**Whatever was typed is what is stored**, trimmed, with empty meaning absent — the rule `note`
-already follows. No parsing, no normalising, and no required scheme: `file:///archive/2019/` and a
-bare `instagram.com/p/xyz` are both answers to the question that was asked, and refusing them would
-be an application arguing with the user about what provenance is. The scheme decides only whether
-the window offers to *open* it, and that is the window's business rather than the schema's.
+**`created_at` is the exception that proves the rule.** It is the source file's own date at import,
+and nothing can recover it afterwards: the stored file's date becomes the date of the last edit the
+moment anybody saves it. So it is the one fact about a file that the journal carries (RL-22's
+"derivable" does not cover a fact the bytes no longer hold).
 
-**It is not in `assets_fts`**, and that was the user's decision on the day it was proposed. The
-argument for including it was ADR-0027's own — free text reaches everything a person wrote — and
-the argument that won is that a URL is an **address**, not prose about the asset: the words in it
-are a hostname and a path, so a search for `show` matching because a URL contained `/show/` would
-be a match with nothing on screen to explain it. `applySourceSet` is therefore the one write path
-in this file that deliberately does **not** call `#refreshFts`. ADR-0030 §4 records what that
-costs: a domain typed into the search box finds nothing, and reversing it later is a rebuild of a
-derived index.
+**`mtime` and `size` together are how a change is noticed without reading the file.** A save
+changes at least one of them, and the sweep that compares them is cheaper than hashing a library.
 
-**No index.** It is read one asset at a time, beside the row it belongs to, and nothing queries it.
+**`content_hash` is spelled out rather than called `hash`** so that no statement written against
+version 1's schema — where `hash` was the primary key — can compile against this one and quietly
+mean something else.
 
-**Journal op `source_set`**, shaped exactly like `note_set` — last write wins, clearing is the same
-op with `null`, and there is no `source_clear` to keep in step with it. `saveEdit`'s carry-over
-takes it across a supersession, because replacing an asset's bytes does not change where they came
-from.
+**One index per order the view menu offers** (ADR-0039), each with its tie-break pointing the same
+way as its key, so one index serves both directions. Two of them index an **expression**, and the
+expression is the definition of the order — indexed, ordered by, and compared in the resume,
+spelled identically in all three places. `lower(name)` because sorting by name is case-insensitive
+and SQLite's `lower()` folds ASCII only; `COALESCE` on the nullable columns because a NULL in a
+keyset comparison yields NULL and silently drops rows.
 
-### 2.13 Migration 0014 — the orders a view menu can ask for (schema v14)
-
-Decided as ADR-0039 on 2026-09-09 and built the same day, from the user asking for the sort the view
-menu had been promising with a disabled row since M3. Sorting is engine work: until this migration
-the application had exactly one order — `imported_at DESC, hash` — and every index since 0003 was
-built for it, so a grid ordered by name read the whole match set into a temporary B-tree to produce
-one screen. Measured at 95,001 assets: **28.6 ms against 0.07 ms**, and each of the other keys the
-same 28–35 ms.
-
-```sql
--- The five that existed, rebuilt with the tie-break following the key.
-DROP INDEX idx_assets_imported;
-DROP INDEX idx_assets_ext;
-DROP INDEX idx_assets_rating;
-DROP INDEX idx_assets_favorite;
-DROP INDEX idx_assets_trashed;
-
-CREATE INDEX idx_assets_imported ON assets(imported_at DESC, hash DESC)
-                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_ext      ON assets(ext, imported_at DESC, hash DESC)
-                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_rating   ON assets(rating, imported_at DESC, hash DESC)
-                                 WHERE rating IS NOT NULL AND trashed_at IS NULL
-                                   AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_favorite ON assets(is_favorite, imported_at DESC, hash DESC)
-                                 WHERE is_favorite = 1 AND trashed_at IS NULL
-                                   AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_trashed  ON assets(imported_at DESC, hash DESC)
-                                 WHERE trashed_at IS NOT NULL AND superseded_by IS NULL;
-
--- One per new key, each partial in the same way and each ending on the tie-break.
-CREATE INDEX idx_assets_name     ON assets(lower(orig_name), hash)
-                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_size     ON assets(size, hash)
-                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_created  ON assets(COALESCE(created_at, imported_at), hash)
-                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
-
-CREATE INDEX idx_assets_rated    ON assets(COALESCE(rating, 0), hash)
-                                 WHERE trashed_at IS NULL AND superseded_by IS NULL;
-```
-
-**The tie-break follows the key**, which is why the five existing indexes are rebuilt rather than
-left alone. `hash` ascending under a descending timestamp is a *mixed* order: one index serves a
-single direction of it, and the resume cannot be written as a comparison of the pair — the trap
-`searchSql` has carried a comment about since M2. Pointing the tie-break the same way makes
-`(imported_at DESC, hash DESC)` newest-first read forwards and oldest-first read backwards, so **one
-index serves both directions of every key**. The only visible change to an existing library is the
-order among assets sharing one timestamp, which a bulk import produces by the thousand.
-
-**Two of the four new indexes are over an expression, and the expression is the definition of the
-order** — indexed, ordered by, and compared in the resume, spelled identically in all three places.
-`lower(orig_name)` because sorting by name is case-insensitive and SQLite's `lower()` folds ASCII
-only, which is the folding `@roost/library` already chose for folder names; `COALESCE` on the two
-nullable columns because a NULL in a keyset comparison yields NULL and silently drops rows.
+`COALESCE(size, 0)` is version 2's own: a size is derived, so an asset nothing has read yet has
+none, and the order has to place it somewhere rather than losing it.
 
 **A resume is two seeks rather than one predicate.** The rows still to come are those further along
-the key plus those with the same key and a later hash, and as one disjunction SQLite seeks on the
-key and then walks the whole run of equal keys. A rating has six values: page 500 cost 5.8 ms that
-way and 0.06 ms as a `UNION ALL` of two ranges over `(key, hash)`.
+the key plus those with the same key and a later id, and as one disjunction SQLite seeks on the key
+and then walks the whole run of equal keys. A rating has six values: page 500 cost 5.8 ms that way
+and 0.06 ms as a `UNION ALL` of two ranges over `(key, id)`.
 
-**No index for the random order and no possibility of one.** It is a seeded rotation of the content
-hash — 63 independent orders, since a hash is uniformly distributed and comparing from character *k*
-has nothing to do with comparing from character 0 — and an index per seed is 63 indexes. It costs
-18.4 ms a page at 95,001 assets, constant with depth, and ADR-0039 §5 records why that is the right
-trade and what the two faster alternatives break.
+**No index for the random order and no possibility of one.** It is a seeded rotation of the id —
+eleven independent orders, since an id is uniformly distributed and comparing from character *k*
+has nothing to do with comparing from character 0 — and an index per seed is an index per shuffle.
+ADR-0039 §5 records why that is the right trade and what the two faster alternatives break.
 
-**Deliberately not extended per filter.** `ext:png` ordered by name seeks the filter's index and
-sorts what it finds: 10.5 ms, against 0.10 ms in the default order. Fixing it means one composite
-index per key *per filter* — five by four, all maintained on every insert, against a target of ≥300
-imports/sec.
-
-**No journal op, no column, no table.** The order is a *preference*, not library data: it lives in
-`settings.json` (ADR-0019, ADR-0039 §7) with the view, the icon shape and the zoom.
+**No journal op, no column, no table for the order itself.** It is a *preference*, not library
+data: it lives in `settings.json` (ADR-0019, ADR-0039 §7) with the view, the icon shape and the
+zoom.
 
 ## 3. Roost Query Language (RQL)
 
@@ -819,9 +380,7 @@ rating:>=4                    1 to 5; anything else is a parse error, not an emp
 is:untagged is:tagged is:rated is:unrated
 is:favorite                   retired (ADR-0029) and still in the grammar: nothing sets one
                               any more, and a smart folder that says it must still parse
-is:managed is:referenced is:partial-hash
 is:trashed                    in the trash; also `is:trash`
-is:superseded                 replaced by a newer version; also `is:old`
 is:subtitle                   attached as somebody's caption track; also `is:subtitles`
 is:captioned                  has at least one caption track
 "free text"                   FTS5 over the name, tags, note, and comments
@@ -844,10 +403,10 @@ Four behaviours are worth stating because they are decisions, not accidents:
 - **Negation is total.** `-tag:wip` is `NOT (…)` over the whole library, so it includes
   assets with no tags at all.
 - **Every query is scoped by two rules, and naming a flag opts out of that rule only.** Not in
-  the trash (ADR-0022) and not superseded (ADR-0026). `is:trashed` therefore still excludes old
-  versions, because a superseded row in the trash is a version rather than something somebody
-  deleted. The rules live in one table in `@roost/search`'s compiler; the third such rule is where
-  a pattern becomes a design and the fourth is where it becomes a bug. Trash is a state,
+  the trash (ADR-0022) and not attached as somebody's caption track (ADR-0025). Version 1 had a
+  third — not superseded — and version 2 does not, because an edit no longer makes a second asset
+  (ADR-0046). The rules live in one table in `@roost/search`'s compiler; the third such rule is
+  where a pattern becomes a design and the fourth is where it becomes a bug. Trash is a state,
   not a place, so a trashed asset is still a row `tag:wip` would otherwise match —
   and an application where deleting something leaves it in every search is one where deleting
   does not work. The compiler appends `a.trashed_at IS NULL` to anything that does not name the
@@ -863,7 +422,7 @@ Four behaviours are worth stating because they are decisions, not accidents:
 **Arriving at M5**
 ```
 color:#3a7fd5~15              dominant colour within CIELAB ΔE 15
-similar:<hash>                perceptual-hash neighbours
+similar:<id>                  perceptual-hash neighbours
 is:duplicate
 ```
 
@@ -872,8 +431,9 @@ compiler live in `@roost/search`.
 
 ### Notes on compiling RQL
 
-- `is:duplicate` cannot mean "same hash" — identical bytes are one asset by invariant 1.
-  It means *perceptually* near-duplicate, via `asset_hashes`, and is therefore M5.
+- `is:duplicate` could mean "same content hash" in version 2, where two assets may hold
+  identical bytes — but it does not: it means *perceptually* near-duplicate, via `asset_hashes`,
+  and is therefore M5. Exact duplicates are what an import reports (ADR-0037).
 - `folder:` matches the folder and its descendants, and `infolder:` matches the folder
   alone (ADR-0036). The ids are expanded **before** compiling, by a `Folders` resolver the
   caller supplies, rather than by a recursive CTE inside every query: a folder tree is

@@ -1,4 +1,4 @@
-import type { ContentHash, Sort } from "../model/index.js";
+import type { AssetId, Sort } from "../model/index.js";
 
 /**
  * One bound value.
@@ -40,24 +40,26 @@ export interface Filter {
 export const MATCH_ALL: Filter = { sql: "1", params: [] };
 
 /**
- * Matches every asset a view shows by default: not in the trash, not replaced
- * by a newer version, and not attached as somebody's caption track.
+ * Matches every asset a view shows by default: not in the trash, and not
+ * attached as somebody's caption track.
  *
  * The unfiltered grid, which is a listing rather than a search and so never
  * reaches `@roost/search`'s compiler. Everything that *does* reach it is scoped
- * there instead, in one place (ADR-0022, ADR-0025, ADR-0026).
+ * there instead, in one place (ADR-0022, ADR-0025).
  *
- * The first two terms are spelled exactly as the partial indexes in migrations
- * 0007 and 0010 are, and in the same order, because SQLite will only use a
- * partial index when the query's WHERE contains a term implying the index's.
- * **The third cannot be one of those terms** — SQLite forbids a subquery in an
- * index's WHERE — so it is checked per row the seek returns, against
+ * **Version 2 dropped a third term.** There is no `superseded_by`, because an
+ * edit does not produce a second asset any more (ADR-0046).
+ *
+ * The first term is spelled exactly as the partial indexes are, because SQLite
+ * will only use a partial index when the query's WHERE contains a term implying
+ * the index's. **The second cannot be one of them** — SQLite forbids a subquery
+ * in an index's WHERE — so it is checked per row the seek returns, against
  * `idx_subtitles_track`.
  */
 export const MATCH_LIVE: Filter = {
   sql:
-    "a.trashed_at IS NULL AND a.superseded_by IS NULL" +
-    " AND NOT EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_hash = a.hash)",
+    "a.trashed_at IS NULL" +
+    " AND NOT EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_id = a.id)",
   params: [],
 };
 
@@ -78,7 +80,7 @@ export const MATCH_NONE: Filter = { sql: "0", params: [] };
  *
  * `key` is the **sort key's value on the last row of the previous page**, and
  * it is whatever that order made of it — a timestamp, a size, a folded name, a
- * rotated hash. It is read back off the row rather than recomputed here,
+ * rotated id. It is read back off the row rather than recomputed here,
  * because the order is defined in SQL and a second implementation in TypeScript
  * would fold a name differently on the first non-ASCII character (ADR-0039 §4).
  *
@@ -87,7 +89,7 @@ export const MATCH_NONE: Filter = { sql: "0", params: [] };
  */
 export interface Cursor {
   readonly key: CursorKey;
-  readonly hash: ContentHash;
+  readonly id: AssetId;
 }
 
 /** What a sort key's value can be: a number for four of them, text for two. */
@@ -117,10 +119,12 @@ export const DEFAULT_PAGE_LIMIT = 100;
  * the difference between laying out once and reflowing on every load.
  */
 export interface SearchHit {
-  readonly hash: ContentHash;
-  readonly origName: string;
+  readonly id: AssetId;
+  /** The display name, without the extension (RL-33). */
+  readonly name: string;
   readonly ext: string;
-  readonly size: number;
+  /** `null` until the file has been read: every fact about the bytes is derived (RL-22). */
+  readonly size: number | null;
   readonly width: number | null;
   readonly height: number | null;
   readonly importedAt: number;
@@ -130,10 +134,11 @@ export interface SearchHit {
    * The moment a video's thumbnail is pinned to (ADR-0024 stage 4).
    *
    * On a grid row because it is part of the thumbnail's **address**, not
-   * because a cell draws it: `roost://thumb/<hash>@256` is served as immutable
-   * on the promise that a hash and a size fix the pixels, and a pinned frame is
-   * the one thing that can change them. The moment goes in the URL so the
-   * promise stays true and a changed thumbnail is a changed address.
+   * because a cell draws it: `roost://thumb/<id>@256` carries the moment so
+   * that a pinned frame changes the address rather than the picture at one
+   * address. In version 2 the bytes behind an id may change at any time
+   * (RL-20), so a thumbnail URL is **not** immutable — the derive pass that
+   * notices a changed file is what makes the cell redraw.
    */
   readonly posterMs: number | null;
   /**
@@ -142,7 +147,7 @@ export interface SearchHit {
    * A column of the result rather than a field a caller derives: the order is
    * an expression in SQL, and the cursor has to be the same expression's answer
    * or the resume lands somewhere else. For the default order it is the same
-   * number as `importedAt`; for `random` it is the rotated hash, which exists
+   * number as `importedAt`; for `random` it is the rotated id, which exists
    * nowhere but in the statement that asked for it.
    */
   readonly sortKey: CursorKey;
@@ -150,5 +155,5 @@ export interface SearchHit {
 
 /** The cursor that resumes a listing after `hit`. */
 export function cursorAfter(hit: SearchHit): Cursor {
-  return { key: hit.sortKey, hash: hit.hash };
+  return { key: hit.sortKey, id: hit.id };
 }

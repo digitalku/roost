@@ -19,6 +19,7 @@ export {
   type AssetSummary,
   type CommentRow,
   type DerivedMetadata,
+  type FileRecord,
   type FolderMembership,
   type FolderRow,
   type IdentifiedTable,
@@ -26,7 +27,6 @@ export {
   type JobCount,
   type JobReason,
   lastCursor,
-  type OriginalRecord,
   Repo,
   type SelectionSummary,
   type SmartFolderRow,
@@ -37,6 +37,7 @@ export {
   type TagGroupRow,
   type TagRow,
   type ThumbnailTarget,
+  type WatchedRootRow,
   withoutDerived,
 } from "./repo.js";
 export { IndexSink, REBUILD_BATCH_SIZE } from "./sink.js";

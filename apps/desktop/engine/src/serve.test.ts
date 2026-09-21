@@ -168,7 +168,7 @@ describe("the engine's message loop", () => {
       value: {
         root: join(dir, "Made By The Window.roost"),
         name: "Made By The Window",
-        formatVersion: 1,
+        formatVersion: 2,
         schemaVersion: latestSchemaVersion(),
       },
     });
@@ -307,7 +307,7 @@ describe("the engine's message loop", () => {
       type: "assets:page",
       query: "",
       limit: 2,
-      after: firstPage.next as { key: number; hash: string },
+      after: firstPage.next as { key: number; id: string },
       sort: null,
     });
     const secondPage = pageOfHits(second);
@@ -319,7 +319,7 @@ describe("the engine's message loop", () => {
       type: "assets:page",
       query: "",
       limit: 2,
-      after: secondPage.next as { key: number; hash: string },
+      after: secondPage.next as { key: number; id: string },
       sort: null,
     });
     // A short page is the last page, and saying so saves the grid a round trip
@@ -344,8 +344,8 @@ describe("the engine's message loop", () => {
     // test in this file.
     expect(Object.keys(card ?? {}).sort()).toEqual([
       "ext",
-      "hash",
       "height",
+      "id",
       "importedAt",
       "kind",
       "name",
@@ -526,9 +526,9 @@ describe("the engine's message loop", () => {
       after: null,
       sort: null,
     });
-    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const id = (page as { value: { assets: { id: string }[] } }).value.assets[0]?.id ?? "";
 
-    const reply = await ask(2, { type: "asset:detail", hash });
+    const reply = await ask(2, { type: "asset:detail", id });
     const value = (reply as { value: Record<string, unknown> }).value;
 
     // Every field of the wire shape, and no field the contract never declared:
@@ -543,22 +543,20 @@ describe("the engine's message loop", () => {
         "ext",
         "kind",
         "folders",
-        "hash",
+        "id",
         "height",
         "importedAt",
-        "isPartialHash",
+        "contentHash",
+        "derivedAt",
         "name",
         "note",
         "pageCount",
         "posterMs",
         "props",
         "rating",
-        "refPath",
         "size",
         "sourceUrl",
-        "storageMode",
         "subtitles",
-        "supersededBy",
         "tags",
         "trashedAt",
         "width",
@@ -580,7 +578,7 @@ describe("the engine's message loop", () => {
     await libraryOf(1);
     // A selection can outlive the asset it points at. An empty inspector is
     // the right answer to that, not an error dialog.
-    const reply = await ask(1, { type: "asset:detail", hash: "f".repeat(64) });
+    const reply = await ask(1, { type: "asset:detail", id: "FFFFFFFFFFFF" });
     expect(reply).toEqual({ id: 1, ok: true, value: null });
   });
 
@@ -593,13 +591,13 @@ describe("the engine's message loop", () => {
       after: null,
       sort: null,
     });
-    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const id = (page as { value: { assets: { id: string }[] } }).value.assets[0]?.id ?? "";
     const detail = async (): Promise<Record<string, unknown>> => {
-      const reply = await ask(99, { type: "asset:detail", hash });
+      const reply = await ask(99, { type: "asset:detail", id });
       return (reply as { value: Record<string, unknown> }).value;
     };
 
-    expect(await ask(2, { type: "asset:rate", hashes: [hash], rating: 4 })).toMatchObject({
+    expect(await ask(2, { type: "asset:rate", ids: [id], rating: 4 })).toMatchObject({
       ok: true,
       value: null,
     });
@@ -607,28 +605,28 @@ describe("the engine's message loop", () => {
 
     // The engine drops an all-whitespace note rather than storing one: a note
     // badge that is on forever and says nothing is worse than no badge.
-    await ask(4, { type: "asset:note", hash, note: "   " });
+    await ask(4, { type: "asset:note", id, note: "   " });
     expect((await detail())["note"]).toBeNull();
-    await ask(5, { type: "asset:note", hash, note: "  keep this  " });
+    await ask(5, { type: "asset:note", id, note: "  keep this  " });
     expect((await detail())["note"]).toBe("keep this");
 
     // A source follows the note's rule exactly (ADR-0030): trimmed, and blank
     // means absent. What it does *not* do is validate — the value is the
     // user's answer to a question, not an address the engine vouches for.
-    await ask(6, { type: "asset:source", hash, url: "  instagram.com/p/xyz  " });
+    await ask(6, { type: "asset:source", id, url: "  instagram.com/p/xyz  " });
     expect((await detail())["sourceUrl"]).toBe("instagram.com/p/xyz");
-    await ask(7, { type: "asset:source", hash, url: "  " });
+    await ask(7, { type: "asset:source", id, url: "  " });
     expect((await detail())["sourceUrl"]).toBeNull();
 
-    await ask(8, { type: "asset:tagAdd", hashes: [hash], tags: ["Wood", " wood "] });
+    await ask(8, { type: "asset:tagAdd", ids: [id], tags: ["Wood", " wood "] });
     // Deduplicated and trimmed on the way through, which is exactly why an
     // edit answers with `null` and the inspector re-reads.
     expect((await detail())["tags"]).toEqual(["Wood"]);
 
-    await ask(9, { type: "asset:tagRemove", hashes: [hash], tags: ["wood"] });
+    await ask(9, { type: "asset:tagRemove", ids: [id], tags: ["wood"] });
     expect((await detail())["tags"]).toEqual([]);
 
-    await ask(10, { type: "asset:rename", hash, name: "  Renamed.txt  " });
+    await ask(10, { type: "asset:rename", id, name: "  Renamed.txt  " });
     expect((await detail())["name"]).toBe("Renamed.txt");
   });
 
@@ -658,24 +656,24 @@ describe("the engine's message loop", () => {
       after: null,
       sort: null,
     });
-    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const id = (page as { value: { assets: { id: string }[] } }).value.assets[0]?.id ?? "";
     const folders = async (): Promise<unknown> => {
-      const reply = await ask(99, { type: "asset:detail", hash });
+      const reply = await ask(99, { type: "asset:detail", id });
       return (reply as { value: { folders: unknown } }).value.folders;
     };
 
     expect(await folders()).toEqual([]);
 
-    await ask(2, { type: "asset:folderAdd", hashes: [hash], folder: nested });
+    await ask(2, { type: "asset:folderAdd", ids: [id], folder: nested });
     // The whole path, walked here rather than by the window: the window draws
     // it and would have had to hold the tree to build it.
     expect(await folders()).toEqual([{ id: nested, path: "Design/Icons" }]);
 
     // Adding it twice is not an error and not a second membership.
-    await ask(3, { type: "asset:folderAdd", hashes: [hash], folder: nested });
+    await ask(3, { type: "asset:folderAdd", ids: [id], folder: nested });
     expect(await folders()).toEqual([{ id: nested, path: "Design/Icons" }]);
 
-    await ask(4, { type: "asset:folderRemove", hashes: [hash], folder: nested });
+    await ask(4, { type: "asset:folderRemove", ids: [id], folder: nested });
     expect(await folders()).toEqual([]);
 
     // The asset itself is untouched: a folder is a collection, not a location.
@@ -709,13 +707,13 @@ describe("the engine's message loop", () => {
       after: null,
       sort: null,
     });
-    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const id = (page as { value: { assets: { id: string }[] } }).value.assets[0]?.id ?? "";
 
     const made = await ask(2, { type: "folder:create", name: "Design", parent: null });
     const design = (made as { value: number }).value;
     const nested = await ask(3, { type: "folder:create", name: "Icons", parent: design });
     const icons = (nested as { value: number }).value;
-    await ask(4, { type: "asset:folderAdd", hashes: [hash], folder: icons });
+    await ask(4, { type: "asset:folderAdd", ids: [id], folder: icons });
 
     await ask(5, { type: "folder:rename", folder: icons, name: "Marks" });
     const sidebar = await ask(6, { type: "library:sidebar" });
@@ -728,13 +726,13 @@ describe("the engine's message loop", () => {
     // The default leaves the asset alone; only its membership goes.
     const kept = await ask(7, { type: "folder:delete", folder: design, trashContents: false });
     expect(kept).toMatchObject({ value: { trashed: 0 } });
-    const detail = await ask(8, { type: "asset:detail", hash });
+    const detail = await ask(8, { type: "asset:detail", id });
     expect(detail).toMatchObject({ value: { trashedAt: null, folders: [] } });
 
     const again = await ask(9, { type: "folder:create", name: "Gone", parent: null });
     await ask(10, {
       type: "asset:folderAdd",
-      hashes: [hash],
+      ids: [id],
       folder: (again as { value: number }).value,
     });
     const taken = await ask(11, {
@@ -744,7 +742,7 @@ describe("the engine's message loop", () => {
     });
     expect(taken).toMatchObject({ value: { trashed: 1 } });
     // Trashed, not removed: the row is still there, with a date on it.
-    const after = await ask(12, { type: "asset:detail", hash });
+    const after = await ask(12, { type: "asset:detail", id });
     expect((after as { value: { trashedAt: number | null } }).value.trashedAt).not.toBeNull();
   });
 
@@ -757,17 +755,17 @@ describe("the engine's message loop", () => {
       after: null,
       sort: null,
     });
-    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const asset = (page as { value: { assets: { id: string }[] } }).value.assets[0]?.id ?? "";
     const comments = async (): Promise<Record<string, unknown>[]> => {
-      const reply = await ask(99, { type: "asset:detail", hash });
+      const reply = await ask(99, { type: "asset:detail", id: asset });
       return (reply as { value: { comments: Record<string, unknown>[] } }).value.comments;
     };
 
     // Written out of order on purpose: the list is a timeline, not a log of
     // when somebody typed.
-    await ask(2, { type: "comment:add", hash, atMs: 120_000, body: "  later  " });
-    await ask(3, { type: "comment:add", hash, atMs: null, body: "about the file" });
-    await ask(4, { type: "comment:add", hash, atMs: 1_000, body: "earlier" });
+    await ask(2, { type: "comment:add", asset, atMs: 120_000, body: "  later  " });
+    await ask(3, { type: "comment:add", asset, atMs: null, body: "about the file" });
+    await ask(4, { type: "comment:add", asset, atMs: 1_000, body: "earlier" });
 
     // Timed first, in order, and the untimed one last — and the body trimmed on
     // the way through, which is why an edit answers `null` and the reader
@@ -791,15 +789,19 @@ describe("the engine's message loop", () => {
       if (typeof id !== "number") throw new Error("a comment came back without an id");
       return id;
     };
-    const id = idOf((await comments())[0]);
-    await ask(5, { type: "comment:set", id, atMs: 2_000, body: "earlier still" });
+    const comment = idOf((await comments())[0]);
+    await ask(5, { type: "comment:set", id: comment, atMs: 2_000, body: "earlier still" });
     // The same comment, moved: an edit that removed and re-added would mint a
     // second id and put it at the end of the list.
-    expect((await comments())[0]).toMatchObject({ id, atMs: 2_000, body: "earlier still" });
+    expect((await comments())[0]).toMatchObject({
+      id: comment,
+      atMs: 2_000,
+      body: "earlier still",
+    });
     expect(await comments()).toHaveLength(3);
 
-    await ask(6, { type: "comment:remove", id });
-    expect((await comments()).map((row) => row["id"])).not.toContain(id);
+    await ask(6, { type: "comment:remove", id: comment });
+    expect((await comments()).map((row) => row["id"])).not.toContain(comment);
   });
 
   it("refuses a comment the format cannot hold", async () => {
@@ -811,7 +813,7 @@ describe("the engine's message loop", () => {
       after: null,
       sort: null,
     });
-    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const asset = (page as { value: { assets: { id: string }[] } }).value.assets[0]?.id ?? "";
 
     // Refused by the contract before the engine is asked, and therefore
     // **dropped rather than answered** — the same rule every malformed message
@@ -819,10 +821,10 @@ describe("the engine's message loop", () => {
     // says nothing, and a negative offset is a number that cannot mean
     // anything; both are the validator's, and `contract.test.ts` pins them.
     expect(
-      await ask(2, { type: "comment:add", hash, atMs: null, body: "  " }, "silence"),
+      await ask(2, { type: "comment:add", asset, atMs: null, body: "  " }, "silence"),
     ).toBeUndefined();
     expect(
-      await ask(3, { type: "comment:add", hash, atMs: -1, body: "x" }, "silence"),
+      await ask(3, { type: "comment:add", asset, atMs: -1, body: "x" }, "silence"),
     ).toBeUndefined();
     // An id nothing is behind is the engine's to refuse, and it says so rather
     // than doing nothing quietly: a stale list in one window must not silently
@@ -842,9 +844,9 @@ describe("the engine's message loop", () => {
       after: null,
       sort: null,
     });
-    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const id = (page as { value: { assets: { id: string }[] } }).value.assets[0]?.id ?? "";
 
-    const reply = await ask(2, { type: "asset:rate", hashes: [hash], rating: 9 });
+    const reply = await ask(2, { type: "asset:rate", ids: [id], rating: 9 });
     expect(reply).toMatchObject({ ok: false, problem: { code: "invalid_rating" } });
   });
 
@@ -857,7 +859,7 @@ describe("the engine's message loop", () => {
       after: null,
       sort: null,
     });
-    const hash = (page as { value: { assets: { hash: string }[] } }).value.assets[0]?.hash ?? "";
+    const id = (page as { value: { assets: { id: string }[] } }).value.assets[0]?.id ?? "";
 
     const events = (): unknown[] =>
       port.sent.filter(
@@ -869,7 +871,7 @@ describe("the engine's message loop", () => {
       );
     const before = events().length;
 
-    await ask(2, { type: "asset:rate", hashes: [hash], rating: 3 });
+    await ask(2, { type: "asset:rate", ids: [id], rating: 3 });
 
     // Everything derived — the counts, the sidebar, the grid — is re-read from
     // this. An edit that changed the library silently would leave all three
@@ -879,7 +881,7 @@ describe("the engine's message loop", () => {
 
   it("refuses to open a file itself, because it has no desktop", async () => {
     await libraryOf(1);
-    const reply = await ask(1, { type: "asset:openExternally", hash: "a".repeat(64) });
+    const reply = await ask(1, { type: "asset:openExternally", id: "AAAAAAAAAAAA" });
     // Main answers this one. Reaching the engine is a routing bug, and it
     // fails loudly rather than returning a plausible false.
     expect(reply?.ok).toBe(false);
@@ -898,7 +900,7 @@ describe("the engine's message loop", () => {
       type: "import:paths",
       folder: null,
       paths: [source],
-      mode: "managed",
+      take: "copy",
       tags: [],
     });
     const report = (reply as { value: Record<string, unknown> }).value;
@@ -913,8 +915,8 @@ describe("the engine's message loop", () => {
         "elapsedMs",
         "failed",
         "imported",
-        "partialCollisions",
-        "partialDuplicates",
+        "moved",
+        "copied",
         "scanned",
         "subtitles",
         "subtitlesUnattached",
@@ -930,7 +932,7 @@ describe("the engine's message loop", () => {
       type: "import:paths",
       folder: null,
       paths: [source],
-      mode: "managed",
+      take: "copy",
       tags: [],
     });
     expect((again as { value: Record<string, unknown> }).value).toMatchObject({
@@ -953,7 +955,7 @@ describe("the engine's message loop", () => {
     const made = await ask(2, { type: "folder:create", name: "Design", parent: null });
     const folder = (made as { value: number }).value;
 
-    await ask(3, { type: "import:paths", paths: [source], mode: "managed", tags: [], folder });
+    await ask(3, { type: "import:paths", paths: [source], take: "copy", tags: [], folder });
     expect(
       (await ask(4, { type: "assets:count", query: "folder:Design" })) as unknown,
     ).toMatchObject({ value: 1 });
@@ -962,7 +964,7 @@ describe("the engine's message loop", () => {
     const again = await ask(5, {
       type: "import:paths",
       paths: [source],
-      mode: "managed",
+      take: "copy",
       tags: [],
       folder: null,
     });
@@ -1024,7 +1026,7 @@ describe("the engine's message loop", () => {
       type: "import:paths",
       folder: null,
       paths: [source],
-      mode: "managed",
+      take: "copy",
       tags: [],
     });
 
@@ -1057,17 +1059,15 @@ describe("the engine's message loop", () => {
       [
         "assets",
         "folders",
-        "managed",
         "notes",
-        "partialHashes",
         "rated",
-        "referenced",
         "smartFolders",
         "tagGroups",
         "tags",
         "thumbnails",
         "totalBytes",
         "trashed",
+        "underived",
       ].sort(),
     );
     expect(value["assets"]).toBe(0);

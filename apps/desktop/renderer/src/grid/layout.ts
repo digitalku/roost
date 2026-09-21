@@ -23,13 +23,13 @@
 
 /** What the layout needs to know about one asset. */
 export interface Shaped {
-  readonly hash: string;
+  readonly id: string;
   readonly width: number | null;
   readonly height: number | null;
 }
 
 export interface Tile {
-  readonly hash: string;
+  readonly id: string;
   /** Position in the result set, which is what the keyboard moves through. */
   readonly index: number;
   readonly x: number;
@@ -165,7 +165,7 @@ export function layout(items: readonly Shaped[], options: LayoutOptions): Layout
     const column = packed ? shortest(bottoms) : index % count;
     const body = bodyHeight(view, packed, columnWidth, target, item);
     const tile: Tile = {
-      hash: item.hash,
+      id: item.id,
       index,
       x: column * (columnWidth + gap),
       y: bottoms[column] ?? 0,
@@ -317,19 +317,19 @@ export function moveFocus(grid: Layout, from: string, direction: Direction): str
 
   if (direction === "up" || direction === "down") {
     const next = grid.columns[column]?.[row + (direction === "up" ? -1 : 1)];
-    return next?.hash;
+    return next?.id;
   }
 
   const target = column + (direction === "left" ? -1 : 1);
   const neighbour = grid.columns[target];
   const tile = grid.columns[column]?.[row];
   if (neighbour === undefined || tile === undefined) return undefined;
-  return nearestTo(neighbour, tile.y + tile.height / 2)?.hash;
+  return nearestTo(neighbour, tile.y + tile.height / 2)?.id;
 }
 
-function locate(grid: Layout, hash: string): [number, number] | undefined {
+function locate(grid: Layout, id: string): [number, number] | undefined {
   for (let column = 0; column < grid.columns.length; column += 1) {
-    const row = grid.columns[column]?.findIndex((tile) => tile.hash === hash) ?? -1;
+    const row = grid.columns[column]?.findIndex((tile) => tile.id === id) ?? -1;
     if (row !== -1) return [column, row];
   }
   return undefined;

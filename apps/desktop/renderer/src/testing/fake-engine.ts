@@ -123,7 +123,7 @@ export interface FakeEngineOptions {
    * something about RQL that is not true.
    */
   readonly invalid?: Readonly<Record<string, { message: string; at: number | null }>>;
-  /** Assets the inspector can read, by hash. */
+  /** Assets the inspector can read, by id. */
   readonly details?: readonly WireAssetDetail[];
   /** What `asset:openExternally` answers with. */
   readonly opensExternally?: boolean;
@@ -222,8 +222,8 @@ const EMPTY_REPORT: WireImportReport = {
   scanned: 0,
   imported: 0,
   duplicates: 0,
-  partialDuplicates: 0,
-  partialCollisions: 0,
+  moved: 0,
+  copied: 0,
   bytes: 0,
   subtitles: 0,
   subtitlesUnattached: 0,
@@ -237,7 +237,7 @@ const EMPTY_REPORT: WireImportReport = {
 export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): WireAssetDetail {
   const card = fakeAsset(index);
   return {
-    hash: card.hash,
+    id: card.id,
     name: card.name,
     ext: card.ext,
     kind: "image",
@@ -248,13 +248,11 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     size: card.size,
     width: card.width,
     height: card.height,
-    storageMode: "managed",
-    refPath: null,
-    isPartialHash: false,
+    contentHash: null,
+    derivedAt: null,
     createdAt: null,
     importedAt: card.importedAt,
     trashedAt: null,
-    supersededBy: null,
     rating: null,
     note: null,
     sourceUrl: null,
@@ -286,7 +284,7 @@ const EMPTY_SIDEBAR: WireSidebar = {
  */
 export function fakeAsset(index: number, over: Partial<AssetCard> = {}): AssetCard {
   return {
-    hash: index.toString(16).padStart(64, "0"),
+    id: index.toString(16).padStart(64, "0"),
     name: `asset-${index}.png`,
     ext: "png",
     kind: "image",
@@ -302,9 +300,7 @@ export function fakeAsset(index: number, over: Partial<AssetCard> = {}): AssetCa
 
 const EMPTY_STATS: LibraryStats = {
   assets: 0,
-  managed: 0,
-  referenced: 0,
-  partialHashes: 0,
+  underived: 0,
   totalBytes: 0,
   tags: 0,
   tagGroups: 0,
@@ -338,9 +334,9 @@ export class FakeEngine {
    */
   #nextCommentId = 1;
   /**
-   * Distinguishes the hashes a save mints, so two edits of one asset are two
+   * Distinguishes the ids a save mints, so two edits of one asset are two
    * assets. Modelled because a save *moves* what the pane is looking at: a fake
-   * that answered with the hash it was given would let the pane pass while
+   * that answered with the id it was given would let the pane pass while
    * still showing the version it just replaced.
    */
   #saves = 0;
@@ -385,7 +381,7 @@ export class FakeEngine {
       // Ordered on the way in, not only on the way out: the engine answers in
       // the repository's order whatever order the rows were written in, and a
       // fake that returned a test's own spelling would be kinder than the wire.
-      this.details.set(detail.hash, { ...detail, comments: ordered(detail.comments) });
+      this.details.set(detail.id, { ...detail, comments: ordered(detail.comments) });
       for (const comment of detail.comments) {
         this.#nextCommentId = Math.max(this.#nextCommentId, comment.id + 1);
       }
@@ -464,12 +460,12 @@ export class FakeEngine {
    * while skipping the re-read.
    */
   #mutate(
-    hashes: readonly string[],
+    ids: readonly string[],
     change: (detail: WireAssetDetail) => WireAssetDetail,
   ): Outcome<unknown> {
-    for (const hash of hashes) {
-      const found = this.details.get(hash);
-      if (found !== undefined) this.details.set(hash, change(found));
+    for (const id of ids) {
+      const found = this.details.get(id);
+      if (found !== undefined) this.details.set(id, change(found));
     }
     this.emit({ type: "library:changed" });
     return ok(null);
@@ -484,11 +480,11 @@ export class FakeEngine {
    * one. Returning `undefined` from `change` drops the comment.
    */
   #mutateComments(change: (comment: WireComment) => WireComment | undefined): Outcome<unknown> {
-    for (const [hash, detail] of this.details) {
+    for (const [id, detail] of this.details) {
       const kept = detail.comments
         .map(change)
         .filter((comment): comment is WireComment => comment !== undefined);
-      this.details.set(hash, { ...detail, comments: ordered(kept) });
+      this.details.set(id, { ...detail, comments: ordered(kept) });
     }
     this.emit({ type: "library:changed" });
     return ok(null);
@@ -502,9 +498,9 @@ export class FakeEngine {
    * partial tag distinction is the part of the inspector most likely to be got
    * wrong, and a fake that returned a constant would let that pass.
    */
-  #summarize(hashes: readonly string[]): WireSelectionSummary {
-    const found = hashes
-      .map((hash) => this.details.get(hash))
+  #summarize(ids: readonly string[]): WireSelectionSummary {
+    const found = ids
+      .map((id) => this.details.get(id))
       .filter((detail): detail is WireAssetDetail => detail !== undefined);
 
     const rated = found.filter((detail) => detail.rating !== null);
@@ -534,7 +530,7 @@ export class FakeEngine {
 
     return {
       count: found.length,
-      totalBytes: found.reduce((total, detail) => total + detail.size, 0),
+      totalBytes: found.reduce((total, detail) => total + (detail.size ?? 0), 0),
       rating: agreed ? (rated[0]?.rating ?? null) : null,
       ratingMixed: rated.length > 0 && !agreed,
       sharedTags: names.filter((name) => carrying.get(name) === found.length),
@@ -599,7 +595,7 @@ export class FakeEngine {
       }
 
       case "asset:summary":
-        return ok(this.#summarize(request.hashes));
+        return ok(this.#summarize(request.ids));
 
       case "library:current":
         return ok(this.#open ?? null);
@@ -658,10 +654,10 @@ export class FakeEngine {
         return ok({ ...EMPTY_STATS, assets: this.assets.length, ...this.#options.stats });
 
       case "asset:detail":
-        return ok(this.details.get(request.hash) ?? null);
+        return ok(this.details.get(request.id) ?? null);
 
       case "asset:rate":
-        return this.#mutate(request.hashes, (detail) => ({ ...detail, rating: request.rating }));
+        return this.#mutate(request.ids, (detail) => ({ ...detail, rating: request.rating }));
 
       case "asset:poster":
         // Nothing on the wire detail changes: the moment lives in the library
@@ -674,7 +670,7 @@ export class FakeEngine {
         // component test that relied on the difference would be testing a fake
         // that is kinder than the thing it stands for.
         const trimmed = request.note === null ? null : request.note.trim();
-        return this.#mutate([request.hash], (detail) => ({
+        return this.#mutate([request.id], (detail) => ({
           ...detail,
           note: trimmed === "" ? null : trimmed,
         }));
@@ -684,7 +680,7 @@ export class FakeEngine {
         // Trimmed, and empty means absent — the rule the engine follows for the
         // note and for this.
         const trimmed = request.url === null ? null : request.url.trim();
-        return this.#mutate([request.hash], (detail) => ({
+        return this.#mutate([request.id], (detail) => ({
           ...detail,
           sourceUrl: trimmed === "" ? null : trimmed,
         }));
@@ -706,14 +702,14 @@ export class FakeEngine {
         const tracks = request.paths.filter((path) => /\.(srt|vtt|ass|ssa|sub)$/i.test(path));
         const ignored = request.paths.filter((path) => !tracks.includes(path));
 
-        const detail = this.details.get(request.hash);
+        const detail = this.details.get(request.id);
         if (detail === undefined || tracks.length === 0) return ok({ attached: 0, ignored });
-        this.details.set(request.hash, {
+        this.details.set(request.id, {
           ...detail,
           subtitles: [
             ...detail.subtitles,
             ...tracks.map((path, index) => ({
-              hash: `${(index + 0xc0).toString(16)}${"0".repeat(62)}`,
+              id: `${(index + 0xc0).toString(16)}${"0".repeat(62)}`,
               lang: null,
               label: null,
               name: path.split("/").pop() ?? path,
@@ -733,9 +729,9 @@ export class FakeEngine {
         if (trashed !== undefined) {
           this.details.set(request.track, { ...trashed, trashedAt: 1_700_000_000 });
         }
-        return this.#mutate([request.hash], (detail) => ({
+        return this.#mutate([request.id], (detail) => ({
           ...detail,
-          subtitles: detail.subtitles.filter((track) => track.hash !== request.track),
+          subtitles: detail.subtitles.filter((track) => track.id !== request.track),
         }));
       }
 
@@ -747,37 +743,37 @@ export class FakeEngine {
         const held = [...this.details.values()].find(
           (detail) => detail.name === request.name && detail.size === text.length,
         );
-        if (held !== undefined) return ok({ hash: held.hash, created: false });
+        if (held !== undefined) return ok({ id: held.id, created: false });
 
         this.#saves += 1;
-        const hash = `${(this.#saves + 0xa0).toString(16)}${fakeDetail(1).hash.slice(2)}`;
-        this.details.set(hash, {
+        const id = `${(this.#saves + 0xa0).toString(16)}${fakeDetail(1).id.slice(2)}`;
+        this.details.set(id, {
           ...fakeDetail(1),
-          hash,
+          id,
           name: request.name,
           ext: request.name.split(".").pop() ?? "",
           kind: "other",
           size: text.length,
         });
         this.emit({ type: "library:changed" });
-        return ok({ hash, created: true });
+        return ok({ id, created: true });
       }
 
       case "asset:rename":
-        return this.#mutate([request.hash], (detail) => ({
+        return this.#mutate([request.id], (detail) => ({
           ...detail,
           name: request.name.trim(),
         }));
 
       case "asset:tagAdd":
-        return this.#mutate(request.hashes, (detail) => ({
+        return this.#mutate(request.ids, (detail) => ({
           ...detail,
           tags: [...new Set([...detail.tags, ...request.tags.map((tag) => tag.trim())])],
         }));
 
       case "asset:tagRemove": {
         const gone = new Set(request.tags.map((tag) => tag.trim().toLowerCase()));
-        return this.#mutate(request.hashes, (detail) => ({
+        return this.#mutate(request.ids, (detail) => ({
           ...detail,
           tags: detail.tags.filter((tag) => !gone.has(tag.toLowerCase())),
         }));
@@ -792,7 +788,7 @@ export class FakeEngine {
           return problem("unknown_folder", `no folder ${request.folder}`, {});
         }
         const ref: WireFolderRef = { id: added.folder, path: added.path };
-        return this.#mutate(request.hashes, (detail) => ({
+        return this.#mutate(request.ids, (detail) => ({
           ...detail,
           folders: detail.folders.some((held) => held.id === ref.id)
             ? detail.folders
@@ -801,7 +797,7 @@ export class FakeEngine {
       }
 
       case "asset:folderRemove":
-        return this.#mutate(request.hashes, (detail) => ({
+        return this.#mutate(request.ids, (detail) => ({
           ...detail,
           folders: detail.folders.filter((held) => held.id !== request.folder),
         }));
@@ -877,7 +873,7 @@ export class FakeEngine {
         const body = request.body.trim();
         const id = this.#nextCommentId;
         this.#nextCommentId += 1;
-        return this.#mutate([request.hash], (detail) => ({
+        return this.#mutate([request.asset], (detail) => ({
           ...detail,
           comments: ordered([
             ...detail.comments,
@@ -908,15 +904,15 @@ export class FakeEngine {
       // a query language it does not have, and the tests that matter here are
       // about what the renderer sends.
       case "assets:trash": {
-        const gone = new Set(request.hashes);
-        this.assets = this.assets.filter((asset) => !gone.has(asset.hash));
+        const gone = new Set(request.ids);
+        this.assets = this.assets.filter((asset) => !gone.has(asset.id));
         this.emit({ type: "library:changed" });
         return ok(null);
       }
 
       case "assets:remove": {
-        const gone = new Set(request.hashes);
-        this.assets = this.assets.filter((asset) => !gone.has(asset.hash));
+        const gone = new Set(request.ids);
+        this.assets = this.assets.filter((asset) => !gone.has(asset.id));
         this.emit({ type: "library:changed" });
         return ok({ assets: gone.size, bytes: this.#options.freedBytes ?? 0 });
       }
@@ -955,11 +951,11 @@ export class FakeEngine {
       // A count rather than a yes: "three files are on the clipboard" and
       // "one is" are different sentences, and the window says which.
       case "asset:copyFiles":
-        return ok(this.#options.copiedFiles ?? request.hashes.length);
+        return ok(this.#options.copiedFiles ?? request.ids.length);
 
       case "assets:export":
         return ok({
-          exported: request.hashes.length,
+          exported: request.ids.length,
           renamed: 0,
           missing: 0,
           failed: 0,
@@ -1235,11 +1231,11 @@ function sorted(assets: readonly AssetCard[], sort: WireSort | null): readonly A
       case "name":
         return asset.name.toLowerCase();
       case "size":
-        return asset.size;
+        return asset.size ?? 0;
       case "rating":
         return asset.rating ?? 0;
       default:
-        return asset.hash.slice(rotate) + asset.hash.slice(0, rotate);
+        return asset.id.slice(rotate) + asset.id.slice(0, rotate);
     }
   };
   const way = sort.descending ? -1 : 1;
@@ -1247,20 +1243,19 @@ function sorted(assets: readonly AssetCard[], sort: WireSort | null): readonly A
     const a = keyOf(left);
     const b = keyOf(right);
     if (a !== b) return a < b ? -way : way;
-    return left.hash < right.hash ? -way : way;
+    return left.id < right.id ? -way : way;
   });
 }
 
 /** Keyset paging over a plain array, the way the engine does it over SQLite. */
 function pageOf(assets: readonly AssetCard[], limit: number, after: WireCursor | null): AssetPage {
-  const start = after === null ? 0 : assets.findIndex((asset) => asset.hash === after.hash) + 1;
+  const start = after === null ? 0 : assets.findIndex((asset) => asset.id === after.id) + 1;
   const slice = assets.slice(start, start + limit);
   const last = slice[slice.length - 1];
   return {
     assets: slice,
     // A short page is the last page, which is the rule the grid stops on.
-    next:
-      slice.length < limit || last === undefined ? null : { key: last.importedAt, hash: last.hash },
+    next: slice.length < limit || last === undefined ? null : { key: last.importedAt, id: last.id },
   };
 }
 

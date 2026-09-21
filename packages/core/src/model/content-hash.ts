@@ -5,18 +5,27 @@ declare const contentHashBrand: unique symbol;
 /**
  * A BLAKE3 content hash: exactly 64 lowercase hexadecimal characters.
  *
- * This is the identity of an asset — not its path, not its filename
- * (RL-11). It is branded rather than a bare `string`
- * because the whole system keys on it, and a "lowercase hex, 64 characters"
- * rule that lives only in a comment is a rule that is already broken.
+ * **Derived, never identity** (RL-18). Format 2 identifies an asset by its id
+ * (RL-13); a hash is a fact about the bytes, which are allowed to change under
+ * it at any time. It is kept because three things need one — duplicate
+ * detection at import (ADR-0037), Eagle's fill-what-is-empty rule (ADR-0032
+ * §8) and `doctor` — and RL-18 permits it provided it is never a filename,
+ * never an identity, and never a reason to refuse a file.
+ *
+ * BLAKE3 over the whole file, hexadecimal and lower case, as RL-18 recommends,
+ * so that two implementations comparing notes compare the same number. There is
+ * no partial scheme: it existed under version 1 so that a 4 GB video could be
+ * identified without reading it, and identity no longer comes from the bytes.
+ *
+ * Branded rather than a bare `string` because "lowercase hex, 64 characters" is
+ * a rule that has to hold wherever a hash is compared.
  */
 export type ContentHash = string & { readonly [contentHashBrand]: true };
 
 /**
- * Uppercase hex is rejected rather than folded. The spec stores the hash
- * lowercased and uses it as the on-disk filename, so accepting `A3F2…` here
- * would let two spellings of one asset exist — and on a case-insensitive
- * filesystem they would collide as files while remaining distinct as keys.
+ * Uppercase hex is rejected rather than folded, so that one file has one
+ * spelling of its hash and two rows cannot disagree about whether they hold the
+ * same bytes.
  */
 const CONTENT_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -29,17 +38,4 @@ export function parseContentHash(value: string): ContentHash {
     throw new InvalidContentHashError(value);
   }
   return value;
-}
-
-/**
- * The shard a hash belongs to: its first two hex characters, giving 256
- * buckets (RL-7).
- *
- * This returns a directory *name*, never a path. Turning a hash into a path is
- * reserved to a `Storage` implementation — `ARCHITECTURE.md` invariant 2 —
- * and this function exists so that the "first two characters" rule itself is
- * written down once.
- */
-export function shardOf(hash: ContentHash): string {
-  return hash.slice(0, 2);
 }

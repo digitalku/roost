@@ -36,7 +36,7 @@ import { FOCUSED, SELECTED, type SelectionStore } from "./selection.js";
  *
  * Pointer and keyboard handling live on the container, not on the cells. Four
  * hundred cells with three listeners each is twelve hundred closures to
- * allocate on every page; one listener reading `data-hash` off the event target
+ * allocate on every page; one listener reading `data-id` off the event target
  * is none.
  */
 
@@ -86,7 +86,7 @@ export interface FolderTiles {
    * drop is a move is the window's decision, as it is for the pane — and from
    * inside a folder it always is.
    */
-  readonly onDropAssets: (row: SidebarFolderRow, hashes: readonly string[], copy: boolean) => void;
+  readonly onDropAssets: (row: SidebarFolderRow, ids: readonly string[], copy: boolean) => void;
 }
 
 export interface GridProps {
@@ -98,7 +98,7 @@ export interface GridProps {
   readonly target: number;
   readonly selection: SelectionStore;
   readonly onMore: () => void;
-  readonly onOpen?: (hash: string) => void;
+  readonly onOpen?: (id: string) => void;
   /** The subfolders of the folder on screen, where there is one (ADR-0043). */
   readonly folders?: FolderTiles;
 }
@@ -134,7 +134,7 @@ export function Grid({
     const rows = folders?.rows ?? [];
     if (rows.length === 0) return assets;
     return [
-      ...rows.map((row) => ({ hash: folderTileId(row.folder), width: null, height: null })),
+      ...rows.map((row) => ({ id: folderTileId(row.folder), width: null, height: null })),
       ...assets,
     ];
   }, [assets, folders]);
@@ -161,7 +161,7 @@ export function Grid({
   // rather than a filter each of those has to remember. The arrow keys move
   // through the *layout's* order, which still holds them.
   useEffect(() => {
-    selection.setOrder(grid.order.map((tile) => tile.hash).filter((id) => !isFolderTile(id)));
+    selection.setOrder(grid.order.map((tile) => tile.id).filter((id) => !isFolderTile(id)));
   }, [grid, selection]);
 
   // Width and height come from the element, so the grid reflows with the window
@@ -241,14 +241,14 @@ export function Grid({
   useEffect(() => {
     const paint = (): void => {
       const element = viewport.current;
-      const hash = selection.focused;
+      const id = selection.focused;
       if (element === null) return;
-      if (hash === undefined) {
+      if (id === undefined) {
         element.removeAttribute("aria-activedescendant");
         element.removeAttribute("data-roving");
         return;
       }
-      element.setAttribute("aria-activedescendant", cellId(hash));
+      element.setAttribute("aria-activedescendant", cellId(id));
       // A cell is carrying the ring, so the frame gives up its own — the same
       // rule the cells already follow among themselves (`UI_SPEC.md` §6). It is
       // written here because it is the same fact as the line above, and for the
@@ -260,7 +260,7 @@ export function Grid({
       // would drag the grid out from under the drag.
       if (sweeping.current !== undefined) return;
 
-      const tile = grid.order.find((candidate) => candidate.hash === hash);
+      const tile = grid.order.find((candidate) => candidate.id === id);
       if (tile === undefined) return;
       const visibleTop = element.scrollTop;
       const visibleBottom = visibleTop + element.clientHeight;
@@ -285,7 +285,7 @@ export function Grid({
 
   const byHash = useMemo(() => {
     const map = new Map<string, AssetCard>();
-    for (const asset of assets) map.set(asset.hash, asset);
+    for (const asset of assets) map.set(asset.id, asset);
     return map;
   }, [assets]);
 
@@ -350,12 +350,12 @@ export function Grid({
     // A sweep selects assets. A folder tile it crosses is passed over rather
     // than picked up: the marquee's result is what the inspector and every edit
     // read (ADR-0043 §4).
-    const hashes = tilesIn(grid, rect)
-      .map((tile) => tile.hash)
+    const ids = tilesIn(grid, rect)
+      .map((tile) => tile.id)
       .filter((id) => !isFolderTile(id));
-    if (!same(hashes, sweep.swept)) {
-      sweep.swept = hashes;
-      selection.sweep(hashes, sweep.base);
+    if (!same(ids, sweep.swept)) {
+      sweep.swept = ids;
+      selection.sweep(ids, sweep.base);
     }
     setMarquee(rect);
 
@@ -416,7 +416,7 @@ export function Grid({
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      const hash = hashAt(event.target);
+      const id = hashAt(event.target);
 
       // The secondary button opens a menu over the selection, so it must not
       // collapse one. An asset already selected is left alone — right-clicking
@@ -424,12 +424,12 @@ export function Grid({
       // that is not becomes the selection, which is what every file manager
       // does.
       if (event.button === SECONDARY) {
-        if (hash === undefined) return selection.clear();
+        if (id === undefined) return selection.clear();
         // A folder is marked rather than selected, so the same rule reads one
         // step differently: right-clicking a tile makes it the marked one, and
         // the menu that opens over it is the folder's, not the assets'.
-        if (isFolderTile(hash)) return selection.focusOnly(hash);
-        if ((selection.stateOf(hash) & SELECTED) === 0) selection.click(hash);
+        if (isFolderTile(id)) return selection.focusOnly(id);
+        if ((selection.stateOf(id) & SELECTED) === 0) selection.click(id);
         return;
       }
 
@@ -441,20 +441,20 @@ export function Grid({
        * the double-click, which is what Explorer does — and what a hand that
        * learned Explorer will do whether or not this build agrees.
        */
-      if (hash !== undefined && isFolderTile(hash)) {
-        if (event.button === PRIMARY) selection.focusOnly(hash);
+      if (id !== undefined && isFolderTile(id)) {
+        if (event.button === PRIMARY) selection.focusOnly(id);
         return;
       }
 
-      if (hash === undefined) {
+      if (id === undefined) {
         // A press on the background is a sweep until it turns out to be a
         // click; the clear happens on release (`UI_SPEC.md` §6). Clearing here
         // instead would empty the inspector at the start of every drag.
         if (event.button === PRIMARY) return beginSweep(event);
         return selection.clear();
       }
-      if (event.shiftKey) return selection.extendTo(hash);
-      if (event.ctrlKey || event.metaKey) return selection.toggle(hash);
+      if (event.shiftKey) return selection.extendTo(id);
+      if (event.ctrlKey || event.metaKey) return selection.toggle(id);
 
       /*
        * A press on a cell that is **already selected** changes nothing yet.
@@ -469,11 +469,11 @@ export function Grid({
        * So the click is remembered and settled on release, unless a drag has
        * taken the press first.
        */
-      if ((selection.stateOf(hash) & SELECTED) !== 0) {
-        pendingClick.current = hash;
+      if ((selection.stateOf(id) & SELECTED) !== 0) {
+        pendingClick.current = id;
         return;
       }
-      selection.click(hash);
+      selection.click(id);
     },
     [selection, beginSweep],
   );
@@ -536,11 +536,11 @@ export function Grid({
     (event: React.MouseEvent<HTMLDivElement>) => {
       // The pointer-down that preceded this already selected and focused the
       // cell, so opening is all that is left to do.
-      const hash = hashAt(event.target);
-      if (hash === undefined) return;
-      const row = byFolder.get(hash);
+      const id = hashAt(event.target);
+      if (id === undefined) return;
+      const row = byFolder.get(id);
       if (row !== undefined) return folders?.onOpen(row);
-      onOpen?.(hash);
+      onOpen?.(id);
     },
     [onOpen, byFolder, folders],
   );
@@ -549,38 +549,38 @@ export function Grid({
    * The grid is a drag source (`UI_SPEC.md` §4.3).
    *
    * One listener on the container, like every other gesture here — `dragstart`
-   * bubbles, and the hash comes back off the DOM rather than out of four
+   * bubbles, and the id comes back off the DOM rather than out of four
    * hundred closures. What travels is the **selection**, not the cell under the
    * pointer: `pointerdown` has already run by the time a drag starts, and it
    * selects an unselected cell exactly as a right-click does, so dragging one
    * of twelve selected assets drags all twelve.
    *
-   * The payload is hashes under a Roost-only media type. `DropZone` takes a
+   * The payload is ids under a Roost-only media type. `DropZone` takes a
    * drop only when the types include `Files`, which an internal drag never
    * carries — so the import overlay stays out of the way without either of them
    * knowing about the other.
    */
   const onDragStart = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
-      const hash = hashAt(event.target);
-      if (hash === undefined) return;
+      const id = hashAt(event.target);
+      if (id === undefined) return;
       // A folder tile is not a drag source here. Re-parenting by dragging is
       // the tree's gesture (`UI_SPEC.md` §4.3) and ADR-0043 §5 leaves it there;
       // what must not happen is a folder id travelling as an asset payload.
-      if (isFolderTile(hash)) return event.preventDefault();
+      if (isFolderTile(id)) return event.preventDefault();
       // The press became a drag, so it was never a click: the selection stands
       // as it was, which is the whole point of deferring it.
       pendingClick.current = undefined;
       const dragged = selection.selected();
-      const hashes = dragged.includes(hash) ? dragged : [hash];
-      event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(hashes));
+      const ids = dragged.includes(id) ? dragged : [id];
+      event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(ids));
       // Both, because the drop decides which: into a folder from a folder is a
       // move, from anywhere else there is nothing to move out of.
       event.dataTransfer.effectAllowed = "copyMove";
 
       const cell = event.target instanceof Element ? event.target.closest(".cell") : null;
       if (cell !== null) {
-        const ghost = dragGhost(cell, hashes.length);
+        const ghost = dragGhost(cell, ids.length);
         event.dataTransfer.setDragImage(ghost, GHOST_ANCHOR, GHOST_ANCHOR);
         requestAnimationFrame(() => ghost.remove());
       }
@@ -633,8 +633,8 @@ export function Grid({
       markOver(null);
       if (row === undefined || !carriesAssets(event.dataTransfer)) return;
       event.preventDefault();
-      const hashes = draggedAssets(event.dataTransfer);
-      if (hashes.length > 0) folders?.onDropAssets(row, hashes, event.ctrlKey);
+      const ids = draggedAssets(event.dataTransfer);
+      if (ids.length > 0) folders?.onDropAssets(row, ids, event.ctrlKey);
     },
     [folderAt, folders, markOver],
   );
@@ -644,7 +644,7 @@ export function Grid({
       const direction = DIRECTIONS[event.key];
       if (direction !== undefined) {
         event.preventDefault();
-        const from = selection.focused ?? grid.order[0]?.hash;
+        const from = selection.focused ?? grid.order[0]?.id;
         if (from === undefined) return;
         const to = selection.focused === undefined ? from : moveFocus(grid, from, direction);
         if (to === undefined) return;
@@ -667,11 +667,11 @@ export function Grid({
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        const hash = selection.focused;
-        if (hash === undefined) return;
-        const row = byFolder.get(hash);
+        const id = selection.focused;
+        if (id === undefined) return;
+        const row = byFolder.get(id);
         if (row !== undefined) return folders?.onOpen(row);
-        onOpen?.(hash);
+        onOpen?.(id);
         return;
       }
       if (event.key === "a" && (event.ctrlKey || event.metaKey)) {
@@ -737,11 +737,11 @@ export function Grid({
             />
           )}
           {tiles.map((tile) => {
-            const row = byFolder.get(tile.hash);
+            const row = byFolder.get(tile.id);
             if (row !== undefined && folders !== undefined) {
               return (
                 <FolderContextMenu
-                  key={tile.hash}
+                  key={tile.id}
                   row={row}
                   onNewFolder={folders.onNewFolder}
                   onRename={folders.onRename}
@@ -765,10 +765,10 @@ export function Grid({
                 </FolderContextMenu>
               );
             }
-            const asset = byHash.get(tile.hash);
+            const asset = byHash.get(tile.id);
             return asset === undefined ? null : (
               <ConnectedCell
-                key={tile.hash}
+                key={tile.id}
                 asset={asset}
                 view={view}
                 x={tile.x}
@@ -806,7 +806,7 @@ interface Sweep {
 /** Whether a sweep found what it found last frame. Both are in result order. */
 function same(a: readonly string[], b: readonly string[] | undefined): boolean {
   if (b === undefined || a.length !== b.length) return false;
-  return a.every((hash, at) => hash === b[at]);
+  return a.every((id, at) => id === b[at]);
 }
 
 /** A computed length, or zero where there is no layout to read one from. */
@@ -826,7 +826,7 @@ const DIRECTIONS: Readonly<Record<string, Direction | undefined>> = {
  * The subscription, kept out of the cell.
  *
  * This is the per-cell subscription `UI_SPEC.md` §6 asks for: it wakes only
- * when this hash's state changes, and what it passes down are two booleans. The
+ * when this id's state changes, and what it passes down are two booleans. The
  * cell itself stays memo'd on primitives, so a wake that changes neither
  * re-renders nothing.
  */
@@ -847,13 +847,13 @@ function ConnectedCell({
   readonly height: number;
   readonly selection: SelectionStore;
 }): React.JSX.Element {
-  const subscribe = useMemo(() => selection.subscribe(asset.hash), [selection, asset.hash]);
-  const snapshot = useCallback(() => selection.stateOf(asset.hash), [selection, asset.hash]);
+  const subscribe = useMemo(() => selection.subscribe(asset.id), [selection, asset.id]);
+  const snapshot = useCallback(() => selection.stateOf(asset.id), [selection, asset.id]);
   const state = useSyncExternalStore(subscribe, snapshot, snapshot);
 
   return (
     <AssetCell
-      hash={asset.hash}
+      id={asset.id}
       name={asset.name}
       ext={asset.ext}
       posterMs={asset.posterMs}
@@ -865,7 +865,7 @@ function ConnectedCell({
       isSelected={(state & SELECTED) !== 0}
       isFocused={(state & FOCUSED) !== 0}
       view={view}
-      size={asset.size}
+      size={asset.size ?? 0}
       assetWidth={asset.width}
       assetHeight={asset.height}
       importedAt={asset.importedAt}
@@ -968,8 +968,8 @@ function dragGhost(cell: Element, count: number): HTMLElement {
 /** Half the ghost's side, so it hangs centred under the pointer. */
 const GHOST_ANCHOR = 32;
 
-/** The hash of the cell a pointer event landed in, if it landed in one. */
+/** The id of the cell a pointer event landed in, if it landed in one. */
 function hashAt(target: EventTarget): string | undefined {
   if (!(target instanceof Element)) return undefined;
-  return target.closest("[data-hash]")?.getAttribute("data-hash") ?? undefined;
+  return target.closest("[data-id]")?.getAttribute("data-id") ?? undefined;
 }

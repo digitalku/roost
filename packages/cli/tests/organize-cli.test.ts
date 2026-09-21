@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EXIT, run } from "@roost/cli";
-import { parseContentHash } from "@roost/core";
+import { parseAssetId } from "@roost/core";
 import { addSubtitles, Library, subtitles } from "@roost/library";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -47,7 +47,7 @@ describe("the organize commands", () => {
 
     await run(["init", root], capture().streams);
     await run(["import", source, "-L", root], capture().streams);
-    hashes = await ok("query", "", "--hashes");
+    hashes = await ok("query", "", "--ids");
   });
 
   afterEach(async () => {
@@ -62,7 +62,7 @@ describe("the organize commands", () => {
 
     // A listed row carries the hash prefix every other command accepts.
     const [first] = await ok("query", "alpha");
-    expect(first).toContain("alpha.png");
+    expect(first).toContain("alpha");
     expect(hashes.some((hash) => hash.startsWith((first ?? "").slice(0, 12)))).toBe(true);
   });
 
@@ -200,11 +200,11 @@ describe("the organize commands", () => {
   it("removes the row, deletes the bytes, and says how many came back", async () => {
     const out = await ok("remove", hashes[0] as string);
     expect(out.join("\n")).toContain("Freed ");
-    expect(out.join("\n")).toContain("from originals/");
+    expect(out.join("\n")).toContain("from files/");
     expect(await ok("query", "", "--count")).toEqual(["2"]);
     // The object went with the row (ADR-0031), so `doctor` has nothing left to
     // reclaim — which is the observable difference from the old behaviour.
-    expect((await ok("doctor")).join("\n")).not.toContain("Objects nothing references");
+    expect((await ok("doctor")).join("\n")).not.toContain("Files nothing references");
   });
 
   it("separates a wrong command line from a command that failed", async () => {
@@ -243,11 +243,11 @@ describe("the organize commands", () => {
     const [hash] = hashes;
     if (hash === undefined) throw new Error("nothing was imported");
     const shard = hash.slice(0, 2);
-    await rm(join(root, "originals", shard, `${hash}.png`));
+    await rm(join(root, "files", shard, `${hash}.png`));
 
     const damaged = capture();
     expect(await run(["doctor", "-L", root], damaged.streams)).toBe(EXIT.failed);
-    expect(damaged.out.join("\n")).toContain("Assets whose bytes are gone: 1");
+    expect(damaged.out.join("\n")).toContain("Assets whose file is gone: 1");
 
     // Reclaiming acts on the index's word, and the index is exactly what this
     // report says cannot be trusted.
@@ -267,7 +267,7 @@ describe("the organize commands", () => {
     await mkdir(clips, { recursive: true });
     await writeFile(join(clips, "clip.mp4"), "not really a video");
     await ok("import", clips);
-    const clip = (await ok("query", "ext:mp4", "--hashes"))[0] as string;
+    const clip = (await ok("query", "ext:mp4", "--ids"))[0] as string;
 
     expect(await ok("poster", clip)).toEqual([expect.stringContaining("default frame")]);
 
@@ -285,30 +285,23 @@ describe("the organize commands", () => {
     expect(await ok("poster", clip)).toEqual([expect.stringContaining("default frame")]);
   });
 
-  it("saves a file's bytes as an asset's new version", async () => {
-    // ADR-0005 again: the window can save an edit, so this can too — and the
-    // rebuild test needs a way to author a `supersede` without a window.
+  it("writes a file's bytes over an asset's own file", async () => {
+    // ADR-0005 again: the window can save an edit, so this can too. What it
+    // writes is the **same asset** (ADR-0046, superseding ADR-0026): version 1
+    // made a second one and marked the first superseded, because identity was
+    // the hash of the bytes and a save could not be a write.
     const replacement = join(dir, "replacement.png");
     await writeFile(replacement, "roost test payload edited");
     const first = hashes[0] as string;
 
     const saved = await ok("save", first, replacement);
-    expect(saved[0]).toContain("superseded by");
+    expect(saved[0]).toContain("now holds those bytes");
     expect(saved[0]).toContain("roost thumb");
 
-    // Out of every view but its own, which is what supersession means.
-    expect(await ok("query", "", "--hashes")).toHaveLength(3);
-    expect(await ok("query", "is:superseded", "--hashes")).toEqual([first]);
-
-    // The same bytes again write nothing, and say so rather than nothing.
-    const unchanged = join(dir, "unchanged.txt");
-    await writeFile(unchanged, "roost test payload, unchanged");
-    await ok("import", unchanged);
-    const other = (await ok("query", "ext:txt", "--hashes"))[0] as string;
-    expect((await ok("save", other, unchanged))[0]).toContain("already holds those bytes");
-
-    expect((await ok("save", first, "--clear"))[0]).toContain("current again");
-    expect(await ok("query", "", "--hashes")).toHaveLength(5);
+    // Three assets before and three after, with the same ids: nothing entered
+    // the library and nothing left it.
+    expect(await ok("query", "", "--ids")).toHaveLength(3);
+    expect(await ok("query", "", "--ids")).toContain(first);
   });
 
   it("says which subtitle captions which video, and un-says it", async () => {
@@ -320,8 +313,8 @@ describe("the organize commands", () => {
     await writeFile(join(media, "notes.srt"), "1\n00:00:01,000 --> 00:00:02,000\nHello.\n");
     await ok("import", media);
 
-    const film = (await ok("query", "ext:mkv", "--hashes"))[0] as string;
-    const track = (await ok("query", "ext:srt", "--hashes"))[0] as string;
+    const film = (await ok("query", "ext:mkv", "--ids"))[0] as string;
+    const track = (await ok("query", "ext:srt", "--ids"))[0] as string;
     expect(track).toBeDefined();
 
     expect((await ok("subtitle", film))[0]).toContain("no subtitles");
@@ -330,13 +323,13 @@ describe("the organize commands", () => {
     expect((await ok("subtitle", film))[0]).toContain("[id]");
 
     // An attached track leaves every view but its own (ADR-0025 §4).
-    expect(await ok("query", "ext:srt", "--hashes")).toEqual([]);
-    expect(await ok("query", "is:subtitle", "--hashes")).toEqual([track]);
-    expect(await ok("query", "is:captioned", "--hashes")).toEqual([film]);
+    expect(await ok("query", "ext:srt", "--ids")).toEqual([]);
+    expect(await ok("query", "is:subtitle", "--ids")).toEqual([track]);
+    expect(await ok("query", "is:captioned", "--ids")).toEqual([film]);
 
     // Detaching deletes nothing: the track becomes an ordinary text asset.
     expect((await ok("subtitle", film, track, "--detach"))[0]).toContain("no longer captions");
-    expect(await ok("query", "ext:srt", "--hashes")).toEqual([track]);
+    expect(await ok("query", "ext:srt", "--ids")).toEqual([track]);
   });
 
   it("attaches a subtitle sitting beside its film, without being asked", async () => {
@@ -348,11 +341,11 @@ describe("the organize commands", () => {
     await writeFile(join(media, "holiday.id.srt"), "1\n00:00:01,000 --> 00:00:02,000\nHalo.\n");
     await ok("import", media);
 
-    const film = (await ok("query", "ext:mp4", "--hashes"))[0] as string;
+    const film = (await ok("query", "ext:mp4", "--ids"))[0] as string;
     const listed = await ok("subtitle", film);
     expect(listed[0]).toContain("[id]");
     // The language came from the filename's suffix, not from a guess.
-    expect(await ok("query", "is:subtitle", "--hashes")).toHaveLength(1);
+    expect(await ok("query", "is:subtitle", "--ids")).toHaveLength(1);
   });
 
   it("imports and attaches in one step, which is what the CC menu sends", async () => {
@@ -362,44 +355,45 @@ describe("the organize commands", () => {
     await mkdir(media, { recursive: true });
     await writeFile(join(media, "movie.mp4"), "not really a film");
     await ok("import", join(media, "movie.mp4"));
-    const film = (await ok("query", "ext:mp4", "--hashes"))[0] as string;
+    const film = (await ok("query", "ext:mp4", "--ids"))[0] as string;
 
     const loose = join(dir, "elsewhere.id.srt");
     await writeFile(loose, "1\n00:00:01,000 --> 00:00:02,000\nHalo.\n");
 
     const library = await Library.open(root, { exclusive: true });
     try {
-      const added = await addSubtitles(library, parseContentHash(film), [
-        loose,
-        join(dir, "a.png"),
-      ]);
+      const added = await addSubtitles(library, parseAssetId(film), [loose, join(dir, "a.png")]);
       expect(added.attached).toBe(1);
       // What it declined comes back rather than disappearing: a drop onto an
       // open video is offered here first, and the rest has to reach the import
       // it was always going to (ADR-0025).
       expect(added.ignored).toEqual([join(dir, "a.png")]);
-      // Imported managed whatever the default is: a track referenced from a
-      // downloads folder disappears when that folder is tidied.
-      const [track] = subtitles(library, parseContentHash(film));
+      // Copied into the library, which is the only place an asset's bytes can
+      // be (RL-19): a track left in a downloads folder disappears when that
+      // folder is tidied.
+      const [track] = subtitles(library, parseAssetId(film));
       expect(track?.lang).toBe("id");
-      expect(library.db.repo.assetDetail(track?.trackHash as never)?.storageMode).toBe("managed");
+      expect(library.db.repo.findAsset(track?.trackId as never)?.ext).toBe("srt");
     } finally {
       await library.close();
     }
   });
 
-  it("refuses to save over an asset whose bytes are the user's own", async () => {
-    const kept = join(dir, "kept");
-    await mkdir(kept, { recursive: true });
-    await writeFile(join(kept, "notes.txt"), "not ours");
-    await ok("import", kept, "--mode", "referenced");
-    const referenced = (await ok("query", "is:referenced", "--hashes"))[0] as string;
+  it("refuses to save over an asset in the trash", async () => {
+    // Version 1 refused a `referenced` asset here, because its bytes were the
+    // user's own file in the user's own directory. There is one storage mode
+    // now (RL-19), so what is left to refuse is the gesture that has no meaning
+    // until the asset is restored.
+    const trashed = hashes[0] as string;
+    await ok("trash", trashed);
 
     const { streams, warn } = capture();
     const replacement = join(dir, "ours.txt");
     await writeFile(replacement, "ours now");
-    expect(await run(["save", referenced, replacement, "-L", root], streams)).toBe(EXIT.failed);
+    expect(await run(["save", trashed, replacement, "-L", root], streams)).toBe(EXIT.failed);
     expect(warn.join("\n")).toContain("[not_editable]");
+
+    await ok("trash", "--restore", trashed);
   });
 
   it("refuses a thumbnail moment on something with no frames", async () => {

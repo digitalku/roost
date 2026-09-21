@@ -4,7 +4,7 @@ Everything known to be outstanding, in priority order. `ROADMAP.md` holds the mi
 this file holds the working list, including the small things that surface during implementation
 and would otherwise be forgotten.
 
-Last reviewed: 2026-09-09. M5 and M6 are deferred at the user's request — feature work first,
+Last reviewed: 2026-09-21. M5 and M6 are deferred at the user's request — feature work first,
 and those two milestones get planned once the feature set has settled.
 
 Legend: 🔴 blocks other work · 🟡 do before the milestone it names · 🟢 whenever
@@ -30,6 +30,19 @@ stable at scaffold time — **43.4.1** as of 2026-08-24 — and records the Chro
 versions that came with it.
 
 Still open, and none of it blocks M0:
+
+- 🟢 **ADR-0046 was accepted on 2026-09-21**, the day it was proposed. The format moved to
+  **version 2** in
+  `../roost-library` on 2026-09-20 and this build now reads version 2 and nothing else: identity
+  is a minted id, `originals/` is `files/`, the two storage modes are one, `supersede` is gone,
+  and a version 1 library is refused by name. The user asked for both of the choices that were
+  theirs to make — **refuse and strip the v1 code** rather than park it, and **engine first**
+  until the conformance suite is green — and both are done.
+
+  One thing is left over, and it is not this repository's to fix: `../roost-library`
+  records this implementation as **discontinued on 2026-09-17** in `SPEC.md`'s lineage appendix.
+  That is that repository's line to change, not this one's, and it is now contradicted by the
+  work — so it wants a revision there.
 
 - 🟡 **ADR-0045 is proposed and not accepted.** The library format moved to `../roost-library`
   and `docs/STORAGE_SPEC.md` became the map from its `RL-n` to the code here. Everything the
@@ -67,9 +80,10 @@ Still open, and none of it blocks M0:
   setting has a home now: per-library in `settings.json`, with the application default in
   `configDir()` because the picker is drawn before any library is open (ADR-0019).
 
-- 🟢 **What happens to `../roost-old`.** It stays as the reference implementation and the source
-  of the cross-implementation test fixture. If it is meant to be archived instead, the fixture
-  has to be generated and committed here first.
+- 🟢 **What happens to `../roost-old`.** It wrote format 1, which nothing here reads any more
+  (ADR-0046), so it is no longer the source of any fixture — the conformance library in
+  `../roost-library` is. What it still is, is the reference implementation with real measurements
+  behind it: `../roost-old/docs/BENCHMARKS.md`. Archiving it now costs nothing.
 
 ## 2. Blocked on the environment
 
@@ -92,7 +106,7 @@ Two things that are no longer blocked, but are still easy to get wrong:
 - ☑ ~~**Video playback is still unverified against a real `<video>` element.**~~ Closed
   2026-09-02 while checking the comment strip: a 20-second H.264 clip played in a real window,
   reported its duration, and seeked twice on demand — served the whole way over
-  `roost://original`, which also exercises ADR-0008's range support for the first time.
+  `roost://file`, which also exercises ADR-0008's range support for the first time.
   - 🟡 **`ffmpeg`'s default encoder for `.mp4` here is MPEG-4 Part 2, and Chromium will not play
     it.** The first fixture produced `video.codec: mpeg4`, the element reported error 4
     (`SRC_NOT_SUPPORTED`), and it read exactly like a broken protocol handler — the content type
@@ -438,10 +452,13 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
     sidebar: the compound query has to be visible and editable in the field to be honest, and
     joining two queries with an implicit `AND` is grammar work that belongs in `@roost/search`.
 
-- 🟡 **The window imports in managed mode with no tags, and cannot say otherwise.** The request
-  carries both — the CLI has had `--mode` and `--tag` since M1 — and what is missing is where to
-  put them: the mode belongs in a preference (the application config that window state is also
-  waiting for) and the tags in an import dialog that does not exist yet.
+- 🟡 **The window imports by copying, with no tags, and cannot say otherwise.** The request
+  carries both — the CLI has `--take` and `--tag` — and what is missing is where to put them:
+  **move or copy** is a per-run choice a person should see (RL-26 requires the report say which
+  happened, and the window's report does not), and the tags want an import dialog that does not
+  exist yet. Restated 2026-09-21: `--mode managed|referenced` became `--take copy|move` with
+  ADR-0046, which changes the question from *where do the bytes live* to *what happens to the
+  source*, and makes it more worth asking rather than less.
 
 - 🟢 **`check-filters.mjs`'s facet-menu section is flaky.** Twice in nine runs on 2026-09-08 it
   failed to find a value in an open Tags menu — *"Tags has no olahraga"* once, *"never settled"* on
@@ -459,7 +476,7 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 - 🟢 **Trashing the file that is open leaves the pane drawing it.** The same family as the fix
   above, and left alone deliberately: `onGone` clears the selection, the ring survives, and the pane
-  goes on serving a trashed asset over `roost://original/`. Unlike a query, a trash has two
+  goes on serving a trashed asset over `roost://file/`. Unlike a query, a trash has two
   defensible answers — close the pane, or step to the next asset the way the arrows do — so it is a
   decision rather than a patch. Noticed 2026-09-08.
 
@@ -694,11 +711,14 @@ Four things asked for together: a context menu on the grid's **empty space**, ca
 types, and a text file — plus text assets that Roost displays and **edits itself**, `.srt` included
 (ADR-0025).
 
-**All of it meets the same wall, and the wall is invariant 1.** Identity is the content hash, so
-"edit this file" cannot mean here what it means in a file manager. Changed bytes are a *different
-asset*: a different hash, a different path in `originals/`, a different row. **ADR-0026 decides
-what an edit is** — accepted 2026-09-03 — and its stage 1 is built: a `text` kind and a read-only
-viewer, which needed no schema at all.
+**The wall this met is gone.** Until 2026-09-21 identity was the content hash, so "edit this
+file" could not mean here what it means in a file manager: changed bytes were a *different asset*,
+a different path, a different row, and ADR-0026 existed to say what that meant. **ADR-0046
+removed the premise.** Identity is a minted id (RL-13), a file in `files/` is expected to change
+(RL-20), and everything about the bytes is derived rather than journalled (RL-23) — so a save is
+an ordinary write, and `supersede`, `superseded_by`, `is:superseded` and `carryOver` are all
+gone. What is still true is the 2026-09-04 withdrawal: **no text editor in the window**, because
+an external one is enough.
 
 - 🟢 **A text asset has no thumbnail**, so it fails its derive job with `unsupported:text` exactly
   as a `.zip` does. Unchanged behaviour — it was `unsupported:unknown` before — but now that text
@@ -706,24 +726,23 @@ viewer, which needed no schema at all.
   grid would stop showing a wall of identical extension badges. Not scheduled; written down so it
   is a choice rather than an oversight.
 
-- 🟢 **Adopting a referenced asset has no operation, and now nothing asks for one.** Raised as a
-  🔴 on 2026-09-03 because ADR-0026 §3 offered *Duplicate into library to edit* beside a read-only
-  editor — and that offer could not be honoured: identical bytes are one asset by invariant 1, so
-  importing a referenced original in managed mode deduplicates into the row that already exists
-  and changes nothing. **The editor was withdrawn on 2026-09-04, and the question went with it**:
-  nothing in the window offers the gesture. What remains is smaller and blocks nothing — `roost
-  save` refuses a referenced asset, and the only way to change that honestly is an *adopt*
-  operation that copies the bytes into `originals/` and changes `storage_mode`, which would be the
-  first op to change an existing row's mode and wants its own journal line. Not scheduled; written
-  down so the reasoning is not rediscovered.
+- 🟢 **Closed 2026-09-21 by ADR-0046: adopting a referenced asset.** There is no referenced
+  mode to adopt out of — version 2 has one storage mode (RL-19). The question is gone rather than
+  answered, which is worth the line so nobody reopens it.
 
-- 🟡 **Editing a `.srt` will have to move its attachment**, and ADR-0025 already has the pair that
-  does it:
-  `subtitle_detach` the old hash, `subtitle_attach` the new one, in the same journal batch. Worth
-  noting because it is the first evidence that "an edit is a new asset plus a fix-up of what
-  pointed at the old one" is a rule the rest of the schema can follow — tags, folders, rating,
-  comments and poster **now do travel that way**, in `carryOver`, and a subtitle attachment is the
-  one thing that will have to join them when ADR-0025 lands.
+- 🟢 **Closed 2026-09-21 by ADR-0046: moving a `.srt`'s attachment when it is edited.** It was
+  the first evidence that "an edit is a new asset plus a fix-up of everything that pointed at the
+  old one" would have to become a rule the whole schema follows. It does not: an edit keeps the
+  id, so nothing points anywhere new, and `carryOver` was deleted along with `supersede`.
+
+- 🔴 **Editing in place, from the window, is not built.** The format is a workspace's (RL-20,
+  RL-21) and this build's engine conforms, but nothing on screen opens a file in the application
+  that owns it, and nothing notices when that application saves. Four pieces, none started:
+  *Open with…* on the grid and the preview; a **watcher** over `files/` that reruns derive on an
+  mtime change; **RL-9b's rename-on-disk**, which is what lets a person's rename survive a round
+  trip through a file manager; and **watched roots as a running daemon** — `watch_add` and
+  `watch_remove` are journalled and replayed already, and nothing acts on them. Held back
+  deliberately on 2026-09-21: the user chose engine-first, and the suite is what "done" meant.
 
 ### Format breadth (M4) — done 2026-08-29
 
@@ -768,33 +787,42 @@ viewer, which needed no schema at all.
 - 🟢 **Every existing library folds once**, on its first open after ADR-0045, because no `index.db`
   yet carries a mark. Thumbnails survive it — the fold does not empty the index — but a large
   library will open slowly exactly once. Nothing to do; written down so the next person to see it
-  does not go looking for a bug.
+  does not go looking for a bug. **Moot as of 2026-09-21**: no library that predates ADR-0046
+  opens here at all.
 
 - 🟢 **Two findings belong to `../roost-library`, not here.** Its `.gitattributes` guards
   `conformance/library/**` and the directory is `conformance/library.roost/`, so the fixture's
   byte-exactness — including the deliberately truncated last line — is protected by nothing. And
-  RL-3 forbids unlisted names in the library root while SQLite in WAL mode always writes
-  `index.db-wal` and `index.db-shm` beside `index.db`; they are plainly part of the cache RL-2
-  puts outside the format, and the requirement does not say so. Both are raised there, as a
-  revision.
+  the reserved-names rule forbids unlisted names in the library root while SQLite in WAL mode
+  always writes `index.db-wal` and `index.db-shm` beside `index.db`; they are plainly part of the
+  cache the format puts outside itself, and the requirement does not say so. Both are raised
+  there, as a revision. **Still true of version 2** (RL-4, RL-56).
 
-- 🟢 **Portable `referenced` libraries are open in the format** (`SPEC.md` §11.1) and this
-  implementation **must not invent source roots** while they are. Two implementations inventing
-  them differently is worse than neither having them.
+- 🟢 **Two questions the standard leaves open, and what this build does about them.**
+  `SPEC.md` §11.1 — *does removing an asset delete its file?* — is open; this build **deletes**,
+  as ADR-0031 decided, and version 2 raises the stakes because an orphan in `files/` is now
+  something RL-11 and RL-12 both have opinions about. §11.4 — *does a tag with no assets
+  survive?* — is open too; this build **keeps** it. Neither may be settled from here; if the
+  standard answers differently, the behaviour changes and the data does not.
+
+- 🟢 **The portable-`referenced` question went away.** It was open in version 1's §11.1 and this
+  implementation was forbidden from inventing source roots while it was. Version 2 has one
+  storage mode, so there is nothing to make portable.
 
 ### Deferred by design
 
 - 🟢 **Journal compaction.** The journal grows monotonically. ADR-0003 leaves compaction out of
   v1 deliberately; revisit only with measurements, and only as a new rotated file.
 
-- 🟢 **Partial-to-full hash upgrade.** It changes the primary key *and* the on-disk filename, so
-  it must be a journalled operation — and **the format defines no operation for it**
-  (`SPEC.md` §11.3, listed as undefined rather than forgotten). Nothing here may invent one: it is
-  proposed against that repository first.
+- 🟢 **Closed 2026-09-21 by ADR-0046: the partial-to-full hash upgrade, and byte-verifying a
+  referenced duplicate.** Both were consequences of the hash being the primary key. It is not,
+  there is no partial scheme, and there is no referenced mode — three entries collapse into
+  nothing to do.
 
-- 🟢 **A referenced original cannot be byte-verified** on a partial-hash duplicate, because
-  there is no object store to compare against. It is merged on probability. Reaching it needs
-  the asset's `ref_path` at the point the duplicate is decided.
+- 🟢 **Version history is undefined in the format** (`SPEC.md` §11.2) and `versions/` is reserved
+  against the day it is not. Editing in place leaves no record that an edit happened (RL-23), so
+  a history would need an operation, and **nothing here may invent one**. Written down because
+  losing the previous bytes is the obvious cost of the workspace model and somebody will ask.
 
 - 🟢 **The grid shows no sign that an asset carries comments.** ADR-0023 left it undecided. It
   would be a badge on the cell and one more column in the page query, which is the part that needs
@@ -834,8 +862,8 @@ viewer, which needed no schema at all.
     is `dbus-send` and `xdg-open` behind a `requireLinux`. Both are the whole of the port — the
     known-locations branch and the `explorer /select,` equivalent.
   - **What is already right needs no work.** `COPYFILE_FICLONE_FORCE` answers `ENOTSUP` there and
-    the ladder in `storage/managed.ts` falls to hardlink and then copy, so `link_method` stays
-    truthful (ADR-0012); ffmpeg is absent gracefully (ADR-0017); pdfium and resvg are WebAssembly;
+    `FileStore` falls to a plain copy, so the placement reported is the placement that happened
+    (ADR-0012); ffmpeg is absent gracefully (ADR-0017); pdfium and resvg are WebAssembly;
     and the GLib collision ADR-0013 was written for cannot happen where there is no system GLib,
     which is why the prebuilt `sharp` is the right one there.
   - **Two small things would break the install rather than the app.** The unconditional
@@ -862,7 +890,7 @@ viewer, which needed no schema at all.
   retrying does not help — the operation cache holds it for the life of the process. Two test
   cleanups tolerate it (`media.test.ts`, `cli/tests/cli.test.ts`) and the product knows nothing
   about it. **`Delete permanently` (ADR-0031) is the path that would meet it**, and so would a
-  `save` that supersedes an asset. The knob is `sharp.cache({ files: 0 })`, which is a performance
+  `save`, which since ADR-0046 writes over the file libvips may still be holding. The knob is `sharp.cache({ files: 0 })`, which is a performance
   change and therefore wants a measurement rather than a guess (`CLAUDE.md` §8). Invisible on Linux.
 
 - 🟡 **`roost import` says nothing when a path it was given does not exist.** Measured 2026-09-13:
@@ -924,6 +952,21 @@ viewer, which needed no schema at all.
   the first to lose a race for the machine. Not caused by that day's work — nothing in it touches
   the import path — but a suite that fails one run in three is a suite people stop reading.
 
+- 🟡 **`check-grid.mjs` and `check-folders.mjs` fail on their synthetic drags on Windows.**
+  Seen 2026-09-21 after the format-2 port: the marquee section reports no sweep and the folder
+  check reports *"no drag was intercepted"*, while every other window check passes — sandbox,
+  trash, journal-notice, about, failures, panes and filters are all green. Probes driven through
+  the same harness proved click selection, the fills and the drop targets all work in a real
+  window, so the failure looks to be in the **synthetic pointer sequence CDP dispatches** rather
+  than in the grid, and nothing in the port touched drag handling. It wants either a Linux run to
+  confirm the platform split or a reworked gesture in `scripts/lib/`; until then a red run there
+  means checking it by hand before believing it.
+
+- 🟡 **`packages/media/src/derive.test.ts` fails on Windows with `EBUSY` on an animated GIF.**
+  It pre-dates the format-2 work and is untouched by it — the same libvips mapping described
+  under *Running it from a checkout*. It is the one failing test in an otherwise green suite, and
+  the reason `pnpm verify` reports 1 failed rather than 0.
+
 ## 4. Lessons carried over — do not re-learn these
 
 Each of these cost `roost-old` real time. They are written here rather than left in that
@@ -935,14 +978,15 @@ repository's session log, because a lesson nobody rereads is a lesson nobody has
    climb in paging cost read as noise for a day; the first bench run found it immediately.
 3. **A filtered list query will sort its whole match set to produce one screen** unless the sort
    key is inside the filter index. 18.9 ms against 0.51 ms, on the most ordinary query in the
-   app. Migration 0005 exists for this and is carried over.
+   app. The baseline schema's filter indexes carry the sort key for this reason.
 4. **Keyset paging needs a tie-break column.** `imported_at` is not unique — a bulk import
    writes thousands of rows in the same second — and without the tie-break, paging shows an
    asset twice or skips it.
 5. **A preview that does not move the selection writes notes onto the wrong asset.**
-6. **Partial-hash duplicates cannot be caught by comparing sizes.** The size is hashed as the
-   prefix, so equal partial hashes imply equal sizes. Byte-verify instead, and refuse on a
-   mismatch rather than merging.
+6. **A fact derived from the bytes must never reach the journal.** Version 1 journalled size,
+   dimensions and link method, and none of them could survive a file being edited in place — the
+   journal is append-only, so a fact written into it that later changes is a fact the rebuild
+   will get wrong forever. RL-23 forbids it; the reason is worth keeping without the rule.
 7. **Cross-compiling a project with native dependencies checks the C toolchain, not your code.**
    `roost-old`'s portability job could only ever fail before it reached anything worth checking.
    Build native modules on the platform they target.

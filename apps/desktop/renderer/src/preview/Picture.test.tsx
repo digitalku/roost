@@ -28,7 +28,7 @@ function Harness(): React.JSX.Element {
   return (
     <>
       <div ref={setTools} />
-      <Picture detail={DETAIL} src="roost://original/one" controls={tools} />
+      <Picture detail={DETAIL} src="roost://file/one" controls={tools} />
     </>
   );
 }

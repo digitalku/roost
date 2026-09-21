@@ -25,15 +25,15 @@ import type {
 } from "@roost/contract";
 import {
   type AssetDetail,
+  type AssetId,
   type CommentRow,
-  type ContentHash,
   type Cursor,
   lastCursor,
   logger,
-  parseContentHash,
+  parseAssetId,
   type SearchHit,
-  type StorageMode,
   type SubtitleRow,
+  type Take,
 } from "@roost/core";
 import {
   addComment,
@@ -125,7 +125,7 @@ export class EngineHost {
    * hand back. It is replaced by the next run and dropped with the library, so
    * a dialog left open across either is answered with `expired`.
    */
-  #duplicates: ContentHash[] | undefined;
+  #duplicates: AssetId[] | undefined;
 
   /**
    * Answers one request.
@@ -245,44 +245,36 @@ export class EngineHost {
 
       case "asset:detail": {
         const library = this.#require();
-        const found = library.db.repo.assetDetail(parseContentHash(request.hash));
+        const found = library.db.repo.assetDetail(parseAssetId(request.id));
         if (found === undefined) return null;
         // The preview size is made on first use, which is what asking for an
         // asset's detail is: the inspector and the preview pane both draw
         // `@512`, and generating it for every asset up front would be 34 GB at
         // a million (`serving.ts`). One asset, and only if it already has a
         // grid thumbnail — proof that something here can draw it.
-        await ensurePreview(library, request.hash);
+        await ensurePreview(library, request.id);
         return detailOf(
           found,
-          library.db.repo.commentsFor(found.hash),
-          library.db.repo.subtitlesFor(found.hash),
+          library.db.repo.commentsFor(found.id),
+          library.db.repo.subtitlesFor(found.id),
         );
       }
 
       case "asset:summary":
-        return this.#require().db.repo.selectionSummary(hashes(request.hashes));
+        return this.#require().db.repo.selectionSummary(ids(request.ids));
 
       case "asset:rate":
-        return this.#edit(() => rate(this.#require(), hashes(request.hashes), request.rating));
+        return this.#edit(() => rate(this.#require(), ids(request.ids), request.rating));
 
       case "asset:note":
-        return this.#edit(() =>
-          setNote(this.#require(), parseContentHash(request.hash), request.note),
-        );
+        return this.#edit(() => setNote(this.#require(), parseAssetId(request.id), request.note));
 
       case "asset:source":
-        return this.#edit(() =>
-          setSource(this.#require(), parseContentHash(request.hash), request.url),
-        );
+        return this.#edit(() => setSource(this.#require(), parseAssetId(request.id), request.url));
 
       case "asset:poster":
         return this.#edit(async () => {
-          const pinned = await setPoster(
-            this.#require(),
-            parseContentHash(request.hash),
-            request.atMs,
-          );
+          const pinned = await setPoster(this.#require(), parseAssetId(request.id), request.atMs);
           // The picture is not made here: the service queues the derive at
           // interactive priority and this works the queue in the background,
           // which is the same path a rebuild takes. Nothing to work when the
@@ -295,13 +287,14 @@ export class EngineHost {
         // filename anything found on disk. What it writes is the ordinary
         // `add`, so nothing downstream has to know the difference.
         return this.#editReporting(async () => {
-          const made = await createAsset(
+          const id = await createAsset(
             this.#require(),
             request.name,
             new TextEncoder().encode(request.text),
           );
-          if (made.created) void this.#runDerives();
-          return made;
+          // Always a new asset in version 2, so the derive always has work.
+          void this.#runDerives();
+          return { id };
         });
 
       case "asset:addSubtitle":
@@ -309,40 +302,34 @@ export class EngineHost {
         // and "three were" are different outcomes of the same gesture and the
         // status bar says which.
         return this.#editReporting(() =>
-          addSubtitles(this.#require(), parseContentHash(request.hash), request.paths),
+          addSubtitles(this.#require(), parseAssetId(request.id), request.paths),
         );
 
       case "asset:subtitleDelete":
         return this.#edit(() =>
-          deleteSubtitle(
-            this.#require(),
-            parseContentHash(request.hash),
-            parseContentHash(request.track),
-          ),
+          deleteSubtitle(this.#require(), parseAssetId(request.id), parseAssetId(request.track)),
         );
 
       case "asset:rename":
         return this.#edit(() =>
-          renameAsset(this.#require(), parseContentHash(request.hash), request.name),
+          renameAsset(this.#require(), parseAssetId(request.id), request.name),
         );
 
       case "asset:tagAdd":
-        return this.#edit(() => tagAdd(this.#require(), hashes(request.hashes), request.tags));
+        return this.#edit(() => tagAdd(this.#require(), ids(request.ids), request.tags));
 
       case "asset:tagRemove":
-        return this.#edit(() => tagRemove(this.#require(), hashes(request.hashes), request.tags));
+        return this.#edit(() => tagRemove(this.#require(), ids(request.ids), request.tags));
 
       // Both raise on a folder that is not there rather than doing nothing:
       // a window offering a folder the library has lost is a window reading a
       // stale tree, and silence would leave it reading one.
       case "asset:folderAdd":
-        return this.#edit(() =>
-          addToFolder(this.#require(), hashes(request.hashes), request.folder),
-        );
+        return this.#edit(() => addToFolder(this.#require(), ids(request.ids), request.folder));
 
       case "asset:folderRemove":
         return this.#edit(() =>
-          removeFromFolder(this.#require(), hashes(request.hashes), request.folder),
+          removeFromFolder(this.#require(), ids(request.ids), request.folder),
         );
 
       // The tree's own three (ADR-0033). `create` answers with the id because
@@ -376,7 +363,7 @@ export class EngineHost {
         return this.#edit(async () => {
           await addComment(
             this.#require(),
-            parseContentHash(request.hash),
+            parseAssetId(request.asset),
             request.atMs,
             request.body,
           );
@@ -391,16 +378,16 @@ export class EngineHost {
         return this.#edit(() => removeComment(this.#require(), request.id));
 
       case "assets:trash":
-        return this.#edit(() => trashAssets(this.#require(), hashes(request.hashes)));
+        return this.#edit(() => trashAssets(this.#require(), ids(request.ids)));
 
       case "assets:restore":
-        return this.#edit(() => restoreAssets(this.#require(), hashes(request.hashes)));
+        return this.#edit(() => restoreAssets(this.#require(), ids(request.ids)));
 
       case "assets:remove":
         // Reporting, because the bytes freed are the half of this that used to
         // be missing (ADR-0031): a person deleting to make room needs to see
         // that room appear.
-        return this.#editReporting(() => removeAssets(this.#require(), hashes(request.hashes)));
+        return this.#editReporting(() => removeAssets(this.#require(), ids(request.ids)));
 
       case "assets:emptyTrash":
         return this.#editReporting(() => emptyTrash(this.#require()));
@@ -424,7 +411,7 @@ export class EngineHost {
       }
 
       case "import:paths":
-        return this.#import(request.paths, request.mode, request.tags, request.folder);
+        return this.#import(request.paths, request.take, request.tags, request.folder);
 
       case "import:fileDuplicates":
         return this.#fileDuplicates(request.folder);
@@ -435,7 +422,7 @@ export class EngineHost {
         return wireSurvey(await surveyEagle(request.path));
 
       case "eagle:import":
-        return this.#importEagle(request.path, request.mode);
+        return this.#importEagle(request.path, request.take);
 
       case "derive:status":
         return this.#deriveStatus();
@@ -489,7 +476,7 @@ export class EngineHost {
         // No journal line: nothing about the library changed. An export reads
         // the store and writes outside it, which is the one direction that is
         // not a mutation.
-        return exportAssets(this.#require(), hashes(request.hashes), request.destination);
+        return exportAssets(this.#require(), ids(request.ids), request.destination);
 
       case "clipboard:paste":
       case "clipboard:copyText":
@@ -529,11 +516,11 @@ export class EngineHost {
    */
   #page(query: string, limit: number, after: WireCursor | null, sort: WireSort | null): AssetPage {
     const library = this.#require();
-    // `parseContentHash` rather than a cast: the contract already checked the
+    // `parseAssetId` rather than a cast: the contract already checked the
     // shape, and this is the engine checking it again at its own boundary —
     // which is the boundary ADR-0007 says matters.
     const cursor: Cursor | undefined =
-      after === null ? undefined : { key: after.key, hash: parseContentHash(after.hash) };
+      after === null ? undefined : { key: after.key, id: parseAssetId(after.id) };
 
     // Spread rather than assigned: `exactOptionalPropertyTypes` makes an
     // explicit `after: undefined` a different thing from an absent one.
@@ -545,7 +532,7 @@ export class EngineHost {
     const last = hits.length < limit ? undefined : lastCursor(hits);
     return {
       assets: hits.map(cardOf),
-      next: last === undefined ? null : { key: last.key, hash: last.hash },
+      next: last === undefined ? null : { key: last.key, id: last.id },
     };
   }
 
@@ -564,14 +551,14 @@ export class EngineHost {
    */
   async #import(
     paths: readonly string[],
-    mode: StorageMode,
+    take: Take,
     tags: readonly string[],
     folder: number | null,
   ): Promise<WireImportReport> {
     const library = this.#require();
     let announced = 0;
 
-    const options = { mode, tags: [...tags], ...(folder === null ? {} : { folder }) };
+    const options = { take, tags: [...tags], ...(folder === null ? {} : { folder }) };
     const report = await importInto(library, paths, options, (_path, running) => {
       if (handled(running) - announced < PROGRESS_EVERY) return;
       announced = handled(running);
@@ -593,7 +580,7 @@ export class EngineHost {
     // Kept only once the run finished. A run that threw has no answer to
     // offer, and leaving the previous run's list in place would offer the
     // wrong one.
-    this.#duplicates = report.duplicateHashes;
+    this.#duplicates = report.duplicateIds;
 
     this.onChanged?.();
     return reportOf(report, derived?.derived ?? 0);
@@ -636,10 +623,10 @@ export class EngineHost {
    * files — a video and the `.srt` beside it — and the number somebody watches
    * is the one that matches the number the survey showed them.
    */
-  async #importEagle(path: string, mode: StorageMode): Promise<WireEagleReport> {
+  async #importEagle(path: string, take: Take): Promise<WireEagleReport> {
     const library = this.#require();
 
-    const report = await importEagle(library, path, { mode }, (done, total) => {
+    const report = await importEagle(library, path, { take }, (done, total) => {
       this.onProgress?.({
         scanned: done,
         imported: done,
@@ -879,9 +866,7 @@ function statsOf(library: Library): LibraryStats {
   const counts = library.stats();
   return {
     assets: counts.assets,
-    managed: counts.managed,
-    referenced: counts.referenced,
-    partialHashes: counts.partialHashes,
+    underived: counts.underived,
     totalBytes: counts.totalBytes,
     tags: counts.tags,
     tagGroups: counts.tagGroups,
@@ -897,14 +882,14 @@ function statsOf(library: Library): LibraryStats {
 /**
  * One row, mapped field by field onto the wire shape.
  *
- * `origName` becomes `name`: the wire calls it what the grid draws, and the
- * column keeps the name that says it is the user's original (ADR-0007 — the
- * duplication is the boundary).
+ * Field by field rather than by spreading, because the wire shape and the row
+ * shape are allowed to differ and this is the place that has to notice when
+ * they do (ADR-0007 — the duplication is the boundary).
  */
 function cardOf(hit: SearchHit): AssetPage["assets"][number] {
   return {
-    hash: hit.hash,
-    name: hit.origName,
+    id: hit.id,
+    name: hit.name,
     ext: hit.ext,
     kind: kindOf(formatFromExtension(hit.ext)) satisfies AssetKind,
     size: hit.size,
@@ -1038,8 +1023,8 @@ function check(library: Library, query: string): QueryCheck {
 }
 
 /** Content hashes, re-checked at the engine's own boundary (ADR-0007). */
-function hashes(values: readonly string[]): ContentHash[] {
-  return values.map(parseContentHash);
+function ids(values: readonly string[]): AssetId[] {
+  return values.map(parseAssetId);
 }
 
 /**
@@ -1055,8 +1040,8 @@ function detailOf(
   tracks: readonly SubtitleRow[],
 ): WireAssetDetail {
   return {
-    hash: detail.hash,
-    name: detail.origName,
+    id: detail.id,
+    name: detail.name,
     ext: detail.ext,
     kind: kindOf(formatFromExtension(detail.ext)) satisfies AssetKind,
     browserDrawable: isBrowserDrawable(formatFromExtension(detail.ext)),
@@ -1064,13 +1049,11 @@ function detailOf(
     posterMs: detail.posterMs,
     width: detail.width,
     height: detail.height,
-    storageMode: storageMode(detail.storageMode),
-    refPath: detail.refPath,
-    isPartialHash: detail.isPartialHash,
+    contentHash: detail.contentHash,
+    derivedAt: detail.derivedAt,
     createdAt: detail.createdAt,
     importedAt: detail.importedAt,
     trashedAt: detail.trashedAt,
-    supersededBy: detail.supersededBy,
     rating: detail.rating,
     note: detail.note,
     sourceUrl: detail.sourceUrl,
@@ -1081,7 +1064,7 @@ function detailOf(
     props: detail.props,
     comments: comments.map(commentOf),
     subtitles: tracks.map((track) => ({
-      hash: track.trackHash,
+      id: track.trackId,
       lang: track.lang,
       label: track.label,
       name: track.name,
@@ -1112,13 +1095,6 @@ function commentOf(row: CommentRow): WireComment {
   };
 }
 
-function storageMode(value: string): StorageMode {
-  if (value !== "managed" && value !== "referenced") {
-    throw new Error(`unknown storage mode in the index: ${value}`);
-  }
-  return value;
-}
-
 /**
  * How many files pass before another progress event is sent.
  *
@@ -1147,8 +1123,8 @@ function progressOf(report: ImportReport, thumbnails: number): ImportProgress {
   return {
     scanned: report.scanned,
     imported: report.imported,
-    duplicates: report.duplicates + report.partialDuplicates,
-    failed: report.failed.length + report.partialCollisions,
+    duplicates: report.duplicates,
+    failed: report.failed.length,
     thumbnails,
     // The walk is what produces the total, so there is nothing honest to say
     // here until it has finished — see {@link ImportProgress.total}.
@@ -1167,8 +1143,8 @@ function reportOf(report: ImportReport, thumbnails: number): WireImportReport {
     scanned: report.scanned,
     imported: report.imported,
     duplicates: report.duplicates,
-    partialDuplicates: report.partialDuplicates,
-    partialCollisions: report.partialCollisions,
+    moved: report.moved,
+    copied: report.copied,
     bytes: report.bytes,
     subtitles: report.subtitles,
     subtitlesUnattached: report.subtitlesUnattached,

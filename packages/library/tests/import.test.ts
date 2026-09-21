@@ -1,14 +1,13 @@
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseContentHash, shardOf } from "@roost/core";
+import { monthKey, shardOf, withoutDerived } from "@roost/core";
 import {
   count,
   createFolder,
   generateMissing,
   importInto,
   Library,
-  PartialHashCollisionError,
   queueStatus,
   retryFailed,
   subtitles,
@@ -50,8 +49,8 @@ describe("importing", () => {
     // (ADR-0022).
     const path = await picture("returning.png", 7);
     await importInto(library, [path]);
-    await tagAdd(library, library.db.repo.allHashes(), ["kept"]);
-    await trashAssets(library, library.db.repo.allHashes());
+    await tagAdd(library, library.db.repo.allIds(), ["kept"]);
+    await trashAssets(library, library.db.repo.allIds());
     expect(count(library, "is:trashed")).toBe(1);
 
     const again = await importInto(library, [path]);
@@ -65,7 +64,7 @@ describe("importing", () => {
     expect(count(library, "tag:kept")).toBe(1);
   });
 
-  it("indexes what it walked, and puts the bytes where the hash says", async () => {
+  it("indexes what it walked, and puts the bytes where the id says", async () => {
     await picture("one.png", 1);
     await picture("two.png", 2);
     await picture("nested/three.jpg", 3, "jpeg");
@@ -76,31 +75,53 @@ describe("importing", () => {
     expect(report.imported).toBe(3);
     expect(report.failed).toEqual([]);
     expect(library.stats().assets).toBe(3);
-    expect(library.stats().managed).toBe(3);
+    // Copied by default, and the report says so because RL-26 requires it.
+    expect(report.copied).toBe(3);
+    expect(report.moved).toBe(0);
 
-    // Every asset's bytes are at the one path the store derives from its hash,
-    // under a single shard level.
-    for (const hash of library.db.repo.allHashes()) {
-      const detail = library.db.repo.assetDetail(hash);
-      const path = library.storageFor("managed").locate(hash, detail?.ext ?? "");
-      expect(path).toContain(join("originals", shardOf(hash)));
+    // Every asset's bytes are at the one path the store derives from its id,
+    // under a single shard level (RL-8, RL-9).
+    for (const id of library.db.repo.allIds()) {
+      const detail = library.db.repo.assetDetail(id);
+      const path = library.storage.locate(id, detail?.ext ?? "");
+      expect(path).toContain(join("files", shardOf(id)));
       await expect(stat(path)).resolves.toBeTruthy();
     }
   });
 
-  it("records dimensions, the source mtime, and the display name", async () => {
+  it("records the source date in the journal and the rest in the index", async () => {
     const path = await picture("portrait.png", 7);
     await importInto(library, [path]);
 
-    const [hash] = library.db.repo.allHashes();
-    expect(hash).toBeDefined();
-    if (hash === undefined) return;
+    const [id] = library.db.repo.allIds();
+    expect(id).toBeDefined();
+    if (id === undefined) return;
 
-    const detail = library.db.repo.assetDetail(hash);
-    expect(detail).toMatchObject({ origName: "portrait.png", ext: "png", width: 120, height: 80 });
-    // The library's own copy is stamped with the import time, so the source
-    // mtime is unrecoverable once it is placed — which is why it is journalled.
+    const detail = library.db.repo.assetDetail(id);
+    // The name carries no extension (RL-33): what a window shows is this name
+    // joined to the extension it finds on disk.
+    expect(detail).toMatchObject({ name: "portrait", ext: "png", width: 120, height: 80 });
+
+    // Everything about the bytes is derived and was written by the import's own
+    // measurement rather than by a journal line (RL-22, RL-23).
+    expect(detail?.size).toBeGreaterThan(0);
+    expect(detail?.contentHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(detail?.derivedAt).toBeGreaterThan(0);
+
+    // The source file's own date, which nothing can recover once the file is
+    // here: the stored copy's date becomes the date of the last edit the moment
+    // anybody saves it. That is why it is the one fact the journal carries.
     expect(detail?.createdAt).toBeGreaterThan(0);
+
+    // And the journal says only what a person said.
+    const line = (
+      await readFile(
+        join(library.journal.dir, `${monthKey(detail?.importedAt ?? 0)}.jsonl`),
+        "utf8",
+      )
+    ).split("\n")[0];
+    expect(line).not.toContain("size");
+    expect(line).not.toContain("width");
   });
 
   it("re-importing the same folder is a no-op", async () => {
@@ -130,11 +151,11 @@ describe("importing", () => {
   });
 
   it("stores the last extension component, lowercased, with no dot", async () => {
-    // Verified against the Rust implementation, which stores `b.tar.gz` as
-    // `<hash>.gz` and a file with no extension as a bare `<hash>` with no
-    // trailing dot. Getting this wrong puts one asset at two addresses across
-    // the two builds, and the object store cannot catch it — storage is handed
-    // the extension, it does not choose it.
+    // RL-9 and RL-9a: `b.tar.gz` is stored as `<id>.gz` and a file with no
+    // extension as a bare `<id>` with **no trailing dot**. Getting the second
+    // one wrong produces a library other systems cannot read while passing
+    // every test a Windows build could write, because Windows strips a
+    // trailing dot before the path reaches the filesystem.
     await writeFile(join(source, "archive.tar.gz"), "not really gzipped");
     await writeFile(join(source, "PHOTO.PNG"), await gradient(32, 32, 5, "png"));
     await writeFile(join(source, "README"), "no extension at all");
@@ -142,16 +163,15 @@ describe("importing", () => {
     await importInto(library, [source]);
 
     const extensions = library.db.repo
-      .allHashes()
+      .allIds()
       .map((hash) => library.db.repo.assetDetail(hash)?.ext)
       .sort();
     expect(extensions).toEqual(["", "gz", "png"]);
 
     // And the filename on disk follows: no trailing dot for the bare one.
-    const shards = await readdir(join(library.root, "originals"));
+    const shards = await readdir(join(library.root, "files"));
     const names: string[] = [];
-    for (const shard of shards)
-      names.push(...(await readdir(join(library.root, "originals", shard))));
+    for (const shard of shards) names.push(...(await readdir(join(library.root, "files", shard))));
     expect(names.some((n) => n.endsWith("."))).toBe(false);
     expect(names.filter((n) => !n.includes(".")).length).toBe(1);
   });
@@ -175,7 +195,7 @@ describe("importing", () => {
     // The extension is recorded as it was found, and a file without one gets
     // an empty extension rather than being skipped.
     const extensions = library.db.repo
-      .allHashes()
+      .allIds()
       .map((hash) => library.db.repo.assetDetail(hash)?.ext)
       .sort();
     expect(extensions).toEqual(["", "blend", "txt", "zip"]);
@@ -197,7 +217,7 @@ describe("importing", () => {
     await picture("two.png", 2);
     await importInto(library, [source], { tags: ["reference", "blue"] });
 
-    for (const hash of library.db.repo.allHashes()) {
+    for (const hash of library.db.repo.allIds()) {
       expect(library.db.repo.assetDetail(hash)?.tags).toEqual(["blue", "reference"]);
     }
     expect(library.stats().tags).toBe(2);
@@ -227,7 +247,7 @@ describe("importing", () => {
     expect(again.duplicates).toBe(1);
     expect(count(library, "folder:Design")).toBe(0);
     expect(again.duplicateNames).toEqual(["already.png"]);
-    expect(again.duplicateHashes).toEqual(library.db.repo.allHashes());
+    expect(again.duplicateIds).toEqual(library.db.repo.allIds());
   });
 
   it("refuses a folder that is not there before it hashes anything", async () => {
@@ -241,22 +261,19 @@ describe("importing", () => {
     expect(library.stats().assets).toBe(0);
   });
 
-  it("keeps referenced originals where the user put them", async () => {
-    const path = await picture("stays.png", 4);
-    await importInto(library, [path], { mode: "referenced" });
+  it("moves the source when asked, and says which it did (RL-26)", async () => {
+    const path = await picture("goes.png", 4);
+    const report = await importInto(library, [path], { take: "move" });
 
-    expect(library.stats().referenced).toBe(1);
-    // Nothing was written into the object store, and the source is untouched.
-    // `originals/` does not even exist: shards are created lazily, and a
-    // referenced import places nothing, so there was never an occasion to make
-    // one. Asserting its absence is stronger than asserting it is empty.
-    await expect(stat(path)).resolves.toBeTruthy();
-    await expect(stat(join(library.root, "originals"))).rejects.toThrow();
+    expect(report).toMatchObject({ imported: 1, moved: 1, copied: 0 });
+    // The half that cannot be undone by looking at the library, which is why
+    // the report has to carry it.
+    await expect(stat(path)).rejects.toThrow();
 
-    const [hash] = library.db.repo.allHashes();
-    expect(library.db.repo.assetDetail(hash ?? parseContentHash("0".repeat(64)))?.refPath).toBe(
-      path,
-    );
+    const [id] = library.db.repo.allIds();
+    expect(id).toBeDefined();
+    if (id === undefined) return;
+    await expect(stat(library.storage.locate(id, "png"))).resolves.toBeTruthy();
   });
 
   it("skips hidden files unless asked, and never imports the library into itself", async () => {
@@ -329,8 +346,8 @@ describe("rebuilding", () => {
     // Invariant 1, made executable: anything that exists only in `index.db` is
     // a bug, so throwing it away has to be survivable.
     const before = library.stats();
-    const hashes = library.db.repo.allHashes();
-    const details = hashes.map((hash) => library.db.repo.assetDetail(hash));
+    const ids = library.db.repo.allIds();
+    const details = ids.map((id) => library.db.repo.assetDetail(id));
 
     const report = await library.rebuild();
 
@@ -338,9 +355,21 @@ describe("rebuilding", () => {
     // One `add` and one `tag_add` per asset: the tag is applied per file, not
     // once for the run, because each asset needs its own membership record.
     expect(report.applied).toBe(before.assets * 2);
-    expect(library.stats()).toEqual(before);
-    expect(library.db.repo.allHashes()).toEqual(hashes);
-    expect(hashes.map((hash) => library.db.repo.assetDetail(hash))).toEqual(details);
+    // Compared with what a derive put there taken out, which is what a
+    // rebuild is *supposed* to drop: in version 2 that is the size, the
+    // dimensions and the content hash as well as the thumbnails (RL-22).
+    expect(withoutDerived(library.stats())).toEqual(withoutDerived(before));
+    expect(library.db.repo.allIds()).toEqual(ids);
+    for (const [index, id] of ids.entries()) {
+      const now = library.db.repo.assetDetail(id);
+      const then = details[index];
+      expect(now?.name).toBe(then?.name);
+      expect(now?.tags).toEqual(then?.tags);
+      expect(now?.createdAt).toBe(then?.createdAt);
+      // And what a derive had found is gone, which is the other half of it.
+      expect(now?.size).toBeNull();
+      expect(then?.size).toBeGreaterThan(0);
+    }
   });
 
   it("loses thumbnails, because they are derived and not journalled", async () => {
@@ -424,31 +453,12 @@ describe("generating thumbnails", () => {
   });
 });
 
-describe("the one blind spot in partial hashing", () => {
+describe("subtitles found beside a film", () => {
   let dir: string;
-  let source: string;
   let library: Library;
 
-  /**
-   * Two files over the 50 MiB threshold that share a size, a first 64 KiB, and
-   * a last 64 KiB, and differ only in between.
-   *
-   * That is the entire input to a partial hash, so the two hash identically —
-   * and it is the one case the scheme cannot see. Sizes are no help: the size
-   * is hashed as the prefix, so equal partial hashes already imply equal sizes.
-   */
-  const twin = async (name: string, marker: number): Promise<string> => {
-    const bytes = Buffer.alloc(51 * 1024 * 1024, 0x41);
-    bytes[bytes.length >> 1] = marker;
-    const path = join(source, name);
-    await writeFile(path, bytes);
-    return path;
-  };
-
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "roost-partial-"));
-    source = join(dir, "big");
-    await mkdir(source, { recursive: true });
+    dir = await mkdtemp(join(tmpdir(), "roost-subs-"));
     library = await Library.create(join(dir, "library"), "test");
   });
 
@@ -457,99 +467,6 @@ describe("the one blind spot in partial hashing", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("refuses the second file rather than merging two different ones", async () => {
-    await twin("first.bin", 0x01);
-    await twin("second.bin", 0x02);
-
-    const report = await importInto(library, [source]);
-
-    expect(report.imported).toBe(1);
-    expect(report.partialCollisions).toBe(1);
-    expect(report.failed).toHaveLength(1);
-    expect(report.failed[0]?.reason).toContain("refusing to merge");
-    // One of the two is in the library and the other is not. Merging them would
-    // have lost one permanently, which is why the import declines instead.
-    expect(library.stats().assets).toBe(1);
-  });
-
-  it("still deduplicates the same large file imported twice", async () => {
-    // The byte comparison has to say "same" as readily as it says "different",
-    // or every large file would be refused on its second import.
-    const path = await twin("once.bin", 0x01);
-    await importInto(library, [path]);
-    const again = await importInto(library, [path]);
-
-    expect(again.duplicates).toBe(1);
-    expect(again.partialCollisions).toBe(0);
-    expect(again.partialDuplicates).toBe(0);
-    expect(library.stats().assets).toBe(1);
-    expect(library.stats().partialHashes).toBe(1);
-  });
-
-  it("verifies a referenced original against its recorded path", async () => {
-    // The Rust build could not: it located through the *incoming* import's
-    // store, so a referenced asset was always out of reach and every large
-    // duplicate was merged on probability. `ref_path` sits in the same row as
-    // the storage mode, so the comparison is available and the merge is
-    // certain rather than probable.
-    const path = await twin("referenced.bin", 0x03);
-    await importInto(library, [path], { mode: "referenced" });
-    const again = await importInto(library, [path], { mode: "referenced" });
-
-    expect(again.duplicates).toBe(1);
-    expect(again.partialDuplicates).toBe(0);
-  });
-
-  it("refuses a collision against a referenced original too", async () => {
-    // The protection managed mode already had, now reaching the mode that did
-    // not have it. Merging these would lose one of two distinct files.
-    await importInto(library, [await twin("first.bin", 0x01)], { mode: "referenced" });
-    const report = await importInto(library, [await twin("second.bin", 0x02)], {
-      mode: "referenced",
-    });
-
-    expect(report.partialCollisions).toBe(1);
-    expect(library.stats().assets).toBe(1);
-  });
-
-  it("falls back to a probable merge when the referenced original has moved", async () => {
-    // This is what `partialDuplicates` is actually for: the user moved their
-    // own file, so nothing can be compared and the match is merged on the
-    // strength of the partial hash alone. Counted separately so the number is
-    // visible instead of implied.
-    const path = await twin("wanders.bin", 0x04);
-    await importInto(library, [path], { mode: "referenced" });
-    // Gone from where the index says it is — the user moved their own file,
-    // which referenced mode explicitly permits.
-    await rm(path);
-
-    const elsewhere = join(dir, "moved");
-    await mkdir(elsewhere, { recursive: true });
-    const bytes = Buffer.alloc(51 * 1024 * 1024, 0x41);
-    bytes[bytes.length >> 1] = 0x04;
-    const copy = join(elsewhere, "wanders.bin");
-    await writeFile(copy, bytes);
-
-    const again = await importInto(library, [copy], { mode: "referenced" });
-
-    expect(again.duplicates).toBe(1);
-    expect(again.partialDuplicates).toBe(1);
-  });
-
-  it("finds a managed original when the import is running in referenced mode", async () => {
-    // The other direction of the same fix: the bytes are in the object store,
-    // and asking the referenced store for them would have been refused.
-    await importInto(library, [await twin("managed.bin", 0x05)]);
-    const source = join(dir, "elsewhere");
-    await mkdir(source, { recursive: true });
-    const bytes = Buffer.alloc(51 * 1024 * 1024, 0x41);
-    bytes[bytes.length >> 1] = 0x05;
-    await writeFile(join(source, "managed.bin"), bytes);
-
-    const again = await importInto(library, [join(source, "managed.bin")], { mode: "referenced" });
-    expect(again.duplicates).toBe(1);
-    expect(again.partialDuplicates).toBe(0);
-  });
   const CUE = "1\n00:00:01,000 --> 00:00:02,000\nHello.\n";
 
   it("attaches a subtitle to the film beside it whatever the case of its name", async () => {
@@ -566,10 +483,10 @@ describe("the one blind spot in partial hashing", () => {
     expect(report.subtitlesUnattached).toBe(0);
 
     const film = library.db.repo
-      .allHashes()
-      .find((hash) => library.db.repo.assetDetail(hash)?.ext === "mp4");
+      .allIds()
+      .find((id) => library.db.repo.assetDetail(id)?.ext === "mp4");
     expect(film).toBeDefined();
-    expect(subtitles(library, film ?? parseContentHash("0".repeat(64)))).toHaveLength(1);
+    expect(subtitles(library, film ?? ("ZZZZZZZZZZZZ" as never))).toHaveLength(1);
   });
 
   it("counts a subtitle that found no film beside it", async () => {

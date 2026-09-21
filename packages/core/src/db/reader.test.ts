@@ -4,16 +4,16 @@ import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AddRecord } from "../journal/index.js";
-import { parseContentHash } from "../model/index.js";
+import { parseAssetId } from "../model/index.js";
 import { Db, INDEX_FILE } from "./database.js";
 import { READ_ONLY_OPTIONS, ReadOnlyIndex } from "./reader.js";
 import { IndexSink } from "./sink.js";
 
-const HASH = parseContentHash("a".repeat(64));
-const OTHER = parseContentHash("b".repeat(64));
+const ONE = parseAssetId("AAAAAAAAAAAA");
+const OTHER = parseAssetId("BBBBBBBBBBBB");
 
-function asset(hash: typeof HASH, over: Partial<AddRecord> = {}): AddRecord {
-  return { hash, ext: "png", size: 12, name: "one.png", mode: "managed", w: 4, h: 4, ...over };
+function asset(id: typeof ONE, over: Partial<AddRecord> = {}): AddRecord {
+  return { id, ext: "png", name: "one", ...over };
 }
 
 describe("the protocol handler's read-only view", () => {
@@ -25,9 +25,10 @@ describe("the protocol handler's read-only view", () => {
     const db = Db.open(join(root, INDEX_FILE));
     db.transaction(() => {
       const sink = new IndexSink(db);
-      sink.apply({ ts: 1, op: "add", ...asset(HASH) });
-      sink.apply({ ts: 1, op: "add", ...asset(OTHER, { mode: "referenced", ref: "/x/y.png" }) });
-      db.repo.putThumbnail(HASH, 256, 256, 160, Buffer.from("webp-bytes"));
+      sink.apply({ ts: 1, op: "add", ...asset(ONE) });
+      sink.apply({ ts: 1, op: "add", ...asset(OTHER, { ext: "mp4", name: "two" }) });
+      db.repo.putDerived(ONE, { size: 12, width: 4, height: 4 }, 1);
+      db.repo.putThumbnail(ONE, 256, 256, 160, Buffer.from("webp-bytes"));
     });
     db.close();
     reader = ReadOnlyIndex.open(root);
@@ -39,22 +40,22 @@ describe("the protocol handler's read-only view", () => {
   });
 
   it("returns a thumbnail's bytes, and nothing for a size that has none", () => {
-    expect(reader.thumbnail(HASH, 256)?.toString()).toBe("webp-bytes");
+    expect(reader.thumbnail(ONE, 256)?.toString()).toBe("webp-bytes");
     // Not an error: the grid learns a thumbnail is absent by asking for it,
     // which is what ADR-0008 chose over a `has_thumbnail` column.
-    expect(reader.thumbnail(HASH, 512)).toBeUndefined();
+    expect(reader.thumbnail(ONE, 512)).toBeUndefined();
     expect(reader.thumbnail(OTHER, 256)).toBeUndefined();
   });
 
-  it("says where an original lives, in both storage modes", () => {
-    expect(reader.findOriginal(HASH)).toEqual({
-      ext: "png",
-      size: 12,
-      storageMode: "managed",
-      refPath: null,
-    });
-    expect(reader.findOriginal(OTHER)?.refPath).toBe("/x/y.png");
-    expect(reader.findOriginal(parseContentHash("c".repeat(64)))).toBeUndefined();
+  it("says what is needed to find an asset's file, and nothing more", () => {
+    // Two columns in version 2 rather than four: the id names the file and the
+    // extension completes the name (RL-9), so there is no mode to branch on
+    // and no path to read back.
+    expect(reader.findFile(ONE)).toEqual({ ext: "png", size: 12 });
+    // A size nothing has derived yet is `null`, which is a fact about how far
+    // the library has got rather than about the file (RL-22).
+    expect(reader.findFile(OTHER)).toEqual({ ext: "mp4", size: null });
+    expect(reader.findFile(parseAssetId("CCCCCCCCCCCC"))).toBeUndefined();
   });
 
   it("refuses a write, from SQLite rather than from politeness", () => {
@@ -75,7 +76,7 @@ describe("the protocol handler's read-only view", () => {
     // ADR-0008 leans on this: main holds a reader for as long as a library is
     // open, and the engine goes on importing. Without WAL the reader would take
     // a shared lock and the next write would get SQLITE_BUSY.
-    expect(reader.thumbnail(HASH, 256)).toBeDefined();
+    expect(reader.thumbnail(ONE, 256)).toBeDefined();
     const writer = Db.open(join(root, INDEX_FILE));
     try {
       writer.transaction(() => {

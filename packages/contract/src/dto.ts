@@ -39,9 +39,17 @@ export const INSTALLABLE_BACKENDS = ["media", "heif"] as const;
 /** One of {@link INSTALLABLE_BACKENDS}. */
 export type InstallableBackend = (typeof INSTALLABLE_BACKENDS)[number];
 
-/** Whether an asset's bytes were copied into the library or left where they are. */
-export const STORAGE_MODES = ["managed", "referenced"] as const;
-export type StorageMode = (typeof STORAGE_MODES)[number];
+/**
+ * What an import does with the file it was given (RL-26).
+ *
+ * Version 1's `managed` and `referenced` are gone: there is one storage mode
+ * now (RL-19), so the question is no longer *where do the bytes live* but
+ * *what happens to the file they came from* — moved out of where it was, or
+ * copied and left there. RL-26 requires the person be told which, because a
+ * move is not undoable by looking at the library afterwards.
+ */
+export const TAKES = ["move", "copy"] as const;
+export type Take = (typeof TAKES)[number];
 
 /**
  * What the import chooser offers to pick.
@@ -218,9 +226,8 @@ export interface WireSelectionSummary {
 /** The counts behind a library's summary view. */
 export interface LibraryStats {
   readonly assets: number;
-  readonly managed: number;
-  readonly referenced: number;
-  readonly partialHashes: number;
+  /** Assets whose bytes nothing has read yet, so nothing about them is derived. */
+  readonly underived: number;
   readonly totalBytes: number;
   readonly tags: number;
   readonly tagGroups: number;
@@ -262,7 +269,7 @@ export interface WireProblem {
  */
 export interface WireCursor {
   readonly key: number | string;
-  readonly hash: string;
+  readonly id: string;
 }
 
 /**
@@ -297,10 +304,10 @@ export interface WireSort {
  * (`UI_SPEC.md` §6).
  *
  * No thumbnail here, and there never will be one: the cell asks for
- * `roost://thumb/<hash>@256` and the bytes never enter a message (invariant 12).
+ * `roost://thumb/<id>@256` and the bytes never enter a message (invariant 12).
  */
 export interface AssetCard {
-  readonly hash: string;
+  readonly id: string;
   readonly name: string;
   readonly ext: string;
   /**
@@ -312,7 +319,8 @@ export interface AssetCard {
    * trip to find that out would put a blank pane on screen first.
    */
   readonly kind: AssetKind;
-  readonly size: number;
+  /** `null` until the file has been read: every fact about the bytes is derived (RL-22). */
+  readonly size: number | null;
   readonly width: number | null;
   readonly height: number | null;
   readonly importedAt: number;
@@ -321,10 +329,12 @@ export interface AssetCard {
    * The moment a video's thumbnail is pinned to, or `null` (ADR-0024 stage 4).
    *
    * Here because it is part of the thumbnail's **address** rather than because
-   * a cell draws it. `roost://thumb/<hash>@<size>` is served as immutable on
-   * the promise that a hash and a size fix the pixels; a pinned frame is the
-   * one thing that can change them, so it goes in the URL and the promise
-   * stays true.
+   * a cell draws it: `roost://thumb/<id>@<size>` carries the moment, so a
+   * pinned frame changes the address rather than the picture at one address.
+   *
+   * The URL is **not** immutable in version 2 — the bytes behind an id may
+   * change at any time (RL-20), and the derive that notices is what makes the
+   * cell redraw.
    */
   readonly posterMs: number | null;
 }
@@ -382,12 +392,12 @@ export interface WireSubtitlesAdded {
 /**
  * One caption track attached to an asset (ADR-0025).
  *
- * The hash is the track's own — it is an ordinary asset — and it is what
- * `roost://subtitle/<hash>` addresses. Bytes do not travel here (invariant 12):
+ * The id is the track's own — it is an ordinary asset — and it is what
+ * `roost://subtitle/<id>` addresses. Bytes do not travel here (invariant 12):
  * what crosses is the sentence saying this track captions that video.
  */
 export interface WireSubtitle {
-  readonly hash: string;
+  readonly id: string;
   /** BCP-47 where a filename or a stream declared one, `null` where none did. */
   readonly lang: string | null;
   readonly label: string | null;
@@ -636,7 +646,7 @@ export interface QueryCheck {
  * to express the difference.
  */
 export interface WireAssetDetail {
-  readonly hash: string;
+  readonly id: string;
   readonly name: string;
   readonly ext: string;
   /**
@@ -649,21 +659,26 @@ export interface WireAssetDetail {
    * Whether an `<img>` can show the asset's own bytes (ADR-0040 §7).
    *
    * `false` for HEIC, RAW and TIFF: Roost imports all three and Chromium
-   * decodes none of them, so the pane asks `roost://render/<hash>` for a
+   * decodes none of them, so the pane asks `roost://render/<id>` for a
    * rendition instead of loading the original. Decided by the engine from the
    * same format table `kind` comes from, for the same reason — a second copy of
    * Chromium's decoder list in the renderer would disagree the first time a
    * format is added.
    */
   readonly browserDrawable: boolean;
-  readonly size: number;
+  /**
+   * From here to {@link WireAssetDetail.derivedAt}, everything is derived from
+   * the bytes (RL-22) and is `null` until they have been read. A pane shows
+   * what it has; it never reads a `null` here as a fact about the file.
+   */
+  readonly size: number | null;
   readonly width: number | null;
   readonly height: number | null;
-  readonly storageMode: StorageMode;
-  /** Where a referenced original lives; `null` for a managed one. */
-  readonly refPath: string | null;
-  readonly isPartialHash: boolean;
-  /** The source file's mtime, unix seconds. `null` when it was not readable. */
+  /** BLAKE3 over the whole file, lowercase hex (RL-18). Never identity. */
+  readonly contentHash: string | null;
+  /** When the derived fields above were last taken, unix seconds. */
+  readonly derivedAt: number | null;
+  /** The source file's date at import, unix seconds. `null` when unknown. */
   readonly createdAt: number | null;
   readonly importedAt: number;
   /** Unix seconds if this asset is in the trash, `null` if it is live. */
@@ -684,16 +699,6 @@ export interface WireAssetDetail {
   readonly durationMs: number | null;
   /** The moment this video's thumbnail is pinned to (ADR-0024 stage 4). */
   readonly posterMs: number | null;
-  /**
-   * The asset that replaced this one, or `null` if this is the current version
-   * (ADR-0026).
-   *
-   * The window needs it for two things: to say *you are looking at an old
-   * version* about something reached through `is:superseded`, and to refuse to
-   * edit one — a save made from an old version would supersede the version that
-   * already superseded it.
-   */
-  readonly supersededBy: string | null;
   /** Documents only. */
   readonly pageCount: number | null;
   /** Caption tracks attached to this asset, in the order they were attached. */
@@ -807,7 +812,7 @@ export interface WireDeriveStatus {
 
 /** One of the files a derive could not draw. */
 export interface WireDeriveFailureSample {
-  readonly hash: string;
+  readonly id: string;
   readonly name: string;
   readonly ext: string;
 }
@@ -890,10 +895,9 @@ export interface WireImportReport {
   readonly scanned: number;
   readonly imported: number;
   readonly duplicates: number;
-  /** Probable duplicates: a partial hash matched, and the bytes were unreachable. */
-  readonly partialDuplicates: number;
-  /** Refused: a partial hash matched an existing asset but the bytes did not. */
-  readonly partialCollisions: number;
+  /** How many source files were moved, and how many were copied (RL-26). */
+  readonly moved: number;
+  readonly copied: number;
   readonly bytes: number;
   /**
    * Subtitles attached to the file they were found beside (ADR-0025 §3).
@@ -1025,15 +1029,15 @@ export type WirePasted =
   | { readonly kind: "empty" };
 
 /**
- * A file the window made, and whether it is new (ADR-0026 §4).
+ * A file the window made.
  *
- * `created` is `false` when the bytes were already in the library: identical
- * bytes are one asset by invariant 1, so writing a file that already exists
- * answers with the one that is there rather than adding a second row.
+ * Always a new asset: an id is minted rather than derived from the bytes
+ * (RL-13), so two empty files a person made deliberately are two assets —
+ * which is what they asked for both times. Version 1 answered with the first
+ * one and a `created: false`, because every empty file had one hash.
  */
 export interface WireCreated {
-  readonly hash: string;
-  readonly created: boolean;
+  readonly id: string;
 }
 
 /**

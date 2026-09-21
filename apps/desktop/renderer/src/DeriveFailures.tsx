@@ -280,7 +280,7 @@ function Group({
       )}
       <ul className="failure-files">
         {group.samples.map((sample) => (
-          <li key={sample.hash}>{sample.name}</li>
+          <li key={sample.id}>{sample.name}</li>
         ))}
         {rest > 0 && <li className="failure-rest">…and {counted(rest)} more</li>}
       </ul>

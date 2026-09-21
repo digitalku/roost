@@ -45,7 +45,7 @@ export interface Paging {
    * Another window onto the same library still shows the old picture until it
    * re-pages, which is what every other edit already does (ADR-0020).
    */
-  readonly pinPoster: (hash: string, posterMs: number | null) => void;
+  readonly pinPoster: (id: string, posterMs: number | null) => void;
   /**
    * Puts a new name on a card already held.
    *
@@ -57,7 +57,7 @@ export interface Paging {
    * Only the window that made the change calls this. Another window onto the
    * same library keeps the old name until it re-pages (ADR-0020).
    */
-  readonly rename: (hash: string, name: string) => void;
+  readonly rename: (id: string, name: string) => void;
   /**
    * Takes rows out of the grid without re-paging it.
    *
@@ -73,7 +73,7 @@ export interface Paging {
    * same library keeps the row until it re-pages, which is what every other
    * edit already does (ADR-0020).
    */
-  readonly drop: (hashes: readonly string[]) => void;
+  readonly drop: (ids: readonly string[]) => void;
 }
 
 export function useAssetPages(
@@ -179,17 +179,17 @@ export function useAssetPages(
     more();
   }, [query, generation, sort, more]);
 
-  const pinPoster = useCallback((hash: string, posterMs: number | null): void => {
-    setAssets((held) => held.map((card) => (card.hash === hash ? { ...card, posterMs } : card)));
+  const pinPoster = useCallback((id: string, posterMs: number | null): void => {
+    setAssets((held) => held.map((card) => (card.id === id ? { ...card, posterMs } : card)));
   }, []);
 
-  const rename = useCallback((hash: string, name: string): void => {
-    setAssets((held) => held.map((card) => (card.hash === hash ? { ...card, name } : card)));
+  const rename = useCallback((id: string, name: string): void => {
+    setAssets((held) => held.map((card) => (card.id === id ? { ...card, name } : card)));
   }, []);
 
-  const drop = useCallback((hashes: readonly string[]): void => {
-    const gone = new Set(hashes);
-    setAssets((held) => held.filter((card) => !gone.has(card.hash)));
+  const drop = useCallback((ids: readonly string[]): void => {
+    const gone = new Set(ids);
+    setAssets((held) => held.filter((card) => !gone.has(card.id)));
   }, []);
 
   return { assets, done, loading, problem, more, pinPoster, rename, drop };

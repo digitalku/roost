@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { type ContentHash, shardOf } from "@roost/core";
+import { dirname, join } from "node:path";
+import { type AssetId, shardOf } from "@roost/core";
 import {
   check,
   hasDamage,
@@ -38,10 +38,10 @@ describe("checking a library against itself", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  /** Where the object store put an asset's bytes. */
-  const objectPath = (hash: ContentHash): string => {
-    const detail = library.db.repo.assetDetail(hash);
-    return library.storageFor("managed").locate(hash, detail?.ext ?? "");
+  /** Where the store put an asset's bytes. */
+  const filePath = (id: AssetId): string => {
+    const detail = library.db.repo.assetDetail(id);
+    return library.storage.locate(id, detail?.ext ?? "");
   };
 
   it("finds nothing wrong with a library it just built", async () => {
@@ -49,7 +49,7 @@ describe("checking a library against itself", () => {
 
     expect(isClean(report)).toBe(true);
     expect(report.assets).toBe(3);
-    expect(report.objects).toBe(3);
+    expect(report.files).toBe(3);
     expect(report.deep).toBe(false);
   });
 
@@ -60,8 +60,9 @@ describe("checking a library against itself", () => {
     // row, or a library carried over from a build that kept the bytes.
     const stray = join(dir, "stray.bin");
     await writeFile(stray, "orphaned payload");
-    const { hash } = await hashFile(stray);
-    const { path } = await library.storageFor("managed").put(stray, hash, "bin");
+    // Named for an asset the library does not hold, which is what makes it an
+    // orphan rather than a file RL-11 covers.
+    const { path } = await library.storage.put(stray, "0RPHAN000001" as never, "bin", "copy");
 
     const report = await check(library);
 
@@ -78,15 +79,15 @@ describe("checking a library against itself", () => {
     expect(isClean(await check(library))).toBe(true);
   });
 
-  it("refuses to reclaim while the index and the object store disagree", async () => {
-    const hash = library.db.repo.allHashes()[0] as ContentHash;
-    // Bytes gone, row still there: every other object now looks unreferenced
-    // for all this check can prove, because the index may be the broken part.
-    await rm(objectPath(hash));
+  it("refuses to reclaim while the index and the disk disagree", async () => {
+    const id = library.db.repo.allIds()[0] as AssetId;
+    // Bytes gone, row still there: every other file now looks unreferenced for
+    // all this check can prove, because the index may be the broken part.
+    await rm(filePath(id));
 
     const report = await check(library);
 
-    expect(report.missingObjects.map((missing) => missing.hash)).toEqual([hash]);
+    expect(report.missingFiles.map((missing) => missing.id)).toEqual([id]);
     expect(hasDamage(report)).toBe(true);
     expect(unsoundForReclaim(report)).toContain("point at bytes that are not there");
     await expect(reclaim(library, report)).rejects.toBeInstanceOf(UnsoundReclaimError);
@@ -96,39 +97,54 @@ describe("checking a library against itself", () => {
     await expect(reclaim(library, report, "even-if-damaged")).resolves.toBe(0);
   });
 
-  it("does not let a moved referenced original block reclaiming forever", async () => {
-    // A referenced original that moved says the user moved their own file. It
-    // is worth reporting and it is not evidence the index is wrong — and no
-    // rebuild can bring back a file someone meant to delete, so counting it
-    // would block reclaiming permanently.
-    const outside = join(dir, "elsewhere");
-    await mkdir(outside, { recursive: true });
-    await writeFile(join(outside, "linked.bin"), "referenced payload");
-    await importInto(library, [outside], { mode: "referenced" });
-    await rename(join(outside, "linked.bin"), join(outside, "moved.bin"));
+  it("neither adopts nor deletes a file whose name is not an id (RL-11)", async () => {
+    // Word leaves `~$…` beside the document it opened. Adopting it would
+    // invent an asset nobody imported; deleting it would put Roost in the
+    // business of guessing which of somebody's files are rubbish.
+    const id = library.db.repo.allIds()[0] as AssetId;
+    const lock = join(dirname(filePath(id)), "~$QM4X2AJH9F.docx");
+    await writeFile(lock, "lock");
 
     const report = await check(library);
 
-    expect(report.missingReferences).toHaveLength(1);
-    expect(report.missingObjects).toEqual([]);
-    expect(hasDamage(report)).toBe(true);
-    expect(unsoundForReclaim(report)).toBeUndefined();
+    expect(report.unrecognised.map((entry) => entry.path)).toEqual([lock]);
+    expect(report.orphans).toEqual([]);
+    // Not damage, and not reclaimable either: the file is somebody else's.
+    expect(hasDamage(report)).toBe(false);
+    await reclaim(library, report);
+    await expect(stat(lock)).resolves.toBeTruthy();
   });
 
-  it("catches an object whose bytes changed under it, but only when asked", async () => {
-    const hash = library.db.repo.allHashes()[0] as ContentHash;
-    await writeFile(objectPath(hash), "not what the filename says");
+  it("reports an id with two files, and chooses neither (RL-12)", async () => {
+    const id = library.db.repo.allIds()[0] as AssetId;
+    await writeFile(`${filePath(id).replace(/\.[^.]+$/, "")}.pdf`, "a second file");
+
+    const report = await check(library);
+
+    expect(report.ambiguous.map((entry) => entry.id)).toEqual([id]);
+    expect(report.ambiguous[0]?.paths).toHaveLength(2);
+    expect(hasDamage(report)).toBe(true);
+    expect(unsoundForReclaim(report)).toContain("more than one file");
+  });
+
+  it("reports bytes that changed as changed, never as damage", async () => {
+    // What version 2 gave up, said out loud: an edit and bit rot are
+    // indistinguishable here (`SPEC.md` §5), so a build that called this
+    // corruption would be crying wolf at the product's main feature.
+    const id = library.db.repo.allIds()[0] as AssetId;
+    await writeFile(filePath(id), "the user saved something else");
 
     // A shallow run sees a file where a file should be, and that is all it
     // claims to check.
-    expect((await check(library)).corrupt).toEqual([]);
+    expect((await check(library)).changed).toEqual([]);
 
     const deep = await check(library, { deep: true });
 
-    expect(deep.corrupt).toHaveLength(1);
-    expect(deep.corrupt[0]?.expectedHash).toBe(hash);
-    expect(deep.corrupt[0]?.actualHash).not.toBe(hash);
-    expect(unsoundForReclaim(deep)).toContain("no longer match their hash");
+    expect(deep.changed).toHaveLength(1);
+    expect(deep.changed[0]?.id).toBe(id);
+    expect(deep.changed[0]?.actualHash).not.toBe(deep.changed[0]?.derivedHash);
+    expect(hasDamage(deep)).toBe(false);
+    expect(unsoundForReclaim(deep)).toBeUndefined();
   });
 
   it("reports a journal file replay will never read", async () => {
@@ -147,11 +163,11 @@ describe("checking a library against itself", () => {
     expect(unsoundForReclaim(report)).toContain("journal/");
   });
 
-  it("looks in the one place the shard rule puts an object", async () => {
+  it("looks in the one place the shard rule puts a file", async () => {
     // Not an assertion about doctor so much as about what it is checking: if
     // the store ever sharded differently, the walk and the lookup would still
     // agree with each other and both be wrong.
-    const hash = library.db.repo.allHashes()[0] as ContentHash;
-    expect(objectPath(hash)).toContain(join("originals", shardOf(hash), hash));
+    const id = library.db.repo.allIds()[0] as AssetId;
+    expect(filePath(id)).toContain(join("files", shardOf(id), id));
   });
 });

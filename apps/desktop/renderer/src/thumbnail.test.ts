@@ -44,7 +44,7 @@ describe("a thumbnail's address", () => {
 
   it("carries the pinned moment, so a new frame is a new address", () => {
     // The protocol serves a thumbnail as `immutable` for a year on the promise
-    // that a hash and a size fix the pixels. A pinned frame is the one thing
+    // that a id and a size fix the pixels. A pinned frame is the one thing
     // that can change them (ADR-0024 stage 4), and an `<img>` already showing
     // the old picture is only asked for a new one when the URL differs.
     expect(gridSrc(HASH, 91_500)).toBe(`roost://thumb/${HASH}@256?at=91500`);

@@ -1,16 +1,23 @@
 import { access } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import {
-  type ContentHash,
+  type AssetId,
   type DerivedMetadata,
   JOB_PRIORITY,
   type JobClaim,
   type JobReason,
   logger,
-  parseContentHash,
+  parseAssetId,
   type ThumbnailTarget,
 } from "@roost/core";
-import { capabilityFor, derive, EAGER_SIZES, isFormat, type Thumbnail } from "@roost/media";
+import {
+  capabilityFor,
+  derive,
+  EAGER_SIZES,
+  hashFile,
+  isFormat,
+  type Thumbnail,
+} from "@roost/media";
 import { mapWithConcurrency } from "./concurrency.js";
 import type { Library } from "./library.js";
 
@@ -24,8 +31,11 @@ import type { Library } from "./library.js";
  * and because it can be interrupted, resumed, and re-run without re-importing
  * anything.
  *
- * Derived data is never journalled: a rebuild discards it and running this
- * restores it from `originals/`.
+ * Derived data is never journalled (RL-23): a rebuild discards it and running
+ * this restores it from `files/`. In version 2 that is not only the thumbnail
+ * and the dimensions — the size, the modification time and the content hash are
+ * derived too (RL-22), so this pass is the only thing that knows what an
+ * asset's bytes currently are.
  */
 
 const log = logger("jobs");
@@ -66,7 +76,7 @@ export interface DeriveReport {
    * the size of the library, and nobody reads the ten-thousandth line. The
    * count above is the number that matters; `jobs.reason` keeps the rest.
    */
-  readonly failures: { hash: string; reason: string }[];
+  readonly failures: { id: string; reason: string }[];
 }
 
 /** How many failures a report carries in full. */
@@ -93,11 +103,11 @@ export interface RunOptions {
  */
 export function enqueueDerives(
   library: Library,
-  hashes: readonly ContentHash[],
+  ids: readonly AssetId[],
   priority: number = JOB_PRIORITY.import,
 ): void {
   const now = Math.floor(Date.now() / 1000);
-  for (const hash of hashes) library.db.repo.enqueueJob("derive", hash, priority, now);
+  for (const id of ids) library.db.repo.enqueueJob("derive", id, priority, now);
 }
 
 /**
@@ -145,7 +155,7 @@ export function queueStatus(library: Library): QueueStatus {
 
 /** One of the files a derive could not draw. */
 export interface DeriveFailureSample {
-  readonly hash: string;
+  readonly id: string;
   readonly name: string;
   readonly ext: string;
 }
@@ -232,7 +242,7 @@ export function deriveFailures(library: Library, options: FailureOptions = {}): 
     group.count += 1;
     group.attempts = Math.max(group.attempts, row.attempts);
     if (group.samples.length < wanted) {
-      group.samples.push({ hash: row.hash, name: row.name, ext: row.ext });
+      group.samples.push({ id: row.assetId, name: row.name, ext: row.ext });
     }
     groups.set(reason, group);
   }
@@ -385,13 +395,14 @@ export async function runDerives(
 
     // One transaction per batch: a long run commits as it goes, and an
     // interruption costs at most a batch of work rather than the run.
+    const now = Math.floor(Date.now() / 1000);
     library.db.transaction(() => {
       for (const outcome of outcomes) {
-        const hash = parseContentHash(outcome.claim.hash);
+        const id = parseAssetId(outcome.claim.assetId);
         if (outcome.kind === "ok") {
           for (const thumbnail of outcome.thumbnails) {
             library.db.repo.putThumbnail(
-              hash,
+              id,
               thumbnail.size,
               thumbnail.width,
               thumbnail.height,
@@ -400,18 +411,24 @@ export async function runDerives(
             report.thumbnails += 1;
             report.bytes += thumbnail.data.length;
           }
-          library.db.repo.putDerived(hash, outcome.metadata);
+          library.db.repo.putDerived(id, outcome.metadata, now);
           library.db.repo.completeJob(outcome.claim.id);
           report.derived += 1;
         } else if (outcome.kind === "blocked") {
+          // What was measured survives the block: a format this build cannot
+          // draw still has a size and a hash, and a library that knew neither
+          // would report every one of those assets as never read.
+          if (outcome.measured !== undefined) {
+            library.db.repo.putDerived(id, outcome.measured, now);
+          }
           library.db.repo.blockJob(outcome.claim.id, outcome.reason);
-          if (outcome.reason === MISSING_ORIGINAL) report.missing += 1;
+          if (outcome.reason === MISSING_FILE) report.missing += 1;
           else report.blocked += 1;
         } else {
           library.db.repo.failJob(outcome.claim.id, outcome.reason);
           report.failed += 1;
           if (report.failures.length < REPORTED_FAILURES) {
-            report.failures.push({ hash: outcome.claim.hash, reason: outcome.reason });
+            report.failures.push({ id: outcome.claim.assetId, reason: outcome.reason });
           }
         }
       }
@@ -434,7 +451,7 @@ export async function runDerives(
 }
 
 /** A referenced original that is no longer where the index says it is. */
-const MISSING_ORIGINAL = "missing:original";
+const MISSING_FILE = "missing:file";
 
 /** What one derive produced, before it is committed with the rest of a batch. */
 type DeriveOutcomeRow =
@@ -444,7 +461,13 @@ type DeriveOutcomeRow =
       thumbnails: readonly Thumbnail[];
       metadata: DerivedMetadata;
     }
-  | { kind: "blocked"; claim: JobClaim; reason: string }
+  | {
+      kind: "blocked";
+      claim: JobClaim;
+      reason: string;
+      /** Absent when the file could not be read at all. */
+      measured?: DerivedMetadata;
+    }
   | { kind: "failed"; claim: JobClaim; reason: string };
 
 async function deriveOne(
@@ -453,15 +476,14 @@ async function deriveOne(
   sizes: readonly number[],
 ): Promise<DeriveOutcomeRow> {
   const path = locate(library, claim);
-  if (path === undefined) return { kind: "blocked", claim, reason: MISSING_ORIGINAL };
 
   try {
     await access(path);
   } catch {
-    // A referenced original that moved. Parked rather than failed: it comes
-    // back when the file does, and retrying now would only re-read the same
-    // absence.
-    return { kind: "blocked", claim, reason: MISSING_ORIGINAL };
+    // An asset whose file is missing (RL-25). Parked rather than failed: it
+    // comes back when the file does, and retrying now would only re-read the
+    // same absence.
+    return { kind: "blocked", claim, reason: MISSING_FILE };
   }
 
   try {
@@ -469,9 +491,22 @@ async function deriveOne(
     // replays `poster_set` into this column and the frame is re-extracted here,
     // which is what makes a poster survive one (ADR-0024 stage 4).
     const outcome = await derive(path, sizes, claim.posterMs ?? undefined);
+
+    // The size, the modification time and the hash, read here because this is
+    // where the file is already being opened. They are what the next pass
+    // compares to decide whether anything changed under the id (RL-20), so
+    // they are taken even for a format no backend can draw — a blocked
+    // thumbnail is not a reason to know nothing about the bytes.
+    const measured = await measure(path);
+
     return outcome.ok
-      ? { kind: "ok", claim, thumbnails: outcome.thumbnails, metadata: outcome.metadata }
-      : { kind: "blocked", claim, reason: outcome.reason };
+      ? {
+          kind: "ok",
+          claim,
+          thumbnails: outcome.thumbnails,
+          metadata: { ...outcome.metadata, ...measured },
+        }
+      : { kind: "blocked", claim, reason: outcome.reason, measured };
   } catch (error) {
     return {
       kind: "failed",
@@ -484,11 +519,23 @@ async function deriveOne(
 /**
  * Where an asset's bytes are.
  *
- * A referenced asset's path is user-chosen and recorded in the index; a managed
- * one's is derived from its hash by the store, which is the only thing allowed
- * to do that (invariant 2).
+ * One answer in version 2 (RL-19), derived from the id by the store — which is
+ * the only thing allowed to do that (invariant 2).
  */
-function locate(library: Library, target: ThumbnailTarget): string | undefined {
-  if (target.storageMode === "referenced") return target.refPath ?? undefined;
-  return library.storageFor("managed").locate(parseContentHash(target.hash), target.ext);
+function locate(library: Library, target: ThumbnailTarget | JobClaim): string {
+  const id = "assetId" in target ? target.assetId : target.id;
+  return library.storage.locate(parseAssetId(id), target.ext);
+}
+
+/**
+ * What the file measures right now.
+ *
+ * Its own step rather than part of `derive`, because it is true of every file
+ * whatever its format: a `.psd` nothing here can draw still has a size, a date
+ * and a hash, and a build that only learned those for files it could thumbnail
+ * would report half a library as unread.
+ */
+async function measure(path: string): Promise<DerivedMetadata> {
+  const hashed = await hashFile(path);
+  return { size: hashed.size, mtime: hashed.mtime, contentHash: hashed.hash };
 }

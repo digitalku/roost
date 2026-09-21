@@ -1,3 +1,5 @@
+import { ID_LENGTH } from "./asset-id.js";
+
 /**
  * The orders a listing can be asked for (ADR-0039).
  *
@@ -7,7 +9,7 @@
  *
  * `added` is the order the application had before there was a menu, and it is
  * still the default. `random` is the one key with no index and no column — a
- * seeded rotation of the content hash, described in {@link rotationFor}.
+ * seeded rotation of the asset id, described in {@link rotationFor}.
  */
 export const SORT_KEYS = ["added", "created", "name", "size", "rating", "random"] as const;
 
@@ -40,20 +42,25 @@ export interface Sort {
 /** Newest first: the order the grid had before the menu could ask for another. */
 export const DEFAULT_SORT: Sort = { key: "added", descending: true, seed: 0 };
 
-/** How many hex characters of the hash a seed rotates the order by. */
-export const SHUFFLES = 63;
+/** How many characters of the id a seed rotates the order by. */
+export const SHUFFLES = ID_LENGTH - 1;
 
 /**
  * The rotation a seed names, in `1..SHUFFLES`.
  *
- * A content hash is 64 uniformly distributed hex characters, so ordering by the
- * hash *starting at character k* is an order that has nothing to do with the
- * order starting at character 0: two assets adjacent in one share a long prefix,
- * and in the other are compared on characters that were never looked at. That
- * is what makes a rotation a shuffle rather than a rearrangement of one — there
- * are {@link SHUFFLES} of them, and no two are correlated.
+ * An id is twelve uniformly random characters (RL-14), so ordering by the id
+ * *starting at character k* is an order that has nothing to do with the order
+ * starting at character 0: two assets adjacent in one share a prefix, and in
+ * the other are compared on characters that were never looked at. That is what
+ * makes a rotation a shuffle rather than a rearrangement of one, and no two of
+ * them are correlated.
  *
- * Zero is excluded because it is the identity: hash order is a real order that
+ * There are eleven rather than version 1's sixty-three, because an id is twelve
+ * characters and a hash was sixty-four. That is the shuffle count falling, not
+ * the shuffle getting worse: each one is still a uniformly random order of the
+ * whole library, and nobody has ever asked for a twelfth.
+ *
+ * Zero is excluded because it is the identity: id order is a real order that
  * something else may one day want, and a shuffle that leaves the list alone
  * would read as a shuffle that failed.
  */

@@ -20,27 +20,14 @@ interface Migration {
  * ran, so editing an entry that has shipped leaves already-migrated libraries
  * silently unlike new ones.
  *
- * Migrations 0001–0005 are carried over verbatim from the Rust implementation,
- * numbers included, because a library created there arrives already at v5 with
- * those five versions in its bookkeeping. A fresh consolidated baseline would
- * either re-run against it or disagree about what version it is. The first
- * migration this repository authors is 0006 (`DATA_MODEL.md` port note).
+ * **The numbering starts again at Format 2** (ADR-0046 §2.3). Version 1's
+ * fourteen described a schema keyed on a column that no longer exists, and
+ * nothing will ever present one to this build: an implementation of Format 2
+ * refuses a Format 1 library rather than reading it (RL-6a), so there is no
+ * database in the world to migrate forward from.
  */
 const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: "initial", file: "0001_initial.sql" },
-  { version: 2, name: "m2_organize", file: "0002_m2_organize.sql" },
-  { version: 3, name: "keyset_index", file: "0003_keyset_index.sql" },
-  { version: 4, name: "tag_groups", file: "0004_tag_groups.sql" },
-  { version: 5, name: "grid_filter_indexes", file: "0005_grid_filter_indexes.sql" },
-  { version: 6, name: "m4_derive", file: "0006_m4_derive.sql" },
-  { version: 7, name: "trash", file: "0007_trash.sql" },
-  { version: 8, name: "comments", file: "0008_comments.sql" },
-  { version: 9, name: "poster", file: "0009_poster.sql" },
-  { version: 10, name: "supersede", file: "0010_supersede.sql" },
-  { version: 11, name: "subtitles", file: "0011_subtitles.sql" },
-  { version: 12, name: "search_prose", file: "0012_search_prose.sql" },
-  { version: 13, name: "source_url", file: "0013_source_url.sql" },
-  { version: 14, name: "sort_orders", file: "0014_sort_orders.sql" },
 ];
 
 /** The schema version this build understands. */

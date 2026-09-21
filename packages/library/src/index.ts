@@ -7,7 +7,8 @@
  */
 export { discover } from "./discover.js";
 export {
-  type Corrupt,
+  type Ambiguous,
+  type Changed,
   check,
   DOCTOR_PAGE,
   type DoctorOptions,
@@ -21,6 +22,7 @@ export {
   type ReclaimMode,
   reclaim,
   reclaimableBytes,
+  type Unrecognised,
   unsoundForReclaim,
 } from "./doctor.js";
 export {
@@ -78,7 +80,6 @@ export {
   setSource,
   setTagGroup,
   subtitles,
-  supersedeAsset,
   tagAdd,
   tagRemove,
   tagRename,
@@ -88,7 +89,7 @@ export {
 export {
   AlreadyALibraryError,
   AmbiguousFolderNameError,
-  AmbiguousHashError,
+  AmbiguousIdError,
   DuplicateFolderNameError,
   EditTooLargeError,
   EmptyCommentError,
@@ -98,13 +99,13 @@ export {
   InvalidMomentError,
   InvalidRatingError,
   LibraryBusyError,
+  LibraryIsFormat1Error,
   LibraryNotFoundError,
   LibraryTooNewError,
   NotALibraryError,
   NotAnEagleLibraryError,
   NotAVideoError,
   NotEditableError,
-  PartialHashCollisionError,
   UnknownAssetError,
   UnknownCommentError,
   UnknownFolderError,

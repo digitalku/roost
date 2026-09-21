@@ -136,9 +136,7 @@ try {
   );
 
   section("The import");
-  const imported = await cdp.evaluate(
-    request({ type: "eagle:import", path: eagle, mode: "managed" }),
-  );
+  const imported = await cdp.evaluate(request({ type: "eagle:import", path: eagle, take: "copy" }));
   const eagleReport = imported?.ok === true ? imported.value : undefined;
 
   check("it answers", imported?.ok === true, JSON.stringify(imported?.problem ?? "").slice(0, 120));
@@ -213,7 +211,7 @@ try {
   );
 
   section("Running it again changes nothing");
-  const again = await cdp.evaluate(request({ type: "eagle:import", path: eagle, mode: "managed" }));
+  const again = await cdp.evaluate(request({ type: "eagle:import", path: eagle, take: "copy" }));
   check(
     "no bytes are imported twice",
     again?.value?.imported === 0,
@@ -232,14 +230,14 @@ try {
   const page = await cdp.evaluate(
     request({ type: "assets:page", query: "a1", limit: 1, after: null }),
   );
-  const hash = page?.value?.assets?.[0]?.hash ?? null;
-  check("the rated item is findable by name", hash !== null, `hash=${String(hash).slice(0, 12)}`);
+  const id = page?.value?.assets?.[0]?.id ?? null;
+  check("the rated item is findable by name", id !== null, `id=${String(id).slice(0, 12)}`);
 
-  await cdp.evaluate(request({ type: "asset:rate", hashes: [hash], rating: 1 }));
-  await cdp.evaluate(request({ type: "asset:note", hash, note: "what I actually think" }));
+  await cdp.evaluate(request({ type: "asset:rate", ids: [id], rating: 1 }));
+  await cdp.evaluate(request({ type: "asset:note", id, note: "what I actually think" }));
 
-  const third = await cdp.evaluate(request({ type: "eagle:import", path: eagle, mode: "managed" }));
-  const detail = await cdp.evaluate(request({ type: "asset:detail", hash }));
+  const third = await cdp.evaluate(request({ type: "eagle:import", path: eagle, take: "copy" }));
+  const detail = await cdp.evaluate(request({ type: "asset:detail", id }));
 
   check(
     "the rating set here is not replaced by Eagle's",

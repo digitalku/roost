@@ -1,58 +1,43 @@
 import { readFile } from "node:fs/promises";
-import { saveEdit, supersedeAsset } from "@roost/library";
+import { saveEdit } from "@roost/library";
 import { resolveAll, short } from "../assets.js";
 import { EXIT, type Streams, usage } from "../io.js";
 import { withLibrary } from "../open.js";
 
 /**
- * Replaces an asset's contents with a file's, as a new version (ADR-0026).
+ * Replaces an asset's contents with a file's (ADR-0046, superseding ADR-0026).
  *
  * A verb here because ADR-0005 makes the headless CLI a first-class frontend:
- * the window can save an edit, so this can too — and the rebuild conformance
- * test needs a way to author a `supersede` without a window.
+ * the window can save an edit, so this can too.
  *
  * **It does not edit anything.** The bytes come from a file the caller already
- * has; what this command does is journal them as the new version and mark the
- * old one superseded. An editor in the terminal would be a second thing to keep
- * in step with the one in the window.
+ * has; what this command does is write them over the asset's own file. An
+ * editor in the terminal would be a second thing to keep in step with the one
+ * in the window.
+ *
+ * **Nothing is journalled** (RL-23), and that is the whole of what version 2
+ * changed here: the asset is the same asset afterwards, keeps its tags, its
+ * folders and its comments, and what is thrown away is only what was derived
+ * from the bytes that are gone.
  */
 export async function save(
   root: string,
   needle: string,
   file: string | undefined,
-  clear: boolean,
   streams: Streams,
 ): Promise<number> {
-  if (clear && file !== undefined) {
-    return usage(streams, "save", "--clear and a file ask for different things");
-  }
-  if (!clear && file === undefined) {
+  if (file === undefined) {
     return usage(streams, "save", "save needs a file to take the new contents from");
   }
 
   return withLibrary(root, async (library) => {
-    const hashes = resolveAll(library, [needle]);
-    const hash = hashes[0];
-    if (hash === undefined) throw new Error("resolveAll returned nothing for one argument");
+    const ids = resolveAll(library, [needle]);
+    const id = ids[0];
+    if (id === undefined) throw new Error("resolveAll returned nothing for one argument");
 
-    if (clear) {
-      await supersedeAsset(library, hash, null);
-      streams.out(`${short(hash)} is current again`);
-      return EXIT.ok;
-    }
+    await saveEdit(library, id, await readFile(file));
 
-    // `file` is defined here: the two guards above cover every other shape.
-    const bytes = await readFile(file as string);
-    const saved = await saveEdit(library, hash, bytes);
-
-    if (saved === hash) {
-      streams.out(`${short(hash)} already holds those bytes — nothing written`);
-      return EXIT.ok;
-    }
-
-    streams.out(
-      `${short(hash)} superseded by ${short(saved)} — run \`roost thumb\` to draw its picture`,
-    );
+    streams.out(`${short(id)} now holds those bytes — run \`roost thumb\` to draw its picture`);
     return EXIT.ok;
   });
 }

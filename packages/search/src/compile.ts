@@ -42,13 +42,14 @@ export const NO_FOLDERS: Folders = { subtree: () => [], only: () => [] };
  * Compiles an expression into a filter.
  *
  * **A query is scoped by default, and each scope rule is opted out of by naming
- * its flag.** Two rules as of ADR-0026, listed in {@link SCOPE}: not in the
- * trash, and not replaced by a newer version. Trash is a state rather than a
- * place (ADR-0022), so a trashed asset is still a row that `tag:wip` would
- * otherwise match — and an application where deleting something leaves it in
- * every search is one where deleting does not work. A superseded asset is the
- * same argument about editing: every intermediate save would otherwise be in
- * every result.
+ * its flag.** Two rules, listed in {@link SCOPE}: not in the trash, and not
+ * attached as somebody's caption track. Trash is a state rather than a place
+ * (ADR-0022), so a trashed asset is still a row that `tag:wip` would otherwise
+ * match — and an application where deleting something leaves it in every
+ * search is one where deleting does not work.
+ *
+ * Version 1 had a third rule — not replaced by a newer version — and version 2
+ * does not, because an edit no longer makes a second asset (ADR-0046).
  *
  * Scoping here rather than in each caller is what makes the Trash place an
  * ordinary sidebar row: it carries `is:trashed` the way Favorites carries
@@ -69,8 +70,7 @@ export function compileQuery(expr: Expr, folders: Folders = NO_FOLDERS): Filter 
   if (scope.length === 0) return { sql, params };
   // `AND` at the top level, never nested inside the user's expression: SQLite
   // flattens a conjunction in the WHERE clause into separate terms, and it is
-  // that flattening which lets migrations 0007 and 0010's partial indexes
-  // apply.
+  // that flattening which lets the schema's partial indexes apply.
   return { sql: `(${sql}) AND ${scope.join(" AND ")}`, params };
 }
 
@@ -79,8 +79,8 @@ export function compileQuery(expr: Expr, folders: Folders = NO_FOLDERS): Filter 
  *
  * A correlated `EXISTS` rather than a column, because the attachment is a
  * relation and denormalising it would be a second place to keep in step. It is
- * a point lookup into `idx_subtitles_track`, which migration 0011 creates for
- * exactly this — the primary key cannot serve it, since `track_hash` is its
+ * a point lookup into `idx_subtitles_track`, which the schema creates for
+ * exactly this — the primary key cannot serve it, since `track_id` is its
  * second column.
  *
  * **This one cannot be part of a partial index**, unlike the two scope rules
@@ -90,26 +90,24 @@ export function compileQuery(expr: Expr, folders: Folders = NO_FOLDERS): Filter 
  * ADR-0025 §4 names the fallback if it is not — a column on `assets`,
  * maintained beside the join table.
  */
-const ATTACHED_AS_TRACK = "EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_hash = a.hash)";
+const ATTACHED_AS_TRACK = "EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.track_id = a.id)";
 
 /**
  * The flags that scope a query rather than narrowing it, and what each one
  * adds when it is *not* mentioned.
  *
- * Two of them as of ADR-0026, and they are independent: `is:trashed` opts out
- * of the trash rule and leaves the superseded one in force, because a
- * superseded row in the trash is still a version rather than something somebody
- * deleted. One table rather than a special case each — the third such rule is
- * where a pattern becomes a design, and the fourth is where it becomes a bug.
+ * Two of them, and they are independent: `is:trashed` opts out of the trash
+ * rule and leaves the caption-track one in force. One table rather than a
+ * special case each — the third such rule is where a pattern becomes a design,
+ * and the fourth is where it becomes a bug.
  *
  * **The order is load-bearing.** Joined in this order the result is spelled
- * exactly as `MATCH_LIVE` and as the partial indexes both migrations create,
- * and SQLite uses a partial index only when the query's WHERE contains a term
- * implying the index's. `query.test.ts` holds the two spellings together.
+ * exactly as `MATCH_LIVE` and as the schema's partial indexes are, and SQLite
+ * uses a partial index only when the query's WHERE contains a term implying
+ * the index's. `query.test.ts` holds the two spellings together.
  */
 const SCOPE: readonly { readonly flag: Flag; readonly sql: string }[] = [
   { flag: "trashed", sql: "a.trashed_at IS NULL" },
-  { flag: "superseded", sql: "a.superseded_by IS NULL" },
   { flag: "subtitle", sql: `NOT ${ATTACHED_AS_TRACK}` },
 ];
 
@@ -160,7 +158,7 @@ function termSql(term: Term, folders: Folders, params: Param[]): string {
       // `tags.name` is UNIQUE COLLATE NOCASE, so equality here is already
       // case-insensitive and matches what tagging does.
       return `EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id = at.tag_id
-                       WHERE at.hash = a.hash AND t.name = ?)`;
+                       WHERE at.asset_id = a.id AND t.name = ?)`;
 
     // One shape, two depths. `folder:` is the folder and everything beneath it,
     // `infolder:` is the folder alone (ADR-0036) — the difference is which
@@ -173,7 +171,7 @@ function termSql(term: Term, folders: Folders, params: Param[]): string {
       const placeholders = ids.map(() => "?").join(", ");
       for (const id of ids) params.push(id);
       return `EXISTS (SELECT 1 FROM asset_folders af
-                       WHERE af.hash = a.hash AND af.folder_id IN (${placeholders}))`;
+                       WHERE af.asset_id = a.id AND af.folder_id IN (${placeholders}))`;
     }
 
     case "group":
@@ -183,7 +181,7 @@ function termSql(term: Term, folders: Folders, params: Param[]): string {
       return `EXISTS (SELECT 1 FROM asset_tags at
                         JOIN tags t ON t.id = at.tag_id
                         JOIN tag_groups g ON g.id = t.group_id
-                       WHERE at.hash = a.hash AND g.name = ?)`;
+                       WHERE at.asset_id = a.id AND g.name = ?)`;
 
     case "ext":
       params.push(term.value);
@@ -205,7 +203,7 @@ function termSql(term: Term, folders: Folders, params: Param[]): string {
       return numeric("a.imported_at", term.compare, params);
 
     case "flag":
-      return flagSql(term.flag, params);
+      return flagSql(term.flag);
 
     case "text":
       params.push(ftsPhrase(term.value));
@@ -233,7 +231,7 @@ function numeric(column: string, compare: Compare, params: Param[]): string {
   return `${column} ${operator} ?`;
 }
 
-function flagSql(flag: Flag, params: Param[]): string {
+function flagSql(flag: Flag): string {
   switch (flag) {
     case "favorite":
       return "a.is_favorite = 1";
@@ -241,24 +239,16 @@ function flagSql(flag: Flag, params: Param[]): string {
       return "a.rating IS NOT NULL";
     case "unrated":
       return "a.rating IS NULL";
-    case "partial-hash":
-      return "a.is_partial_hash = 1";
     case "trashed":
       return "a.trashed_at IS NOT NULL";
-    case "superseded":
-      return "a.superseded_by IS NOT NULL";
     case "subtitle":
       return ATTACHED_AS_TRACK;
     case "captioned":
-      return "EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.hash = a.hash)";
-    case "managed":
-    case "referenced":
-      params.push(flag);
-      return "a.storage_mode = ?";
+      return "EXISTS (SELECT 1 FROM asset_subtitles s WHERE s.asset_id = a.id)";
     case "tagged":
-      return "EXISTS (SELECT 1 FROM asset_tags at WHERE at.hash = a.hash)";
+      return "EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id)";
     case "untagged":
-      return "NOT EXISTS (SELECT 1 FROM asset_tags at WHERE at.hash = a.hash)";
+      return "NOT EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id)";
   }
 }
 

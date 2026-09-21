@@ -42,19 +42,13 @@ describe("schema", () => {
     // row keeps returning a deleted asset from search.
     const db = Db.openInMemory();
     try {
-      const hash = "a".repeat(64) as never;
-      db.repo.applyAdd(0, {
-        hash,
-        ext: "jpg",
-        size: 1,
-        name: "beach trip.jpg",
-        mode: "managed",
-      });
-      db.repo.applyTagAdd(hash, ["reference", "blue"]);
-      db.repo.applyAssetRename(hash, "beach trip, second pass.jpg");
+      const id = "AAAAAAAAAAAA" as never;
+      db.repo.applyAdd(0, { id, ext: "jpg", name: "beach trip" });
+      db.repo.applyTagAdd(id, ["reference", "blue"]);
+      db.repo.applyAssetRename(id, "beach trip, second pass");
       expect(db.repo.orphanSearchRows()).toBe(0);
 
-      db.repo.applyRemove(hash);
+      db.repo.applyRemove(id);
       expect(db.repo.orphanSearchRows()).toBe(0);
     } finally {
       db.close();
@@ -64,28 +58,14 @@ describe("schema", () => {
   it("rejects values the specification's CHECK constraints forbid", () => {
     const db = Db.openInMemory();
     try {
-      // `storage_mode` is case-sensitive per the CHECK, and `link_method` is
-      // one of exactly three. Both are enforced by the schema, not by us.
-      expect(() =>
-        db.repo.applyAdd(0, {
-          hash: "b".repeat(64) as never,
-          ext: "jpg",
-          size: 1,
-          name: "x.jpg",
-          mode: "Managed" as never,
-        }),
-      ).toThrow();
+      // A rating outside 1..5 and a `take` that is not one of the two are both
+      // refused by the schema rather than by us. Version 1 asserted the same
+      // thing about `storage_mode` and `link_method`, and version 2 has
+      // neither column (RL-19).
+      db.repo.applyAdd(0, { id: "BBBBBBBBBBBB" as never, ext: "jpg", name: "x" });
+      expect(() => db.repo.applyRate("BBBBBBBBBBBB" as never, 9)).toThrow();
 
-      expect(() =>
-        db.repo.applyAdd(0, {
-          hash: "c".repeat(64) as never,
-          ext: "jpg",
-          size: 1,
-          name: "x.jpg",
-          mode: "managed",
-          link: "symlink" as never,
-        }),
-      ).toThrow();
+      expect(() => db.repo.applyWatchAdd(1, "D:\\Inbox", "borrow" as never)).toThrow();
     } finally {
       db.close();
     }
@@ -113,12 +93,12 @@ describe("schema", () => {
       // notices.
       expect(db.pragma("foreign_keys")).toEqual([{ foreign_keys: 1 }]);
 
-      const hash = "d".repeat(64) as never;
-      db.repo.applyAdd(0, { hash, ext: "jpg", size: 1, name: "x.jpg", mode: "managed" });
-      db.repo.putThumbnail(hash, 256, 256, 128, Buffer.from([0]));
+      const id = "DDDDDDDDDDDD" as never;
+      db.repo.applyAdd(0, { id, ext: "jpg", name: "x" });
+      db.repo.putThumbnail(id, 256, 256, 128, Buffer.from([0]));
       expect(db.repo.stats().thumbnails).toBe(1);
 
-      db.repo.applyRemove(hash);
+      db.repo.applyRemove(id);
       // Without `PRAGMA foreign_keys = ON` this row survives as an orphan.
       expect(db.repo.stats().thumbnails).toBe(0);
     } finally {

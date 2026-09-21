@@ -107,22 +107,35 @@ export function readOneOf<const T extends readonly string[]>(
   return ok(value);
 }
 
-/** 64 lowercase hex characters — a content hash, checked before it reaches anything. */
-export function readHash(source: Record<string, unknown>, field: string): Checked<string> {
+/**
+ * An asset id: twelve characters of Crockford base32, upper case (RL-14).
+ *
+ * **The validator is the contract** (ADR-0007), and this is the shape it
+ * enforces now — version 1's sixty-four hex characters are not an id, and are
+ * rejected here rather than reaching a query that would answer nothing. The
+ * alphabet leaves out `I`, `L`, `O` and `U`, so this is a character class
+ * rather than `[0-9A-Z]`.
+ */
+export function readAssetId(source: Record<string, unknown>, field: string): Checked<string> {
   const value = source[field];
-  if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) {
-    return bad(`${field}: expected 64 lowercase hex characters`);
+  if (typeof value !== "string" || !ASSET_ID.test(value)) {
+    return bad(`${field}: expected an asset id`);
   }
   return ok(value);
 }
 
-export function readHashArray(source: Record<string, unknown>, field: string): Checked<string[]> {
+export function readAssetIdArray(
+  source: Record<string, unknown>,
+  field: string,
+): Checked<string[]> {
   const value = source[field];
   if (!Array.isArray(value)) return bad(`${field}: expected an array`);
   for (const item of value) {
-    if (typeof item !== "string" || !/^[0-9a-f]{64}$/.test(item)) {
-      return bad(`${field}: expected an array of content hashes`);
+    if (typeof item !== "string" || !ASSET_ID.test(item)) {
+      return bad(`${field}: expected an array of asset ids`);
     }
   }
   return ok(value as string[]);
 }
+
+const ASSET_ID = /^[0-9A-HJKMNP-TV-Z]{12}$/;

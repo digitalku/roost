@@ -13,7 +13,7 @@ import { invoke } from "./bridge.js";
  * **It asks for nothing else.** The user's decision on 2026-09-05, after using
  * the version that also asked for contents: a name and a button. What that
  * costs is real and is said where it happens rather than guarded against here —
- * an empty file has one BLAKE3 hash and `assets.hash` is the primary key, so
+ * an empty file has one BLAKE3 id and `assets.id` is the primary key, so
  * the library holds **one** empty file however many are made, and the second
  * answers with the first. Nor can an external editor fill one in afterwards:
  * originals are immutable and addressed by their content, so editing outside
@@ -55,7 +55,7 @@ export function NewFileDialog({
   readonly initialText: string;
   readonly onClose: () => void;
   /** `created` is false when the library already held those bytes. */
-  readonly onCreated: (hash: string, created: boolean, name: string) => void;
+  readonly onCreated: (id: string, name: string) => void;
   readonly onProblem: (problem: WireProblem) => void;
 }): React.JSX.Element {
   const [name, setName] = useState(initialName);
@@ -72,7 +72,7 @@ export function NewFileDialog({
     const outcome = await invoke({ type: "asset:create", name, text: initialText });
     setSaving(false);
     if (!outcome.ok) return onProblem(outcome.problem);
-    onCreated(outcome.value.hash, outcome.value.created, name);
+    onCreated(outcome.value.id, name);
   };
 
   return (

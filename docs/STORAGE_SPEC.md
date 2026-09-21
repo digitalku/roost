@@ -1,111 +1,133 @@
 # Storage — how this build meets the library format
 
-**Roost Library Format 1, revision 1.0.** The normative document is `SPEC.md` in the
+**Roost Library Format 2, revision 2.0.** The normative document is `SPEC.md` in the
 [`roost-library`](../../roost-library) repository, checked out beside this one. This file is
 **not** a specification and binds nothing on its own: it is the map from that document's
 numbered requirements to the code here, plus the notes that belong to this implementation
 and to no other.
 
-> **Where the rules are.** `SPEC.md` (requirements `RL-1`…`RL-41`), `ops/REGISTRY.md` (every
-> journal operation), `conformance/` (a library and the state replaying it must produce), and
-> `CHANGING.md` (how any of those may change). Nothing from them is copied here. A copy drifts
-> the moment somebody fixes one of them, and a format read by three implementations cannot
-> afford a second opinion — see ADR-0045.
+> **Where the rules are.** `SPEC.md` (requirements `RL-1`…`RL-56`), `ops/REGISTRY.md` (all
+> thirty-three journal operations), `conformance/` (a library and the state replaying it must
+> produce), and `CHANGING.md` (how any of those may change). Nothing from them is copied here.
+> A copy drifts the moment somebody fixes one of them — see ADR-0045.
 
-## Status (2026-09-15)
+## Status (2026-09-21)
 
-Until this date the binding document was **this file**, carried over from the Rust
-implementation at `../roost-old` and amended four times in place. It has been replaced by a
-standard that no implementation owns, with the requirements numbered and with nothing in it
-naming a path in anybody's source tree. **No rule changed in the move.** What changed is who
-gets to change them, and how: every change now raises a document revision or a format version,
-and `conformance/` is extended in the same commit.
+**This build reads and writes Format 2, and nothing else** (ADR-0046). Version 2 is not a
+revision of version 1: an asset's identity is an id minted at random rather than the hash of its
+bytes, `files/` is editable in place, and every fact about the bytes is derived rather than
+journalled. A version 1 library is **refused by name** and never read, repaired or converted
+(RL-6a).
 
-Two things the old document did that the standard deliberately does not:
+The numbering starts again with the format: version 1's `RL-1`…`RL-41` are archived under
+`v1/` in that repository and are unrelated to the numbers below.
 
-- **It specified thumbnails as WebP.** They are outside the format now (`RL-2`), because they
-  are derived from bytes the format *does* define and an implementation that throws them away
-  loses nothing but time. WebP at quality 80 is still what this build encodes; it is our
-  decision now, not the format's, and `ARCHITECTURE.md` §4.5 owns it.
-- **It carried schema v1.** The index is a cache (`RL-2`), so the schema moved to
-  `DATA_MODEL.md` §2.0 where the rest of the migrations already lived.
+Two things the standard deliberately leaves to this build:
+
+- **Thumbnails are WebP at quality 80.** They are outside the format (RL-2) because they are
+  derived from bytes the format *does* define, and `thumbs/` is merely a reserved name.
+  `ARCHITECTURE.md` §4.5 owns the encoding.
+- **The index schema.** A cache (RL-2), so it lives in `DATA_MODEL.md` §2.0.
 
 ## The map
 
 Every requirement, and where this build meets it. A row with no code reference is met by
 construction or by a rule nothing here can break.
 
-### Scope and identity
+### Scope and identifying a library
 
 | | | |
 |---|---|---|
 | RL-1 | The normative files are read and written as specified | `packages/core` |
-| RL-2 | `index.db`, `settings.json`, `staging/` are ours, not the format's | `db/`, `settings.ts`, `storage/handoff.ts` |
-| RL-3 | Nothing unlisted is created in the library root | Only the six names are ever joined to the root |
+| RL-2 | `index.db`, `thumbs/`, `settings.json`, `staging/` are ours, not the format's | `db/`, `settings.ts`, `storage/handoff.ts` |
+| RL-3 | Nothing unlisted is created in the library root | Only the reserved names are ever joined to the root |
 | RL-4 | A library is a readable `library.json` with an integer version | `library/src/manifest.ts` |
 | RL-5, RL-5b | All four fields required; a bad file is *not a library*, never repaired | `manifest.ts` · `tests/standard.test.ts` |
 | RL-5a | Unrecognised fields ignored on read and **kept on write** | `Manifest.unrecognised` |
 | RL-6 | A higher version refuses to open and touches nothing | `LibraryTooNewError`, thrown before any handle is taken |
-| RL-6a, RL-6b | `<name>.roost` on write; never required on read, never renamed | `library/src/naming.ts` (ADR-0014) |
+| RL-6a | A **version 1** library is refused *as one*, and nothing is read or repaired | `LibraryIsFormat1Error`, checked before the other three fields |
+| RL-7, RL-7a | `<name>.roost` on write; never required on read, never renamed | `library/src/naming.ts` (ADR-0014) |
 
-### Layout and hashing
-
-| | | |
-|---|---|---|
-| RL-7 | One shard level, first two hex characters | `core/src/model/content-hash.ts` — `shardOf` |
-| RL-8, RL-8a, RL-8b, RL-8c | `<hash>.<ext>`, extension from the name's last dot, no trailing dot | `storage/managed.ts` — `locate` · `import.ts` |
-| RL-9 | Shards created as files arrive | `storage/managed.ts` — `put` |
-| RL-10 | Nothing under `originals/` is moved, renamed, edited or deleted | |
-| RL-11 | Identity is the content hash | `ContentHash` is branded, not a bare string |
-| RL-12, RL-12a | BLAKE3; over 50 MiB, size prefix plus two 64 KiB windows, seeking | `media/src/hash.ts` |
-| RL-13 | A partial hash is recorded as one | `add.partial`, `assets.is_partial_hash` |
-| RL-14 | The size prefix is eight bytes, unsigned, little-endian | `writeBigUInt64LE` |
-
-### Modes
+### Layout
 
 | | | |
 |---|---|---|
-| RL-15, RL-15a | reflink → hardlink → copy, and which succeeded is recorded | `storage/managed.ts` — `place` (ADR-0012) |
-| RL-16 | `referenced` mode never writes into the user's directories | `storage/referenced.ts` refuses rather than stubbing |
-| RL-17 | A missing referenced file is reported, never dropped | `library/src/doctor.ts` — `missingReferences` |
+| RL-8 | One shard level, the first two characters of the id | `core/src/model/asset-id.ts` — `shardOf` |
+| RL-9 | `<id>.<ext>`, extension lowercased, from the name's last dot | `storage/files.ts` — `locate` · `import.ts` |
+| RL-9a | A file with no extension is the bare id, with **no trailing dot** | `locate` · asserted against a directory entry, never `stat` |
+| RL-9b | A file saved under another extension is renamed; nothing is journalled | Not built — the workspace stage. `TODO.md` §3 |
+| RL-10 | Shards created as files arrive, never all 1 024 | `storage/files.ts` — `#ensureShard` |
+| RL-11 | A file whose name is not an id is neither adopted nor deleted | `iterAll` skips it; `iterUnrecognised` reports it; `doctor` lists it |
+| RL-12 | One id, one file — two are reported and neither is chosen | `storage/files.ts` — `findFiles` · `doctor.ts` — `ambiguous` |
+
+### Identity
+
+| | | |
+|---|---|---|
+| RL-13 | Identity is the id: minted once, never the path, never the hash | `AssetId` is branded, not a bare string |
+| RL-14 | Twelve characters of Crockford base32, upper case, random | `model/asset-id.ts` — `ID_ALPHABET`, `mintAssetId` |
+| RL-14a | An id encodes nothing — no timestamp, or the shard would collapse | `crypto.getRandomValues`, and no other source |
+| RL-15 | A newly minted id is checked against the library before it is written | `mintAssetId(isTaken)` · `import.ts` passes `hasAsset` **and** the batch |
+| RL-16 | An id is never reused, including after a removal | Nothing derives an id from a maximum; only `mintAssetId` makes one |
+| RL-17 | Folders, groups, comments and watched roots are integers from the journal's maximum | `db/repo.ts` — `noteIdUsed`, `#nextId` |
+| RL-18 | A content hash is derived, never identity, never a filename | `media/src/hash.ts` · `assets.content_hash` |
+
+### The bytes, and editing them
+
+| | | |
+|---|---|---|
+| RL-19 | Every asset's bytes are under `files/`. There is no second mode | `storage/files.ts` is the only store |
+| RL-20 | The bytes may change at any time, and that is ordinary | `clearDerived`, `dropThumbnails`, and the derive queue |
+| RL-21 | No file is held open in a way that stops another application writing it | Every read opens and closes; nothing keeps a handle |
+| RL-22 | Size, dimensions, duration, page count, hash and thumbnails are derived | `repo.putDerived` · `jobs.ts` — `measure` |
+| RL-23 | An edit is never journalled | `edit.ts` — `saveEdit` appends nothing |
+| RL-24 | The library is reconstructible from `journal/` and `files/` alone | `library.rebuild()` · `tests/journal-replay.test.ts` |
+| RL-25 | An asset whose file is missing is reported, never dropped | `doctor.ts` — `missingFiles` · the derive parks as `missing:file` |
+| RL-26 | An import moves or copies, says which, and the result is independent | `storage/files.ts` — `put` · `ImportReport.moved`/`copied` |
 
 ### The journal
 
 | | | |
 |---|---|---|
-| RL-18 | Append-only | `journal/writer.ts` — files opened `"a"`, never rewritten |
-| RL-19, RL-19a | `YYYY-MM.jsonl`, the month read in **UTC** | `journal/writer.ts` — `monthKey` |
-| RL-20 | Oldest month first, records in file order | `journal/replay.ts` |
-| RL-21 | Journal before index, always | `edit.ts` — `apply`, `import.ts` — `commit` |
-| RL-22 | Never rewritten, compacted, rebuilt or pruned | No code anywhere writes to a journal file except by append |
-| RL-23, RL-23a | `ts` and `op` on every record; `at` is the one number in ms | `journal/op.ts` |
-| RL-24 | The operations are the registry's | `OP_NAMES`, checked against it by `spec-conformance.test.ts` |
-| RL-25, RL-25a | Ids are journalled explicitly, and minted from the **journal's** maximum | `db/repo.ts` — `noteIdUsed`, `nextFolderId` |
-| RL-26 | An unknown `op` is skipped with a warning, never an error | `journal/replay.ts` — `unknownOps` |
-| RL-26a | A dangling reference is skipped, logged, counted — and nothing is invented | `db/sink.ts` — `referentsOf` |
-| RL-27 | A torn final line is skipped like an unknown op | `journal/replay.ts` — `tornTrailing` |
-| RL-28 | The **person** is told, and the platform named where the prefix says it | `JournalNotice.tsx` · `cli/src/open.ts` |
-| RL-29 | Platform operations carry a prefix | `journal/op.ts` — `platformOf`, `platformName` |
+| RL-27 | Append-only | `journal/writer.ts` — files opened `"a"`, never rewritten |
+| RL-28, RL-28a | `YYYY-MM.jsonl`, the month read in **UTC** | `journal/writer.ts` — `monthKey` |
+| RL-29 | Oldest month first, records in file order | `journal/replay.ts` |
+| RL-30 | Journal before index, always | `edit.ts` — `apply`, `import.ts` — `commit` |
+| RL-31 | Never rewritten, compacted, rebuilt or pruned | No code anywhere writes to a journal file except by append |
+| RL-32, RL-32a | `ts` and `op` on every record; `at` is the one number in ms | `journal/op.ts` |
+| RL-33 | A name carries no extension | `import.ts` — `nameOf` · `applyAssetRename` |
+| RL-34 | The operations are the registry's | `OP_NAMES`, checked against it by `spec-conformance.test.ts` |
+| RL-35, RL-36 | Ids are journalled explicitly, and minted from the **journal's** maximum | `db/repo.ts` — `noteIdUsed`, `nextFolderId` |
+| RL-37 | An unknown `op` is skipped with a warning, never an error | `journal/replay.ts` — `unknownOps` |
+| RL-38 | A dangling reference is skipped, logged, counted — and nothing is invented | `db/sink.ts` — `referentsOf` |
+| RL-39 | A torn final line is skipped like an unknown op | `journal/replay.ts` — `tornTrailing` |
+| RL-40 | The **person** is told, and the operations are named | `JournalNotice.tsx` · `cli/src/open.ts` |
 
 ### Extension, text, and what is forbidden
 
 | | | |
 |---|---|---|
-| RL-30, RL-31 | A new operation never raises the format version | This build writes no operation the registry lacks |
-| RL-32 | Unknown fields on a known operation are ignored, never rewritten away | `toRecord` reads the fields it knows and nothing else |
-| RL-33, RL-34 | No extension entity is a prerequisite for a core one | This build defines no platform operation |
-| RL-35 | UTF-8, `\n`, no BOM | `writeFile(…, "utf8")`; `toLine` ends every record with `\n` |
-| RL-36 | Filenames normalised to NFC on write | `core/src/model/text.ts` — `toNfc` |
-| RL-37 | An absent optional field is absent, except where `null` carries meaning | `journal/op.ts` — `?:` versus `\| null`, and the comment that says why |
-| RL-38 | The forbidden list | Reproduced in `CLAUDE.md` §5, which is what a session reads |
+| RL-41 | Platform operations carry a prefix | `journal/op.ts` — `platformOf`, `platformName` |
+| RL-42, RL-43 | A new operation never raises the format version | This build writes no operation the registry lacks |
+| RL-44 | Unknown fields on a known operation are ignored, never rewritten away | `toRecord` reads the fields it knows and nothing else |
+| RL-45, RL-46 | No extension entity is a prerequisite for a core one | This build defines no platform operation |
+| RL-47 | A query this build cannot evaluate is kept byte for byte and shown as unavailable | `applySmartFolderCreate` stores it verbatim; the sidebar marks it |
+| RL-48 | UTF-8, `\n`, no BOM | `writeFile(…, "utf8")`; `toLine` ends every record with `\n` |
+| RL-49 | Names normalised to NFC on write | `core/src/model/text.ts` — `toNfc` |
+| RL-50 | An absent optional field is absent, except where `null` carries meaning | `journal/op.ts` — `?:` versus `\| null`, and the comment that says why |
+| RL-51 | The forbidden list | Reproduced in `CLAUDE.md` §5, which is what a session reads |
 
-### Conformance
+### Conformance and what is open
 
 | | | |
 |---|---|---|
-| RL-39 | The standard's suite is run, against a checkout beside this one | `packages/library/tests/format-conformance.test.ts` |
-| RL-40 | Delete the cache, replay, assert the same state | `packages/core/tests/journal-replay.test.ts` |
-| RL-41 | Digests the standard publishes, not ones this code produced | `packages/media/src/hash.test.ts` |
+| RL-52 | The standard's suite is run, against a checkout beside this one | `packages/library/tests/format-conformance.test.ts` |
+| RL-53 | Delete the cache, replay, assert the same state | `packages/core/tests/journal-replay.test.ts` |
+| RL-54, RL-54a | The suite is layered by revision; this build states **2.0** | It passes `conformance/library.roost`, which is required of everyone |
+| RL-56 | The reserved names are not used for anything else | `versions/` is reserved and stays empty |
+| §11.1 | *Does removing an asset delete its file?* **This build says yes** | `edit.ts` — `removeAssets` (ADR-0031) |
+| §11.2 | *Version history* — not invented | Nothing writes `versions/` |
+| §11.4 | *Does an empty tag survive?* **This build keeps it** | `repo.tags()` lists it at zero |
 
 ---
 
@@ -114,13 +136,44 @@ construction or by a rule nothing here can break.
 Ours, not the format's. They record consequences an implementer has to handle, add no
 requirements, and permit no deviation from `SPEC.md`.
 
-### Derived, not stored
+### Two halves of a row, and the line between them
 
-Thumbnails and FTS rows are *derived* and therefore outside the journal: they are regenerated
-from `originals/` and from replayed state. Everything a user **authored** — tags, folders,
-membership, names, ratings, notes — is a journal line first (RL-21). The test for which is the
-one worth remembering: if a person typed it or clicked it, it goes in the journal; if a machine
-derived it from bytes, it does not.
+`assets` splits in two, and the split is the whole of what version 2 changed. Everything down to
+`poster_ms` is something a person **said**, and every one of those columns arrives through a
+journal operation. Everything after it was **read out of the file** and is journalled by nothing.
+
+The test for which is the one worth remembering: if a person typed it or clicked it, it goes in
+the journal; if a machine read it out of the bytes, it does not.
+
+`created_at` is the exception that proves the rule. It is the source file's own date at import,
+and nothing can recover it afterwards — the stored file's date becomes the date of the last edit
+the moment anybody saves it. So it is journalled, and it is the only fact about a file that is.
+
+### What version 2 gave up, stated rather than discovered
+
+Version 1 named every file by the hash of its contents, so a file that no longer hashed to its
+name was **provably** damaged. Here the bytes are allowed to change under an unchanged id
+(RL-20) and an edit is journalled nowhere (RL-23), so bit rot, a bad sync and a person editing
+their own file are indistinguishable: **no implementation can promise to detect corruption**
+(`SPEC.md` §5).
+
+`doctor --deep` still reads every file. What it reports is that the bytes **changed** — a reason
+to derive them again, not an accusation — and `hasDamage` deliberately does not count it. A
+build that called a person's own save damage would be crying wolf at the product's main feature.
+
+What `doctor` keeps: an asset whose file is missing (RL-25), a file whose name is not an id
+(RL-11), an id with two files (RL-12), and an index that disagrees with the disk.
+
+### Deduplication is a decision now, not a consequence
+
+Under version 1 an identical file was already present by construction: the path *was* the hash.
+Here an import that placed a second copy would make a second asset, so skipping it is something
+this build **chooses** — and it chooses to, because re-importing a directory is the ordinary way
+to produce duplicates and nobody means to double their library by doing it (ADR-0046 §5).
+
+The check reads `assets.content_hash`, which is derived (RL-18), so the import hashes what it
+places and writes the hash in the same transaction as the row. That is also why the duplicate
+dialog comes *after* a run rather than in front of one (ADR-0037).
 
 ### The cache is caught up on open
 
@@ -136,63 +189,23 @@ must not, or meeting one file another implementation added would throw away ever
 the library. Replaying over what is there converges on the same state, because every operation
 sets a value rather than toggling one and the journal never loses a line.
 
-One consequence is worth knowing before anybody edits `applyAdd`: `width` and `height` are
-`coalesce`d on conflict, because they are the only columns with two sources — a header probe at
-import and a derive backend afterwards. An absent `w` on an `add` means the importer could not
-tell, not that the asset has none, and a fold that applied it as `NULL` would square off every
-asset whose dimensions had come from the second source, with nothing to restore them.
+**A fold is cheaper than it was.** Version 1's `applyAdd` had to `coalesce` the dimensions on
+conflict, because they were the only columns with two sources — a journal line and a derive.
+Version 2's `add` names no derived column at all, so that whole class of bug cannot occur here.
 
 **It is a whole-journal fold, not an incremental one.** The mark is a length, so the records past
 it could be read alone — that is a worthwhile optimisation and it is not built. `TODO.md` §3
 carries it.
-
-### Partial-hash collisions cannot be detected by size
-
-An early draft of this note claimed the importer should escalate to a full hash on finding an
-existing row with the same hash and a different size. **That check can never fire.** The size is
-hashed as the little-endian prefix, so two files sharing a partial hash necessarily share a size.
-
-The real blind spot is narrower and undetectable at import time: two files sharing a size, a
-first 64 KiB and a last 64 KiB but differing in the middle hash the same and would be merged
-into one asset. Distinct videos rarely satisfy all three; files derived from one another — a
-re-muxed container, a patched disk image — plausibly can.
-
-This build **verifies on collision** (since 2026-08-24). When a duplicate is decided by a partial
-hash and the stored bytes are reachable, the two files are compared byte for byte before merging.
-That costs a full read only on the rare duplicate and never on an ordinary import. Matching bytes
-are an ordinary duplicate; differing bytes are refused outright and counted in
-`ImportReport.partialCollisions`, because merging them would lose one of the two files.
-`partialDuplicates` means the narrower thing it always should have: a partial match whose stored
-bytes could **not** be reached — a referenced original, which lives outside the object store.
-
-RL-12's own note permits all of accepting, verifying and refusing. Refusing is not the last word:
-the file is untouched on disk, and the partial-to-full upgrade below is what would eventually let
-both be stored.
-
-### Partial-hash upgrade
-
-Identity is the hash (RL-11) and the on-disk filename is the hash (RL-8), so upgrading an asset
-over 50 MiB from a partial hash to a full one changes both its primary key and its filename. It
-has to be a journalled operation rather than an in-place `UPDATE`, or a rebuild will not
-reproduce it — and **the format defines no operation for it yet** (`SPEC.md` §11.3). Nothing here
-may invent one; it is proposed against the standard first.
 
 ### Journal durability
 
 A write that reaches the database but not the journal is data loss, so every mutation is ordered
 journal-first and the journal is `fdatasync`ed per batch rather than per record — an import of
 100 000 files would otherwise spend most of its time waiting on the disk. A trailing torn line
-from a crash is skipped on replay with a warning, exactly as an unknown `op` is (RL-27).
-
-### Fields the `add` record needs beyond the published example
-
-`ref`, `created` and `partial` are optional in the registry and are **not** optional in practice,
-because each is state that exists nowhere else once import has happened: a referenced asset's
-location, the source file's mtime, and whether the hash was partial. All three are omitted from
-the line when empty, so the common case stays as small as the published example.
+from a crash is skipped on replay with a warning, exactly as an unknown `op` is (RL-39).
 
 ### Where the schema lives
 
-`DATA_MODEL.md` §2 — v1 at §2.0, and one numbered migration per section after it. The index is a
-cache, so none of that is the format's business; what is the format's business is that every row
-in it can be rebuilt from the journal and `originals/`.
+`DATA_MODEL.md` §2.0 — one baseline, and one numbered migration per section after it as the
+schema grows. The index is a cache, so none of that is the format's business; what **is** its
+business is that every row in it can be rebuilt from the journal and `files/` (RL-24).

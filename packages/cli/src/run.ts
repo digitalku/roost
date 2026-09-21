@@ -2,7 +2,7 @@ import { type ParseArgsConfig, parseArgs } from "node:util";
 import {
   DEFAULT_SORT,
   isSortKey,
-  isStorageMode,
+  isTake,
   type LogLevel,
   SORT_KEYS,
   setLogLevel,
@@ -63,7 +63,7 @@ const GLOBAL_OPTIONS: OptionTable = {
 const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   init: { name: { type: "string" } },
   import: {
-    mode: { type: "string" },
+    take: { type: "string" },
     tag: { type: "string", multiple: true },
     hidden: { type: "boolean" },
     folder: { type: "string" },
@@ -88,7 +88,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   query: {
     limit: { type: "string" },
     count: { type: "boolean" },
-    hashes: { type: "boolean" },
+    ids: { type: "boolean" },
     sort: { type: "string" },
     asc: { type: "boolean" },
     seed: { type: "string" },
@@ -198,9 +198,11 @@ async function dispatch(
 
     case "import": {
       const eagle = text(values, "from-eagle");
-      const mode = text(values, "mode") ?? "managed";
-      if (!isStorageMode(mode)) {
-        return usage(streams, command, `mode must be managed or referenced, not "${mode}"`);
+      // What happens to the source file (RL-26), not where the bytes live:
+      // version 2 has one storage mode and the question moved with it.
+      const take = text(values, "take") ?? "copy";
+      if (!isTake(take)) {
+        return usage(streams, command, `take must be move or copy, not "${take}"`);
       }
 
       if (eagle !== undefined) {
@@ -225,7 +227,7 @@ async function dispatch(
         }
         await runEagleImport(
           await library(),
-          { path: eagle, mode, tags: list(values, "tag") },
+          { path: eagle, take, tags: list(values, "tag") },
           streams.out,
           streams.progress,
           streams.warn,
@@ -244,7 +246,7 @@ async function dispatch(
         await library(),
         {
           paths: positionals,
-          mode,
+          take,
           tags: list(values, "tag"),
           includeHidden: flag(values, "hidden"),
           ...(folder === undefined ? {} : { folder }),
@@ -329,7 +331,7 @@ async function dispatch(
           query: positionals.join(" "),
           limit,
           countOnly: flag(values, "count"),
-          hashesOnly: flag(values, "hashes"),
+          idsOnly: flag(values, "ids"),
           // Descending is what every key means by default — newest, largest,
           // five stars first — so the flag is the exception rather than a pair
           // of opposites, and `--sort name --asc` reads as the A-to-Z it is.
@@ -431,7 +433,7 @@ async function dispatch(
     case "save": {
       const [asset, file] = positionals;
       if (asset === undefined) return usage(streams, command, "save needs an asset");
-      return save(await library(), asset, file, flag(values, "clear"), streams);
+      return save(await library(), asset, file, streams);
     }
 
     case "subtitle": {

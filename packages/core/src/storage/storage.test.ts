@@ -1,17 +1,16 @@
 import { constants } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { NotInObjectStoreError, parseContentHash } from "../model/index.js";
+import { parseAssetId } from "../model/index.js";
 import { tmpfsDir } from "../testing/mounts.js";
-import { ManagedStorage } from "./managed.js";
-import { ReferencedStorage } from "./referenced.js";
+import { FileStore } from "./files.js";
 import { normalizeExt } from "./types.js";
 
-const HASH = parseContentHash(`3f${"a".repeat(62)}`);
+const ID = parseAssetId("3FAAAAAAAAAA");
+const OTHER = parseAssetId("B7CCCCCCCCCC");
 const onLinux = process.platform === "linux";
-const OTHER = parseContentHash(`b7${"c".repeat(62)}`);
 
 /**
  * The repository's own filesystem. On this machine it is Btrfs, which is what
@@ -54,39 +53,42 @@ describe("normalizeExt", () => {
   });
 });
 
-describe("ManagedStorage.locate", () => {
-  const store = new ManagedStorage("/lib");
+describe("FileStore.locate", () => {
+  const store = new FileStore("/lib");
 
   // The shard and the filename are the assertion; the separator between them is
   // the platform's, and `locate` builds it with `join` like everything else.
-  const at = (...parts: string[]) => join("/lib", "originals", ...parts);
+  const at = (...parts: string[]) => join("/lib", "files", ...parts);
 
-  it("shards on the first two characters, one level only", () => {
-    expect(store.locate(HASH, "jpg")).toBe(at("3f", `${HASH}.jpg`));
+  it("shards on the first two characters of the id, one level only (RL-8)", () => {
+    expect(store.locate(ID, "jpg")).toBe(at("3F", `${ID}.jpg`));
   });
 
-  it("normalises the extension into the filename", () => {
-    expect(store.locate(HASH, ".JPG")).toBe(at("3f", `${HASH}.jpg`));
+  it("normalises the extension into the filename (RL-9)", () => {
+    expect(store.locate(ID, ".JPG")).toBe(at("3F", `${ID}.jpg`));
   });
 
-  it("uses the bare hash when there is no extension, with no trailing dot", () => {
-    // A trailing dot would round-trip through iterAll as an empty extension on
-    // a differently-named file, which is a different address for one asset.
-    expect(store.locate(HASH, "")).toBe(at("3f", HASH));
+  it("uses the bare id when there is no extension, with no trailing dot (RL-9a)", () => {
+    // The rule a Windows implementation passes against itself and fails against
+    // every other system: Windows strips a trailing dot before the path reaches
+    // the filesystem, so a build that wrote one would find the file again
+    // through its own API and produce a library nothing else can read.
+    expect(store.locate(ID, "")).toBe(at("3F", ID));
+    expect(store.locate(ID, "")).not.toMatch(/\.$/);
   });
 });
 
-describe("ManagedStorage, on a real filesystem", () => {
+describe("FileStore, on a real filesystem", () => {
   let lib: string;
   let src: string;
-  let store: ManagedStorage;
+  let store: FileStore;
   let reflinkable: boolean;
 
   beforeAll(async () => {
     await mkdir(REPO_FS_ROOT, { recursive: true });
     lib = await mkdtemp(join(REPO_FS_ROOT, "lib-"));
     src = await mkdtemp(join(REPO_FS_ROOT, "src-"));
-    store = new ManagedStorage(lib);
+    store = new FileStore(lib);
     reflinkable = await supportsReflink(lib);
   });
 
@@ -95,111 +97,147 @@ describe("ManagedStorage, on a real filesystem", () => {
     await rm(src, { recursive: true, force: true });
   });
 
-  it("creates the shard directory lazily, and only the one it needs", async () => {
+  it("creates the shard directory lazily, and only the one it needs (RL-10)", async () => {
     const file = join(src, "one.bin");
     await writeFile(file, "one");
-    await store.put(file, HASH, "bin");
+    await store.put(file, ID, "bin", "copy");
 
-    expect(await readdir(store.originalsDir())).toEqual(["3f"]);
+    expect(await readdir(store.filesDir())).toEqual(["3F"]);
   });
 
-  it("leaves the caller's file exactly where it was, and unchanged", async () => {
+  it("copies without touching the caller's file, and says it copied (RL-26)", async () => {
     const file = join(src, "keep.bin");
     await writeFile(file, "keep");
-    await store.put(file, OTHER, "bin");
+    const placed = await store.put(file, OTHER, "bin", "copy");
 
+    expect(placed.take).toBe("copy");
     expect(await readFile(file, "utf8")).toBe("keep");
+    expect(await readFile(placed.path, "utf8")).toBe("keep");
+  });
+
+  it("moves by taking the source with it, and says it moved (RL-26)", async () => {
+    // The half of RL-26 that cannot be undone by looking at the library, which
+    // is exactly why the report has to carry it.
+    const file = join(src, "gone-from-here.bin");
+    await writeFile(file, "moved");
+    const id = parseAssetId("MV0000000001");
+
+    const placed = await store.put(file, id, "bin", "move");
+
+    expect(placed.take).toBe("move");
+    expect(await readFile(placed.path, "utf8")).toBe("moved");
+    await expect(stat(file)).rejects.toThrow();
   });
 
   it("leaves no temp file behind", async () => {
-    const entries = await readdir(join(store.originalsDir(), "3f"));
+    const entries = await readdir(join(store.filesDir(), "3F"));
     expect(entries.filter((e) => e.startsWith("."))).toEqual([]);
   });
 
-  it("is idempotent: a second put places nothing and says so", async () => {
-    const file = join(src, "again.bin");
-    await writeFile(file, "again");
-    const hash = parseContentHash(`11${"d".repeat(62)}`);
+  it("never hardlinks, so editing the library's file cannot edit the user's", async () => {
+    // RL-26 permits a copy-on-write clone and forbids a hardlink, because a
+    // shared inode would make an edit inside the library an edit outside it.
+    // The inode is the assertion: a reflink and a copy both give a new one.
+    const file = join(src, "own.bin");
+    await writeFile(file, "own");
+    const id = parseAssetId("NK0000000001");
 
-    const first = await store.put(file, hash, "bin");
-    const second = await store.put(file, hash, "bin");
+    const placed = await store.put(file, id, "bin", "copy");
+    const [source, stored] = await Promise.all([stat(file), stat(placed.path)]);
 
-    expect(first.alreadyPresent).toBe(false);
-    expect(first.linkMethod).not.toBeNull();
-    expect(second.alreadyPresent).toBe(true);
-    // Nothing was linked the second time, so there is no method to report.
-    expect(second.linkMethod).toBeNull();
+    expect(stored.ino).not.toBe(source.ino);
+    expect(source.nlink).toBe(1);
   });
 
-  it("reports the link method the filesystem actually gave it", async () => {
+  it("reports the placement the filesystem actually gave it", async () => {
     const file = join(src, "method.bin");
     await writeFile(file, "method");
-    const hash = parseContentHash(`22${"e".repeat(62)}`);
+    const id = parseAssetId("PQ0000000001");
 
-    const placed = await store.put(file, hash, "bin");
+    const placed = await store.put(file, id, "bin", "copy");
 
-    if (reflinkable) {
-      // ADR-0012: COPYFILE_FICLONE_FORCE succeeded, so it genuinely cloned.
-      expect(placed.linkMethod).toBe("reflink");
-    } else {
-      // The filesystem refused rather than silently copying — which is the
-      // whole reason the FORCE flag is used. Same filesystem, so hardlink is
-      // the next rung and it must not be misreported as a reflink.
-      expect(placed.linkMethod).toBe("hardlink");
-    }
+    // ADR-0012: `COPYFILE_FICLONE_FORCE` refuses rather than silently copying,
+    // which is what makes the answer honest either way.
+    expect(placed.placement).toBe(reflinkable ? "reflink" : "copy");
+  });
+
+  it("moves within one filesystem by renaming, which costs nothing", async () => {
+    const file = join(src, "renamed.bin");
+    await writeFile(file, "renamed");
+    const id = parseAssetId("RN0000000001");
+
+    expect((await store.put(file, id, "bin", "move")).placement).toBe("rename");
   });
 
   // Linux's, because the way it finds a second filesystem is `/proc/mounts`.
   // The rung it exercises is not Linux's — every platform falls to a plain copy
-  // across a device boundary — but nothing portable can produce one on demand,
-  // and inventing a Windows path here would assert against a second drive that
-  // most machines do not have.
-  it.runIf(onLinux)(
-    "falls to a plain copy across filesystems, and never calls it a reflink",
-    async (ctx) => {
-      // A tmpfs mount rather than `os.tmpdir()`: `$TMPDIR` can point at the same
-      // filesystem the library is on, and then this test skips itself and reads
-      // as coverage it is not providing.
-      const crossDir = await tmpfsDir("roost-cross-");
-      try {
-        if ((await stat(crossDir)).dev === (await stat(lib)).dev) {
-          // Only one filesystem here, so there is nothing to cross. Skipped
-          // rather than silently returning: a test that passes without asserting
-          // anything reads as coverage it does not provide.
-          ctx.skip();
-        }
-
-        const file = join(crossDir, "cross.bin");
-        await writeFile(file, "cross");
-        const hash = parseContentHash(`33${"f".repeat(62)}`);
-
-        const placed = await store.put(file, hash, "bin");
-        expect(placed.linkMethod).toBe("copy");
-      } finally {
-        await rm(crossDir, { recursive: true, force: true });
+  // across a device boundary — but nothing portable can produce one on demand.
+  it.runIf(onLinux)("falls to a copy across filesystems, and still moves", async (ctx) => {
+    const crossDir = await tmpfsDir("roost-cross-");
+    try {
+      if ((await stat(crossDir)).dev === (await stat(lib)).dev) {
+        // Only one filesystem here, so there is nothing to cross. Skipped
+        // rather than silently returning: a test that passes without asserting
+        // anything reads as coverage it does not provide.
+        ctx.skip();
       }
-    },
-  );
+
+      const file = join(crossDir, "cross.bin");
+      await writeFile(file, "cross");
+      const id = parseAssetId("XD0000000001");
+
+      const placed = await store.put(file, id, "bin", "move");
+
+      // EXDEV is an ordinary answer rather than a failure: the bytes are
+      // copied and the source unlinked afterwards, so the user's file is never
+      // gone before the library's file exists.
+      expect(placed.placement).toBe("copy");
+      expect(placed.take).toBe("move");
+      await expect(stat(file)).rejects.toThrow();
+    } finally {
+      await rm(crossDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes new bytes over the file the id names, which is an ordinary edit", async () => {
+    // RL-20: the bytes may change at any time and the asset is the same asset
+    // afterwards. The path is the assertion — a save that produced a second
+    // address would be version 1's behaviour.
+    const id = parseAssetId("ED0000000001");
+    const first = await store.writeBytes(new TextEncoder().encode("before"), id, "txt");
+    const second = await store.writeBytes(new TextEncoder().encode("after"), id, "txt");
+
+    expect(second).toBe(first);
+    expect(await readFile(second, "utf8")).toBe("after");
+  });
 
   it("removes what it placed, and removing it twice is still success", async () => {
-    const file = join(src, "gone.bin");
-    await writeFile(file, "gone");
-    const hash = parseContentHash(`44${"a".repeat(62)}`);
-    await store.put(file, hash, "bin");
+    const file = join(src, "delete.bin");
+    await writeFile(file, "delete");
+    const id = parseAssetId("DK0000000001");
+    await store.put(file, id, "bin", "copy");
 
-    await store.remove(hash, "bin");
-    await expect(store.remove(hash, "bin")).resolves.toBeUndefined();
-    await expect(stat(store.locate(hash, "bin"))).rejects.toThrow();
+    await store.remove(id, "bin");
+    await expect(store.remove(id, "bin")).resolves.toBeUndefined();
+    await expect(stat(store.locate(id, "bin"))).rejects.toThrow();
   });
 });
 
-describe("ManagedStorage.iterAll", () => {
+describe("walking the store", () => {
   let lib: string;
-  let store: ManagedStorage;
+  let store: FileStore;
 
   beforeAll(async () => {
-    lib = await mkdtemp(join(tmpdir(), "roost-iter-"));
-    store = new ManagedStorage(lib);
+    lib = await mkdtemp(join(tmpdir(), "roost-walk-"));
+    store = new FileStore(lib);
+    await mkdir(join(lib, "files", "K7"), { recursive: true });
+    await mkdir(join(lib, "files", "H8"), { recursive: true });
+    await writeFile(join(lib, "files", "K7", "K7QM4X2AJH9F.docx"), "doc");
+    // Word's lock file, left beside the document it opened.
+    await writeFile(join(lib, "files", "K7", "~$QM4X2AJH9F.docx"), "lock");
+    await writeFile(join(lib, "files", "H8", "H8VKC0S6ZB1P"), "licence");
+    // Directly in files/, which is not a shard.
+    await writeFile(join(lib, "files", "stray.txt"), "stray");
   });
 
   afterAll(async () => {
@@ -209,130 +247,58 @@ describe("ManagedStorage.iterAll", () => {
   const collect = async () => {
     const found = [];
     for await (const file of store.iterAll()) found.push(file);
-    return found;
+    return found.sort((a, b) => a.id.localeCompare(b.id));
   };
 
   it("is empty, not an error, before anything is imported", async () => {
-    expect(await collect()).toEqual([]);
-  });
-
-  it("yields what it finds, with the extension parsed back off the name", async () => {
-    const shard = join(store.originalsDir(), "3f");
-    await mkdir(shard, { recursive: true });
-    await writeFile(join(shard, `${HASH}.jpg`), "x");
-
-    expect(await collect()).toEqual([{ hash: HASH, ext: "jpg", path: join(shard, `${HASH}.jpg`) }]);
-  });
-
-  it("reads a bare hash back as an empty extension", async () => {
-    const bare = parseContentHash(`3f${"b".repeat(62)}`);
-    await writeFile(join(store.originalsDir(), "3f", bare), "x");
-
-    const found = await collect();
-    expect(found.find((f) => f.hash === bare)?.ext).toBe("");
-  });
-
-  it("skips a torn temp file rather than reporting it as content", async () => {
-    // A partially written object at a real address would look like valid
-    // content addressed by a hash it does not have. The leading dot is what
-    // keeps it out, and this is the test that says so.
-    const shard = join(store.originalsDir(), "3f");
-    await writeFile(join(shard, `.${HASH}.jpg.tmp-1234-0`), "torn");
-
-    expect((await collect()).every((f) => !f.path.includes(".tmp-"))).toBe(true);
-  });
-
-  it("skips a stray file rather than failing a rebuild that would otherwise work", async () => {
-    await writeFile(join(store.originalsDir(), "3f", "notes.txt"), "stray");
-
-    expect((await collect()).every((f) => !f.path.endsWith("notes.txt"))).toBe(true);
-  });
-
-  it("ignores a file sitting directly in originals/, which is not a shard", async () => {
-    await writeFile(join(store.originalsDir(), `${HASH}.jpg`), "misplaced");
-
-    expect((await collect()).every((f) => f.path.includes(`${sep}3f${sep}`))).toBe(true);
-  });
-});
-
-describe("ReferencedStorage", () => {
-  const store = new ReferencedStorage();
-
-  it("writes nothing and reports the file where the user left it", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "roost-ref-"));
-    const file = join(dir, "theirs.jpg");
-    await writeFile(file, "theirs");
-
-    const placed = await store.put(file, HASH, "jpg");
-
-    expect(placed.path).toBe(file);
-    expect(placed.linkMethod).toBeNull();
-    expect(placed.alreadyPresent).toBe(true);
-    // The only thing in the user's directory is the user's file.
-    expect(await readdir(dir)).toEqual(["theirs.jpg"]);
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  it("refuses to invent a path, because it does not own these bytes", () => {
-    expect(() => store.locate(HASH)).toThrow(NotInObjectStoreError);
-  });
-
-  it("carries a code a caller can act on, not just a message", () => {
-    try {
-      store.locate(HASH);
-      expect.unreachable("should have thrown");
-    } catch (error) {
-      expect((error as NotInObjectStoreError).code).toBe("not_in_object_store");
-    }
-  });
-
-  it("never deletes the user's file", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "roost-ref-"));
-    const file = join(dir, "safe.jpg");
-    await writeFile(file, "safe");
-
-    await store.remove();
-
-    expect(await readFile(file, "utf8")).toBe("safe");
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  it("walks nothing, because there is no object store to walk", async () => {
+    const empty = new FileStore(await mkdtemp(join(tmpdir(), "roost-empty-")));
     const found = [];
-    for await (const file of store.iterAll()) found.push(file);
+    for await (const file of empty.iterAll()) found.push(file);
     expect(found).toEqual([]);
   });
-});
 
-describe("against an object store written by the Rust implementation", () => {
-  // A real fragment of a real library, produced by `../roost-old` importing five
-  // files in managed mode. See its README for provenance.
-  const store = new ManagedStorage(join(import.meta.dirname, "__fixtures__/rust-written-library"));
-
-  const collect = async () => {
-    const found = [];
-    for await (const file of store.iterAll()) found.push(file);
-    return found;
-  };
-
-  it("finds every object the other implementation wrote", async () => {
-    expect((await collect()).length).toBe(5);
+  it("parses the extension back off the name, and a bare id as none", async () => {
+    expect(await collect()).toEqual([
+      {
+        id: "H8VKC0S6ZB1P",
+        ext: "",
+        path: join(lib, "files", "H8", "H8VKC0S6ZB1P"),
+      },
+      {
+        id: "K7QM4X2AJH9F",
+        ext: "docx",
+        path: join(lib, "files", "K7", "K7QM4X2AJH9F.docx"),
+      },
+    ]);
   });
 
-  it("re-derives each path exactly, which is the compatibility promise", async () => {
-    // If this ever fails, this implementation has stopped writing files where
-    // the other one reads them, and a library no longer opens in both
-    // (`CONCEPT.md` §7). Round-tripping through parse and locate is the whole
-    // check: it exercises sharding, filename construction, and the extension.
+  it("neither adopts nor deletes a file whose name is not an id (RL-11)", async () => {
+    // Applications leave things beside the file they opened, and deleting them
+    // would put Roost in the business of guessing which of somebody's files
+    // are rubbish. Reporting them is the whole of what RL-11 asks.
+    const unrecognised = [];
+    for await (const path of store.iterUnrecognised()) unrecognised.push(path);
+
+    expect(unrecognised).toEqual([join(lib, "files", "K7", "~$QM4X2AJH9F.docx")]);
+    await expect(stat(join(lib, "files", "K7", "~$QM4X2AJH9F.docx"))).resolves.toBeTruthy();
+  });
+
+  it("re-derives each path exactly, which is what makes the layout a rule", async () => {
     for (const file of await collect()) {
-      expect(store.locate(file.hash, file.ext)).toBe(file.path);
+      expect(store.locate(file.id, file.ext)).toBe(file.path);
     }
   });
 
-  it("reads back the extensions the other implementation chose", async () => {
-    const byExt = (await collect()).map((f) => f.ext).sort();
-    // `b.tar.gz` is stored as `.gz`: the importer records the *last* component,
-    // not every suffix. `noext` is stored bare and reads back as "".
-    expect(byExt).toEqual(["", "gz", "jpeg", "jpg", "png"]);
+  it("finds every file an id has, which is how RL-12 is reported", async () => {
+    const id = parseAssetId("K7QM4X2AJH9F");
+    expect(await store.findFiles(id)).toHaveLength(1);
+
+    // An id with two files is what RL-12 forbids and requires be reported
+    // rather than chosen between.
+    await writeFile(join(lib, "files", "K7", "K7QM4X2AJH9F.pdf"), "pdf");
+    expect(await store.findFiles(id)).toHaveLength(2);
+    await rm(join(lib, "files", "K7", "K7QM4X2AJH9F.pdf"));
+
+    expect(await store.findFiles(parseAssetId("ZZ0000000000"))).toEqual([]);
   });
 });

@@ -2,10 +2,10 @@ import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import {
-  type ContentHash,
+  type AssetId,
+  FileStore,
   fileNameFor,
   logger,
-  ManagedStorage,
   ReadOnlyIndex,
   stageFile,
   sweepStaging,
@@ -26,7 +26,7 @@ const log = logger("assets");
 const MAX_SUBTITLE_BYTES = 2 * 1024 * 1024;
 
 /**
- * The `roost://` handler: thumbnails out of the index, originals off the disk.
+ * The `roost://` handler: thumbnails out of the index, files off the disk.
  *
  * Deliberately holds no reference to Electron. `protocol.handle` passes a
  * `Request` and takes a `Response`, both of which are globals here, so the
@@ -48,9 +48,9 @@ export class AssetServer {
     this.#open = {
       root,
       index: ReadOnlyIndex.open(root),
-      // `locate` is the one door from a hash to a path (invariant 2). Nothing
+      // `locate` is the one door from an id to a path (invariant 2). Nothing
       // in this file joins one itself.
-      storage: new ManagedStorage(root),
+      storage: new FileStore(root),
     };
     log.debug("serving bytes for a library", { root });
     // Whatever a previous session handed out has been had by now (ADR-0034):
@@ -74,15 +74,13 @@ export class AssetServer {
    * Not a `Response`, so it is deliberately outside `handle` — a path is
    * something main acts on, never something the renderer receives.
    */
-  async locate(hash: ContentHash): Promise<string | undefined> {
+  async locate(id: AssetId): Promise<string | undefined> {
     const open = this.#open;
     if (open === undefined) return undefined;
-    const record = open.index.findOriginal(hash);
+    const record = open.index.findFile(id);
     if (record === undefined) return undefined;
 
-    const path =
-      record.storageMode === "referenced" ? record.refPath : open.storage.locate(hash, record.ext);
-    if (path === null) return undefined;
+    const path = open.storage.locate(id, record.ext);
     try {
       return (await stat(path)).isFile() ? path : undefined;
     } catch {
@@ -94,31 +92,26 @@ export class AssetServer {
    * Files with readable names, for handing this selection to another
    * application (ADR-0034).
    *
-   * A `referenced` original is handed over where it lies — that file is already
-   * the user's own, under the user's own name. A managed one is staged inside
-   * the library under the name the library shows, because the name on disk is
-   * its hash and nobody can read that.
+   * Staged inside the library under the name the library shows, because the
+   * name on disk is an id and nobody can read that. Version 1 had a second
+   * case — a `referenced` original handed over where it lay — and version 2
+   * has one storage mode (RL-19), so this one path serves every asset.
    *
    * Assets whose bytes are not on this machine are skipped rather than passed
    * on as a path that resolves to nothing: a handoff with a hole in it is worse
    * than a shorter one, which is the rule `copyPaths` already follows.
    */
-  async stage(hashes: readonly ContentHash[]): Promise<string[]> {
+  async stage(ids: readonly AssetId[]): Promise<string[]> {
     const open = this.#open;
     if (open === undefined) return [];
 
     const files: string[] = [];
-    for (const hash of hashes) {
-      const record = open.index.findOriginal(hash);
-      const name = open.index.displayName(hash);
+    for (const id of ids) {
+      const record = open.index.findFile(id);
+      const name = open.index.displayName(id);
       if (record === undefined || name === undefined) continue;
 
-      if (record.storageMode === "referenced") {
-        if (record.refPath !== null) files.push(record.refPath);
-        continue;
-      }
-
-      const source = await this.locate(hash);
+      const source = await this.locate(id);
       if (source === undefined) continue;
       try {
         const { path } = await stageFile(open.root, source, fileNameFor(name, record.ext));
@@ -157,7 +150,7 @@ export class AssetServer {
     if (route.value.kind === "page") return this.#servePage(open, route.value);
     if (route.value.kind === "subtitle") return this.#serveSubtitle(open, route.value);
     if (route.value.kind === "render") return this.#serveRender(open, route.value);
-    return this.#serveOriginal(open, route.value, request);
+    return this.#serveFile(open, route.value, request);
   }
 
   /**
@@ -177,7 +170,7 @@ export class AssetServer {
    * page costs single-digit milliseconds (ADR-0016).
    */
   async #servePage(open: OpenLibrary, route: Extract<Route, { kind: "page" }>): Promise<Response> {
-    const path = await this.locate(route.hash);
+    const path = await this.locate(route.id);
     if (path === undefined) return new Response(null, { status: 404 });
 
     try {
@@ -202,7 +195,7 @@ export class AssetServer {
       // An encrypted PDF, a page past the end, a file that is not a document at
       // all. A missing picture, not a broken window.
       log.debug("could not render a page", {
-        hash: route.hash,
+        asset: route.id,
         page: route.index,
         reason: error instanceof Error ? error.message : String(error),
       });
@@ -228,10 +221,10 @@ export class AssetServer {
     open: OpenLibrary,
     route: Extract<Route, { kind: "render" }>,
   ): Promise<Response> {
-    const record = open.index.findOriginal(route.hash);
+    const record = open.index.findFile(route.id);
     if (record === undefined) return new Response(null, { status: 404 });
 
-    const path = await this.locate(route.hash);
+    const path = await this.locate(route.id);
     if (path === undefined) return new Response(null, { status: 404 });
 
     try {
@@ -250,7 +243,7 @@ export class AssetServer {
       // file that is not what its name says. A missing picture, not a broken
       // window — and the pane falls back to the thumbnail it already has.
       log.debug("could not render a preview", {
-        hash: route.hash,
+        asset: route.id,
         reason: error instanceof Error ? error.message : String(error),
       });
       return new Response(null, { status: 404, headers: { "cache-control": "max-age=5" } });
@@ -258,7 +251,7 @@ export class AssetServer {
   }
 
   #serveThumb(open: OpenLibrary, route: Extract<Route, { kind: "thumb" }>): Response {
-    const bytes = open.index.thumbnail(route.hash, route.size);
+    const bytes = open.index.thumbnail(route.id, route.size);
     if (bytes === undefined) return missingThumbnail();
     return new Response(new Uint8Array(bytes), {
       headers: {
@@ -286,7 +279,7 @@ export class AssetServer {
     open: OpenLibrary,
     route: Extract<Route, { kind: "subtitle" }>,
   ): Promise<Response> {
-    const record = open.index.findOriginal(route.hash);
+    const record = open.index.findFile(route.id);
     if (record === undefined) return new Response(null, { status: 404 });
     if (!isConvertible(record.ext)) {
       // ASS and an embedded stream both need ffmpeg, which is a capability and
@@ -295,11 +288,7 @@ export class AssetServer {
       return new Response(null, { status: 415 });
     }
 
-    const path =
-      record.storageMode === "referenced"
-        ? record.refPath
-        : open.storage.locate(route.hash, record.ext);
-    if (path === null) return new Response(null, { status: 404 });
+    const path = open.storage.locate(route.id, record.ext);
 
     try {
       const info = await stat(path);
@@ -318,31 +307,27 @@ export class AssetServer {
     }
   }
 
-  async #serveOriginal(
+  async #serveFile(
     open: OpenLibrary,
-    route: Extract<Route, { kind: "original" }>,
+    route: Extract<Route, { kind: "file" }>,
     request: Request,
   ): Promise<Response> {
-    const record = open.index.findOriginal(route.hash);
+    const record = open.index.findFile(route.id);
     if (record === undefined) return new Response(null, { status: 404 });
 
-    const path =
-      record.storageMode === "referenced"
-        ? record.refPath
-        : open.storage.locate(route.hash, record.ext);
-    if (path === null) return new Response(null, { status: 404 });
+    const path = open.storage.locate(route.id, record.ext);
 
-    // The recorded size is what the file had at import. A referenced original
-    // lives in a user's directory and may have changed since, and answering a
-    // range against a stale size would hand a player the wrong bytes.
+    // The size is read here and never taken from the index: the bytes may have
+    // changed since anything last looked (RL-20), and answering a range against
+    // a stale size would hand a player the wrong bytes.
     let size: number;
     try {
       const info = await stat(path);
       if (!info.isFile()) return new Response(null, { status: 404 });
       size = info.size;
     } catch {
-      // A referenced original that has been moved or deleted. `roost doctor`
-      // reports it; the grid shows a cell without a preview.
+      // An asset whose file is gone (RL-25). `roost doctor` reports it; the
+      // grid shows a cell without a preview.
       return new Response(null, { status: 404 });
     }
 
@@ -398,7 +383,7 @@ export class AssetServer {
  * Same-origin was never available. The window is `file://` in a packaged build
  * and `http://localhost` under `pnpm dev`, and `roost:` is a `standard` scheme
  * whose origin is the *host* — so `roost://subtitle/…` is cross-origin to the
- * document, and to `roost://original/…` as well.
+ * document, and to `roost://file/…` as well.
  *
  * `*` rather than an origin, and on every response: the alternative is a header
  * that varies with how the window was loaded, which is the kind of difference
@@ -414,7 +399,7 @@ function allowCrossOrigin(response: Response): Response {
 interface OpenLibrary {
   readonly root: string;
   readonly index: ReadOnlyIndex;
-  readonly storage: ManagedStorage;
+  readonly storage: FileStore;
 }
 
 /**

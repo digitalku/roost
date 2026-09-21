@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { type ContentHash, logger } from "@roost/core";
+import { type AssetId, logger } from "@roost/core";
 import { hashFile, SUBTITLE_EXTENSIONS } from "@roost/media";
 import { attachSubtitle } from "./edit.js";
 import { importInto } from "./import.js";
@@ -81,9 +81,10 @@ export interface SiblingReport {
  *
  * **The sibling is found by hashing it, not by remembering it.** Holding a map
  * of every video an import walked past would be memory proportional to the
- * library, which the pipeline is built to avoid — and hashing costs almost
- * nothing here: the file was very likely just read, and anything over 50 MiB
- * takes the partial hash, which is two 64 KB reads and a size.
+ * library, which the pipeline is built to avoid — and the file was very likely
+ * just read, so the hash is warm. A hash is derived data here, never identity
+ * (RL-18): what it answers is *which asset did those bytes become*, and the
+ * answer is the id the attachment names.
  *
  * It also makes the heuristic work **across runs**. Drop an `.srt` next to a
  * film imported last month, import just the `.srt`, and it attaches — where a
@@ -96,7 +97,7 @@ export interface SiblingReport {
  */
 export async function attachSiblings(
   library: Library,
-  tracks: readonly { readonly path: string; readonly hash: ContentHash }[],
+  tracks: readonly { readonly path: string; readonly id: AssetId }[],
 ): Promise<SiblingReport> {
   let attached = 0;
   let unattached = 0;
@@ -130,30 +131,28 @@ export async function attachSiblings(
 
       // Only what the library already holds: a film sitting beside a subtitle
       // that nobody imported is not a reason to import the film.
-      if (library.db.repo.findAsset(hashed.hash) === undefined) {
+      const media = library.db.repo.assetsWithHash(hashed.hash)[0];
+      if (media === undefined) {
         log.info("the film beside this subtitle is not in the library", {
           film: name,
-          track: track.hash,
+          track: track.id,
         });
         done = true;
         break;
       }
 
       const lang = languageFrom(track.path);
-      await attachSubtitle(library, hashed.hash, track.hash, lang === undefined ? {} : { lang });
+      await attachSubtitle(library, media, track.id, lang === undefined ? {} : { lang });
       attached += 1;
       done = true;
-      log.debug("subtitle attached to the file beside it", {
-        media: hashed.hash,
-        track: track.hash,
-      });
+      log.debug("subtitle attached to the file beside it", { media, track: track.id });
       break;
     }
 
     if (!done) {
       unattached += 1;
       log.info("subtitle imported with no film beside it", {
-        track: track.hash,
+        track: track.id,
         name: basename(track.path),
       });
     }
@@ -170,9 +169,10 @@ export async function attachSiblings(
  * and not attached is a stray text asset in the grid, and the caller would have
  * to learn the hash of something it only handed over a path to.
  *
- * **Always `managed`**, whatever the library's default import mode is. The
- * whole of §1 is that a track survives its source; one merely referenced from a
- * downloads folder disappears the moment that folder is tidied.
+ * **The track is copied into the library**, which in version 2 is the only
+ * place an asset's bytes can be (RL-19) — the whole of §1 is that a track
+ * survives its source, and one left in a downloads folder disappears the moment
+ * that folder is tidied.
  *
  * The language is guessed from the filename by the same rule import uses —
  * `holiday.id.srt` says Indonesian — because two rules would eventually
@@ -184,19 +184,20 @@ export async function attachSiblings(
  * Answering with the paths rather than a count is what lets the caller do that
  * without knowing which extensions this function believes in.
  *
- * A file already in the library attaches anyway: identical bytes are one asset,
- * and saying the same sentence twice is one sentence.
+ * A file already in the library attaches anyway: the import reports it as a
+ * duplicate and the attachment names the asset those bytes already became, so
+ * saying the same sentence twice is one sentence.
  */
 export async function addSubtitles(
   library: Library,
-  hash: ContentHash,
+  asset: AssetId,
   paths: readonly string[],
 ): Promise<SubtitlesAdded> {
   const wanted = paths.filter((path) => isSubtitlePath(path));
   const ignored = paths.filter((path) => !isSubtitlePath(path));
   if (wanted.length === 0) return { attached: 0, ignored };
 
-  await importInto(library, wanted, { mode: "managed" });
+  await importInto(library, wanted, { take: "copy" });
 
   let attached = 0;
   for (const path of wanted) {
@@ -205,9 +206,11 @@ export async function addSubtitles(
     // almost nothing (`attachSiblings` above says more).
     const hashed = await hashFile(path).catch(() => undefined);
     if (hashed === undefined) continue;
+    const track = library.db.repo.assetsWithHash(hashed.hash)[0];
+    if (track === undefined) continue;
 
     const lang = languageFrom(path);
-    await attachSubtitle(library, hash, hashed.hash, lang === undefined ? {} : { lang });
+    await attachSubtitle(library, asset, track, lang === undefined ? {} : { lang });
     attached += 1;
   }
 

@@ -22,8 +22,8 @@ locks your metadata into a format you do not control.
 
 Roost is proprietary too (ADR-0038), so the complaint is deliberately the second one and not the
 first. Source availability is not what decides whether you can leave: a documented format, a plain
-JSONL journal, and originals nothing ever rewrites are. Those are promises this product keeps
-whether or not its own code is published.
+JSONL journal, and files named and laid out so that another program can read them without asking
+this one. Those are promises this product keeps whether or not its own code is published.
 
 Linux users today fall back to a pile of compromises:
 
@@ -50,8 +50,10 @@ order.
    disappears tomorrow, a `jq` one-liner recovers everything.
 3. **Fast at scale, or it is not shipped.** Targets are hard: 1M assets indexed, 60fps grid
    scroll, sub-100ms search. Features that break these get redesigned, not merged.
-4. **Non-destructive by default.** Roost never edits, moves, or renames a user's original file
-   unless explicitly told to. Referenced libraries stay read-only.
+4. **Nothing is written into your folders.** Roost never edits, moves, or renames a file outside
+   the library unless explicitly told to — an import copies by default, and moves only when
+   asked. Inside the library the opposite is the point: it is a **workspace**, and a file there
+   is meant to be opened in the application that owns it, edited, and saved (ADR-0046).
 5. **Linux-native first, portable by construction.** We ship for Linux first and target it
    properly (XDG, portals, Flatpak, reflinks). Electron runs on all three desktops, but that is
    not the same as *supporting* them: OS-specific behaviour lives behind one module, and macOS
@@ -145,9 +147,9 @@ Legend: **M** = must have (v1.0) · **S** = should have · **C** = could have ·
 **Library**
 - M — Multiple libraries, switchable
 - M — Portable library folder (copy it to another machine, it just works)
-- M — **Managed** mode (files copied into library) and **Referenced** mode (files indexed in place)
+- M — Import moves or copies, and says which it did (~~two storage modes~~ — one, since ADR-0046)
 - M — Full DB rebuild by replaying the journal
-- M — Opens a library written by the Rust implementation (one direction; see §7)
+- M — ~~Opens a library written by the Rust implementation~~ — retired with format 1 (ADR-0046)
 - S — Export/backup a folder or selection with metadata
 - C — Merge two libraries
 
@@ -172,20 +174,25 @@ These are the differentiators worth building, not just parity items:
 1. **Journal-truth storage.** Every change appended to a monthly JSONL file. Survives app
    death, reads in any text editor, doubles as an audit log, and rebuilds the database on
    demand — without the million-sidecar file explosion that approach usually brings.
-2. **Referenced libraries.** Index your existing `~/Pictures` in place without duplicating
-   200GB, and nothing is ever written into your folders. Eagle forces a copy; we support both.
+2. **A library you can work in.** A file in the library is a file: open it in the application
+   that owns it, edit it, save it, and it is still the same asset with the same tags, rating and
+   comments. That is what a content-addressed store could never do, and why the format is at
+   version 2 (ADR-0046). ~~Referenced libraries~~ were the version 1 answer to the same wish and
+   are retired.
 3. **Reflink import.** On Btrfs/XFS, "copying" into the library costs zero bytes, and the
-   library copy is still independent of later edits to your original.
+   library copy is still **independent** — a reflink is a separate file, not a shared inode, so
+   editing it in the library cannot reach back into the original (RL-26).
 4. **A real query language.** `tag:texture AND NOT tag:wip color:#3a7 rating:>=4` in the search
    bar, saveable as a smart folder.
 5. **Headless CLI.** `roost import ~/Downloads --tag inbox`, `roost query 'tag:blue' --json`.
    Scriptable, cron-able, pipe-able.
 6. **Honest performance.** Virtualized everything, thumbnails on a worker pool, incremental
    indexing, no "loading 40k items" spinner.
-7. **Open format, documented.** The library layout is a spec in this repo, not a reverse
-   engineering project — and two independent implementations already read it. The application
-   is proprietary; the format is not, and M6 publishes the spec for other implementers
-   (ADR-0038).
+7. **Open format, documented, and owned by nobody.** The library layout is a numbered spec in
+   its own repository, `../roost-library`, with an operation registry and a conformance suite —
+   not a reverse engineering project, and not this implementation's to change unilaterally
+   (ADR-0045). The application is proprietary; the format is not, and M6 publishes the spec for
+   other implementers (ADR-0038).
 
 ## 7. Success criteria for v1.0
 
@@ -195,11 +202,14 @@ These are the differentiators worth building, not just parity items:
 - Grid scroll: sustained 60fps with 4k-resolution thumbnails.
 - Search p95: < 100ms on 1M rows.
 - Delete `index.db` → full rebuild from the journal with zero metadata loss (CI-enforced).
-- A library written by the Rust implementation opens here and migrates forward (CI-enforced
-  against a committed fixture library). **The reverse was dropped on 2026-08-29**: `roost-old`
-  is a discontinued project, and refusing to grow the schema to keep it readable there would cost
-  every milestone from M4 on. What is still promised is the line above it — the journal rebuilds
-  the index — because that, not another implementation, is what makes the format durable.
+- `../roost-library`'s conformance suite passes (CI-enforced, RL-52) — a library written by
+  hand in another repository replays here to the state that repository publishes. **Reading
+  `roost-old`'s libraries was dropped on 2026-09-21** along with the format that made it possible
+  (ADR-0046): a version 1 library is refused by name. What is still promised is the line above it
+  — the journal rebuilds the index — because that, not another implementation, is what makes the
+  format durable.
+- A file edited in place by the application that owns it stays the same asset, with its tags,
+  rating, note and comments intact (RL-20). That is the promise version 2 exists for.
 - Ships as AppImage + Flatpak + .rpm/.deb, with native modules bundled and no runtime
   dependency surprises.
 
@@ -219,7 +229,7 @@ These are the differentiators worth building, not just parity items:
 
 ## 9. Related documents
 
-- `../roost-library/SPEC.md` — **normative** library format (RL-1…RL-41); `docs/STORAGE_SPEC.md` maps it to the code
+- `../roost-library/SPEC.md` — **normative** library format, version 2 (RL-1…RL-56); `docs/STORAGE_SPEC.md` maps it to the code
 - `docs/ARCHITECTURE.md` — how it is built
 - `docs/DATA_MODEL.md` — query language and schema growth plan
 - `docs/UI_SPEC.md` — the interface, designed for this stack rather than ported

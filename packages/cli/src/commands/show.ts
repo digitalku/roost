@@ -9,22 +9,25 @@ export async function show(
   out: (line: string) => void,
 ): Promise<void> {
   await withLibrary(root, async (library) => {
-    const hash = resolveAsset(library, needle);
-    const detail = library.db.repo.assetDetail(hash);
+    const id = resolveAsset(library, needle);
+    const detail = library.db.repo.assetDetail(id);
     // `resolveAsset` matched a row, and nothing between there and here can
     // delete one — a missing detail would be a bug, not a state to render.
-    if (detail === undefined) throw new Error(`no detail for ${hash}`);
+    if (detail === undefined) throw new Error(`no detail for ${id}`);
 
-    out(detail.origName);
-    out(row("hash", detail.hash));
+    // The name and the extension apart, because the journal keeps them apart
+    // (RL-33): what a window shows is the one joined to the other.
+    out(detail.ext === "" ? detail.name : `${detail.name}.${detail.ext}`);
+    out(row("id", detail.id));
     out(row("type", detail.ext === "" ? "—" : detail.ext));
-    out(row("size", `${detail.size} bytes`));
+    // Everything derived reads "not read yet" rather than a zero: in version 2
+    // a size is a fact about bytes nothing has looked at until something has
+    // (RL-22), and printing 0 bytes would be a measurement nobody took.
+    out(row("size", detail.size === null ? "not read yet" : `${detail.size} bytes`));
     if (detail.width !== null && detail.height !== null) {
       out(row("dimensions", `${detail.width}x${detail.height}`));
     }
-    out(row("storage", detail.storageMode));
-    if (detail.refPath !== null) out(row("references", detail.refPath));
-    if (detail.isPartialHash) out(row("hashing", "partial (large file)"));
+    if (detail.contentHash !== null) out(row("hash", detail.contentHash));
     out(row("rating", detail.rating === null ? "—" : String(detail.rating)));
     // Only when there is one. Nothing sets a favourite any more (ADR-0029), so
     // a "no" on every asset forever is a word about a feature that is gone —

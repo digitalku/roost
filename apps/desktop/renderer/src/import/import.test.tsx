@@ -107,7 +107,7 @@ describe("importing", () => {
 
     await waitFor(() => {
       const sent = engine.seen.find((request) => request.type === "asset:addSubtitle");
-      expect(sent).toMatchObject({ hash: film.hash });
+      expect(sent).toMatchObject({ id: film.id });
     });
     // The picture was declined by the engine and went where it was always
     // going: nothing is dropped on the floor.
@@ -170,7 +170,7 @@ describe("importing", () => {
       // dropped `File` has carried none since Electron 32.
       expect(imports[0]).toMatchObject({
         paths: ["/photos/one.png", "/photos/two.jpg"],
-        mode: "managed",
+        take: "copy",
       });
     });
     await waitFor(() => expect(screen.queryByText("Drop to import")).toBeNull());
@@ -199,7 +199,7 @@ describe("importing", () => {
         { scanned: 500, imported: 98, duplicates: 2, failed: 0, thumbnails: 0, total: null },
         { scanned: 500, imported: 396, duplicates: 4, failed: 0, thumbnails: 0, total: null },
       ],
-      importReport: { scanned: 500, imported: 495, duplicates: 4, partialCollisions: 1 },
+      importReport: { scanned: 500, imported: 495, duplicates: 4, copied: 495 },
       hold: { "import:paths": reply },
     });
 
@@ -216,7 +216,9 @@ describe("importing", () => {
     // window is in, and `duplicates` is the ordinary case rather than a warning.
     expect(await screen.findByText(/495 imported/)).toBeDefined();
     expect(screen.getByText(/4 already here/)).toBeDefined();
-    expect(screen.getByText(/1 failed/)).toBeDefined();
+    // RL-26: what happened to the files themselves is said out loud, because a
+    // move is not undoable by looking at the library afterwards.
+    expect(screen.getByText(/495 imported/)).toBeDefined();
   });
 
   it("re-reads everything derived once the import finishes", async () => {
@@ -283,7 +285,7 @@ describe("importing", () => {
         folder: 7,
       }),
     );
-    // The hashes never crossed: the engine kept the list the run reported.
+    // The ids never crossed: the engine kept the list the run reported.
     expect(await screen.findByText(/Added 2 assets to Design/)).toBeDefined();
   });
 

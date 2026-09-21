@@ -503,10 +503,10 @@ which resolves the hash, acts, and returns a boolean. Copying is the one case wh
 reaches a person — they asked for it, and it goes to the clipboard rather than into the sandbox.
 
 **Export is the only place Roost writes into a user's directory**, and it does so under two
-conditions that make it the opposite of the pattern RL-16 forbids: the user picked
+conditions that make it the opposite of the pattern RL-51 forbids: the user picked
 the directory in a dialog, and nothing inside the library is moved, modified, or removed. Files
-land under the name the library shows, not the content-addressed one — a folder of hashes is not
-an export anyone wanted — and a name the destination already holds gets a numbered suffix. The
+land under the name the library shows, not the one on disk — a folder of ids is not an export
+anyone wanted — and a name the destination already holds gets a numbered suffix. The
 status bar says how many were renamed, because a silent rename means the file they go looking
 for afterwards is not called what they expect.
 
@@ -825,11 +825,11 @@ offerable here the moment it exists and nothing asks the engine twice for one sm
 ### 3.10 The name
 
 The panel's heading is the name, and it is a field: the one place an asset is renamed, since the
-file on disk is called after its hash and always will be (RL-8).
+file on disk is called after its id and always will be (RL-9).
 
 **The extension is not in it.** An asset's `ext` is decided once, at import, from the file that
 arrived, and `asset_rename` has never touched it — so typing over `.txt` renamed nothing: the
-column, the object under `originals/`, the kind the grid draws and every query that reads them went
+column, the file under `files/`, the kind the grid draws and every query that reads them went
 on saying `txt`, and this field was the only place in the application claiming otherwise. So it
 holds the stem, and the extension goes back on when the name is saved. It is still on screen twice —
 the preview placeholder's badge, and **Kind** in the metadata table — and the grid still draws the
@@ -1729,9 +1729,9 @@ pane is not showing.
 
 | Kind | Renders as |
 | --- | --- |
-| Image | `<img src="roost://original/<hash>">`, fit to pane, and zoomable: the wheel, two buttons and a readout, `+`/`-`, click to toggle 1:1, drag to pan |
+| Image | `<img src="roost://file/<id>">`, fit to pane, and zoomable: the wheel, two buttons and a readout, `+`/`-`, click to toggle 1:1, drag to pan |
 | SVG | Same, sandboxed — scripts in an SVG do not run |
-| Video / audio | `<video>` / `<audio>` over `roost://original/`, which answers range requests, under a transport of ours — `controls` is off. **Fit** in the head scales a small video up to the pane |
+| Video / audio | `<video>` / `<audio>` over `roost://file/`, which answers range requests, under a transport of ours — `controls` is off. **Fit** in the head scales a small video up to the pane |
 | PDF | Page-through: `PageUp` / `PageDown` and two buttons, each page an `<img>` over `roost://page/<hash>/<n>@1024`. Arrow keys keep stepping between assets, so a document does not trap the keyboard |
 | Font | The specimen sheet the derive pass drew, with the family and style under it |
 | Text | The file itself, monospace, wrapped, with the encoding named under it — `.txt`, `.md`, `.srt`, a log. **Edit** makes it a textarea in the same box |

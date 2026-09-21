@@ -56,11 +56,7 @@ export interface SidebarProps {
    * is a move at all depends on what is on screen, which the window knows and
    * the pane does not.
    */
-  readonly onDropAssets: (
-    folder: SidebarFolderRow,
-    hashes: readonly string[],
-    copy: boolean,
-  ) => void;
+  readonly onDropAssets: (folder: SidebarFolderRow, ids: readonly string[], copy: boolean) => void;
   /** A folder was dropped on another, or on the heading. `null` is the top level. */
   readonly onMoveFolder: (folder: number, parent: number | null) => void;
   /**
@@ -140,11 +136,7 @@ function Folders({
   readonly onNewFolder: (parent: SidebarFolderRow | null) => void;
   readonly onRename: (folder: SidebarFolderRow) => void;
   readonly onDelete: (folder: SidebarFolderRow) => void;
-  readonly onDropAssets: (
-    folder: SidebarFolderRow,
-    hashes: readonly string[],
-    copy: boolean,
-  ) => void;
+  readonly onDropAssets: (folder: SidebarFolderRow, ids: readonly string[], copy: boolean) => void;
   readonly onMoveFolder: (folder: number, parent: number | null) => void;
 }): React.JSX.Element {
   /**
@@ -458,8 +450,8 @@ function Folders({
                   event.preventDefault();
                   const folder = draggedFolder(event.dataTransfer);
                   if (folder !== undefined) return onMoveFolder(folder, row.folder);
-                  const hashes = draggedAssets(event.dataTransfer);
-                  if (hashes.length > 0) onDropAssets(row, hashes, event.ctrlKey);
+                  const ids = draggedAssets(event.dataTransfer);
+                  if (ids.length > 0) onDropAssets(row, ids, event.ctrlKey);
                 }}
               >
                 {/*

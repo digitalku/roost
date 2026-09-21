@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { type ContentHash, fileNameFor, logger } from "@roost/core";
+import { type AssetId, fileNameFor, logger } from "@roost/core";
 import type { Library } from "./library.js";
 
 /**
@@ -27,20 +27,18 @@ export interface ExportReport {
  *
  * The only place this project writes into a user's own directory, and it does
  * so under two conditions that make it the opposite of the pattern
- * the format forbids (RL-16): the user chose the directory, and nothing inside
- * the library is read for anything but its bytes. No original is moved,
- * modified, or removed, and a `referenced` asset is copied from where it lives
- * rather than being touched.
+ * the user chose the directory, and nothing inside the library is read for
+ * anything but its bytes. No file under `files/` is moved, modified or removed.
  *
- * Assets are exported under the name the library shows for them, not under the
- * content-addressed filename — the store's naming is an implementation detail
- * (invariant 3), and a folder of hashes is not an export anyone wanted. Where
+ * Assets are exported under the name the library shows for them, joined to the
+ * extension on disk — the store's naming is an implementation detail
+ * (invariant 3), and a folder of ids is not an export anyone wanted. Where
  * two assets carry the same name, the second gets a numbered suffix and the
  * report says how many that happened to.
  */
 export async function exportAssets(
   library: Library,
-  assets: readonly ContentHash[],
+  assets: readonly AssetId[],
   destination: string,
 ): Promise<ExportReport> {
   await mkdir(destination, { recursive: true });
@@ -50,31 +48,23 @@ export async function exportAssets(
   let missing = 0;
   let failed = 0;
 
-  for (const hash of assets) {
-    const record = library.db.repo.findOriginal(hash);
-    const summary = library.db.repo.findAsset(hash);
-    if (record === undefined || summary === undefined) {
+  for (const id of assets) {
+    const summary = library.db.repo.findAsset(id);
+    if (summary === undefined) {
       missing += 1;
       continue;
     }
 
-    const source =
-      record.storageMode === "referenced"
-        ? record.refPath
-        : library.storageFor("managed").locate(hash, record.ext);
-    if (source === null) {
-      missing += 1;
-      continue;
-    }
+    const source = library.storage.locate(id, summary.ext);
 
     try {
-      const outcome = await copyOut(source, destination, fileNameFor(summary.origName, record.ext));
+      const outcome = await copyOut(source, destination, fileNameFor(summary.name, summary.ext));
       exported += 1;
       if (outcome === "renamed") renamed += 1;
     } catch (error) {
-      // A missing source is the expected failure — a `referenced` original the
-      // user moved — and it is not the same thing as a full disk, so the two
-      // are counted apart even though neither stops the run.
+      // A missing source is the expected failure — an asset whose file is gone
+      // (RL-25) — and it is not the same thing as a full disk, so the two are
+      // counted apart even though neither stops the run.
       if ((error as NodeJS.ErrnoException).code === "ENOENT") missing += 1;
       else {
         failed += 1;

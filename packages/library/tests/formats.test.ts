@@ -84,17 +84,27 @@ describe("a folder with one of everything in it", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  /**
+   * The detail of the asset imported from `name`.
+   *
+   * Matched on the name **and** the extension, because the journal keeps them
+   * apart (RL-33) and a test that asked for `photo` alone would find a `.png`
+   * and a `.jpg` of the same name indistinguishable.
+   */
   const detailFor = (name: string) => {
-    const hash = library.db.repo
-      .allHashes()
+    const dot = name.lastIndexOf(".");
+    const stem = dot === -1 ? name : name.slice(0, dot);
+    const ext = dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
+    const detail = library.db.repo
+      .allIds()
       .map((candidate) => library.db.repo.assetDetail(candidate))
-      .find((detail) => detail?.origName === name);
-    if (hash === undefined) throw new Error(`${name} was not imported`);
-    return hash;
+      .find((found) => found?.name === stem && found?.ext === ext);
+    if (detail === undefined) throw new Error(`${name} was not imported`);
+    return detail;
   };
 
   const thumbnails = (name: string): number =>
-    library.db.repo.thumbnail(detailFor(name).hash, GRID_SIZE) === undefined ? 0 : 1;
+    library.db.repo.thumbnail(detailFor(name).id, GRID_SIZE) === undefined ? 0 : 1;
 
   it("imports everything and draws what has a backend", async () => {
     await importInto(library, [source]);
@@ -150,7 +160,7 @@ describe("a folder with one of everything in it", () => {
       // it can see of the environment is what the capability probe already
       // cached. The check that matters here is the import: nothing failed, and
       // every asset is present with its bytes, its name, and its hash.
-      expect(library.db.repo.allHashes()).toHaveLength(hasFfmpeg ? 9 : 7);
+      expect(library.db.repo.allIds()).toHaveLength(hasFfmpeg ? 9 : 7);
     } finally {
       if (previous.ffmpeg === undefined) delete process.env["ROOST_FFMPEG"];
       else process.env["ROOST_FFMPEG"] = previous.ffmpeg;

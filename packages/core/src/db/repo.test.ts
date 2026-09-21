@@ -5,9 +5,11 @@ import BetterSqlite3 from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AddRecord } from "../journal/index.js";
 import {
+  type AssetId,
   DEFAULT_SORT,
+  ID_ALPHABET,
   JOB_PRIORITY,
-  parseContentHash,
+  parseAssetId,
   SHUFFLES,
   SORT_KEYS,
   type Sort,
@@ -23,37 +25,28 @@ import {
 } from "./query.js";
 import { lastCursor, searchSql } from "./repo.js";
 
-/** A hash that is distinct per `n` and still 64 lowercase hex characters. */
-function hashOf(n: number): ReturnType<typeof parseContentHash> {
-  return parseContentHash(n.toString(16).padStart(64, "0"));
-}
-
-function asset(n: number, over: Partial<AddRecord> = {}): AddRecord {
-  return {
-    hash: hashOf(n),
-    ext: "png",
-    size: 100 + n,
-    name: `asset-${n}.png`,
-    mode: "managed",
-    link: "hardlink",
-    ...over,
-  };
+/**
+ * An id that is distinct per `n` and still twelve characters of the alphabet
+ * RL-14 allows.
+ *
+ * The leading character varies so that the fixtures land in different shards,
+ * which is the only thing a test can get wrong about {@link shardOf} without
+ * noticing.
+ */
+function idOf(n: number): AssetId {
+  const head = ID_ALPHABET[n % ID_ALPHABET.length] ?? "0";
+  return parseAssetId(`${head}${String(n).padStart(11, "0")}`);
 }
 
 /**
- * A referenced asset: nothing was placed, so nothing was linked. Built without
- * the key rather than with `link: undefined`, which is the same distinction the
- * journal draws (`op.ts`).
+ * An `add`, which in version 2 says nothing about the bytes.
+ *
+ * No size, no dimensions, no storage mode: every one of those is derived
+ * (RL-22) and arrives through {@link Repo.putDerived}. A test that needs a size
+ * uses {@link sized}.
  */
-function referenced(n: number, over: Partial<AddRecord> = {}): AddRecord {
-  return {
-    hash: hashOf(n),
-    ext: "png",
-    size: 100 + n,
-    name: `asset-${n}.png`,
-    mode: "referenced",
-    ...over,
-  };
+function asset(n: number, over: Partial<AddRecord> = {}): AddRecord {
+  return { id: idOf(n), ext: "png", name: `asset-${n}`, ...over };
 }
 
 describe("folding one operation at a time", () => {
@@ -73,16 +66,16 @@ describe("folding one operation at a time", () => {
     // `ON DELETE CASCADE` would take the tags and folder memberships with it.
     const a = asset(1);
     db.repo.applyAdd(10, a);
-    db.repo.applyTagAdd(a.hash, ["reference"]);
+    db.repo.applyTagAdd(a.id, ["reference"]);
     db.repo.applyFolderCreate(1, null, "Moodboards");
-    db.repo.applyFolderAdd(a.hash, 1);
+    db.repo.applyFolderAdd(a.id, 1);
 
     db.repo.applyAdd(20, { ...a, name: "asset-1 (copy).png" });
 
-    const detail = db.repo.assetDetail(a.hash);
+    const detail = db.repo.assetDetail(a.id);
     expect(detail?.tags).toEqual(["reference"]);
     expect(detail?.folders).toEqual([{ id: 1, path: "Moodboards" }]);
-    expect(detail?.origName).toBe("asset-1 (copy).png");
+    expect(detail?.name).toBe("asset-1 (copy).png");
     expect(detail?.importedAt).toBe(20);
   });
 
@@ -92,12 +85,12 @@ describe("folding one operation at a time", () => {
     // so the conversion is the schema's, not a workaround.
     const a = asset(2);
     db.repo.applyAdd(10, a);
-    db.repo.applyFavoriteSet(a.hash, true);
-    expect(db.repo.assetDetail(a.hash)?.isFavorite).toBe(true);
+    db.repo.applyFavoriteSet(a.id, true);
+    expect(db.repo.assetDetail(a.id)?.isFavorite).toBe(true);
     expect(db.repo.stats().favorites).toBe(1);
 
-    db.repo.applyFavoriteSet(a.hash, false);
-    expect(db.repo.assetDetail(a.hash)?.isFavorite).toBe(false);
+    db.repo.applyFavoriteSet(a.id, false);
+    expect(db.repo.assetDetail(a.id)?.isFavorite).toBe(false);
     expect(db.repo.stats().favorites).toBe(0);
   });
 
@@ -105,42 +98,58 @@ describe("folding one operation at a time", () => {
     const a = asset(3);
     db.repo.applyAdd(10, a);
 
-    db.repo.applyRate(a.hash, 1);
-    expect(db.repo.assetDetail(a.hash)?.rating).toBe(1);
+    db.repo.applyRate(a.id, 1);
+    expect(db.repo.assetDetail(a.id)?.rating).toBe(1);
     expect(db.repo.stats().rated).toBe(1);
 
-    db.repo.applyRate(a.hash, null);
-    expect(db.repo.assetDetail(a.hash)?.rating).toBeNull();
+    db.repo.applyRate(a.id, null);
+    expect(db.repo.assetDetail(a.id)?.rating).toBeNull();
     expect(db.repo.stats().rated).toBe(0);
   });
 
-  it("writes the journal's optional fields as NULL rather than dropping them", () => {
-    // `created`, `ref`, and `partial` cannot be recovered from `originals/`, so
-    // a rebuild that loses them loses data. `w` and `h` can be — but only by
-    // decoding every file again, which a rebuild does not do.
-    const bare = referenced(4);
+  it("holds nothing about the bytes until something has read them", () => {
+    // The version 2 shape of this row. `created` is the one fact about a file
+    // the journal still carries, because nothing can recover it afterwards
+    // (RL-22); the size, the dimensions and the hash are `null` until a derive
+    // has been anywhere near the file.
+    const bare = asset(4);
     db.repo.applyAdd(10, bare);
-    const detail = db.repo.assetDetail(bare.hash);
-    expect(detail?.createdAt).toBeNull();
-    expect(detail?.refPath).toBeNull();
-    expect(detail?.width).toBeNull();
-    expect(detail?.isPartialHash).toBe(false);
-
-    const full = referenced(5, {
-      w: 800,
-      h: 600,
-      created: 1_700_000_000,
-      ref: "/home/user/pictures/asset-5.png",
-      partial: true,
+    expect(db.repo.assetDetail(bare.id)).toMatchObject({
+      createdAt: null,
+      size: null,
+      width: null,
+      contentHash: null,
+      derivedAt: null,
     });
-    db.repo.applyAdd(10, full);
-    expect(db.repo.assetDetail(full.hash)).toMatchObject({
+
+    const dated = asset(5, { created: 1_700_000_000 });
+    db.repo.applyAdd(10, dated);
+    expect(db.repo.assetDetail(dated.id)?.createdAt).toBe(1_700_000_000);
+
+    db.repo.putDerived(dated.id, { size: 4096, width: 800, height: 600 }, 1_700_000_100);
+    expect(db.repo.assetDetail(dated.id)).toMatchObject({
+      size: 4096,
       width: 800,
       height: 600,
-      createdAt: 1_700_000_000,
-      refPath: "/home/user/pictures/asset-5.png",
-      isPartialHash: true,
+      derivedAt: 1_700_000_100,
     });
+  });
+
+  it("forgets what it derived when the bytes change under the id", () => {
+    // The case version 1 could not have: an edit leaves the asset alone and
+    // makes every derived column a description of a file that is gone (RL-20).
+    const a = asset(6);
+    db.repo.applyAdd(10, a);
+    db.repo.putDerived(a.id, { size: 4096, durationMs: 9000 }, 20);
+    db.repo.clearDerived(a.id);
+
+    expect(db.repo.assetDetail(a.id)).toMatchObject({
+      size: null,
+      durationMs: null,
+      derivedAt: null,
+    });
+    // And the row itself survives, which is the whole point of the id.
+    expect(db.repo.assetDetail(a.id)?.name).toBe("asset-6");
   });
 
   it("merges a tag rename onto an existing name instead of failing", () => {
@@ -150,25 +159,25 @@ describe("folding one operation at a time", () => {
     const b = asset(7);
     db.repo.applyAdd(10, a);
     db.repo.applyAdd(10, b);
-    db.repo.applyTagAdd(a.hash, ["wood"]);
-    db.repo.applyTagAdd(b.hash, ["timber"]);
+    db.repo.applyTagAdd(a.id, ["wood"]);
+    db.repo.applyTagAdd(b.id, ["timber"]);
 
     db.repo.applyTagRename("wood", "timber");
 
     expect(db.repo.stats().tags).toBe(1);
-    expect(db.repo.assetDetail(a.hash)?.tags).toEqual(["timber"]);
-    expect(db.repo.assetDetail(b.hash)?.tags).toEqual(["timber"]);
+    expect(db.repo.assetDetail(a.id)?.tags).toEqual(["timber"]);
+    expect(db.repo.assetDetail(b.id)?.tags).toEqual(["timber"]);
   });
 
   it("renames a tag in place when only its case changes", () => {
     const a = asset(8);
     db.repo.applyAdd(10, a);
-    db.repo.applyTagAdd(a.hash, ["wood"]);
+    db.repo.applyTagAdd(a.id, ["wood"]);
 
     db.repo.applyTagRename("wood", "Wood");
 
     expect(db.repo.stats().tags).toBe(1);
-    expect(db.repo.assetDetail(a.hash)?.tags).toEqual(["Wood"]);
+    expect(db.repo.assetDetail(a.id)?.tags).toEqual(["Wood"]);
   });
 
   it("keeps the tags when the group arranging them is deleted", () => {
@@ -177,7 +186,7 @@ describe("folding one operation at a time", () => {
     // carrying it.
     const a = asset(9);
     db.repo.applyAdd(10, a);
-    db.repo.applyTagAdd(a.hash, ["oak"]);
+    db.repo.applyTagAdd(a.id, ["oak"]);
     db.repo.applyTagGroupCreate(1, "Materials");
     db.repo.applyTagGroupSet("oak", 1);
 
@@ -185,7 +194,7 @@ describe("folding one operation at a time", () => {
 
     expect(db.repo.stats().tagGroups).toBe(0);
     expect(db.repo.stats().tags).toBe(1);
-    expect(db.repo.assetDetail(a.hash)?.tags).toEqual(["oak"]);
+    expect(db.repo.assetDetail(a.id)?.tags).toEqual(["oak"]);
   });
 
   it("deletes a folder without deleting the assets collected in it", () => {
@@ -193,14 +202,14 @@ describe("folding one operation at a time", () => {
     db.repo.applyAdd(10, a);
     db.repo.applyFolderCreate(1, null, "Moodboards");
     db.repo.applyFolderCreate(2, 1, "Icons");
-    db.repo.applyFolderAdd(a.hash, 2);
+    db.repo.applyFolderAdd(a.id, 2);
 
     db.repo.applyFolderDelete(1);
 
     // The child folder goes by cascade, and so does the membership. The asset
     // stays: folders are collections, not locations.
     expect(db.repo.stats().folders).toBe(0);
-    expect(db.repo.assetDetail(a.hash)?.folders).toEqual([]);
+    expect(db.repo.assetDetail(a.id)?.folders).toEqual([]);
     expect(db.repo.stats().assets).toBe(1);
   });
 
@@ -233,12 +242,15 @@ describe("folding one operation at a time", () => {
     expect(db.repo.nextCommentId()).toBe(1);
   });
 
-  it("reports a hash prefix that names two assets as two", () => {
-    db.repo.applyAdd(10, asset(0x1a));
-    db.repo.applyAdd(10, asset(0x1b));
-    const prefix = "0".repeat(62);
-    expect(db.repo.resolveHashPrefix(prefix)).toHaveLength(2);
-    expect(db.repo.resolveHashPrefix(`${prefix}1a`)).toEqual([hashOf(0x1a)]);
+  it("reports an id prefix that names two assets as two", () => {
+    // Two ids sharing everything but their last character, which is what
+    // `idOf` produces for two numbers 32 apart.
+    db.repo.applyAdd(10, asset(1));
+    db.repo.applyAdd(10, asset(2));
+    expect(db.repo.resolveIdPrefix("1")).toHaveLength(1);
+    expect(db.repo.resolveIdPrefix(idOf(1))).toEqual([idOf(1)]);
+    // A prefix every id shares answers with the two the limit allows.
+    expect(db.repo.resolveIdPrefix("")).toHaveLength(2);
   });
 });
 
@@ -271,12 +283,12 @@ describe("keyset paging", () => {
       cursor = lastCursor(hits);
     }
 
-    const hashes = seen.map((h) => h.hash);
-    expect(hashes).toHaveLength(7);
-    expect(new Set(hashes).size).toBe(7);
+    const ids = seen.map((h) => h.id);
+    expect(ids).toHaveLength(7);
+    expect(new Set(ids).size).toBe(7);
     // Descending on the tie-break, because the key is descending and the
     // tie-break follows it (migration 0014).
-    expect(hashes).toEqual([...hashes].sort().reverse());
+    expect(ids).toEqual([...ids].sort().reverse());
   });
 
   it("names the cursor once and writes it once per seek", () => {
@@ -290,7 +302,7 @@ describe("keyset paging", () => {
     // distinct `@cursorKey2`, so the broken version passes the test meant to
     // catch it.
     expect(sql.match(/@cursorKey\b/g)).toHaveLength(2);
-    expect(sql).toContain("a.hash < @cursorHash");
+    expect(sql).toContain("a.id < @cursorId");
     expect(sql.trimEnd().endsWith("LIMIT @limit")).toBe(true);
   });
 
@@ -301,7 +313,7 @@ describe("keyset paging", () => {
     // cost is invisible in a fixture small enough to write down.
     const sql = searchSql("1", true, { key: "rating", descending: true, seed: 0 });
     expect(sql).toContain("UNION ALL");
-    expect(sql).toContain("COALESCE(a.rating, 0) = @cursorKey AND a.hash < @cursorHash");
+    expect(sql).toContain("COALESCE(a.rating, 0) = @cursorKey AND a.id < @cursorId");
     expect(sql).toContain("COALESCE(a.rating, 0) < @cursorKey");
   });
 
@@ -321,9 +333,9 @@ describe("keyset paging", () => {
     // enough to write, and stops being invisible on a library where a different
     // plan is cheaper. The direction matters as much as the column: a mixed
     // order is one an index serves in a single direction (migration 0014).
-    expect(searchSql("1", false)).toContain("ORDER BY a.imported_at DESC, a.hash DESC");
+    expect(searchSql("1", false)).toContain("ORDER BY a.imported_at DESC, a.id DESC");
     expect(searchSql("1", false, { key: "name", descending: false, seed: 0 })).toContain(
-      "ORDER BY lower(a.orig_name) ASC, a.hash ASC",
+      "ORDER BY lower(a.name) ASC, a.id ASC",
     );
   });
 
@@ -331,9 +343,13 @@ describe("keyset paging", () => {
     // `better-sqlite3` treats `?NNN` as a *named* parameter and refuses to bind
     // it positionally, so the Rust build's numbering does not survive the port.
     // The filter contract stays anonymous `?`; everything appended is named.
+    // Sizes are derived, so they have to be put there before a filter can ask
+    // about them — which is the version 2 shape of every test about bytes.
+    for (let n = 1; n <= 7; n += 1) db.repo.putDerived(idOf(n), { size: 100 + n }, 1_700_000_000);
+
     const filter: Filter = { sql: "a.ext = ? AND a.size >= ?", params: ["png", 105] };
     const hits = db.repo.search(filter, { limit: 10 });
-    expect(hits.map((h) => h.hash)).toEqual([5, 6, 7].map(hashOf).sort().reverse());
+    expect(hits.map((h) => h.id)).toEqual([5, 6, 7].map(idOf).sort().reverse());
     expect(db.repo.count(filter)).toBe(3);
   });
 });
@@ -373,8 +389,8 @@ describe("the plan a grid query actually gets", () => {
       const plan = raw
         .prepare(`EXPLAIN QUERY PLAN ${searchSql(filterSql, true, sort)}`)
         .all(...repeated, {
-          cursorKey: sort.key === "name" ? "asset-000001.png" : 1_700_000_100,
-          cursorHash: hashOf(1),
+          cursorKey: sort.key === "name" ? "asset-1" : 1_700_000_100,
+          cursorId: idOf(1),
           limit: 200,
           rotate: 1,
         }) as { detail: string }[];
@@ -400,8 +416,7 @@ describe("the plan a grid query actually gets", () => {
   });
 
   it("uses the partial indexes only when the query says it is looking at live assets", () => {
-    // Migration 0007 made the four grid indexes partial and 0010 added the
-    // second term to them, and SQLite will use a partial index only when the
+    // The grid's indexes are partial, and SQLite will use one only when the
     // query's WHERE contains a term implying the index's. That makes the exact
     // spelling of the scope predicate part of the schema rather than a detail
     // of the compiler — so it is asserted, and the unscoped version is asserted
@@ -409,14 +424,17 @@ describe("the plan a grid query actually gets", () => {
     // measured.
     expect(planFor("a.ext = ?", DEFAULT_SORT, "png")).not.toContain("idx_assets_ext");
     expect(planFor(`(1) AND ${MATCH_LIVE.sql}`)).toContain("idx_assets_imported");
-    // Half the scope is not the scope. Migration 0010 added the second term to
-    // every partial index, so a query carrying only the first one loses them —
-    // which is the failure this test exists to make loud rather than slow.
-    expect(planFor("(1) AND a.trashed_at IS NULL")).not.toContain("idx_assets_imported");
+
+    // **The whole scope is one term now**, where version 1 had two: there is no
+    // `superseded_by` any more (ADR-0046), so a query carrying `trashed_at IS
+    // NULL` carries all of it and keeps the index. The caption-track rule is a
+    // subquery, which SQLite forbids in an index's WHERE — so it is checked per
+    // row the seek returns rather than being part of the index.
+    expect(planFor("(1) AND a.trashed_at IS NULL")).toContain("idx_assets_imported");
   });
 
   it("gives the Trash place its own index, in the same order as every other view", () => {
-    const detail = planFor("a.trashed_at IS NOT NULL AND a.superseded_by IS NULL");
+    const detail = planFor("a.trashed_at IS NOT NULL");
     expect(detail).toContain("idx_assets_trashed");
     expect(detail).not.toContain("TEMP B-TREE");
   });
@@ -427,10 +445,11 @@ describe("the plan a grid query actually gets", () => {
     ["size", "idx_assets_size"],
     ["rating", "idx_assets_rated"],
   ] as const)("seeks rather than sorts when the grid is ordered by %s", (key, index) => {
-    // The whole of ADR-0039's engine half. Without migration 0014's index the
+    // The whole of ADR-0039's engine half. Without an index per order the
     // plan carries a TEMP B-TREE, which is SQLite reading the match set into a
     // sorter to produce one screen: 28–35 ms at 95,001 assets against 0.05 ms
-    // with it (`docs/BENCHMARKS.md`).
+    // with it (`docs/BENCHMARKS.md`). The index has to be spelled exactly as
+    // the order is — `COALESCE(size, 0)`, not `size` — or it serves nothing.
     for (const descending of [false, true]) {
       const detail = planFor(`(1) AND ${MATCH_LIVE.sql}`, { key, descending, seed: 0 });
       expect(detail).toContain(index);
@@ -439,7 +458,7 @@ describe("the plan a grid query actually gets", () => {
   });
 
   it("has no index for the random order, and says so rather than pretending", () => {
-    // A rotation per seed is 63 indexes. This plan is the cost ADR-0039 §5
+    // A rotation per seed is an index per shuffle. This plan is the cost ADR-0039 §5
     // accepts deliberately, and a test asserting it is what keeps the
     // acceptance visible.
     const detail = planFor(`(1) AND ${MATCH_LIVE.sql}`, {
@@ -461,8 +480,9 @@ describe("every order pages without repeating or skipping a row", () => {
         // Keys that tie on purpose: five timestamps over twenty-five assets,
         // one size for a third of them, and a rating on some. A key that never
         // repeats never exercises the second seek.
-        db.repo.applyAdd(1_700_000_000 + (n % 5), asset(n, { size: n % 3 === 0 ? 100 : 100 + n }));
-        if (n % 4 === 0) db.repo.applyRate(hashOf(n), 3);
+        db.repo.applyAdd(1_700_000_000 + (n % 5), asset(n));
+        db.repo.putDerived(idOf(n), { size: n % 3 === 0 ? 100 : 100 + n }, 1_700_000_000);
+        if (n % 4 === 0) db.repo.applyRate(idOf(n), 3);
       }
     });
   });
@@ -493,9 +513,9 @@ describe("every order pages without repeating or skipping a row", () => {
   it.each(SORT_KEYS)("in %s, both ways", (key) => {
     for (const descending of [false, true]) {
       const seen = walk({ key, descending, seed: 4 });
-      const hashes = seen.map((hit) => hit.hash);
-      expect(hashes).toHaveLength(25);
-      expect(new Set(hashes).size).toBe(25);
+      const ids = seen.map((hit) => hit.id);
+      expect(ids).toHaveLength(25);
+      expect(new Set(ids).size).toBe(25);
 
       // And in the order it was asked for, not merely all of it: a page that
       // starts again from the top would still return every row once if the
@@ -511,29 +531,29 @@ describe("the random order", () => {
   let db: Db;
 
   /**
-   * Hashes with every character carrying information, unlike `hashOf`.
+   * Ids with every character carrying information, unlike `idOf`.
    *
-   * The shuffle is a rotation of the hash, so it shuffles exactly as far as the
-   * hash is uniformly distributed — which a BLAKE3 digest is and
-   * `0000…0001` is not. A fixture of padded counters is ordered the same way by
-   * every seed, and a test built on it would report a working shuffle as a
-   * broken one.
+   * The shuffle is a rotation of the id, so it shuffles exactly as far as the
+   * id is uniformly distributed — which a minted id is (RL-14) and a padded
+   * counter is not. A fixture of counters is ordered the same way by every
+   * seed, and a test built on it would report a working shuffle as a broken
+   * one.
    */
-  const spread = (n: number): ReturnType<typeof parseContentHash> => {
+  const spread = (n: number): AssetId => {
     let state = n * 2654435761;
-    let hex = "";
-    while (hex.length < 64) {
+    let id = "";
+    while (id.length < 12) {
       state = (state * 1103515245 + 12345) & 0x7fffffff;
-      hex += (state >>> 8).toString(16).padStart(6, "0");
+      id += ID_ALPHABET[(state >>> 8) % ID_ALPHABET.length];
     }
-    return parseContentHash(hex.slice(0, 64));
+    return parseAssetId(id.slice(0, 12));
   };
 
   beforeEach(() => {
     db = Db.openInMemory();
     db.transaction(() => {
       for (let n = 1; n <= 60; n += 1) {
-        db.repo.applyAdd(1_700_000_000 + n, { ...asset(n), hash: spread(n) });
+        db.repo.applyAdd(1_700_000_000 + n, { ...asset(n), id: spread(n) });
       }
     });
   });
@@ -545,7 +565,7 @@ describe("the random order", () => {
   const order = (seed: number): string[] =>
     db.repo
       .search(MATCH_ALL, { limit: 60, sort: { key: "random", descending: false, seed } })
-      .map((hit) => hit.hash);
+      .map((hit) => hit.id);
 
   it("gives one seed's order and another seed's differently", () => {
     const one = order(1);
@@ -555,7 +575,7 @@ describe("the random order", () => {
     // And neither is the order the rows arrived in, which is the shuffle that
     // would be no shuffle at all.
     expect(one).not.toEqual(
-      db.repo.search(MATCH_ALL, { limit: 60, sort: DEFAULT_SORT }).map((hit) => hit.hash),
+      db.repo.search(MATCH_ALL, { limit: 60, sort: DEFAULT_SORT }).map((hit) => hit.id),
     );
   });
 
@@ -585,34 +605,34 @@ describe("the derive queue", () => {
   });
 
   const enqueueAll = (priority = JOB_PRIORITY.import): void => {
-    for (const n of [1, 2, 3]) db.repo.enqueueJob("derive", hashOf(n), priority, 1_700_000_000);
+    for (const n of [1, 2, 3]) db.repo.enqueueJob("derive", idOf(n), priority, 1_700_000_000);
   };
 
   it("claims in priority order, then in the order work arrived", () => {
-    db.repo.enqueueJob("derive", hashOf(1), JOB_PRIORITY.backfill, 1_700_000_000);
-    db.repo.enqueueJob("derive", hashOf(2), JOB_PRIORITY.backfill, 1_700_000_001);
-    db.repo.enqueueJob("derive", hashOf(3), JOB_PRIORITY.interactive, 1_700_000_002);
+    db.repo.enqueueJob("derive", idOf(1), JOB_PRIORITY.backfill, 1_700_000_000);
+    db.repo.enqueueJob("derive", idOf(2), JOB_PRIORITY.backfill, 1_700_000_001);
+    db.repo.enqueueJob("derive", idOf(3), JOB_PRIORITY.interactive, 1_700_000_002);
 
     // The asset someone is looking at goes first, even though it was queued
     // last — that is the whole point of the priority.
-    expect(db.repo.claimJobs("derive", 3).map((job) => job.hash)).toEqual([
-      hashOf(3),
-      hashOf(1),
-      hashOf(2),
+    expect(db.repo.claimJobs("derive", 3).map((job) => job.assetId)).toEqual([
+      idOf(3),
+      idOf(1),
+      idOf(2),
     ]);
   });
 
   it("hands a claimed job the bytes it is about", () => {
-    db.repo.applyAdd(1_700_000_009, referenced(9, { ref: "/somewhere/nine.png" }));
-    db.repo.enqueueJob("derive", hashOf(9), JOB_PRIORITY.import, 1_700_000_009);
+    db.repo.applyAdd(1_700_000_009, asset(9));
+    db.repo.enqueueJob("derive", idOf(9), JOB_PRIORITY.import, 1_700_000_009);
 
-    // A runner needs the ext and the storage mode to find the file at all, and
-    // a per-job lookup afterwards would be a second query per asset.
+    // A runner needs the id and the extension to find the file at all (RL-9),
+    // and a per-job lookup afterwards would be a second query per asset. There
+    // is no mode to carry any more — every asset's bytes are under `files/`.
     expect(db.repo.claimJobs("derive", 1)[0]).toMatchObject({
-      hash: hashOf(9),
+      assetId: idOf(9),
       ext: "png",
-      storageMode: "referenced",
-      refPath: "/somewhere/nine.png",
+      posterMs: null,
       attempts: 1,
     });
   });
@@ -625,7 +645,7 @@ describe("the derive queue", () => {
 
     expect(first).toHaveLength(2);
     expect(second).toHaveLength(1);
-    expect(new Set([...first, ...second].map((job) => job.hash)).size).toBe(3);
+    expect(new Set([...first, ...second].map((job) => job.assetId)).size).toBe(3);
   });
 
   it("returns jobs a crash left claimed", () => {
@@ -651,7 +671,7 @@ describe("the derive queue", () => {
     // A format nothing in this build can draw must not be retried on every
     // sweep, forever. The block is what makes the sweep terminate.
     const [job] = db.repo.claimJobs("derive", 1);
-    db.repo.enqueueJob("derive", hashOf(1), JOB_PRIORITY.import, 1_700_000_000);
+    db.repo.enqueueJob("derive", idOf(1), JOB_PRIORITY.import, 1_700_000_000);
     const [claimed] = db.repo.claimJobs("derive", 1);
     if (claimed === undefined) throw new Error("nothing was claimed");
     db.repo.blockJob(claimed.id, "unsupported:zip");
@@ -697,15 +717,15 @@ describe("the derive queue", () => {
 
     expect(db.repo.jobsIn("derive", "failed", 10)).toEqual([
       {
-        hash: hashOf(1),
-        name: "asset-1.png",
+        assetId: idOf(1),
+        name: "asset-1",
         ext: "png",
         attempts: 1,
         reason: "sharp: unsupported image format",
       },
       {
-        hash: hashOf(2),
-        name: "asset-2.png",
+        assetId: idOf(2),
+        name: "asset-2",
         ext: "png",
         attempts: 1,
         reason: "sharp: unsupported image format",
@@ -722,22 +742,23 @@ describe("the derive queue", () => {
     db.repo.blockJob(claims[0]?.id ?? 0, "missing:libheif");
 
     expect(db.repo.jobsIn("derive", "blocked", 10)).toMatchObject([
-      { hash: hashOf(1), name: "asset-1.png", reason: "missing:libheif" },
+      { assetId: idOf(1), name: "asset-1", reason: "missing:libheif" },
     ]);
     expect(db.repo.jobsIn("derive", "failed", 10)).toEqual([]);
   });
 
   it("re-queuing something urgent moves it ahead of what it was behind", () => {
-    db.repo.enqueueJob("derive", hashOf(1), JOB_PRIORITY.backfill, 1_700_000_000);
-    db.repo.enqueueJob("derive", hashOf(2), JOB_PRIORITY.backfill, 1_700_000_001);
-    db.repo.enqueueJob("derive", hashOf(2), JOB_PRIORITY.interactive, 1_700_000_002);
+    db.repo.enqueueJob("derive", idOf(1), JOB_PRIORITY.backfill, 1_700_000_000);
+    db.repo.enqueueJob("derive", idOf(2), JOB_PRIORITY.backfill, 1_700_000_001);
+    db.repo.enqueueJob("derive", idOf(2), JOB_PRIORITY.interactive, 1_700_000_002);
 
-    expect(db.repo.claimJobs("derive", 1)[0]?.hash).toBe(hashOf(2));
+    // The job's own id is a number; what says *which asset* is the assetId.
+    expect(db.repo.claimJobs("derive", 1)[0]?.assetId).toBe(idOf(2));
   });
 
   it("drops a job whose asset was removed", () => {
-    db.repo.enqueueJob("derive", hashOf(1), JOB_PRIORITY.import, 1_700_000_000);
-    db.repo.applyRemove(hashOf(1));
+    db.repo.enqueueJob("derive", idOf(1), JOB_PRIORITY.import, 1_700_000_000);
+    db.repo.applyRemove(idOf(1));
 
     expect(db.repo.claimJobs("derive", 5)).toEqual([]);
     expect(db.repo.jobCounts()).toEqual([]);
@@ -749,7 +770,7 @@ describe("derived metadata", () => {
 
   beforeEach(() => {
     db = Db.openInMemory();
-    db.repo.applyAdd(1_700_000_001, asset(1, { w: 800, h: 600 }));
+    db.repo.applyAdd(1_700_000_001, asset(1));
   });
 
   afterEach(() => {
@@ -759,33 +780,40 @@ describe("derived metadata", () => {
   it("does not erase what an earlier pass found", () => {
     // A backend that knows a page count and nothing else must not blank the
     // dimensions probing already wrote.
-    db.repo.putDerived(hashOf(1), { pageCount: 12 });
+    db.repo.putDerived(idOf(1), { width: 800, height: 600 }, 20);
+    db.repo.putDerived(idOf(1), { pageCount: 12 }, 30);
 
-    expect(db.repo.assetDetail(hashOf(1))).toMatchObject({
+    expect(db.repo.assetDetail(idOf(1))).toMatchObject({
       width: 800,
       height: 600,
       pageCount: 12,
       durationMs: null,
+      // Written whenever anything is, because it is what a sweep compares.
+      derivedAt: 30,
     });
   });
 
   it("carries format-specific properties the columns have no room for", () => {
-    db.repo.putDerived(hashOf(1), { props: { "font.family": "Adwaita Sans" } });
-    db.repo.putDerived(hashOf(1), {
-      props: { "font.family": "Adwaita Sans", "font.style": "Regular" },
-    });
+    db.repo.putDerived(idOf(1), { props: { "font.family": "Adwaita Sans" } }, 20);
+    db.repo.putDerived(
+      idOf(1),
+      {
+        props: { "font.family": "Adwaita Sans", "font.style": "Regular" },
+      },
+      20,
+    );
 
-    expect(db.repo.assetDetail(hashOf(1))?.props).toEqual({
+    expect(db.repo.assetDetail(idOf(1))?.props).toEqual({
       "font.family": "Adwaita Sans",
       "font.style": "Regular",
     });
   });
 
   it("loses its properties with the asset, not before", () => {
-    db.repo.putDerived(hashOf(1), { props: { "font.family": "Adwaita Sans" } });
-    db.repo.applyRemove(hashOf(1));
+    db.repo.putDerived(idOf(1), { props: { "font.family": "Adwaita Sans" } }, 20);
+    db.repo.applyRemove(idOf(1));
 
-    expect(db.repo.props(hashOf(1))).toEqual({});
+    expect(db.repo.props(idOf(1))).toEqual({});
   });
 });
 
@@ -807,12 +835,13 @@ describe("summarising a selection", () => {
     db.close();
   });
 
-  /** Three assets, sized 1000, 2000 and 3000. */
-  const three = (): ReturnType<typeof hashOf>[] =>
+  /** Three assets, derived as 1000, 2000 and 3000 bytes. */
+  const three = (): AssetId[] =>
     [1, 2, 3].map((n) => {
-      const a = asset(n, { size: n * 1000 });
+      const a = asset(n);
       db.repo.applyAdd(10 * n, a);
-      return a.hash;
+      db.repo.putDerived(a.id, { size: n * 1000 }, 10 * n);
+      return a.id;
     });
 
   it("counts them and adds up their bytes", () => {
@@ -829,41 +858,41 @@ describe("summarising a selection", () => {
   });
 
   it("reports the rating they share, and mixed when they do not", () => {
-    const hashes = three();
-    for (const hash of hashes) db.repo.applyRate(hash, 4);
-    expect(db.repo.selectionSummary(hashes)).toMatchObject({ rating: 4, ratingMixed: false });
+    const ids = three();
+    for (const id of ids) db.repo.applyRate(id, 4);
+    expect(db.repo.selectionSummary(ids)).toMatchObject({ rating: 4, ratingMixed: false });
 
-    db.repo.applyRate(hashes[1] as ReturnType<typeof hashOf>, 2);
-    expect(db.repo.selectionSummary(hashes)).toMatchObject({ rating: null, ratingMixed: true });
+    db.repo.applyRate(ids[1] as AssetId, 2);
+    expect(db.repo.selectionSummary(ids)).toMatchObject({ rating: null, ratingMixed: true });
   });
 
   it("treats one unrated asset among rated ones as mixed", () => {
     // The case a `min = max` test alone would call agreement: two fours and an
     // unrated is not "they are all four".
-    const hashes = three();
-    db.repo.applyRate(hashes[0] as ReturnType<typeof hashOf>, 4);
-    db.repo.applyRate(hashes[1] as ReturnType<typeof hashOf>, 4);
-    expect(db.repo.selectionSummary(hashes)).toMatchObject({ rating: null, ratingMixed: true });
+    const ids = three();
+    db.repo.applyRate(ids[0] as AssetId, 4);
+    db.repo.applyRate(ids[1] as AssetId, 4);
+    expect(db.repo.selectionSummary(ids)).toMatchObject({ rating: null, ratingMixed: true });
   });
 
   it("separates a tag they all carry from one only some carry", () => {
-    const hashes = three();
-    for (const hash of hashes) db.repo.applyTagAdd(hash, ["wood"]);
-    db.repo.applyTagAdd(hashes[0] as ReturnType<typeof hashOf>, ["wip"]);
+    const ids = three();
+    for (const id of ids) db.repo.applyTagAdd(id, ["wood"]);
+    db.repo.applyTagAdd(ids[0] as AssetId, ["wip"]);
 
-    const summary = db.repo.selectionSummary(hashes);
+    const summary = db.repo.selectionSummary(ids);
     expect(summary.sharedTags).toEqual(["wood"]);
     expect(summary.partialTags).toEqual(["wip"]);
   });
 
   it("separates a folder they are all in from one only some are in", () => {
-    const hashes = three();
+    const ids = three();
     db.repo.applyFolderCreate(1, null, "Design");
     db.repo.applyFolderCreate(2, 1, "Icons");
-    for (const hash of hashes) db.repo.applyFolderAdd(hash, 1);
-    db.repo.applyFolderAdd(hashes[0] as ReturnType<typeof hashOf>, 2);
+    for (const id of ids) db.repo.applyFolderAdd(id, 1);
+    db.repo.applyFolderAdd(ids[0] as AssetId, 2);
 
-    const summary = db.repo.selectionSummary(hashes);
+    const summary = db.repo.selectionSummary(ids);
     expect(summary.sharedFolders).toEqual([{ id: 1, path: "Design" }]);
     // The nested one carries its whole path: a control that says "Icons" alone
     // does not say which `Icons`, and a library may hold three of them.
@@ -873,21 +902,19 @@ describe("summarising a selection", () => {
   it("counts membership, not the subtree a folder query would match", () => {
     // `folder:Design` finds all three through the child, but only one asset was
     // added to `Design/Icons` — and detaching is about what was added.
-    const hashes = three();
+    const ids = three();
     db.repo.applyFolderCreate(1, null, "Design");
     db.repo.applyFolderCreate(2, 1, "Icons");
-    for (const hash of hashes) db.repo.applyFolderAdd(hash, 2);
+    for (const id of ids) db.repo.applyFolderAdd(id, 2);
 
-    expect(db.repo.selectionSummary(hashes).sharedFolders).toEqual([
-      { id: 2, path: "Design/Icons" },
-    ]);
+    expect(db.repo.selectionSummary(ids).sharedFolders).toEqual([{ id: 2, path: "Design/Icons" }]);
   });
 
   it("ignores an asset the library does not hold", () => {
     // A selection can outlive the rows it points at, and the summary must
     // describe what is there rather than what was asked about.
-    const hashes = three();
-    expect(db.repo.selectionSummary([...hashes, hashOf(99)]).count).toBe(3);
+    const ids = three();
+    expect(db.repo.selectionSummary([...ids, idOf(99)]).count).toBe(3);
   });
 
   it("answers for an empty selection without raising", () => {

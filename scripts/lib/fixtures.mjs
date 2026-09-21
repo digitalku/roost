@@ -80,14 +80,18 @@ export async function imageLibrary(dir, { count = 12, name = "Check", size = 64 
 export async function foldersInto(root, tree) {
   const library = await Library.open(root);
   try {
-    const ids = new Map();
-    const hashes = pageOf(library, "", { limit: 100 }).map((hit) => hit.hash);
+    const folders = new Map();
+    const assetIds = pageOf(library, "", { limit: 100 }).map((hit) => hit.id);
     for (const { name, parent, assets = 0 } of tree) {
-      const id = await createFolder(library, name, parent === undefined ? null : ids.get(parent));
-      ids.set(name, id);
-      if (assets > 0) await addToFolder(library, hashes.slice(0, assets), id);
+      const id = await createFolder(
+        library,
+        name,
+        parent === undefined ? null : folders.get(parent),
+      );
+      folders.set(name, id);
+      if (assets > 0) await addToFolder(library, assetIds.slice(0, assets), id);
     }
-    return ids;
+    return folders;
   } finally {
     await library.close();
   }
@@ -103,11 +107,11 @@ export async function foldersInto(root, tree) {
 export async function tagsOnto(root, tags, count = 1, from = 0) {
   const library = await Library.open(root);
   try {
-    const hashes = pageOf(library, "", { limit: 100 })
-      .map((hit) => hit.hash)
+    const ids = pageOf(library, "", { limit: 100 })
+      .map((hit) => hit.id)
       .slice(from, from + count);
-    await tagAdd(library, hashes, tags);
-    return hashes;
+    await tagAdd(library, ids, tags);
+    return ids;
   } finally {
     await library.close();
   }
@@ -123,11 +127,11 @@ export async function tagsOnto(root, tags, count = 1, from = 0) {
 export async function rateFirst(root, stars, count = 1) {
   const library = await Library.open(root);
   try {
-    const hashes = pageOf(library, "", { limit: 100 })
-      .map((hit) => hit.hash)
+    const ids = pageOf(library, "", { limit: 100 })
+      .map((hit) => hit.id)
       .slice(0, count);
-    await rate(library, hashes, stars);
-    return hashes;
+    await rate(library, ids, stars);
+    return ids;
   } finally {
     await library.close();
   }

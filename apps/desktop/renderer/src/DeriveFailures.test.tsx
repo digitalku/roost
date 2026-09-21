@@ -29,8 +29,8 @@ function group(over: Partial<WireDeriveFailureGroup> = {}): WireDeriveFailureGro
     count: 20,
     attempts: 1,
     samples: [
-      { hash: "a".repeat(64), name: "IMG_0421.jpg", ext: "jpg" },
-      { hash: "b".repeat(64), name: "scan-3.png", ext: "png" },
+      { id: "a".repeat(64), name: "IMG_0421.jpg", ext: "jpg" },
+      { id: "b".repeat(64), name: "scan-3.png", ext: "png" },
     ],
     ...over,
   };
@@ -171,7 +171,7 @@ describe("what could not be drawn", () => {
           reason: "unsupported:unknown",
           count: 17,
           attempts: 1,
-          samples: [{ hash: "c".repeat(64), name: "panduan.txt", ext: "txt" }],
+          samples: [{ id: "c".repeat(64), name: "panduan.txt", ext: "txt" }],
         },
       ],
     });

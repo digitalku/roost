@@ -241,10 +241,10 @@ describe("the navigation pane", () => {
   it("takes a drop of assets, and says whether Ctrl was held", () => {
     // `UI_SPEC.md` §4.3. The pane reports the gesture; the *window* decides
     // whether it is a move, because only it knows what is on screen.
-    const dropped: { folder: string; hashes: readonly string[]; copy: boolean }[] = [];
+    const dropped: { folder: string; ids: readonly string[]; copy: boolean }[] = [];
     render(
       <Pane
-        onDropAssets={(folder, hashes, copy) => dropped.push({ folder: folder.path, hashes, copy })}
+        onDropAssets={(folder, ids, copy) => dropped.push({ folder: folder.path, ids, copy })}
       />,
     );
 
@@ -255,7 +255,7 @@ describe("the navigation pane", () => {
     expect(design.hasAttribute("data-over")).toBe(true);
 
     drag(design, "drop", carrying, true);
-    expect(dropped).toEqual([{ folder: "Design", hashes: ["a".repeat(64)], copy: true }]);
+    expect(dropped).toEqual([{ folder: "Design", ids: ["a".repeat(64)], copy: true }]);
     // The highlight is a property of the drag, so it goes with it.
     expect(design.hasAttribute("data-over")).toBe(false);
   });

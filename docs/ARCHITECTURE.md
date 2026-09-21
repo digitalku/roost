@@ -45,7 +45,7 @@ the whole architecture in one picture:
 in `@roost/library`. This is what keeps the CLI honest and a future non-Electron frontend
 possible.
 
-Two things deliberately do **not** follow the arrows. Thumbnails and originals reach the
+Two things deliberately do **not** follow the arrows. Thumbnails and asset files reach the
 renderer as ordinary URLs over the `roost://` protocol, served by main straight from the store
 (§4.3) — image bytes never enter a JSON message. And the engine's worker pool is an internal
 detail of the engine; nothing outside it knows the pool exists.
@@ -104,18 +104,19 @@ from being lost.
 Owns everything the library format governs, so that the standard maps to exactly one package and a
 reviewer has one place to check compliance. Six modules:
 
-- `model` — domain vocabulary: `ContentHash`, `Kind`, `StorageMode`, `LinkMethod`, and the
-  `RoostError` hierarchy. Pure, no I/O, trivially testable. A `ContentHash` is a branded string
-  validated at construction, not a bare `string` — the whole system keys on it, and a
-  lowercase-hex invariant that lives only in a comment is an invariant that is already broken.
+- `model` — domain vocabulary: `AssetId`, `Kind`, `Take`, `Placement`, and the `RoostError`
+  hierarchy. Pure, no I/O, trivially testable. An `AssetId` is a branded string validated at
+  construction, not a bare `string` — the whole system keys on it, and twelve characters of
+  Crockford base32 (RL-13) is an invariant that would already be broken if it lived only in a
+  comment. `mintAssetId` is here too, because minting is vocabulary before it is storage.
 - `db` — SQLite through `better-sqlite3`. Migration runner over `packages/core/migrations/`,
   `repo` for statements and `query` for the vocabulary a compiled search is expressed in.
   **All SQL is built and executed here**, with the single exception named in §3.4. The API is
   synchronous, because `better-sqlite3` is: it is a blocking, in-process library, and wrapping
   it in promises would buy an async veneer over the same blocking call. §4.1 is what makes that
   safe.
-- `storage` — the `Storage` interface and its two implementations (§4.4). The only code in the
-  workspace permitted to turn a hash into a path.
+- `storage` — the `Storage` interface and the one implementation there is (§4.4). The only
+  code in the workspace permitted to turn an **id** into a path.
 - `journal` — append-only JSONL writer, monthly rotation, and the replay engine.
 - `platform` — everything OS-specific, behind one door (§6): XDG directories, reflink
   capability probing, file-manager reveal, single-instance lock, trash.
@@ -131,9 +132,9 @@ the same library, which the single-instance lock (§6) is for.
 Readers are free: WAL allows concurrent readers, and the main process opens exactly one
 **read-only** connection for the `roost://` protocol (§4.3). That connection is the only place
 outside the engine that touches SQLite at all. It is `ReadOnlyIndex` in `@roost/core` — ADR-0008
-proposed the name `ThumbnailReader`, and it answers where an original lives as well, because
-`roost://original/<hash>` needs the same connection and a second one would be a second
-exception. It exposes two lookups and no way to write, and SQLite refuses a write on it
+proposed the name `ThumbnailReader`, and it answers where an asset's file is as well, because
+`roost://file/<id>` needs the same connection and a second one would be a second
+exception. It exposes three lookups and no way to write, and SQLite refuses a write on it
 regardless, which is what a test asserts rather than the flag that asks for it.
 
 ### 3.3 `@roost/media` (`packages/media`)
@@ -141,7 +142,9 @@ Everything that touches file bytes:
 - format detection (magic bytes first, extension as hint only)
 - decode + downscale to the two thumbnail sizes the spec names, 256 and 512, WebP q80
 - metadata extraction (EXIF, dimensions, duration, page count, font names)
-- BLAKE3 content hashing, streamed, including the >50 MB partial scheme
+- BLAKE3 content hashing, streamed over the whole file. **Derived, never identity** (RL-18):
+  version 1's partial scheme existed so that a 4 GB video could be *identified* without reading
+  it, and identity no longer comes from the bytes
 - perceptual hashes and dominant colour → CIELAB (**M5**; the package owns them by charter)
 
 **Four backends since M4, behind one dispatcher** (`derive.ts`), each answering with the same
@@ -208,8 +211,10 @@ The application service layer and the only public API worth calling:
 - **Search façade** (`search`) — supplies `@roost/search` with a folder resolver, compiles,
   pages, counts
 - **Thumbnails** (`thumbnails`) — the backfill pass, and lazy generation on first request
-- **Integrity** (`doctor`) — checks over objects, index, and FTS; optional re-hash
-- Replay and rebuild (RL-20, RL-26 to RL-28), and `fixture` for synthetic libraries
+- **Integrity** (`doctor`) — checks over files, index and FTS: an id with no file (RL-25), an
+  id with two (RL-12), a file no id claims, and a name that is not an id at all (RL-11). A file
+  whose bytes have moved on is **not damage** (RL-20) — it is work for the derive queue
+- Replay and rebuild (RL-35 to RL-41), and `fixture` for synthetic libraries
 - The **job runner**: a bounded, persisted queue with priorities and backpressure (**M4**)
 - The **watcher**: debounced filesystem events feeding the queue (**M5**)
 - The **event emitter** for progress and change notification, which the engine forwards to the
@@ -287,14 +292,17 @@ Three rules the contract enforces rather than documents:
 Registered in main with `protocol.handle`, which takes a `Request` and returns a `Response`.
 Two routes:
 
-- `roost://thumb/<hash>@256` and `@512` — the WebP BLOB, read through the main process's single
-  read-only connection (§3.2) and returned as a `Response` with a one-year immutable cache
-  header. A content-addressed URL's bytes cannot change, so the cache is free correctness.
-- `roost://original/<hash>` — the asset's own bytes: from `originals/` for a managed asset, from
-  the recorded path for a referenced one. Returned as a **stream**, with byte-range support, so
-  a 4 GB video costs a chunk rather than its size.
-- `roost://page/<hash>/<index>@<width>` (**M4**) — one page of a document, rendered on demand and
-  cached like a thumbnail, since the hash, the page, and the width fix the pixels. Neither a
+- `roost://thumb/<id>@256` and `@512` — the WebP BLOB, read through the main process's single
+  read-only connection (§3.2). A pinned frame goes in the query string, so a changed poster is a
+  changed address (ADR-0024). **The bytes behind an id may change** (RL-20), so the cache header
+  is not `immutable` the way version 1's content-addressed one could be: the derive that notices
+  an edited file is what makes the cell redraw.
+- `roost://file/<id>` — the asset's own bytes, from `files/` and nowhere else (RL-19). Returned
+  as a **stream**, with byte-range support, so a 4 GB video costs a chunk rather than its size.
+  The size is read from the file rather than from the index, because a range answered against a
+  stale size hands a player the wrong bytes.
+- `roost://page/<id>/<index>@<width>` (**M4**) — one page of a document, rendered on demand and
+  cached like a thumbnail, since the id, the page, and the width fix the pixels. Neither a
   stored thumbnail nor the file itself: page-through needs a picture per page, and a library that
   stored one per page would be storing a rendering nobody asked for. The width is a fixed set for
   the same reason the thumbnail sizes are.
@@ -321,49 +329,61 @@ back over a folder of videos re-asks every time.
 
 ```ts
 export interface Storage {
-  readonly mode: StorageMode;
-  /** Places bytes and reports which link method succeeded. Never moves,
-   *  modifies, or deletes the caller's file. Idempotent. */
-  put(src: string, hash: ContentHash, ext: string): Promise<Placed>;
-  locate(hash: ContentHash, ext: string): string;
-  remove(hash: ContentHash, ext: string): Promise<void>;
+  /** The only way an id becomes a path. */
+  locate(id: AssetId, ext: string): string;
+  /** Places a file, moving or copying it as `take` says (RL-26). The result is
+   *  an independent file: a reflink is one, a hardlink is not. */
+  put(src: string, id: AssetId, ext: string, take: Take): Promise<Placed>;
+  /** Writes bytes over an asset's file. An ordinary edit (RL-20), journalled
+   *  by nothing (RL-23). */
+  writeBytes(bytes: Uint8Array, id: AssetId, ext: string): Promise<string>;
+  remove(id: AssetId, ext: string): Promise<void>;
+  /** Every file an id has. One usually; two is RL-12's case; none is RL-25's. */
+  findFiles(id: AssetId): Promise<readonly StoredFile[]>;
   /** Walks the shard tree lazily. Powers rebuild verification, so it must not
    *  require the database to be present or correct. */
   iterAll(): AsyncIterable<StoredFile>;
+  /** Paths whose names are not ids — a lock file an editor left (RL-11). */
+  iterUnrecognised(): AsyncIterable<string>;
 }
 
 export interface Placed {
   path: string;
-  linkMethod: LinkMethod | null;   // null in referenced mode
-  alreadyPresent: boolean;
+  take: Take;           // what happened to the source, which RL-26 requires be told
+  placement: Placement; // rename | reflink | copy — for the log, never journalled
 }
 ```
 
-Two implementations, deliberately asymmetric because the modes are:
+**One implementation**, because version 2 has one storage mode (RL-19). `FileStore` writes
+`files/<2-char>/<id>.<ext>`: a move within one filesystem is a rename, and everything else goes
+through a copy-on-write clone or a full copy into a hidden temp name in the destination
+directory, then an atomic rename.
 
-- `ManagedStorage` — `originals/<2-hex>/<hash>.<ext>`, placing via reflink → hardlink → copy
-  into a hidden temp name in the destination directory, then an atomic rename. A torn file must
-  never appear at a real content address.
-- `ReferencedStorage` — writes nothing, ever. `remove` is a no-op, `iterAll` is empty, and
-  `locate` **throws by design**: a referenced asset's path is user-chosen, lives in
-  `assets.ref_path`, and cannot be derived from a hash. Stubbing it to guess would be worse
-  than failing.
+**There is no hardlink rung**, and that is RL-26 rather than a preference: a shared inode would
+mean editing the file inside the library edits the user's file outside it, which is precisely
+what a workspace must not do. `storage.test.ts` asserts it on the inode rather than on the code.
 
-**No code outside a `Storage` implementation may construct a path from a hash.** Shard
-derivation lives in exactly one private function; callers reach it only through `locate`.
+**Nothing in the store is immutable.** The bytes may change at any time, by any application,
+without the library being told (RL-20), and no method may assume the file it placed is the file
+it will read back. Nor may anything hold a file open in a way that stops another application
+writing, renaming or deleting it (RL-21) — the failure that prevents is Word saying *"the file
+is in use"* about a file the user opened from Roost, with the preview pane as the culprit.
+
+**No code outside a `Storage` implementation may construct a path from an id.** Shard
+derivation lives in exactly one function; callers reach it only through `locate`.
 
 Reflink needed a second look that the Rust original did not, because Node exposes no `FICLONE`
 ioctl. `fs.constants.COPYFILE_FICLONE` looks like one and is not — it is a hint that silently
-falls back to a full copy and reports success either way, so it cannot decide what `link_method`
-to record, and `link_method` goes in the journal.
+falls back to a full copy and reports success either way, so it could never say which placement
+actually happened.
 
 **`COPYFILE_FICLONE_FORCE` can**, which is what ADR-0012 settles: it refuses rather than falling
 back — measured at `EXDEV` across filesystems and `ENOTSUP` on a same-filesystem non-CoW target —
 so success means it genuinely cloned. No native addon. A refusal is the ordinary answer on ext4
 and moves to the next rung; it is not a failure and is not logged as one.
 
-`put` deliberately does not `chmod` the placed file. Under a hardlink it is also the *user's*
-file, so tightening permissions would reach into their directory.
+`put` deliberately does not `chmod` the placed file: a copy inherits what the source had, and
+inventing a stricter mode would surprise anybody who set one.
 
 ### 4.5 Rebuild
 `roost rebuild` deletes `index.db` and replays `journal/*.jsonl` in chronological order, oldest
@@ -381,22 +401,19 @@ original database. It runs in CI on every commit. The guarantee "the DB is dispo
 into a lie unless it is tested continuously, and invariant 1 is the easiest one to leak as the
 project grows.
 
-**A second conformance test is specific to this repository:** a small library fixture,
-committed, that was written by the Rust implementation. Opening it, replaying it, and hashing
-the result must produce the same database this implementation would have written — and, since
-schema v6, migrating it forward without touching anything the journal authored. That direction
-is still promised in `CONCEPT.md` §7; the other one was retired on 2026-08-29, so no test runs
-the `roost-old` binary any more.
+**The second conformance test is the standard's own** (RL-52): `conformance/library.roost`, a
+journal written by hand in another repository, replayed here and compared against the state
+`expected.json` publishes. Version 1 also carried a fixture written by `roost-old`; that
+obligation is retired with the format (RL-6a), and the fixture went with it.
 
 ### 4.6 Performance strategy
 - Grid virtualization: render only visible cells plus a small overscan.
 - Thumbnails sized to device pixels; never ship a 4000px JPEG to the renderer.
-- Query pagination is keyset-based on `(imported_at DESC, hash)`, never `OFFSET`.
+- Query pagination is keyset-based on `(imported_at DESC, id DESC)`, never `OFFSET`.
   `idx_assets_imported` covers exactly that pair, so paging depth costs nothing.
 - Filter indexes carry the sort key. `roost-old` measured 18.9 ms for `ext:png` against 0.51 ms
-  once `(imported_at DESC, hash)` was inside the filter index — a 37× difference on the most
-  ordinary query in the app. Migrations 0005 is carried over for exactly this reason
-  (`DATA_MODEL.md` §2.4).
+  once the sort key was inside the filter index — a 37× difference on the most ordinary query in
+  the app (`DATA_MODEL.md` §2.0).
 - Counts are estimated for huge result sets; exact counts only on demand.
 - Import batches database writes (one transaction per ~500 assets) and defers FTS insert to
   batch end.
@@ -410,27 +427,28 @@ the `roost-old` binary any more.
 ## 5. Import pipeline
 
 ```
-discover → probe → hash → dedupe → place bytes → journal → index → enqueue derived work
-                                                                          │
+discover → hash → duplicate check → mint id → place bytes → probe → journal → index → derive
+                                                                                        │
                                     thumbnail ─ metadata ─ phash ─ colors ┘  (parallel)
 ```
 
 1. **discover** — walk paths as an async iterator, applying ignore rules (`.git`, hidden, size
    caps). Never materialise a million paths into an array.
-2. **probe** — magic bytes → `Kind`; reject unsupported early with a reason.
-3. **hash** — BLAKE3, streamed, full below 50 MB, otherwise the partial scheme from the spec
-   with `is_partial_hash = 1`. Runs in the worker pool.
-4. **dedupe** — the hash *is* the identity, so a matching row means the asset already exists.
-   Merge folder and tag intent onto the existing asset; do not create a second row. A duplicate
-   decided by a *partial* hash is verified byte for byte against the stored bytes before
-   merging, and refused if they differ — `STORAGE_SPEC.md`'s note on partial-hash collisions is the
-   authority, and explains why a size check can never catch this.
-5. **place** — `Storage.put`. Managed mode tries reflink → hardlink → copy and records
-   `link_method`. Referenced mode writes nothing and stores `ref_path`.
-6. **journal** — append the `add` record. **Journal before index, always.** A row in `index.db`
-   with no journal line is data loss on the next rebuild.
-7. **index** — one transaction per batch (~500 assets), FTS insert deferred to batch end.
-8. **derive** — thumbnails and metadata queued **in the same transaction as the rows** (M4), so
+2. **hash** — BLAKE3, streamed over the whole file. Derived data (RL-18), not an address.
+3. **duplicate check** — a **decision**, not a consequence. Identity is an id, so a second copy
+   of the same bytes *could* be a second asset; this build skips it and reports it instead,
+   because re-importing a directory is the ordinary way to produce duplicates (ADR-0046 §5).
+4. **mint** — `mintAssetId`, checked against the library **and** the uncommitted batch (RL-15).
+5. **place** — `Storage.put`, moving or copying as the run was told, and recording which
+   happened so the report can say so (RL-26).
+6. **probe** — magic bytes and a header read, for the dimensions a grid lays a cell out with.
+   Derived (RL-22), so it goes to the index and never to the journal.
+7. **journal** — append the `add`: an id, an extension, a name without its extension (RL-33),
+   and the source file's date. **Journal before index, always.** A row in `index.db` with no
+   journal line is data loss on the next rebuild.
+8. **index** — one transaction per batch (~500 assets), carrying the rows, what was measured,
+   and the derive jobs together. FTS insert deferred to batch end.
+9. **derive** — thumbnails and metadata queued **in the same transaction as the rows** (M4), so
    an asset and the intent to derive it are committed together. The queue is claimed by a runner
    in the engine, which emits `job:progress`; the UI shows placeholders and re-reads when a run
    finishes. Work nobody can do — a format with no backend, a tool that is not installed — is
@@ -450,9 +468,9 @@ the reflink probe do anything sensible there.
   `%LOCALAPPDATA%\roost\{state,cache}` for what must not (ADR-0041). Electron's `app.getPath`
   is *not* used for library-adjacent paths — it has its own opinions, and each platform's own
   layout is what its users expect.
-- The single-instance lock is keyed by a hash of the library's canonical path and lives in
-  `state_dir()/locks`, never inside the library: RL-3 makes the library root a reserved namespace at
-  four entries, a pid is meaningless on another machine, and a read-only library must still
+- The single-instance lock is keyed by a digest of the library's canonical path and lives in
+  `state_dir()/locks`, never inside the library: RL-4 makes the library root a reserved namespace
+  at four entries, a pid is meaningless on another machine, and a read-only library must still
   open. The desktop app takes it when it opens a library; `roost rebuild` takes it too, being
   the one CLI command that rewrites a library whole. Ordinary reads and edits do not — two
   `roost tag` runs at once are a normal thing to want, and WAL is built for it.
@@ -467,8 +485,8 @@ the reflink probe do anything sensible there.
 
 ### Where logs live
 
-Not in the library. RL-3 makes the library root a reserved namespace: a library
-holds `originals/`, `index.db`, `journal/`, and `library.json`, and nothing else. Logs go to
+Not in the library. RL-4 makes the library root a reserved namespace: a library
+holds `files/`, `index.db`, `journal/`, and `library.json`, and nothing else. Logs go to
 `$XDG_STATE_HOME/roost/logs`, and to `%LOCALAPPDATA%\roost\state\logs` on Windows. Two
 destinations, different jobs: the terminal carries warnings and errors so the person running a
 command sees what went wrong; the file carries structured JSON at debug level so a problem
@@ -482,8 +500,8 @@ reported days later can still be investigated.
 | Language | TypeScript 7, ESM | strict, `erasableSyntaxOnly`, no `any`; targets Node 22, which is *not* Electron's Node — see ADR-0011 |
 | DB | `better-sqlite3` + FTS5 | synchronous by design; WAL; derived cache (ADR-0003, ADR-0009) |
 | Images | `sharp` (libvips) | decode and WebP q80 thumbnails at 256 and 512 (ADR-0009) |
-| Hashing | native BLAKE3 binding, streamed | content identity; a perceptual hasher arrives with M5 |
-| Reflink | `fs.copyFile` with `COPYFILE_FICLONE_FORCE` | Refuses rather than falling back, so `link_method` stays truthful; no addon (ADR-0012) |
+| Hashing | native BLAKE3 binding, streamed | a **derived** attribute (RL-18), not an address; a perceptual hasher arrives with M5 |
+| Reflink | `fs.copyFile` with `COPYFILE_FICLONE_FORCE` | Refuses rather than falling back, so the placement reported is the placement that happened; no addon (ADR-0012) |
 | Frontend | React 19 + TypeScript + Vite | see `docs/UI_SPEC.md` (ADR-0002) |
 | Virtualization | `@tanstack/react-virtual` | grid and list |
 | IPC types | `@roost/contract`, shared | nothing generated, nothing to drift (ADR-0007) |
@@ -496,20 +514,24 @@ reported days later can still be investigated.
 Violating any of these is a bug, regardless of what it enables:
 
 0. **`../roost-library/SPEC.md` is normative** and outranks this document. Requirements `RL-1`
-   … `RL-41` and RL-38's forbidden list govern storage, import and rebuild — not the schema,
-   which RL-2 leaves to each implementation. It is **not this repository's document**: a change
+   … `RL-56` and RL-56's forbidden list govern storage, import and rebuild — not the schema,
+   which RL-3 leaves to each implementation. It is **not this repository's document**: a change
    to it is proposed there, against that repository's `CHANGING.md`, and raises a document
-   revision or a format version (ADR-0045).
-1. The index is derivable from the journal plus `originals/`. Always. Any state that exists
-   only in `index.db` is a bug.
-2. No path is constructed from a hash outside a `Storage` implementation.
+   revision or a format version (ADR-0045). **This build reads format 2 only**, and refuses a
+   version 1 library by name without reading a byte of it (RL-6a, ADR-0046).
+1. The index is derivable from the journal plus `files/`. Always. Any state that exists
+   only in `index.db` is a bug — except the two marks that say how far the index has folded
+   each journal month, which are a **cache of the fold** and are discarded, never trusted, when
+   they disagree with the file.
+2. No path is constructed from an **id** outside a `Storage` implementation.
 3. Every SQL statement is built and executed in `@roost/core`'s `db` module. The one exception
    is the `WHERE` fragment `@roost/search` compiles an RQL query into (§3.4), which arrives with
    its values bound rather than interpolated.
 4. No business logic in `apps/desktop/main`.
 5. No user input reaching SQL unparameterized.
-6. Originals are never modified in place. Referenced-mode files are opened read-only, and
-   nothing is ever written into user directories.
+6. Nothing is ever written into a user directory. A file **inside** the library is a different
+   matter: it is a workspace, and an edit over it is ordinary (RL-20). Nothing may hold one open
+   in a way that stops another application writing to it (RL-21).
 7. No network calls at runtime, except explicit user-initiated "import from URL".
 8. `@roost/core` depends on no other workspace package.
 9. Every user-authored mutation is journalled before it touches `index.db`.

@@ -65,7 +65,7 @@ const frameExpression = `
     const pad = { left: parseFloat(style.paddingLeft), right: parseFloat(style.paddingRight) };
     const cells = [...document.querySelectorAll(".cell")].map((cell) => {
       const r = cell.getBoundingClientRect();
-      return { hash: cell.dataset.hash, left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+      return { id: cell.dataset.id, left: r.left, right: r.right, top: r.top, bottom: r.bottom };
     });
     return {
       contentLeft: box.left + pad.left,
@@ -103,7 +103,7 @@ const cellStyle = (index) => `
     const name = cell.querySelector(".cell-name");
     const thumb = cell.querySelector(".cell-thumb");
     return {
-      hash: cell.dataset.hash,
+      id: cell.dataset.id,
       selected: cell.dataset.selected !== undefined,
       focused: cell.dataset.focused !== undefined,
       background: style.backgroundColor,
@@ -170,7 +170,7 @@ const resolve = (...tokens) => `
   })()`;
 
 const selectedHashes = `
-  [...document.querySelectorAll('.cell[aria-selected="true"]')].map((c) => c.dataset.hash)`;
+  [...document.querySelectorAll('.cell[aria-selected="true"]')].map((c) => c.dataset.id)`;
 
 async function setView(view) {
   await cdp.keyboard.press(String(["icons", "compact", "details"].indexOf(view) + 1), {
@@ -493,7 +493,7 @@ try {
           const c = cell.getBoundingClientRect();
           return c.right > r.left && c.left < r.right && c.bottom > r.top && c.top < r.bottom;
         })
-        .map((cell) => cell.dataset.hash);
+        .map((cell) => cell.dataset.id);
       return {
         background: style.backgroundColor,
         border: style.borderTopColor,
@@ -549,7 +549,7 @@ try {
   const added = await cdp.evaluate(selectedHashes);
   check(
     "Ctrl adds to what was already selected",
-    added.length > swept.length && swept.every((hash) => added.includes(hash)),
+    added.length > swept.length && swept.every((id) => added.includes(id)),
     `${swept.length} + 2 → ${added.length}`,
   );
 

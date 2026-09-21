@@ -11,11 +11,11 @@ import type { ConfirmRequest } from "./trash-actions.js";
  *
  * What every test here is really checking is the thing that was a real bug on
  * 2026-08-30: an action must reach the whole selection, not one asset of it. So
- * the assertions count the hashes that were **sent**, never whether a request
+ * the assertions count the ids that were **sent**, never whether a request
  * of the right type happened — the broken version would pass that.
  */
 
-const HASHES = [0, 1, 2].map((index) => fakeAsset(index).hash);
+const HASHES = [0, 1, 2].map((index) => fakeAsset(index).id);
 
 describe("the asset context menu", () => {
   let engine: FakeEngine;
@@ -26,7 +26,7 @@ describe("the asset context menu", () => {
   let opened: string[];
 
   const show = (
-    hashes: readonly string[] = HASHES,
+    ids: readonly string[] = HASHES,
     options = {},
     { inTrash = false, drawable }: { inTrash?: boolean; drawable?: boolean } = {},
   ) => {
@@ -39,7 +39,7 @@ describe("the asset context menu", () => {
     opened = [];
     const view = render(
       <AssetContextMenu
-        hashes={hashes}
+        ids={ids}
         inTrash={inTrash}
         onNote={(line) => notes.push(line)}
         onProblem={(problem) => problems.push(problem.message)}
@@ -47,7 +47,7 @@ describe("the asset context menu", () => {
         onGone={() => {
           gone += 1;
         }}
-        onOpenHere={(hash) => opened.push(hash)}
+        onOpenHere={(id) => opened.push(id)}
         {...(drawable === undefined ? {} : { drawable })}
       >
         <div data-testid="surface" tabIndex={-1}>
@@ -71,7 +71,7 @@ describe("the asset context menu", () => {
   const disabled = (name: string): boolean =>
     screen.getByRole("menuitem", { name }).getAttribute("aria-disabled") === "true";
 
-  const sentTo = (type: string): { hashes?: readonly string[]; hash?: string }[] =>
+  const sentTo = (type: string): { ids?: readonly string[]; id?: string }[] =>
     engine.seen.filter((request) => request.type === type) as never;
 
   beforeEach(() => {
@@ -90,7 +90,7 @@ describe("the asset context menu", () => {
     await user.click(screen.getByRole("menuitem", { name: /Copy 3 paths/ }));
 
     await waitFor(() => expect(sentTo("asset:copyPath")).toHaveLength(1));
-    expect(sentTo("asset:copyPath")[0]?.hashes).toEqual(HASHES);
+    expect(sentTo("asset:copyPath")[0]?.ids).toEqual(HASHES);
   });
 
   it("copies the files, which is a different thing from copying the paths", async () => {
@@ -102,7 +102,7 @@ describe("the asset context menu", () => {
     await user.click(screen.getByRole("menuitem", { name: /Copy 3 files/ }));
 
     await waitFor(() => expect(sentTo("asset:copyFiles")).toHaveLength(1));
-    expect(sentTo("asset:copyFiles")[0]?.hashes).toEqual(HASHES);
+    expect(sentTo("asset:copyFiles")[0]?.ids).toEqual(HASHES);
     expect(notes).toEqual(["Copied 3 assets to the clipboard"]);
   });
 
@@ -131,8 +131,8 @@ describe("the asset context menu", () => {
     await user.click(screen.getByRole("menuitem", { name: /Export 3 assets/ }));
 
     await waitFor(() => expect(sentTo("assets:export")).toHaveLength(1));
-    const request = sentTo("assets:export")[0] as { hashes: string[]; destination: string };
-    expect(request.hashes).toEqual(HASHES);
+    const request = sentTo("assets:export")[0] as { ids: string[]; destination: string };
+    expect(request.ids).toEqual(HASHES);
     expect(request.destination).toBe("/home/someone/Desktop");
     expect(notes[0]).toBe("Exported 3");
     // An export takes nothing out of the view, so the selection stays. This is
@@ -200,20 +200,20 @@ describe("the asset context menu", () => {
     await user.click(screen.getByRole("menuitem", { name: "Show in file manager" }));
 
     await waitFor(() => expect(sentTo("asset:reveal")).toHaveLength(1));
-    expect(sentTo("asset:reveal")[0]?.hash).toBe(HASHES[0]);
+    expect(sentTo("asset:reveal")[0]?.id).toBe(HASHES[0]);
   });
 
   it("moves the whole selection to the trash, and asks nothing first", async () => {
     // Trashing is reversible (ADR-0022), so a confirmation would be a dialog
     // that teaches people to dismiss dialogs. The count is what is asserted,
-    // because the version that sent one hash would pass a test that only
+    // because the version that sent one id would pass a test that only
     // checked a request happened.
     const { user } = show();
     await open();
     await user.click(screen.getByRole("menuitem", { name: /Move 3 assets to trash/ }));
 
     await waitFor(() => expect(sentTo("assets:trash")).toHaveLength(1));
-    expect(sentTo("assets:trash")[0]?.hashes).toEqual(HASHES);
+    expect(sentTo("assets:trash")[0]?.ids).toEqual(HASHES);
     expect(confirmations).toHaveLength(0);
     expect(notes[0]).toBe("Moved 3 assets to the trash");
     // The selection named assets that are no longer on screen, so it has to go
@@ -239,7 +239,7 @@ describe("the asset context menu", () => {
     await user.click(screen.getByRole("menuitem", { name: "Restore 3 assets" }));
 
     await waitFor(() => expect(sentTo("assets:restore")).toHaveLength(1));
-    expect(sentTo("assets:restore")[0]?.hashes).toEqual(HASHES);
+    expect(sentTo("assets:restore")[0]?.ids).toEqual(HASHES);
     await waitFor(() => expect(gone).toBe(1));
   });
 
@@ -256,7 +256,7 @@ describe("the asset context menu", () => {
 
     confirmations[0]?.run(false);
     await waitFor(() => expect(sentTo("assets:remove")).toHaveLength(1));
-    expect(sentTo("assets:remove")[0]?.hashes).toEqual(HASHES);
+    expect(sentTo("assets:remove")[0]?.ids).toEqual(HASHES);
   });
 
   it("confirms before emptying the trash, and reports what the engine removed", async () => {
@@ -317,13 +317,13 @@ describe("choosing which frame a video's thumbnail comes from", () => {
   let notes: string[];
   let detach: (() => void) | undefined;
 
-  const show = (hashes: readonly string[] = [HASHES[0] as string]) => {
+  const show = (ids: readonly string[] = [HASHES[0] as string]) => {
     engine = new FakeEngine({});
     install(engine);
     notes = [];
     render(
       <AssetContextMenu
-        hashes={hashes}
+        ids={ids}
         inTrash={false}
         onNote={(line) => notes.push(line)}
         onProblem={() => undefined}
@@ -390,7 +390,7 @@ describe("choosing which frame a video's thumbnail comes from", () => {
 
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:poster")).toEqual([
-        { type: "asset:poster", hash: HASHES[0], atMs: 91_500 },
+        { type: "asset:poster", id: HASHES[0], atMs: 91_500 },
       ]),
     );
     // The cell changes when the derive lands, so the status bar is what says
@@ -407,7 +407,7 @@ describe("choosing which frame a video's thumbnail comes from", () => {
 
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:poster")).toEqual([
-        { type: "asset:poster", hash: HASHES[0], atMs: null },
+        { type: "asset:poster", id: HASHES[0], atMs: null },
       ]),
     );
     expect(notes).toEqual(["Thumbnail back to the default frame"]);
@@ -425,13 +425,13 @@ describe("the menu over the grid's empty space", () => {
   let pasted: number;
   let asked: number;
 
-  const show = (hashes: readonly string[]) => {
+  const show = (ids: readonly string[]) => {
     install(new FakeEngine({}));
     pasted = 0;
     asked = 0;
     render(
       <AssetContextMenu
-        hashes={hashes}
+        ids={ids}
         inTrash={false}
         onNote={() => {}}
         onProblem={() => {}}

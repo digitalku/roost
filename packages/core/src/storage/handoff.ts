@@ -9,26 +9,22 @@ const log = logger("handoff");
  * Files with readable names, for handing an asset to another application
  * (ADR-0034).
  *
- * **The problem this exists for is the filename.** A managed original is stored
- * as `originals/a3/a3f2c9….jpg` — the hash *is* the filename
- * (RL-8), which is right for a content-addressed store and useless
- * the moment a file leaves for somewhere else. Dropping `a3f2c9….jpg` into a
- * chat window or a design tool hands somebody a name they cannot read and
- * cannot search for.
+ * **The problem this exists for is the filename.** An asset is stored as
+ * `files/K7/K7QM4X2AJH9F.jpg` — the id *is* the filename (RL-9), which is what
+ * lets a name be renamed without touching the disk and is useless the moment a
+ * file leaves for somewhere else. Dropping `K7QM4X2AJH9F.jpg` into a chat
+ * window or a design tool hands somebody a name they cannot read and cannot
+ * search for.
  *
  * So a copy is made under the name the library shows, in a staging directory
  * **inside the library** — which is not an arbitrary choice: a reflink only
  * works within one filesystem, and `/tmp` is routinely a different one.
  *
- * **Reflink, then copy. Never a hardlink**, although `ManagedStorage` uses one
- * as its middle rung. A hardlink shares an inode, so an application that writes
- * to the file it was given would be writing into the library's own original —
- * invariant 6, and the difference is that the importer creates a destination it
- * owns while this hands a file to a stranger.
- *
- * A `referenced` asset needs none of this: that file is already the user's own,
- * under the user's own name, in the user's own directory. It is handed over
- * where it lies.
+ * **Reflink, then copy. Never a hardlink** (RL-26): a hardlink shares an inode,
+ * so an application that writes to the file it was given would be writing into
+ * the library's own file. That an asset's bytes may be edited is ordinary in
+ * version 2 (RL-20) — what must not happen is that they are edited by somebody
+ * who thinks they were handed a copy.
  */
 
 /**
