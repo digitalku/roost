@@ -857,6 +857,7 @@ function ConnectedCell({
       name={asset.name}
       ext={asset.ext}
       posterMs={asset.posterMs}
+      derivedAt={asset.derivedAt}
       x={x}
       y={y}
       width={width}

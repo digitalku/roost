@@ -202,7 +202,7 @@ export function Inspector({
         <span className="cell-kind">{detail.ext === "" ? "file" : detail.ext}</span>
         <img
           className="cell-image"
-          src={previewSrc(detail.id, detail.posterMs)}
+          src={previewSrc(detail.id, detail.posterMs, detail.derivedAt)}
           alt=""
           decoding="async"
           draggable={false}

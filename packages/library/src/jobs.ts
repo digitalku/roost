@@ -1,4 +1,3 @@
-import { access } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import {
   type AssetId,
@@ -8,7 +7,6 @@ import {
   type JobReason,
   logger,
   parseAssetId,
-  type ThumbnailTarget,
 } from "@roost/core";
 import {
   capabilityFor,
@@ -20,6 +18,7 @@ import {
 } from "@roost/media";
 import { mapWithConcurrency } from "./concurrency.js";
 import type { Library } from "./library.js";
+import { alignExtension, resolveFile } from "./locate.js";
 
 /**
  * The derive queue: thumbnails and metadata, as background work.
@@ -90,6 +89,18 @@ export interface RunOptions {
   readonly concurrency?: number;
   /** Called after each batch commits, with the report so far. */
   readonly onProgress?: (report: DeriveReport) => void;
+  /**
+   * Fired per committed batch with the assets whose derived data was replaced.
+   *
+   * Separate from `onProgress`, which carries counts: a window showing a cell
+   * has to know **which** id to redraw, because the thumbnail behind an id can
+   * change now (RL-20) and an `<img>` whose `src` did not change is one
+   * Chromium never asks about again (ADR-0047).
+   *
+   * After the transaction, never inside it: a listener that threw would roll
+   * back work that is already on disk.
+   */
+  readonly onDerived?: (assets: readonly Redrawn[]) => void;
   /** Stops the run at the next batch boundary. */
   readonly signal?: AbortSignal;
 }
@@ -130,6 +141,13 @@ export function enqueueMissing(
 }
 
 /** What the queue is holding, for a status line or a capability prompt. */
+/** One asset whose derived data was just replaced, and when. */
+export interface Redrawn {
+  readonly id: AssetId;
+  /** Unix seconds, and the cache key a thumbnail's address carries. */
+  readonly derivedAt: number;
+}
+
 export interface QueueStatus {
   readonly ready: number;
   readonly running: number;
@@ -396,6 +414,7 @@ export async function runDerives(
     // One transaction per batch: a long run commits as it goes, and an
     // interruption costs at most a batch of work rather than the run.
     const now = Math.floor(Date.now() / 1000);
+    const redrawn: Redrawn[] = [];
     library.db.transaction(() => {
       for (const outcome of outcomes) {
         const id = parseAssetId(outcome.claim.assetId);
@@ -413,6 +432,7 @@ export async function runDerives(
           }
           library.db.repo.putDerived(id, outcome.metadata, now);
           library.db.repo.completeJob(outcome.claim.id);
+          redrawn.push({ id, derivedAt: now });
           report.derived += 1;
         } else if (outcome.kind === "blocked") {
           // What was measured survives the block: a format this build cannot
@@ -420,6 +440,9 @@ export async function runDerives(
           // would report every one of those assets as never read.
           if (outcome.measured !== undefined) {
             library.db.repo.putDerived(id, outcome.measured, now);
+            // A blocked asset draws a placeholder rather than a picture, and
+            // its *size* is on screen in the details view either way.
+            redrawn.push({ id, derivedAt: now });
           }
           library.db.repo.blockJob(outcome.claim.id, outcome.reason);
           if (outcome.reason === MISSING_FILE) report.missing += 1;
@@ -435,6 +458,7 @@ export async function runDerives(
     });
 
     handled += claims.length;
+    if (redrawn.length > 0) options.onDerived?.(redrawn);
     options.onProgress?.(report);
   }
 
@@ -450,8 +474,17 @@ export async function runDerives(
   return report;
 }
 
-/** A referenced original that is no longer where the index says it is. */
+/** An asset with no file under `files/` at all (RL-25). */
 const MISSING_FILE = "missing:file";
+
+/**
+ * One id, two files (RL-12).
+ *
+ * Parked rather than failed, and never guessed at: the rule is that an
+ * implementation finding two reports it and does not choose. `roost doctor` is
+ * where it is seen and where a person decides.
+ */
+const AMBIGUOUS_FILE = "ambiguous:file";
 
 /** What one derive produced, before it is committed with the rest of a batch. */
 type DeriveOutcomeRow =
@@ -475,18 +508,30 @@ async function deriveOne(
   claim: JobClaim,
   sizes: readonly number[],
 ): Promise<DeriveOutcomeRow> {
-  const path = locate(library, claim);
+  const id = claim.assetId;
 
-  try {
-    await access(path);
-  } catch {
-    // An asset whose file is missing (RL-25). Parked rather than failed: it
-    // comes back when the file does, and retrying now would only re-read the
-    // same absence.
+  // Not `storage.locate` directly: another implementation may have renamed the
+  // file under RL-9b, in which case it is here under a different extension and
+  // treating that as missing would park the asset for ever (ADR-0047 §3).
+  const resolved = await resolveFile(library, id);
+  if (resolved.kind === "missing") {
+    // RL-25. Parked rather than failed: it comes back when the file does, and
+    // retrying now would only re-read the same absence.
     return { kind: "blocked", claim, reason: MISSING_FILE };
+  }
+  if (resolved.kind === "ambiguous") {
+    // RL-12 forbids choosing between two files for one id, so this stops here
+    // and says which two. `doctor` is where it gets fixed.
+    return { kind: "blocked", claim, reason: AMBIGUOUS_FILE };
   }
 
   try {
+    // RL-9b, and it happens before the derive rather than after: a thumbnail
+    // stored against a name that is about to change is a thumbnail keyed on a
+    // stale fact.
+    const aligned = await alignExtension(library, id, resolved.ext, resolved.path);
+    const path = aligned.path;
+
     // The moment somebody pinned the thumbnail to, if they did. A rebuild
     // replays `poster_set` into this column and the frame is re-extracted here,
     // which is what makes a poster survive one (ADR-0024 stage 4).
@@ -514,17 +559,6 @@ async function deriveOne(
       reason: error instanceof Error ? error.message : String(error),
     };
   }
-}
-
-/**
- * Where an asset's bytes are.
- *
- * One answer in version 2 (RL-19), derived from the id by the store — which is
- * the only thing allowed to do that (invariant 2).
- */
-function locate(library: Library, target: ThumbnailTarget | JobClaim): string {
-  const id = "assetId" in target ? target.assetId : target.id;
-  return library.storage.locate(parseAssetId(id), target.ext);
 }
 
 /**

@@ -1,6 +1,6 @@
 # Roost — Benchmarks
 
-Status: **first results in** · Last updated: 2026-08-28
+Status: **first results in** · Last updated: 2026-09-21
 
 Nothing has been measured in this implementation, because nothing has been built. What this
 file holds today is the **baseline**: the numbers the Rust implementation at `../roost-old`
@@ -54,6 +54,51 @@ target now under pressure — and it is measured from M3, the first milestone th
 rather than assumed until someone complains.
 
 ## 3. Results
+
+### 2026-09-21 — what libvips' operation cache is worth on the derive path (ADR-0047)
+
+**Machine:** Windows 11, the development machine · **sharp** against the prebuilt libvips.
+
+`CLAUDE.md` §8 requires a measurement rather than a guess before a cache is changed, and this
+one is a **correctness** change with a performance question attached rather than the reverse.
+RL-21 forbids holding a file under `files/` in a way that stops another application writing to
+it, renaming it or deleting it. libvips maps every file it reads and the operation cache holds the
+mapping for the life of the process, so on Windows a file Roost has thumbnailed cannot be replaced
+by the application the user opened it from. The knob is `sharp.cache({ files: 0 })`, and the
+question is what it costs.
+
+120 generated 512×512 PNGs, each through `derive` once, plus an animated GIF:
+
+| | Cache on | Cache off |
+|---|---|---|
+| 120 files through `derive` | **1478 ms** | **1463 ms** |
+| Files a second | 81.2 | 82.0 |
+| Can the PNG be unlinked afterwards? | yes | yes |
+| Can the **animated GIF** be unlinked afterwards? | **no — `EBUSY`** | **yes** |
+
+**It buys nothing here, and it was costing a requirement.** The derive path opens each file
+once, thumbnails it, hashes it and never reads it again, which is the one access pattern an
+operation cache cannot help — the 15 ms between the two runs is noise, and the run without the
+cache was the faster of the two.
+
+Three things came out of it.
+
+**The format is what exposed it, not the change.** `TODO.md` had carried this since 2026-09-11 as
+a test-cleanup annoyance — *"libvips keeps the file it read mapped, and Windows will not unlink an
+open file"* — with two test teardowns tolerating it and the product knowing nothing about it. Under
+version 1 that was nearly true: files under `originals/` were immutable, so nothing wanted to write
+one. Under version 2 it is the workspace failing, and it fails the way RL-21 says it does — Word
+reports *"the file is in use"* and blames nobody.
+
+**Only the animated GIF reproduced it.** A plain `sharp(path).resize().webp()` released the file
+on this machine either way; it took the real `derive` path and a multi-page image to hold one. A
+measurement that had stopped at the hand-rolled pipeline would have concluded there was nothing to
+fix.
+
+**It fixed a failing test nobody had connected to it.** `packages/media/src/derive.test.ts`'s
+animated-GIF case had been failing on Windows with `EBUSY` since the machine moved there, and had
+been recorded as a known failure in two session logs. It passes now. The suite went from *1 failed*
+to green without that test being touched.
 
 ### 2026-09-10 — HEIC, and what it costs to assemble one (ADR-0040)
 

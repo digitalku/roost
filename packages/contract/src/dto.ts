@@ -334,9 +334,34 @@ export interface AssetCard {
    *
    * The URL is **not** immutable in version 2 — the bytes behind an id may
    * change at any time (RL-20), and the derive that notices is what makes the
-   * cell redraw.
+   * cell redraw. {@link AssetCard.derivedAt} is what carries that into the
+   * address.
    */
   readonly posterMs: number | null;
+  /**
+   * When the thumbnail behind this id was last generated, unix seconds, or
+   * `null` if it never has been.
+   *
+   * **Part of the thumbnail's address, not something a cell draws.** Version 1
+   * could serve `roost://thumb/<id>@<size>` as `immutable` for a year on the
+   * promise that an id fixed the pixels; version 2 breaks that promise by
+   * design (RL-20), and an `<img>` whose source has not changed is an `<img>`
+   * Chromium never re-fetches. So a re-derive moves this and the address moves
+   * with it (ADR-0047).
+   */
+  readonly derivedAt: number | null;
+}
+
+/**
+ * One asset whose thumbnail has been replaced, and the cache key that says so.
+ *
+ * Carried by `assets:derived` so that a window holding a page of cards can
+ * patch the ones that moved instead of fetching every page again (ADR-0047).
+ */
+export interface WireRedrawn {
+  readonly id: string;
+  /** Unix seconds; goes into the thumbnail's address as `?v=`. */
+  readonly derivedAt: number;
 }
 
 /** One page of the grid, and where the next one starts. */

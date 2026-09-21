@@ -142,6 +142,7 @@ export {
   normaliseReason,
   type QueueStatus,
   queueStatus,
+  type Redrawn,
   type RunOptions,
   releaseNowSupported,
   retryBlocked,
@@ -150,6 +151,15 @@ export {
 } from "./jobs.js";
 export { type JournalNotice, NOTHING_SKIPPED, type SkippedOp } from "./journal-state.js";
 export { Library, nowUnix, type OpenOptions } from "./library.js";
+export {
+  alignExtension,
+  type FileAmbiguous,
+  type FileMissing,
+  idFromPath,
+  type Located,
+  type Resolution,
+  resolveFile,
+} from "./locate.js";
 export {
   discoverLibrary,
   LIBRARY_FORMAT_VERSION,
@@ -178,6 +188,13 @@ export {
   recentPath,
   rememberLibrary,
 } from "./recent.js";
+export {
+  type CatchUpOptions,
+  type CatchUpReport,
+  catchUp,
+  type RefreshOutcome,
+  refreshAsset,
+} from "./refresh.js";
 export {
   compileFor,
   count,
@@ -208,3 +225,4 @@ export {
   redrawPoster,
   type ThumbnailReport,
 } from "./thumbnails.js";
+export { type FileWatcher, type WatchOptions, watchFiles } from "./watch.js";

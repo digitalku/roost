@@ -529,6 +529,54 @@ describe("validating an envelope", () => {
     });
   });
 
+  it("carries the assets a derive redrew, and refuses a malformed one", () => {
+    // ADR-0047. The ids reach the window so that a cell can be given a new
+    // thumbnail address without the grid fetching every page again.
+    expect(
+      checkEvent({
+        type: "assets:derived",
+        assets: [
+          { id: "K7QM4X2AJH9F", derivedAt: 1_700_000_000 },
+          { id: "5KM76B88XVJM", derivedAt: 1_700_000_001 },
+        ],
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        type: "assets:derived",
+        assets: [
+          { id: "K7QM4X2AJH9F", derivedAt: 1_700_000_000 },
+          { id: "5KM76B88XVJM", derivedAt: 1_700_000_001 },
+        ],
+      },
+    });
+
+    // An empty batch is valid and means nothing was redrawn; the engine does
+    // not send one, and a validator that refused it would be a second rule to
+    // keep in step with the sender.
+    expect(checkEvent({ type: "assets:derived", assets: [] })).toMatchObject({ ok: true });
+
+    expect(checkEvent({ type: "assets:derived", assets: {} })).toEqual({
+      ok: false,
+      reason: "assets:derived: assets: expected an array",
+    });
+    expect(checkEvent({ type: "assets:derived", assets: [{ id: "K7QM4X2AJH9F" }] })).toEqual({
+      ok: false,
+      reason: "assets:derived: derivedAt: expected a safe integer",
+    });
+
+    // Built field by field, so a path or a thumbnail cannot ride along
+    // (invariant 12).
+    const smuggled = checkEvent({
+      type: "assets:derived",
+      assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1, path: "/home/someone/secret.png" }],
+    });
+    expect(smuggled.ok && smuggled.value).toEqual({
+      type: "assets:derived",
+      assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1 }],
+    });
+  });
+
   it("carries an import's progress as counts and nothing else", () => {
     // A progress event fires per hundred files and a bulk import is hundreds
     // of thousands of them; a path per event is a string per event crossing two

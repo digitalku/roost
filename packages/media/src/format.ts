@@ -172,6 +172,67 @@ export function formatFromExtension(ext: string): Format {
 }
 
 /**
+ * The extension a file of this format is conventionally called by.
+ *
+ * The inverse of {@link formatFromExtension} where one exists, choosing the
+ * common spelling of each pair: `jpg` over `jpeg`, `tif` losing to `tiff`.
+ * `unknown` has no answer and `raw` has no single one — a RAW is Canon's or
+ * Nikon's before it is anything — so both return `undefined`.
+ */
+export function extensionOf(format: Format): string | undefined {
+  return EXTENSION_OF[format];
+}
+
+const EXTENSION_OF: Readonly<Partial<Record<Format, string>>> = {
+  jpeg: "jpg",
+  png: "png",
+  webp: "webp",
+  gif: "gif",
+  bmp: "bmp",
+  tiff: "tiff",
+  avif: "avif",
+  heic: "heic",
+  svg: "svg",
+  pdf: "pdf",
+  mp4: "mp4",
+  mkv: "mkv",
+  webm: "webm",
+  ogg: "ogg",
+  flac: "flac",
+  mp3: "mp3",
+  wav: "wav",
+  ttf: "ttf",
+  otf: "otf",
+  woff: "woff",
+  woff2: "woff2",
+};
+
+/**
+ * Whether sniffing this format is grounds for renaming the file (RL-9b).
+ *
+ * Three answers mean **no information**, and the last two are the whole reason
+ * this is a function rather than a comparison at the call site.
+ *
+ * `unknown` is not evidence: a format this build cannot name says nothing about
+ * whether the extension is wrong, and a `.txt` sniffs as `unknown` for ever.
+ *
+ * **`zip` and `tiff` are containers other formats wear.** `.docx`, `.xlsx`,
+ * `.pptx`, `.epub` and `.jar` are ZIP files; `.nef`, `.arw`, `.dng`, `.orf`,
+ * `.pef` and `.srw` are TIFF files, and {@link sniff} says so in as many words
+ * — their vendor tags live past the 64 bytes a header read can see, so they
+ * come back as `tiff` and `raw.ts` sorts them out later. A rule of *"rename
+ * when the sniffed format is not what the extension says"* therefore renames
+ * every Word document to `.zip` and every Nikon photograph to `.tiff`.
+ *
+ * The cost of excluding them is that a file genuinely saved as a TIFF over a
+ * `.png` keeps a wrong extension, which is cosmetic. The cost of not excluding
+ * them is somebody's RAW library renamed, which is not.
+ */
+export function namesTheFile(format: Format): boolean {
+  return format !== "unknown" && format !== "zip" && format !== "tiff";
+}
+
+/**
  * Formats a browser draws from the original bytes.
  *
  * Chromium's list, not a wish: it decodes JPEG, PNG, GIF, WebP, AVIF, BMP and

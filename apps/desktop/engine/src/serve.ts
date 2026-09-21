@@ -36,6 +36,11 @@ export function serve(port: Port, host: EngineHost = new EngineHost()): Server {
   host.onChanged = () => {
     port.postMessage({ event: { type: "library:changed" } } satisfies EventEnvelope);
   };
+  host.onDerived = (assets) => {
+    port.postMessage({
+      event: { type: "assets:derived", assets: assets.map((a) => ({ ...a })) },
+    } satisfies EventEnvelope);
+  };
   host.onProgress = (progress) => {
     port.postMessage({ event: { type: "import:progress", ...progress } } satisfies EventEnvelope);
   };

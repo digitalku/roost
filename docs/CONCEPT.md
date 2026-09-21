@@ -209,7 +209,8 @@ These are the differentiators worth building, not just parity items:
   — the journal rebuilds the index — because that, not another implementation, is what makes the
   format durable.
 - A file edited in place by the application that owns it stays the same asset, with its tags,
-  rating, note and comments intact (RL-20). That is the promise version 2 exists for.
+  rating, note and comments intact (RL-20) — **and the window shows the new picture without being
+  told** (ADR-0047). That is the promise version 2 exists for.
 - Ships as AppImage + Flatpak + .rpm/.deb, with native modules bundled and no runtime
   dependency surprises.
 

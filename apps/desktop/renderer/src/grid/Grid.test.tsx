@@ -87,7 +87,18 @@ describe("the grid", () => {
     // Chromium owns the decode and the cache.
     const { assets } = show(4);
     const image = document.querySelector<HTMLImageElement>(".cell-image");
-    expect(image?.getAttribute("src")).toBe(`roost://thumb/${assets[0]?.id}@256`);
+    const src = image?.getAttribute("src") ?? "";
+    expect(src.startsWith(`roost://thumb/${assets[0]?.id}@256`)).toBe(true);
+    expect(src.startsWith("data:")).toBe(false);
+  });
+
+  it("puts the derive time in the thumbnail's address, so an edited file redraws", () => {
+    // The response is served `immutable` for a year, and under version 2 the
+    // bytes behind an id can change (RL-20) — so an `<img>` whose `src` did not
+    // change is one Chromium never asks about again (ADR-0047).
+    const { assets } = show(1);
+    const first = document.querySelector<HTMLImageElement>(".cell-image");
+    expect(first?.getAttribute("src")).toContain(`v=${assets[0]?.derivedAt}`);
   });
 
   it("hides a thumbnail that could not be loaded, so the placeholder shows", () => {

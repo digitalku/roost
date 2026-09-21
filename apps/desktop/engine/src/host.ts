@@ -39,6 +39,7 @@ import {
   addComment,
   addSubtitles,
   addToFolder,
+  catchUp,
   check as checkLibrary,
   compileFor,
   createAsset,
@@ -53,6 +54,7 @@ import {
   enqueueMissing,
   ensurePreview,
   exportAssets,
+  type FileWatcher,
   forgetLibrary,
   type ImportReport,
   importEagle,
@@ -66,6 +68,7 @@ import {
   pageOf,
   pinLibrary,
   queueStatus,
+  type Redrawn,
   rate,
   readSidebar,
   reclaim,
@@ -90,6 +93,7 @@ import {
   tagRemove,
   trashAssets,
   unsoundForReclaim,
+  watchFiles,
 } from "@roost/library";
 import { capabilities, installBackend, refreshCapabilities } from "@roost/media";
 import {
@@ -672,6 +676,13 @@ export class EngineHost {
     this.#stopDeriving = new AbortController();
     const run = runDerives(library, {
       signal: this.#stopDeriving.signal,
+      // Per batch, unlike `onChanged` below. A card the window is already
+      // holding is patched with its new cache key, so a cell whose file changed
+      // redraws while the rest of the run is still going — and nothing re-reads
+      // a page (ADR-0047).
+      onDerived: (assets) => {
+        this.onDerived?.(assets);
+      },
       onProgress: (report) => {
         onProgress?.(report);
         this.onJobProgress?.({
@@ -694,11 +705,20 @@ export class EngineHost {
     return report;
   }
 
+  #watcher: FileWatcher | undefined;
+  #stopWatching: AbortController | undefined;
+  #catchingUp: Promise<void> | undefined;
   #deriving: Promise<DeriveReport> | undefined;
   #stopDeriving: AbortController | undefined;
 
   /** Called as the derive queue works. Set by `serve`, like {@link onChanged}. */
   onJobProgress: ((progress: DeriveProgress) => void) | undefined;
+
+  /**
+   * Called with the assets a batch redrew. Set by `serve`, like
+   * {@link onChanged}.
+   */
+  onDerived: ((assets: readonly Redrawn[]) => void) | undefined;
 
   /** What the queue holds, and what this machine can draw. */
   async #deriveStatus(): Promise<WireDeriveStatus> {
@@ -770,6 +790,15 @@ export class EngineHost {
     // anything about the next one.
     this.#duplicates = undefined;
 
+    // The watcher goes first of all: a pending refresh landing after the
+    // database is closed would throw, and its whole subject is leaving anyway.
+    this.#watcher?.close();
+    this.#watcher = undefined;
+    this.#stopWatching?.abort();
+    this.#stopWatching = undefined;
+    await this.#catchingUp?.catch(() => undefined);
+    this.#catchingUp = undefined;
+
     // The runner is stopped before the library is: it commits batch by batch,
     // so a run cut short here has already kept everything it finished, and a
     // batch that lands after the database is closed would throw instead.
@@ -800,6 +829,43 @@ export class EngineHost {
     // fill in (`ARCHITECTURE.md` §4.5).
     enqueueMissing(library);
     void this.#runDerives();
+
+    // The workspace half (ADR-0047). A file under `files/` may have been
+    // edited by any application at any time (RL-20) and nothing about the bytes
+    // is journalled (RL-23), so the only way to stay honest is to look.
+    //
+    // The watcher covers what happens from here on; the sweep covers what
+    // happened while Roost was closed, and is the backstop for the events every
+    // platform drops under load. **Neither is awaited** — a million `stat`
+    // calls against a 1.5 s cold-start budget is not something to open a window
+    // behind (`CONCEPT.md` §7).
+    this.#stopWatching = new AbortController();
+    const stopping = this.#stopWatching.signal;
+    void watchFiles(library, {
+      signal: stopping,
+      onChanged: () => {
+        void this.#runDerives();
+      },
+    })
+      .then((watcher) => {
+        // The library may already have closed while the watcher was starting.
+        if (this.#library === library) this.#watcher = watcher;
+        else watcher.close();
+      })
+      .catch((error: unknown) => {
+        log.warn("could not watch the library's files", { error: String(error) });
+      });
+
+    this.#catchingUp = catchUp(library, { signal: stopping })
+      .then((report) => {
+        if (report.changed > 0) {
+          log.info("files changed while the library was closed", { changed: report.changed });
+          void this.#runDerives();
+        }
+      })
+      .catch((error: unknown) => {
+        log.warn("could not catch up with the library's files", { error: String(error) });
+      });
 
     // After the library is open, and never in its way: the picker's list is a
     // convenience, and a state file that cannot be written must not cost
@@ -893,9 +959,10 @@ function cardOf(hit: SearchHit): AssetPage["assets"][number] {
     ext: hit.ext,
     kind: kindOf(formatFromExtension(hit.ext)) satisfies AssetKind,
     size: hit.size,
-    // Part of the thumbnail's address rather than something a cell draws: see
-    // `AssetCard` in the contract.
+    // Both part of the thumbnail's address rather than something a cell
+    // draws: see `AssetCard` in the contract.
     posterMs: hit.posterMs,
+    derivedAt: hit.derivedAt,
     width: hit.width,
     height: hit.height,
     importedAt: hit.importedAt,

@@ -16,6 +16,26 @@ import type { Format } from "./format.js";
  * (`ARCHITECTURE.md` §3.3).
  */
 
+/**
+ * libvips keeps every file it reads mapped, and the operation cache holds the
+ * mapping for the life of the process. On Windows that is a lock: a file Roost
+ * has thumbnailed cannot be renamed, deleted, or written over by the
+ * application the user opened it from — which is exactly what **RL-21**
+ * forbids, and exactly the failure it names: Word says *"the file is in use"*
+ * and blames nobody.
+ *
+ * Measured before it was turned off (ADR-0047 §9, `BENCHMARKS.md`): 120 files
+ * through `derive` cost **1478 ms with the cache and 1463 ms without it** —
+ * 81.2 against 82.0 files a second, which is noise. It buys nothing here
+ * because the derive path opens each file once and never reads it again, and
+ * with it on an animated GIF could not be unlinked afterwards (`EBUSY`) while
+ * without it it can.
+ *
+ * Set once at module load rather than per call: the cache is process-wide, and
+ * two derive workers setting it around their own work would race.
+ */
+sharp.cache({ files: 0 });
+
 /** A generated thumbnail, ready for the `thumbs` table. */
 export interface Thumbnail {
   /** The requested longest edge, and the `thumbs.size` key. */

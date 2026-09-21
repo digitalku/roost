@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  extensionOf,
   FORMATS,
   type Format,
   formatFromExtension,
   isFormat,
   kindOf,
   mediaTypeOf,
+  namesTheFile,
   sniff,
 } from "./format.js";
 
@@ -132,5 +134,56 @@ describe("the vocabulary", () => {
     expect(formatFromExtension("tif")).toBe(formatFromExtension("tiff"));
     expect(formatFromExtension("JPG")).toBe("jpeg");
     expect(formatFromExtension("xyz")).toBe("unknown");
+  });
+});
+
+describe("deciding whether a file's name still matches its bytes (RL-9b)", () => {
+  it("has a conventional extension for the formats it can name", () => {
+    expect(extensionOf("jpeg")).toBe("jpg");
+    expect(extensionOf("pdf")).toBe("pdf");
+    expect(extensionOf("mp4")).toBe("mp4");
+  });
+
+  it("has none for the two that cannot have one", () => {
+    // A RAW is Canon's or Nikon's before it is anything, and `unknown` is the
+    // absence of an answer rather than an answer.
+    expect(extensionOf("raw")).toBeUndefined();
+    expect(extensionOf("unknown")).toBeUndefined();
+  });
+
+  it("round-trips every extension it offers", () => {
+    for (const format of FORMATS) {
+      const ext = extensionOf(format);
+      if (ext !== undefined) expect(formatFromExtension(ext)).toBe(format);
+    }
+  });
+
+  it("treats zip as no information at all", () => {
+    // `.docx`, `.xlsx`, `.pptx`, `.epub` and `.jar` are ZIP files, and none of
+    // them is in the extension table. A rule that renamed on a mismatch would
+    // rename every Word document in a library to `.zip`.
+    expect(namesTheFile("zip")).toBe(false);
+    expect(formatFromExtension("docx")).toBe("unknown");
+  });
+
+  it("treats tiff as no information either, because every RAW is one", () => {
+    // `sniff` returns `tiff` for a NEF, an ARW and a DNG deliberately: the
+    // vendor tags are past the 64 bytes it reads. `formats.test.ts` caught this
+    // by renaming `capture.nef` to `capture.tiff`.
+    expect(namesTheFile("tiff")).toBe(false);
+    for (const ext of ["nef", "arw", "dng", "orf", "pef", "srw"]) {
+      expect(formatFromExtension(ext)).toBe("raw");
+    }
+  });
+
+  it("treats unknown as no information either", () => {
+    expect(namesTheFile("unknown")).toBe(false);
+  });
+
+  it("vouches for everything it can actually identify", () => {
+    for (const format of FORMATS) {
+      if (format === "zip" || format === "tiff" || format === "unknown") continue;
+      expect(namesTheFile(format)).toBe(true);
+    }
   });
 });

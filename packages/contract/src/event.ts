@@ -9,7 +9,7 @@ import {
   readOneOf,
   within,
 } from "./checked.js";
-import type { DeriveProgress, ImportProgress, InstallableBackend } from "./dto.js";
+import type { DeriveProgress, ImportProgress, InstallableBackend, WireRedrawn } from "./dto.js";
 import { INSTALLABLE_BACKENDS } from "./dto.js";
 
 /**
@@ -43,6 +43,22 @@ export type Event =
    * finish while its thumbnails are still being made, and the window says so.
    */
   | ({ readonly type: "job:progress" } & DeriveProgress)
+  /**
+   * Assets whose derived data was just replaced, and when.
+   *
+   * The second event that carries a payload, and for the opposite reason to
+   * `import:progress`: here there **is** something to re-read and re-reading it
+   * is what must be avoided. A grid showing ten thousand cells cannot fetch
+   * every page again because one file changed, and the change is not visible
+   * without doing something — `roost://thumb/<id>@256` is served `immutable`
+   * for a year, so an `<img>` whose `src` did not change is one Chromium never
+   * asks about again.
+   *
+   * So the ids arrive and the window patches the cards it is already holding,
+   * the way it does for a pinned poster and a rename. `derivedAt` is the new
+   * cache key rather than something a cell draws (ADR-0047).
+   */
+  | { readonly type: "assets:derived"; readonly assets: readonly WireRedrawn[] }
   /**
    * What the package manager is saying, while it says it (ADR-0042 §9).
    *
@@ -107,6 +123,21 @@ export const EVENT_VALIDATORS: {
       blocked: counts["blocked"] ?? 0,
       failed: counts["failed"] ?? 0,
     });
+  },
+
+  "assets:derived": (source) => {
+    const assets = source["assets"];
+    if (!Array.isArray(assets)) return bad("assets: expected an array");
+    const redrawn: WireRedrawn[] = [];
+    for (const entry of assets) {
+      if (!isRecord(entry)) return bad("assets: expected objects");
+      const id = readNonEmpty(entry, "id");
+      if (!id.ok) return id;
+      const derivedAt = readInteger(entry, "derivedAt");
+      if (!derivedAt.ok) return derivedAt;
+      redrawn.push({ id: id.value, derivedAt: derivedAt.value });
+    }
+    return ok({ type: "assets:derived", assets: redrawn });
   },
 
   "install:progress": (source) => {

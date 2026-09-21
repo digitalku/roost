@@ -43,6 +43,7 @@ export {
   SPECIMEN_TEXT,
 } from "./font.js";
 export {
+  extensionOf,
   FORMATS,
   type Format,
   formatFromExtension,
@@ -50,6 +51,7 @@ export {
   isFormat,
   kindOf,
   mediaTypeOf,
+  namesTheFile,
   SNIFF_BYTES,
   sniff,
 } from "./format.js";

@@ -138,9 +138,19 @@ export interface SearchHit {
    * that a pinned frame changes the address rather than the picture at one
    * address. In version 2 the bytes behind an id may change at any time
    * (RL-20), so a thumbnail URL is **not** immutable — the derive pass that
-   * notices a changed file is what makes the cell redraw.
+   * notices a changed file is what makes the cell redraw, and
+   * {@link SearchHit.derivedAt} is how that reaches the address.
    */
   readonly posterMs: number | null;
+  /**
+   * When this asset's derived data was last taken, unix seconds, or `null`.
+   *
+   * On a grid row for the same reason `posterMs` is: it is part of the
+   * thumbnail's address. A re-derive moves it, the address moves with it, and
+   * an `<img>` already showing the old picture asks for the new one instead of
+   * holding a cached response nothing will replace (ADR-0047).
+   */
+  readonly derivedAt: number | null;
   /**
    * This row's value for the order it was fetched in (ADR-0039 §4).
    *

@@ -216,7 +216,13 @@ The application service layer and the only public API worth calling:
   whose bytes have moved on is **not damage** (RL-20) — it is work for the derive queue
 - Replay and rebuild (RL-35 to RL-41), and `fixture` for synthetic libraries
 - The **job runner**: a bounded, persisted queue with priorities and backpressure (**M4**)
-- The **watcher**: debounced filesystem events feeding the queue (**M5**)
+- The **watcher** (`watch.ts`) and the **catch-up sweep** (`refresh.ts`) — what notices that a
+  file changed under an asset, which is the whole of the workspace half of version 2 (ADR-0047).
+  Neither trusts its trigger: `refreshAsset` re-derives because `size` or `mtime` differs from
+  what the index holds, never because an event arrived
+- **Resolving a path** (`locate.ts`) — `<id>.<ext>`, falling back to `<id>.*` when an
+  implementation has renamed the file under RL-9b, and the conservative rule that decides when
+  *this* build renames one
 - The **event emitter** for progress and change notification, which the engine forwards to the
   renderer (§4.2)
 
@@ -293,10 +299,12 @@ Registered in main with `protocol.handle`, which takes a `Request` and returns a
 Two routes:
 
 - `roost://thumb/<id>@256` and `@512` — the WebP BLOB, read through the main process's single
-  read-only connection (§3.2). A pinned frame goes in the query string, so a changed poster is a
-  changed address (ADR-0024). **The bytes behind an id may change** (RL-20), so the cache header
-  is not `immutable` the way version 1's content-addressed one could be: the derive that notices
-  an edited file is what makes the cell redraw.
+  read-only connection (§3.2). **The bytes behind an id may change** (RL-20), so what version 1
+  got for free — an id fixes the picture — has to be bought: the query string carries the pinned
+  frame (`at`, ADR-0024) *and* the derive time (`v`, ADR-0047), and the response is still served
+  `immutable` for a year because a re-derive produces a **new address** rather than new bytes at
+  an old one. Without that an `<img>` whose `src` did not change is one Chromium never asks about
+  again, and a perfect watcher would still leave last week's thumbnail on screen.
 - `roost://file/<id>` — the asset's own bytes, from `files/` and nowhere else (RL-19). Returned
   as a **stream**, with byte-range support, so a 4 GB video costs a chunk rather than its size.
   The size is read from the file rather than from the index, because a range answered against a

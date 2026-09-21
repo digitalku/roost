@@ -235,6 +235,74 @@ describe("a library that is already open", () => {
     });
   });
 
+  it("gives a cell a new thumbnail address when its file changed underneath", async () => {
+    // ADR-0047. An application that has never heard of Roost saved over the
+    // file; the engine's watcher noticed and re-derived it. The thumbnail is
+    // served `immutable` for a year, so an `<img>` whose `src` did not change
+    // is one Chromium never asks about again — the address has to move.
+    const engine = new FakeEngine({
+      openLibraryDialog: "/home/you/Holiday Photos.roost",
+      existing: [{ root: "/home/you/Holiday Photos.roost", name: "Holiday Photos" }],
+      stats: { assets: 2 },
+      assets: [fakeAsset(0), fakeAsset(1)],
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    const cell = await waitFor(() => {
+      const found = document.querySelector<HTMLImageElement>(".cell-image");
+      if (found === null) throw new Error("no cell yet");
+      return found;
+    });
+    const before = cell.getAttribute("src") ?? "";
+    const id = document.querySelector<HTMLElement>(".cell")?.dataset["id"] ?? "";
+    expect(id).not.toBe("");
+
+    const pages = engine.seen.filter((request) => request.type === "assets:page").length;
+    engine.emit({ type: "assets:derived", assets: [{ id, derivedAt: 1_799_999_999 }] });
+
+    await waitFor(() => {
+      const after =
+        document.querySelector<HTMLImageElement>(".cell-image")?.getAttribute("src") ?? "";
+      expect(after).not.toBe(before);
+      expect(after).toContain("v=1799999999");
+    });
+
+    // Patched, not re-paged: a save somewhere else must not throw away the
+    // scroll position or the pages below it.
+    expect(engine.seen.filter((request) => request.type === "assets:page").length).toBe(pages);
+  });
+
+  it("ignores a redraw for an asset it is not showing", async () => {
+    const engine = new FakeEngine({
+      openLibraryDialog: "/home/you/Holiday Photos.roost",
+      existing: [{ root: "/home/you/Holiday Photos.roost", name: "Holiday Photos" }],
+      stats: { assets: 2 },
+      assets: [fakeAsset(0), fakeAsset(1)],
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => {
+      expect(document.querySelector(".cell-image")).not.toBeNull();
+    });
+    const before = document.querySelector<HTMLImageElement>(".cell-image")?.getAttribute("src");
+
+    engine.emit({ type: "assets:derived", assets: [{ id: "ZZZZZZZZZZZZ", derivedAt: 1 }] });
+
+    // A page this window has not reached will carry the new key when it
+    // arrives; nothing here should move, and nothing should be fetched.
+    await waitFor(() => {
+      expect(document.querySelector<HTMLImageElement>(".cell-image")?.getAttribute("src")).toBe(
+        before,
+      );
+    });
+  });
+
   it("closes back to the picker", async () => {
     const engine = new FakeEngine({
       openLibraryDialog: "/home/you/Holiday Photos.roost",

@@ -61,6 +61,14 @@ export interface AssetCellProps {
   readonly ext: string;
   /** Part of the thumbnail's address, not something the cell draws. */
   readonly posterMs: number | null;
+  /**
+   * Also part of the address, and the reason an edited file redraws.
+   *
+   * A number, so it costs the memo nothing: a cell whose asset was re-derived
+   * gets a new `src` and every other cell compares equal and does not render
+   * (`CLAUDE.md` §8).
+   */
+  readonly derivedAt: number | null;
   readonly x: number;
   readonly y: number;
   readonly width: number;
@@ -84,6 +92,7 @@ export interface AssetCellProps {
 export const AssetCell = memo(function AssetCell({
   id,
   posterMs,
+  derivedAt,
   name,
   ext,
   x,
@@ -124,7 +133,7 @@ export const AssetCell = memo(function AssetCell({
           <span className="cell-kind">{kind}</span>
           <img
             className="cell-image"
-            src={gridSrc(id, posterMs)}
+            src={gridSrc(id, posterMs, derivedAt)}
             alt=""
             loading="lazy"
             decoding="async"
@@ -182,7 +191,7 @@ export const AssetCell = memo(function AssetCell({
         <span className="cell-kind">{kind}</span>
         <img
           className="cell-image"
-          src={gridSrc(id, posterMs)}
+          src={gridSrc(id, posterMs, derivedAt)}
           alt=""
           loading="lazy"
           decoding="async"

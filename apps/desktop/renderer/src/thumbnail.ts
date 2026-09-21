@@ -11,29 +11,47 @@
  * allocating a closure each (`UI_SPEC.md` §6).
  */
 
-export function previewSrc(id: string, posterMs: number | null = null): string {
-  return `roost://thumb/${id}@512${pinned(posterMs)}`;
+export function previewSrc(
+  id: string,
+  posterMs: number | null = null,
+  derivedAt: number | null = null,
+): string {
+  return `roost://thumb/${id}@512${version(posterMs, derivedAt)}`;
 }
 
-export function gridSrc(id: string, posterMs: number | null = null): string {
-  return `roost://thumb/${id}@256${pinned(posterMs)}`;
+export function gridSrc(
+  id: string,
+  posterMs: number | null = null,
+  derivedAt: number | null = null,
+): string {
+  return `roost://thumb/${id}@256${version(posterMs, derivedAt)}`;
 }
 
 /**
- * The moment a video's thumbnail is pinned to, as part of its address.
+ * Everything that can change the pixels behind one id, as part of the address.
  *
- * `roost://thumb/<id>@<size>` is served with `immutable` and a year's
- * lifetime, on the promise that a id and a size fix the pixels. A pinned
- * frame is the one thing that can change them (ADR-0024 stage 4), so it goes in
- * the URL: the bytes behind any one address still cannot change, a new frame is
- * a new address, and an `<img>` already showing the old one is asked for the
- * new one rather than left holding a picture nothing will replace.
+ * `roost://thumb/<id>@<size>` is served with `immutable` and a year's lifetime,
+ * and under version 1 that was free: the id was the hash of the bytes, so an id
+ * and a size fixed the picture. **Version 2 breaks that promise by design** —
+ * the bytes behind an id may change at any time, by any application (RL-20) —
+ * and an `<img>` whose `src` has not changed is an `<img>` Chromium never asks
+ * about again. A watcher that re-derives perfectly would still leave last
+ * week's thumbnail on screen.
+ *
+ * So both of the things that can move the picture go in the query:
+ *
+ * - `at` — the moment a video's thumbnail is pinned to (ADR-0024 stage 4);
+ * - `v` — when the asset was last derived, which the watcher and the catch-up
+ *   sweep move whenever the file underneath changes (ADR-0047).
  *
  * The query is not part of what is addressed — `route.ts` reads the path and
  * nothing else — it is part of the cache key, which is exactly what is needed.
  */
-function pinned(posterMs: number | null): string {
-  return posterMs === null ? "" : `?at=${posterMs}`;
+function version(posterMs: number | null, derivedAt: number | null): string {
+  const parts: string[] = [];
+  if (posterMs !== null) parts.push(`at=${posterMs}`);
+  if (derivedAt !== null) parts.push(`v=${derivedAt}`);
+  return parts.length === 0 ? "" : `?${parts.join("&")}`;
 }
 
 /**

@@ -770,7 +770,7 @@ function Specimen({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
     <div className="preview-specimen">
       <img
         className="preview-media"
-        src={previewSrc(detail.id, detail.posterMs)}
+        src={previewSrc(detail.id, detail.posterMs, detail.derivedAt)}
         alt={`Specimen of ${family}`}
         onLoad={showLoaded}
         onError={fallbackToGrid}
@@ -803,7 +803,7 @@ function Fallback({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
         <span className="cell-kind">{detail.ext === "" ? "file" : detail.ext}</span>
         <img
           className="cell-image"
-          src={previewSrc(detail.id, detail.posterMs)}
+          src={previewSrc(detail.id, detail.posterMs, detail.derivedAt)}
           alt=""
           decoding="async"
           onLoad={showLoaded}

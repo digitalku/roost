@@ -1377,6 +1377,20 @@ export class Repo {
   }
 
   /**
+   * Records the extension an asset's file actually has.
+   *
+   * RL-9b makes the extension a fact about the file rather than about the
+   * asset, so this writes the `ext` column **without a journal line** — which
+   * looks like a breach of invariant 9 and is not: a rebuild re-reads it from
+   * `files/`, which is where it came from. The journalled `ext` in `add` is a
+   * hint for finding the file without listing a directory, and
+   * `ops/REGISTRY.md` says so.
+   */
+  noteExt(id: AssetId, ext: string): void {
+    this.#s("UPDATE assets SET ext = ? WHERE id = ?").run(ext, id);
+  }
+
+  /**
    * What the index last saw of an asset's file, for deciding whether to read it
    * again.
    *
@@ -2042,7 +2056,7 @@ export function searchSql(
     `SELECT a.id AS id, a.name AS name, a.ext AS ext, a.size AS size,
             a.width AS width, a.height AS height, a.imported_at AS importedAt,
             a.rating AS rating, a.is_favorite AS isFavorite,
-            a.poster_ms AS posterMs, ${expr} AS sortKey
+            a.poster_ms AS posterMs, a.derived_at AS derivedAt, ${expr} AS sortKey
        FROM assets a
       WHERE ${where}
       ORDER BY ${order}

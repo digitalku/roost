@@ -83,6 +83,7 @@ export {
   type WireProblem,
   type WireRecentLibrary,
   type WireReclaimable,
+  type WireRedrawn,
   type WireRemoval,
   type WireSelectionSummary,
   type WireSettings,

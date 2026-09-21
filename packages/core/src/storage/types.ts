@@ -60,6 +60,20 @@ export interface Storage {
    */
   writeBytes(bytes: Uint8Array, id: AssetId, ext: string): Promise<string>;
 
+  /**
+   * Renames an asset's file to a different extension, keeping the id.
+   *
+   * RL-9b: the extension is a fact about the **file**, not about the asset, so
+   * an application saving a `.docx` as a `.pdf` leaves the same asset under a
+   * name RL-9 no longer describes. The implementation that notices renames the
+   * file and journals nothing.
+   *
+   * Returns the new path. A `from` that is not there is an error, not a
+   * silently-created file: something has already moved it and the caller's
+   * picture is stale.
+   */
+  rename(id: AssetId, fromExt: string, toExt: string): Promise<string>;
+
   remove(id: AssetId, ext: string): Promise<void>;
 
   /**

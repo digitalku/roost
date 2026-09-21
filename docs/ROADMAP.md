@@ -263,6 +263,26 @@ M5 and M6 are deferred at the user's request (below), so a feature they ask for 
 ask for it rather than waiting for a milestone nobody has planned yet. What has arrived that way
 is listed here, so the order stays visible instead of becoming folklore.
 
+- ☑ **Noticing that a file changed** — 2026-09-21, ADR-0047 (**accepted** the same day), from the
+  user asking
+  to go on to the workspace features. Opening a file in the application that owns it had worked
+  since M3; **nothing told Roost when that application saved**, so a thumbnail, a size and a
+  dimension stayed as they were at import for ever. The engine now watches `files/` — about 1 025
+  inotify watches for a million assets, because RL-8 shards one level deep and a recursive watch
+  costs a descriptor per *directory*, with `fs.watch` and no new dependency — and sweeps the store
+  once after a library opens, for the edits made while Roost was closed. Neither trusts its
+  trigger: a re-derive happens because `size` or `mtime` moved, never because an event arrived.
+
+  **Two things were already broken and this is what found them.** An asset another implementation
+  had renamed under RL-9b was reported missing for ever, with its file in the same directory —
+  `ops/REGISTRY.md` requires a reader that cannot find `<id>.<ext>` to look for `<id>.*`, and
+  nothing here did. And libvips was holding files open, which RL-21 forbids in as many words; the
+  operation cache turned out to be worth nothing on a path that reads each file once (1463 ms
+  against 1478 ms over 120 files) and its removal fixed the one test that had been failing on
+  Windows. `scripts/check-workspace.mjs` is the sixteenth window check, and it is the only place
+  the whole path is proved: a save reaches a real Chromium and the cell redraws.
+
+  **Watched roots stay inert**, at the user's choosing — engine first, to a green suite.
 - ☑ **Roost Library Format 2** — 2026-09-21, ADR-0046 (**accepted** the same day), from the
   user asking
   whether this build can be updated to the newest `../roost-library`, and then saying to switch
@@ -377,7 +397,10 @@ is listed here, so the order stays visible instead of becoming folklore.
 - ☐ Perceptual hashes → near-duplicate detection and "find similar"
 - ☐ Duplicate review UI (side-by-side, keep/discard)
 - ☐ Watched folders with auto-import — the journal half exists (`watch_add` / `watch_remove`,
-  replayed and conformant, ADR-0046); what is missing is the daemon that acts on it
+  replayed and conformant, ADR-0046); what is missing is the daemon that acts on it, and the
+  design question ADR-0047 §5 declined to answer badly: what happens to a file that fails to
+  import. **The watcher it would be built on exists** (ADR-0047) — it watches `files/` rather
+  than a user's directory, but the debounce, the coalescing and the lifecycle are the same
 - ☐ Version stacking
 - ☐ Timeline view
 
@@ -410,7 +433,15 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
-**Three open, as of 2026-09-21.** **ADR-0046 — format 2 is the only format this build reads** was
+**Three open, as of 2026-09-21.** **ADR-0047 — noticing that a file changed** was proposed and
+**accepted** on 2026-09-21. It is the workspace half of ADR-0046, and the two questions in it were
+the user's: **a watcher plus a catch-up sweep** over the two cheaper shapes, and **edit-in-place
+complete** before watched roots. Both were the recommendation, and both are built and tested.
+
+It amends **ADR-0013** in one place — `sharp`'s operation cache is off — and the reason is
+RL-21 rather than throughput; `BENCHMARKS.md` carries the measurement that says it costs nothing.
+
+Before it, **ADR-0046 — format 2 is the only format this build reads** was
 proposed and **accepted** on 2026-09-21. It is the largest change this repository has made and the
 one with the least room to argue: the format moved to version 2 in `../roost-library` on
 2026-09-20, and an implementation does not get to stay on a version the standard has left. What the

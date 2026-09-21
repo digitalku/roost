@@ -7,6 +7,7 @@ import {
   fileNameFor,
   logger,
   ReadOnlyIndex,
+  type StoredFile,
   stageFile,
   sweepStaging,
 } from "@roost/core";
@@ -77,15 +78,8 @@ export class AssetServer {
   async locate(id: AssetId): Promise<string | undefined> {
     const open = this.#open;
     if (open === undefined) return undefined;
-    const record = open.index.findFile(id);
-    if (record === undefined) return undefined;
-
-    const path = open.storage.locate(id, record.ext);
-    try {
-      return (await stat(path)).isFile() ? path : undefined;
-    } catch {
-      return undefined;
-    }
+    const found = await resolve(open, id);
+    return found?.path;
   }
 
   /**
@@ -257,8 +251,12 @@ export class AssetServer {
       headers: {
         "content-type": "image/webp",
         "content-length": String(bytes.byteLength),
-        // A content-addressed URL's bytes cannot change, so this is free
-        // correctness rather than a gamble (ADR-0008).
+        // Still a year and still `immutable`, and still free correctness —
+        // but for a different reason than version 1's. The bytes behind an id
+        // *can* change now (RL-20), so what makes this safe is that the
+        // renderer puts the derive time in the query string: a re-derived
+        // thumbnail is a new address rather than new bytes at an old one
+        // (ADR-0047, `thumbnail.ts`).
         "cache-control": "public, max-age=31536000, immutable",
       },
     });
@@ -312,26 +310,13 @@ export class AssetServer {
     route: Extract<Route, { kind: "file" }>,
     request: Request,
   ): Promise<Response> {
-    const record = open.index.findFile(route.id);
-    if (record === undefined) return new Response(null, { status: 404 });
+    const found = await resolve(open, route.id);
+    // An asset whose file is gone (RL-25). `roost doctor` reports it; the grid
+    // shows a cell without a preview.
+    if (found === undefined) return new Response(null, { status: 404 });
+    const { path, ext, size } = found;
 
-    const path = open.storage.locate(route.id, record.ext);
-
-    // The size is read here and never taken from the index: the bytes may have
-    // changed since anything last looked (RL-20), and answering a range against
-    // a stale size would hand a player the wrong bytes.
-    let size: number;
-    try {
-      const info = await stat(path);
-      if (!info.isFile()) return new Response(null, { status: 404 });
-      size = info.size;
-    } catch {
-      // An asset whose file is gone (RL-25). `roost doctor` reports it; the
-      // grid shows a cell without a preview.
-      return new Response(null, { status: 404 });
-    }
-
-    const type = mediaTypeOf(formatFromExtension(record.ext));
+    const type = mediaTypeOf(formatFromExtension(ext));
     const requested = parseRange(request.headers.get("range"), size);
     if (requested.kind === "unsatisfiable") {
       return new Response(null, {
@@ -413,4 +398,48 @@ interface OpenLibrary {
  */
 function missingThumbnail(): Response {
   return new Response(null, { status: 404, headers: { "cache-control": "public, max-age=10" } });
+}
+
+/**
+ * Where an asset's bytes are, and how large they are right now.
+ *
+ * Main's own copy of what `@roost/library`'s `resolveFile` does, because this
+ * process holds a read-only index and a store rather than a `Library`, and
+ * ADR-0006 keeps the engine's API out of the process that draws the window.
+ *
+ * The fallback is RL-9b's: an application that saved a `.docx` as a `.pdf`
+ * leaves the file under a name the journalled extension no longer describes,
+ * and `ops/REGISTRY.md` requires a reader that cannot find `<id>.<ext>` to look
+ * for `<id>.*`. **Two files is RL-12** — reported by `doctor`, and served as
+ * nothing here rather than guessed at.
+ *
+ * The size is read from the file and never from the index: the bytes may have
+ * changed since anything last looked (RL-20), and answering a range against a
+ * stale size hands a player the wrong bytes.
+ */
+async function resolve(
+  open: OpenLibrary,
+  id: AssetId,
+): Promise<{ path: string; ext: string; size: number } | undefined> {
+  const record = open.index.findFile(id);
+  if (record === undefined) return undefined;
+
+  const expected = open.storage.locate(id, record.ext);
+  const known = await sizeOf(expected);
+  if (known !== undefined) return { path: expected, ext: record.ext, size: known };
+
+  const found = await open.storage.findFiles(id);
+  if (found.length !== 1) return undefined;
+  const only = found[0] as StoredFile;
+  const size = await sizeOf(only.path);
+  return size === undefined ? undefined : { path: only.path, ext: only.ext, size };
+}
+
+async function sizeOf(path: string): Promise<number | undefined> {
+  try {
+    const info = await stat(path);
+    return info.isFile() ? info.size : undefined;
+  } catch {
+    return undefined;
+  }
 }

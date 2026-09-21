@@ -735,14 +735,24 @@ an external one is enough.
   old one" would have to become a rule the whole schema follows. It does not: an edit keeps the
   id, so nothing points anywhere new, and `carryOver` was deleted along with `supersede`.
 
-- 🔴 **Editing in place, from the window, is not built.** The format is a workspace's (RL-20,
-  RL-21) and this build's engine conforms, but nothing on screen opens a file in the application
-  that owns it, and nothing notices when that application saves. Four pieces, none started:
-  *Open with…* on the grid and the preview; a **watcher** over `files/` that reruns derive on an
-  mtime change; **RL-9b's rename-on-disk**, which is what lets a person's rename survive a round
-  trip through a file manager; and **watched roots as a running daemon** — `watch_add` and
-  `watch_remove` are journalled and replayed already, and nothing acts on them. Held back
-  deliberately on 2026-09-21: the user chose engine-first, and the suite is what "done" meant.
+- 🟢 **Closed 2026-09-21 by ADR-0047: noticing an external save.** The watcher over `files/`,
+  the catch-up sweep at open, RL-9b's rename and the `<id>.*` fallback are built and covered by
+  `packages/library/tests/workspace.test.ts` and `scripts/check-workspace.mjs`. *Open with…* was
+  already there and had been since M3 — the gap was never opening the file, it was everything
+  after Save.
+
+- 🔴 **Watched roots are still journalled and inert.** `watch_add` and `watch_remove` replay into
+  `watched_roots` and conform, and **nothing acts on them**: no CLI command writes one, no UI
+  offers one, and no daemon imports from one. The registry says plainly that nothing has to —
+  *"an implementation that catches up when the library opens is conforming"* — so this is a
+  feature rather than a gap in conformance. It carries one design question ADR-0047 §5 declined
+  to answer badly: **what happens to a file in a watched root that fails to import.** Held back
+  deliberately on 2026-09-21, at the user's choosing: engine first, to a green suite.
+
+- 🟢 **A rename in the window does not rename the file on disk.** RL-9b is implemented in the
+  direction that matters — the file's *type* changing — but `asset_rename` deliberately touches
+  nothing under `files/` (RL-9: the name a person gave lives in the journal, the file is named by
+  its id). Written down because "rename-on-disk" reads like something that is missing and is not.
 
 ### Format breadth (M4) — done 2026-08-29
 
@@ -885,12 +895,13 @@ an external one is enough.
   migrations, that no column has been renamed out from under a library written by the Rust build —
   is unguarded until then.
 
-- 🟡 **libvips keeps the file it read mapped, and Windows will not unlink an open file.** Measured
-  2026-09-11: a webp probed by `@roost/media` cannot be deleted by the same process afterwards, and
-  retrying does not help — the operation cache holds it for the life of the process. Two test
-  cleanups tolerate it (`media.test.ts`, `cli/tests/cli.test.ts`) and the product knows nothing
-  about it. **`Delete permanently` (ADR-0031) is the path that would meet it**, and so would a
-  `save`, which since ADR-0046 writes over the file libvips may still be holding. The knob is `sharp.cache({ files: 0 })`, which is a performance
+- 🟢 **Closed 2026-09-21 by ADR-0047: libvips keeping the file it read mapped.** Raised as a 🟡
+  on 2026-09-11, when it was a test-cleanup annoyance; under version 2 it was **RL-21 failing**,
+  which is the requirement the whole workspace rests on. `sharp.cache({ files: 0 })` is set once
+  at `decoder.ts`'s module load, measured first as `CLAUDE.md` §8 requires: 1463 ms against
+  1478 ms over 120 files, which is noise, because the derive path reads each file once and never
+  again (`BENCHMARKS.md`). It also fixed `derive.test.ts`'s animated GIF, which had been the one
+  failing test in the suite on Windows. The knob is `sharp.cache({ files: 0 })`, which is a performance
   change and therefore wants a measurement rather than a guess (`CLAUDE.md` §8). Invisible on Linux.
 
 - 🟡 **`roost import` says nothing when a path it was given does not exist.** Measured 2026-09-13:
@@ -962,10 +973,10 @@ an external one is enough.
   confirm the platform split or a reworked gesture in `scripts/lib/`; until then a red run there
   means checking it by hand before believing it.
 
-- 🟡 **`packages/media/src/derive.test.ts` fails on Windows with `EBUSY` on an animated GIF.**
-  It pre-dates the format-2 work and is untouched by it — the same libvips mapping described
-  under *Running it from a checkout*. It is the one failing test in an otherwise green suite, and
-  the reason `pnpm verify` reports 1 failed rather than 0.
+- 🟢 **Fixed 2026-09-21: `derive.test.ts`'s animated GIF failing with `EBUSY` on Windows.** The
+  test was never touched; `sharp.cache({ files: 0 })` was (ADR-0047 §4), and the suite went green.
+  Worth keeping as a line because the failure had been recorded twice as "pre-existing, unrelated"
+  and was in fact the first symptom of a requirement this build was breaking.
 
 ## 4. Lessons carried over — do not re-learn these
 

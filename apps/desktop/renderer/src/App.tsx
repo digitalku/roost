@@ -856,7 +856,24 @@ function LibraryView({
   const [previewing, setPreviewing] = useState(false);
   const paging = useAssetPages(query, generation, sort);
   const dropRows = paging.drop;
+  const redraw = paging.redraw;
   const derives = useDeriveStatus(revision);
+  /**
+   * A file changed under an asset, so the cells holding it get a new address.
+   *
+   * The one card update that is not the result of something this window did
+   * (ADR-0047): an application that has never heard of Roost saved over a file,
+   * the engine's watcher noticed, and the derive that followed produced a
+   * different picture at the same id. Patched rather than re-paged, because a
+   * save somewhere else must not throw away a scroll position here.
+   */
+  useEffect(
+    () =>
+      onEvent((event) => {
+        if (event.type === "assets:derived") redraw(event.assets);
+      }),
+    [redraw],
+  );
 
   /*
    * Re-read whenever the library changes: the counts are derived, and a stale

@@ -289,6 +289,7 @@ export function fakeAsset(index: number, over: Partial<AssetCard> = {}): AssetCa
     ext: "png",
     kind: "image",
     posterMs: null,
+    derivedAt: 1_700_000_000,
     size: 1024 + index,
     width: 800,
     height: 600,

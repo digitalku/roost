@@ -1,4 +1,4 @@
-import type { AssetCard, WireCursor, WireProblem, WireSort } from "@roost/contract";
+import type { AssetCard, WireCursor, WireProblem, WireRedrawn, WireSort } from "@roost/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 
@@ -58,6 +58,21 @@ export interface Paging {
    * same library keeps the old name until it re-pages (ADR-0020).
    */
   readonly rename: (id: string, name: string) => void;
+  /**
+   * Gives cards whose files changed a new thumbnail address (ADR-0047).
+   *
+   * Unlike the two above, this one is **not** about the window that made the
+   * change — nothing in Roost made it. An application that has never heard of
+   * this program saved over a file, the engine's watcher noticed and re-derived
+   * it, and the window is told which ids moved. It is the one card update that
+   * arrives as an event rather than as the result of a request.
+   *
+   * It patches rather than re-pages because a save must not throw away the
+   * scroll position, and it must patch at all because
+   * `roost://thumb/<id>@<size>` is served `immutable` for a year: an `<img>`
+   * whose `src` did not change is one Chromium never asks about again.
+   */
+  readonly redraw: (redrawn: readonly WireRedrawn[]) => void;
   /**
    * Takes rows out of the grid without re-paging it.
    *
@@ -187,10 +202,36 @@ export function useAssetPages(
     setAssets((held) => held.map((card) => (card.id === id ? { ...card, name } : card)));
   }, []);
 
+  /**
+   * Gives the cards whose files changed a new thumbnail address (ADR-0047).
+   *
+   * The same shape as `pinPoster` and `rename` and for the same reason: the
+   * grid is holding these cards and fetching every page again to learn one
+   * number would throw away the scroll position and the pages below it.
+   *
+   * Ids this window is not showing are ignored rather than fetched — a page it
+   * has not reached will carry the new key when it arrives.
+   */
+  const redraw = useCallback((redrawn: readonly WireRedrawn[]): void => {
+    const moved = new Map(redrawn.map((one) => [one.id, one.derivedAt]));
+    setAssets((held) => {
+      let changed = false;
+      const next = held.map((card) => {
+        const derivedAt = moved.get(card.id);
+        if (derivedAt === undefined || derivedAt === card.derivedAt) return card;
+        changed = true;
+        return { ...card, derivedAt };
+      });
+      // A new array for a batch that touched nothing on screen would re-render
+      // the grid on every batch of a hundred-thousand-asset import.
+      return changed ? next : held;
+    });
+  }, []);
+
   const drop = useCallback((ids: readonly string[]): void => {
     const gone = new Set(ids);
     setAssets((held) => held.filter((card) => !gone.has(card.id)));
   }, []);
 
-  return { assets, done, loading, problem, more, pinPoster, rename, drop };
+  return { assets, done, loading, problem, more, pinPoster, rename, redraw, drop };
 }

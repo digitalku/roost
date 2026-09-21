@@ -149,6 +149,20 @@ export class FileStore implements Storage {
     return dest;
   }
 
+  async rename(id: AssetId, fromExt: string, toExt: string): Promise<string> {
+    const from = this.locate(id, fromExt);
+    const dest = this.locate(id, toExt);
+    if (from === dest) return dest;
+
+    await this.#ensureShard(dest);
+    try {
+      await rename(from, dest);
+    } catch (cause) {
+      throw new IoError("rename", from, cause);
+    }
+    return dest;
+  }
+
   /** Removing something that is not there is success, not an error. */
   async remove(id: AssetId, ext: string): Promise<void> {
     const path = this.locate(id, ext);

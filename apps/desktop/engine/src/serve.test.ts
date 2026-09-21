@@ -343,6 +343,9 @@ describe("the engine's message loop", () => {
     // message. A field added here that carried bytes would pass every other
     // test in this file.
     expect(Object.keys(card ?? {}).sort()).toEqual([
+      // Part of the thumbnail's address rather than something a cell draws,
+      // and the reason an externally edited file redraws (ADR-0047).
+      "derivedAt",
       "ext",
       "height",
       "id",
