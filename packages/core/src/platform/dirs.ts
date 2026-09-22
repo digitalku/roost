@@ -1,4 +1,4 @@
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, win32 } from "node:path";
 import { UnsupportedPlatformError } from "../model/index.js";
 
 /**
@@ -139,6 +139,13 @@ export function resolveXdg(
  * refused for the reason XDG gives for ignoring one: it would put user data
  * somewhere different depending on where the process happened to start.
  *
+ * The `win32` functions are named rather than the platform's own, although this
+ * only ever runs on Windows. `isAbsolute("C:\\Users\\u")` answers false on
+ * Linux, so a rule written with the ambient `node:path` is a rule that can only
+ * be checked on the platform it describes — and that is how it stood until a
+ * Linux checkout found the test failing on 2026-09-22. On Windows the two are
+ * the same function.
+ *
  * Exported for its test alone.
  */
 export function resolveKnownFolder(
@@ -146,8 +153,8 @@ export function resolveKnownFolder(
   variable: string,
   leaf: string,
 ): string {
-  if (root === undefined || root === "" || !isAbsolute(root)) {
+  if (root === undefined || root === "" || !win32.isAbsolute(root)) {
     throw new UnsupportedPlatformError(`resolving a known folder without ${variable}`);
   }
-  return join(root, APP_NAME, leaf);
+  return win32.join(root, APP_NAME, leaf);
 }

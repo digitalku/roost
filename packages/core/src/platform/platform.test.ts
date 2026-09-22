@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, win32 } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { UnsupportedPlatformError } from "../model/index.js";
 import { tmpfsDir } from "../testing/mounts.js";
@@ -70,8 +70,14 @@ describe("Windows known folders", () => {
   it("puts the role under the application name, not beside it", () => {
     // Two roots, four directories: `%APPDATA%\roost` serving as both config and
     // data would give two of them one namespace (ADR-0041 §2).
+    //
+    // `win32.join` on both sides, and unguarded, because the rule is about
+    // Windows paths rather than about the machine running the suite. With the
+    // ambient `node:path` this case could only pass on Windows, and passed
+    // there for months while the assertion it was making went unchecked
+    // everywhere else.
     expect(resolveKnownFolder("C:\\Users\\u\\AppData\\Roaming", "APPDATA", "config")).toBe(
-      join("C:\\Users\\u\\AppData\\Roaming", APP_NAME, "config"),
+      win32.join("C:\\Users\\u\\AppData\\Roaming", APP_NAME, "config"),
     );
   });
 
