@@ -17,7 +17,7 @@ Correct it in the same change if M0 lands differently.
 | git | any | Both | |
 | The format, checked out beside this one | — | Both | `../roost-library` holds *Roost Library Format 2* and its conformance suite. `pnpm test` runs that suite (RL-52) and **fails loudly** if the checkout is not there — see below |
 | A C++ toolchain | `gcc-c++`, `make`, `python3` | **Linux** | `sharp` is built from source there, always — see below |
-| libvips headers | `vips-devel` 8.15+ | **Linux** | What that source build links against (ADR-0013). Not optional |
+| libvips headers | `vips-devel` **8.18.3+** | **Linux** | What that source build links against (ADR-0013). Not optional, and the version is `sharp` 0.35.3's own minimum — a distribution that packages an older one has to be built from source (see below) |
 | Electron runtime libs | nss, gtk3, libX11, alsa | **Linux** | Needed to open a window, not to run tests |
 | Visual C++ runtime | 2015+ x64 | **Windows** | What the three native modules link against. Absent, they report a missing binding rather than a missing DLL — see below |
 
@@ -62,6 +62,55 @@ sudo dnf install -y nodejs npm gcc-c++ make python3 \
                     ffmpeg-free
 corepack enable
 ```
+
+### On Ubuntu, and in a container
+
+**Noble's libvips is below the minimum and `apt` has no newer one.** Ubuntu 24.04 packages
+8.15.1 where `sharp` 0.35.3 asks for 8.18.3, so `libvips-dev` is the wrong library however
+willingly it installs. Building it instead is what ADR-0013 wants anyway: linked against the
+system GLib, there is one of it in the process rather than two.
+
+```bash
+sudo apt-get install -y --no-install-recommends \
+    build-essential pkg-config meson ninja-build \
+    libglib2.0-dev libexpat1-dev libjpeg-turbo8-dev libpng-dev libwebp-dev \
+    libtiff-dev libexif-dev liblcms2-dev libheif-dev librsvg2-dev libcgif-dev \
+    libimagequant-dev liborc-0.4-dev libfftw3-dev libarchive-dev libspng-dev \
+    libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1 libxtst6 libatspi2.0-0t64 \
+    libdrm2 libxkbcommon0 libsecret-1-0 libnotify4 libcups2t64 xdg-utils \
+    fonts-liberation ffmpeg
+
+curl -fsSLO https://github.com/libvips/libvips/releases/download/v8.18.6/vips-8.18.6.tar.xz
+tar -xf vips-8.18.6.tar.xz && cd vips-8.18.6
+meson setup build --prefix=/usr/local --buildtype=release -Dintrospection=disabled
+ninja -C build && sudo ninja -C build install && sudo ldconfig
+```
+
+`pkg-config --modversion vips-cpp` is the question `scripts/build-sharp.mjs` asks, and it has to
+answer 8.18.3 or better before `pnpm install` is worth running. **Neither libraw nor a PDF
+backend is needed** in that build: a RAW is drawn from the JPEG its camera embedded
+(`packages/media/src/raw.ts`) and PDF is pdfium in WebAssembly (ADR-0016). JPEG, PNG, WebP,
+TIFF, HEIF, GIF and SVG are, and the `meson setup` summary lists each one as it finds it — read
+it rather than trusting the package list above.
+
+Ubuntu's own `nodejs` is 18, which `engines` refuses. The tarball from `nodejs.org` unpacked
+into `/usr/local` is the shortest way to 22, and `corepack enable pnpm` does the rest.
+
+**Electron's binary may not arrive with the install**, and says nothing when it does not:
+`node_modules/electron` is there with no `dist/` and no `path.txt`, and the first `pnpm start`
+is where it surfaces. Fetching it is one command, and it checks the version it already has
+before downloading anything:
+
+```bash
+node node_modules/.pnpm/electron@*/node_modules/electron/install.js
+```
+
+**In a container it is the session bus that matters, not the system bus.** Measured on
+2026-09-22 in a rootless podman `ubuntu:24.04` against a KDE host: with `/run/user/1000`, the
+Wayland socket and `$DBUS_SESSION_BUS_ADDRESS` carried in, the window draws and the folder
+chooser is the host's own portal dialog. `/run/dbus/system_bus_socket` is absent and can stay
+absent — Chromium logs `ERROR:dbus/bus.cc:405` over it twice at every start, and nothing Roost
+does depends on the answer.
 
 ### On Windows
 
@@ -153,6 +202,11 @@ message. `ROOST_SKIP_SHARP_BUILD=1` exists for a CI job that only type-checks, a
 warning saying what it just gave up.
 
 ### State of this container, probed 2026-08-24
+
+**Read the date.** As of 2026-09-22 the container sessions run in is a rootless podman
+`ubuntu:24.04` one on a Fedora 44 host, and none of the versions below were probed there — that
+container started bare, and §1's Ubuntu subsection is what it took to make `pnpm start` open a
+window in it. What follows describes the Fedora container this document was written in.
 
 A Fedora 44 distrobox container. Present: Node 22.23.1, pnpm 11.22.0, npm 10.9.8, git 2.55.0,
 gcc 16.1.1, make 4.4.1, Python 3.14.7, pkg-config 2.5.1, sqlite3 3.51.2, xdg-open, and
@@ -251,12 +305,14 @@ pnpm build                   # tsc -b
 pnpm clean                   # tsc -b --clean
 
 pnpm dev                                        # Electron + Vite, both watching  (M3)
+pnpm start                                      # the window, from this checkout's build,
+                                                # with no watcher and no dev server  (§4)
 pnpm --filter @roost/cli start -- --help        # the `roost` binary
 ```
 
-`start` runs the built binary, so `pnpm build` has to have run. That is deliberate rather than
-an oversight: there is no watch mode wired into the CLI, and a command that silently ran the
-previous build is exactly the trap `vitest.config.ts` had to be fixed for.
+The CLI's `start` runs the built binary, so `pnpm build` has to have run. That is deliberate
+rather than an oversight: there is no watch mode wired into the CLI, and a command that silently
+ran the previous build is exactly the trap `vitest.config.ts` had to be fixed for.
 
 There is no separate `--noEmit` typecheck. `tsc -b` is what validates project references, so
 build mode *is* the check, and a stale `dist/` cannot make it pass.
@@ -323,9 +379,12 @@ first: `roost query --count -- '-tag:wip'`.
 report nobody reads. Objects nothing references are waste rather than damage; `--reclaim`
 deletes them, and refuses while the index and the object store disagree about what exists.
 
-Every command finds the library the way `git` does — `--library`, else `$ROOST_LIBRARY`, else
-the nearest one at or above the working directory — so from inside a library none of them needs
-an argument at all.
+Every CLI command finds the library the way `git` does — `--library`, else `$ROOST_LIBRARY`,
+else the nearest one at or above the working directory — so from inside a library none of them
+needs an argument at all. **The window reads none of it.** It opens on the picker, which lists
+the libraries opened before it, and a library is chosen there — no argument and no environment
+variable names one (`TODO.md` §M3). `library:current` only answers after a page reload, because
+the engine outlives the page and is still holding the library open.
 
 Results go to stdout and everything else to stderr, so `roost stats | grep assets` works and a
 progress counter never lands in a pipe. Exit codes separate the two kinds of failure: **2** for

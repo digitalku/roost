@@ -27,9 +27,9 @@ if (library === undefined) {
   process.exit(2);
 }
 
-// Opened after the window is up rather than through `ROOST_LIBRARY`, because
-// what is being measured is a page starting against a library that is already
-// open — which is what a second launch does.
+// Opened after the window is up, and measured from there, because what is being
+// measured is a page starting against a library that is already open — which is
+// what a second launch does.
 const window = await launch({ library, open: false });
 const { cdp, spawnedAt } = window;
 

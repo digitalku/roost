@@ -973,6 +973,25 @@ an external one is enough.
   confirm the platform split or a reworked gesture in `scripts/lib/`; until then a red run there
   means checking it by hand before believing it.
 
+  **The Linux run happened on 2026-09-22, and it does not confirm a platform split.** Both scripts
+  still fail, and neither fails where it did on Windows. `check-folders.mjs` gets **through** the
+  whole *Dragging assets onto a folder* section — the ghost's size, the add from `All assets`, the
+  folder's count — and stops later, where clicking the `Aardvark` row should leave one cell in the
+  grid (line 694). `check-grid.mjs` gets past the keyboard ring and stops in `clearSelection`,
+  which clicks the scroller's own padding at `grid.top + 3` and waits for the selection to empty.
+  So the synthetic pointer sequence is **not** the common cause: the drags work here. That leaves
+  two separate failures rather than one, both ahead of where Windows stopped, and neither
+  diagnosed — this run was a bystander to `pnpm start` work rather than an attempt to fix them.
+
+- 🟡 **`check-workspace.mjs` flaked on a first-ever cold start.** Seen once on 2026-09-22, on the
+  first Electron start in a fresh container: it timed out waiting for the thumbnail's address to
+  change after an external save, which it allows 15 s for (60 attempts × 250 ms). The next run
+  passed all ten with nothing changed in between, and its log has the save noticed and worked
+  inside a second — `file changed under an asset`, then a derive pass reporting `derived: 1,
+  thumbnails: 1`. The comment above that settle calls its window *"generous on a busy machine"*;
+  a first start, with every code cache cold and libvips loading for the first time, is the case it
+  is not generous enough for.
+
 - 🟢 **Fixed 2026-09-21: `derive.test.ts`'s animated GIF failing with `EBUSY` on Windows.** The
   test was never touched; `sharp.cache({ files: 0 })` was (ADR-0047 §4), and the suite went green.
   Worth keeping as a line because the failure had been recorded twice as "pre-existing, unrelated"

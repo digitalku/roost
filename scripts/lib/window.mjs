@@ -97,9 +97,12 @@ export function freePort() {
 /**
  * Starts the desktop application and attaches to its window.
  *
- * `library` becomes `ROOST_LIBRARY`, which is how the application opens one
- * without a native dialog no script can click (`TODO.md` §M3). Pass `open:
- * false` for a check whose subject is the window before any library is in it.
+ * `library` is opened by {@link openLibrary} over the debugger once the window
+ * is up, because the folder chooser is a native dialog no script can click
+ * (`TODO.md` §M3) and the application takes no library on its command line or
+ * in its environment — `ROOST_LIBRARY` is the CLI's alone (`SETUP.md` §3).
+ * Pass `open: false` for a check whose subject is the window before any library
+ * is in it.
  */
 export async function launch({ library, args = [], env = {}, open = library !== undefined } = {}) {
   const binary = electronBinary();
@@ -129,7 +132,7 @@ export async function launch({ library, args = [], env = {}, open = library !== 
     ],
     {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ...(library === undefined ? {} : { ROOST_LIBRARY: library }), ...env },
+      env: { ...process.env, ...env },
     },
   );
 
