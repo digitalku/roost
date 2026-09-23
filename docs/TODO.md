@@ -114,14 +114,6 @@ Two things that are no longer blocked, but are still easy to get wrong:
     `libx264`; `-c:v libopenh264` is the spelling that works. Any future fixture meant to be
     *played* has to say so explicitly.
 
-- 🟡 **The newer fontconfig caches came back, and now they crash the window.** Session 79 moved
-  39 `*.cache-11` files out of `~/.cache/fontconfig`; on 2026-09-23 there were 73, the newest
-  written at 07:06 that morning, and Electron no longer drew a window without text — it **died
-  on the first text it laid out** with `SIGTRAP` and
-  `SkFontMgr_FontConfigInterface.cpp:163 Not implemented`. The window checks were run with
-  `XDG_CACHE_HOME` pointed at an empty directory instead, which touches nothing of the user's.
-  Whatever writes them is still unidentified (`SETUP.md` §7).
-
 - 🟡 **Electron will use XWayland unless told not to.** The session is Wayland and both sockets
   are visible in the container, so `pnpm dev` passes `--ozone-platform-hint=auto`. Without it the
   window is blurry on a HiDPI screen and fractional scaling is wrong, which reads as a rendering

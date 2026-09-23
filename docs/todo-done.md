@@ -243,6 +243,30 @@ monthly archive under [`sessions/`](sessions/), and what shipped is in
   when M6 arrives, by packaging. `scripts/check-about.mjs` holds all of it to §3.12 in a window,
   17 checks.
 
+## 2. Blocked on the environment
+
+- ☑ ~~**The newer fontconfig caches came back, and now they crash the window.**~~ Session 79 moved
+  39 `*.cache-11` files out of `~/.cache/fontconfig`; on 2026-09-23 there were 73, the newest
+  written at 07:06 that morning, and Electron no longer drew a window without text — it **died
+  on the first text it laid out** with `SIGTRAP` and
+  `SkFontMgr_FontConfigInterface.cpp:163 Not implemented`. The window checks were run with
+  `XDG_CACHE_HOME` pointed at an empty directory instead, which touches nothing of the user's.
+  **The writer is Claude Desktop** — Electron 44.2.0 in the podman `ubuntu` container, with the
+  home directory mounted read-write — and it rewrites them each time it starts (`SETUP.md` §7).
+  Three ways out, none taken yet: give that container its own `XDG_CACHE_HOME` (outside this
+  repository), move Roost to Electron 44 (ADR-0011's deliberate bump, which fixes it only until
+  the two drift apart again), or give Roost's Electron a private cache without leaking it to
+  what the window launches, which session 79 looked at and did not find a clean way to do.
+  **Closed 2026-09-23 by the third way**, which turned out to be clean after all: main sets
+  `FONTCONFIG_FILE` before `app.whenReady()` to a copy of `/etc/fonts/fonts.conf` whose
+  `<cachedir>`s are replaced by `~/.cache/roost/fontconfig` (`apps/desktop/main/src/fonts.ts`).
+  Adding a private directory *beside* the shared one was tried first and does nothing — the
+  newer file is refused wherever it is found. Replacing them leaves every font, alias and
+  `conf.d` rule the system's: six families measured to the same width as a clean cache. What the
+  window launches inherits the variable and gets the same configuration, cached in Roost's
+  directory. With the 73 files still in place, `check-about.mjs` passed where it had crashed.
+
+
 ## 3. To build — the working list
 
 ### Foundation (M0) — done 2026-08-24

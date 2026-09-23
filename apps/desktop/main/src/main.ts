@@ -31,6 +31,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from 
 import { AssetServer } from "./assets.js";
 import { isHttpUrl, pastedName, pathsFromUriList } from "./clipboard.js";
 import { Engine, EngineGoneError, EngineProblem } from "./engine.js";
+import { isolateFontCache } from "./fonts.js";
 import { ROOST_SCHEME, ROOST_SCHEME_PRIVILEGES } from "./security.js";
 import { createWindow, installApplicationMenu } from "./window.js";
 
@@ -58,6 +59,10 @@ setLogLevel("debug");
 setSink(teeSink(logFile, filterSink(terminalLevel, stderrSink())));
 
 const log = logger("main");
+
+// Before anything asks Chromium for a font, and after the sink, so a failure
+// to isolate the cache is written down rather than lost.
+isolateFontCache();
 
 /** Channel names. One for calls, one for what the engine says unprompted. */
 const REQUEST_CHANNEL = "roost:request";
