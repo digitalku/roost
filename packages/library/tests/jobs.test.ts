@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { type AssetId, JOB_PRIORITY } from "@roost/core";
 import {
   deriveFailures,
   importInto,
@@ -9,6 +10,7 @@ import {
   releaseNowSupported,
   retryBlocked,
   runDerives,
+  Wanted,
 } from "@roost/library";
 import { GRID_SIZE, gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -57,7 +59,7 @@ describe("the derive queue", () => {
     expect(library.stats().thumbnails).toBe(4);
   });
 
-  it("stops at a batch boundary when it is told to", async () => {
+  it("starts nothing once it is told to stop", async () => {
     await importInto(library, [source]);
     const controller = new AbortController();
     controller.abort();
@@ -175,6 +177,77 @@ describe("the derive queue", () => {
     // Batches are at least eight, so four assets are one batch — what matters
     // is that the callback fired with a committed count rather than never.
     expect(seen.at(-1)).toBe(4);
+  });
+
+  it("commits every job when workers finish across a commit", async () => {
+    // Regression: `finished.push(await deriveOne(...))` read the array before
+    // the await, so a worker whose derive was in flight while another worker
+    // committed pushed into the batch that had just been written — and its job
+    // stayed `running`, derived and forgotten. Two workers and twenty files
+    // make a commit land between one worker's claim and its result.
+    for (let n = 5; n <= 20; n += 1) {
+      await writeFile(join(source, `image-${n}.png`), await gradient(120, 90, n, "png"));
+    }
+    await importInto(library, [source]);
+
+    const report = await runDerives(library, { sizes: [GRID_SIZE], concurrency: 2 });
+
+    expect(report.derived).toBe(20);
+    expect(queueStatus(library)).toMatchObject({ ready: 0, running: 0 });
+  });
+
+  it("works what is on screen first, the latest asked for first", async () => {
+    await importInto(library, [source]);
+    const [a, b, c, d] = library.db.repo.allIds() as AssetId[];
+    const wanted = new Wanted();
+    wanted.add([c as AssetId, a as AssetId]);
+    const order: string[] = [];
+
+    await runDerives(library, {
+      sizes: [GRID_SIZE],
+      concurrency: 1,
+      wanted,
+      onDerived: (assets) => order.push(...assets.map((asset) => asset.id)),
+    });
+
+    // `a` was asked for last, so it is what the window is showing now; the
+    // rest follow in the queue's own order once nothing is waiting on screen.
+    expect(order.slice(0, 2)).toEqual([a, c]);
+    expect(new Set(order.slice(2))).toEqual(new Set([b, d]));
+    expect(wanted.size).toBe(0);
+  });
+
+  it("still puts a picture somebody changed ahead of one nobody has seen", async () => {
+    await importInto(library, [source]);
+    const [a, b] = library.db.repo.allIds() as AssetId[];
+    library.db.repo.enqueueJob("derive", b as AssetId, JOB_PRIORITY.interactive, 1);
+    const wanted = new Wanted();
+    wanted.add([a as AssetId]);
+    const order: string[] = [];
+
+    await runDerives(library, {
+      sizes: [GRID_SIZE],
+      concurrency: 1,
+      wanted,
+      onDerived: (assets) => order.push(...assets.map((asset) => asset.id)),
+    });
+
+    expect(order.slice(0, 2)).toEqual([b, a]);
+  });
+
+  it("drops an asked-for id with nothing waiting, rather than deriving it again", async () => {
+    await importInto(library, [source]);
+    await runDerives(library, { sizes: [GRID_SIZE] });
+    const [a] = library.db.repo.allIds() as AssetId[];
+    const wanted = new Wanted();
+    wanted.add([a as AssetId]);
+
+    const report = await runDerives(library, { sizes: [GRID_SIZE], wanted });
+
+    // A cell with no picture asks for one whatever the reason — parked, broken,
+    // or drawn a moment ago — and asking is not a reason to do the work twice.
+    expect(report.derived).toBe(0);
+    expect(wanted.size).toBe(0);
   });
 
   it("returns work a crashed run left claimed", async () => {

@@ -93,6 +93,7 @@ import {
   tagRemove,
   trashAssets,
   unsoundForReclaim,
+  Wanted,
   watchFiles,
 } from "@roost/library";
 import { capabilities, installBackend, refreshCapabilities } from "@roost/media";
@@ -434,6 +435,13 @@ export class EngineHost {
       case "derive:failures":
         return deriveFailures(this.#require(), { state: request.state });
 
+      case "derive:wanted":
+        // Nothing is started here. Work is only ever wanted because it is
+        // queued, and a queue with work in it is already being worked: the run
+        // in flight reads this at its next claim.
+        if (this.#library !== undefined) this.#wanted.add(ids(request.ids));
+        return null;
+
       case "derive:retry": {
         const library = this.#require();
         // **Probe again first.** The whole point of this button is that
@@ -674,8 +682,18 @@ export class EngineHost {
     if (running !== undefined) return running;
 
     this.#stopDeriving = new AbortController();
+    let announcedAt = Number.NEGATIVE_INFINITY;
+    const announce = (report: DeriveReport): void => {
+      this.onJobProgress?.({
+        derived: report.derived,
+        remaining: queueStatus(library).ready,
+        blocked: report.blocked,
+        failed: report.failed,
+      });
+    };
     const run = runDerives(library, {
       signal: this.#stopDeriving.signal,
+      wanted: this.#wanted,
       // Per batch, unlike `onChanged` below. A card the window is already
       // holding is patched with its new cache key, so a cell whose file changed
       // redraws while the rest of the run is still going — and nothing re-reads
@@ -685,12 +703,14 @@ export class EngineHost {
       },
       onProgress: (report) => {
         onProgress?.(report);
-        this.onJobProgress?.({
-          derived: report.derived,
-          remaining: queueStatus(library).ready,
-          blocked: report.blocked,
-          failed: report.failed,
-        });
+        // At most once a second. The window treats the event as a cue to
+        // re-read the status rather than as the numbers (`DeriveStatus.tsx`),
+        // and counting what remains is ~20 ms at a million queued — which a
+        // run committing four times a second would pay four times over.
+        const now = performance.now();
+        if (now - announcedAt < PROGRESS_MS) return;
+        announcedAt = now;
+        announce(report);
       },
     }).finally(() => {
       this.#deriving = undefined;
@@ -698,6 +718,10 @@ export class EngineHost {
 
     this.#deriving = run;
     const report = await run;
+    // The last word is never throttled away: a run that parked everything
+    // changes nothing `onChanged` would announce, and the status line would
+    // otherwise go on counting down work that has stopped.
+    if (this.#library === library) announce(report);
     // Announced once at the end: the grid re-reads and the cells that were
     // placeholders find their thumbnails. Per batch would be a redraw every
     // hundred assets for a run that can take minutes.
@@ -710,6 +734,8 @@ export class EngineHost {
   #catchingUp: Promise<void> | undefined;
   #deriving: Promise<DeriveReport> | undefined;
   #stopDeriving: AbortController | undefined;
+  /** What the window is showing placeholders for. Forgotten with the library. */
+  readonly #wanted = new Wanted();
 
   /** Called as the derive queue works. Set by `serve`, like {@link onChanged}. */
   onJobProgress: ((progress: DeriveProgress) => void) | undefined;
@@ -787,8 +813,9 @@ export class EngineHost {
     const open = this.#library;
     this.#library = undefined;
     // The list names assets in the library that is going: it cannot mean
-    // anything about the next one.
+    // anything about the next one. Nor can what its window was waiting for.
     this.#duplicates = undefined;
+    this.#wanted.clear();
 
     // The watcher goes first of all: a pending refresh landing after the
     // database is closed would throw, and its whole subject is leaving anyway.
@@ -1170,6 +1197,9 @@ function commentOf(row: CommentRow): WireComment {
  * read and slow enough to cost nothing.
  */
 const PROGRESS_EVERY = 100;
+
+/** The shortest gap between two `job:progress` events from the derive queue. */
+const PROGRESS_MS = 1000;
 
 /**
  * How many files an import has actually *finished*.

@@ -225,4 +225,5 @@ export {
   redrawPoster,
   type ThumbnailReport,
 } from "./thumbnails.js";
+export { Wanted } from "./wanted.js";
 export { type FileWatcher, type WatchOptions, watchFiles } from "./watch.js";

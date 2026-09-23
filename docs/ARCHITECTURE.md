@@ -215,7 +215,11 @@ The application service layer and the only public API worth calling:
   id with two (RL-12), a file no id claims, and a name that is not an id at all (RL-11). A file
   whose bytes have moved on is **not damage** (RL-20) — it is work for the derive queue
 - Replay and rebuild (RL-35 to RL-41), and `fixture` for synthetic libraries
-- The **job runner**: a bounded, persisted queue with priorities and backpressure (**M4**)
+- The **job runner**: a bounded, persisted queue with priorities and backpressure (**M4**).
+  Each worker claims **one job at a time**, so the order is re-read whenever a worker comes
+  free: interactive work first, then what a window is showing a placeholder for (`Wanted`,
+  newest first), then the queue's own order. Finished work is committed in batches, or after
+  250 ms, whichever comes first
 - The **watcher** (`watch.ts`) and the **catch-up sweep** (`refresh.ts`) — what notices that a
   file changed under an asset, which is the whole of the workspace half of version 2 (ADR-0047).
   Neither trusts its trigger: `refreshAsset` re-derives because `size` or `mtime` differs from
@@ -333,6 +337,13 @@ that a thumbnail is absent by asking for it — which is right, and avoids a `ha
 column duplicating what the object store already answers — but `roost-old` found that scrolling
 back over a folder of videos re-asks every time.
 
+**A miss is also the derive queue's best hint.** It is a cell on screen showing a placeholder,
+so main gathers the misses for 50 ms and sends them to the engine as `derive:wanted`, which puts
+them at the front of the queue. Main is the one process that hears a miss without the grid doing
+anything, so the renderer keeps no visible-range bookkeeping and pays nothing per scroll. On a
+first open of 2,000 undrawn pictures the screen the window opens on is drawn in ~450 ms against
+~11 s without it (`BENCHMARKS.md`, `check-derive-order.mjs`).
+
 ### 4.4 The `Storage` interface — the seam between the index and the bytes
 
 ```ts
@@ -423,6 +434,11 @@ obligation is retired with the format (RL-6a), and the fixture went with it.
   once the sort key was inside the filter index — a 37× difference on the most ordinary query in
   the app (`DATA_MODEL.md` §2.0).
 - Counts are estimated for huge result sets; exact counts only on demand.
+- The derive queue must not cost what it is waiting on. A claim walks `idx_jobs_ready` in
+  order (0.002 ms at a million queued, where the plan SQLite picked by itself sorted every
+  ready row: 70 ms a claim), the status line's counts go through the partial indexes, and
+  `job:progress` is sent at most once a second. What is left is the process spawn a video or
+  an audio file costs, ~5 ms of the engine's event loop each (`BENCHMARKS.md`).
 - Import batches database writes (one transaction per ~500 assets) and defers FTS insert to
   batch end.
 - Everything measured, at two scales: `roost fixture` builds a reproducible library and the CLI

@@ -1027,6 +1027,11 @@ export class FakeEngine {
           },
         );
 
+      case "derive:wanted":
+        // Main sends this, never the window; answered so the switch stays
+        // exhaustive.
+        return ok(null);
+
       case "capability:install":
         // Nothing is installed and nothing is spawned: a fake that ran a
         // package manager would be a check script, not a unit test. What is

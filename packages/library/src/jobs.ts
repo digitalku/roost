@@ -16,9 +16,9 @@ import {
   isFormat,
   type Thumbnail,
 } from "@roost/media";
-import { mapWithConcurrency } from "./concurrency.js";
 import type { Library } from "./library.js";
 import { alignExtension, resolveFile } from "./locate.js";
+import type { Wanted } from "./wanted.js";
 
 /**
  * The derive queue: thumbnails and metadata, as background work.
@@ -39,10 +39,22 @@ import { alignExtension, resolveFile } from "./locate.js";
 
 const log = logger("jobs");
 
-/** Jobs claimed at once. Two per worker, so nobody waits on the claim. */
+/**
+ * Finished derives committed together. Two per worker, as the claims used to
+ * be — the batch is now only about the transaction, not about the claiming.
+ */
 function batchSize(concurrency: number): number {
   return Math.max(8, concurrency * 2);
 }
+
+/**
+ * The longest finished work waits before it is committed and shown.
+ *
+ * A batch of videos is two seconds of work, and a thumbnail somebody scrolled
+ * to should not sit finished in memory for that long waiting for fifteen
+ * others to join it.
+ */
+const COMMIT_MS = 250;
 
 /**
  * How many derives run at once.
@@ -101,7 +113,16 @@ export interface RunOptions {
    * back work that is already on disk.
    */
   readonly onDerived?: (assets: readonly Redrawn[]) => void;
-  /** Stops the run at the next batch boundary. */
+  /**
+   * What is on screen waiting, worked ahead of the queue's own order.
+   *
+   * Consulted at every claim, so an id added while the run is going is the
+   * next thing started once a worker is free. Interactive work — a file saved
+   * or a poster moved — still goes first: that is a picture somebody changed on
+   * purpose, and this is a picture nobody has seen yet.
+   */
+  readonly wanted?: Wanted;
+  /** Stops the run: nothing new is started, and what is in flight is kept. */
   readonly signal?: AbortSignal;
 }
 
@@ -371,8 +392,17 @@ export function retryFailed(library: Library, maxAttempts = 3): number {
 /**
  * Works the queue until it is empty, the limit is reached, or the signal fires.
  *
- * Claims are batched and committed batch by batch, so an interrupted run keeps
- * everything it finished and the next run picks up where it stopped. Jobs left
+ * Each worker claims one job, derives it, and claims the next, so the queue's
+ * order — and {@link RunOptions.wanted} — is read afresh every time a worker
+ * comes free. It used to claim a batch and wait for the whole batch, which
+ * started sixteen ffmpeg processes in the same instant once per batch: a spawn
+ * is ~5 ms of the event loop, and the grid's page request waited behind all of
+ * them (`BENCHMARKS.md`). Workers that finish at different moments spread the
+ * spawns out, and nobody idles at the end of a batch waiting for its slowest
+ * file.
+ *
+ * Finished work is still committed in batches, and an interrupted run keeps
+ * everything it committed; the next run picks up where it stopped. Jobs left
  * `running` by a crash are returned to the queue first — `running` describes a
  * process, and after a crash it describes one that no longer exists.
  */
@@ -384,6 +414,7 @@ export async function runDerives(
   const sizes = options.sizes ?? EAGER_SIZES;
   const concurrency = options.concurrency ?? deriveConcurrency();
   const limit = options.limit ?? Number.MAX_SAFE_INTEGER;
+  const batch = batchSize(concurrency);
 
   const report: DeriveReport = {
     derived: 0,
@@ -399,17 +430,21 @@ export async function runDerives(
   const reclaimed = library.db.repo.resetRunningJobs();
   if (reclaimed > 0) log.info("returned claimed jobs to the queue", { jobs: reclaimed });
 
-  let handled = 0;
-  while (handled < limit && options.signal?.aborted !== true) {
-    const claims = library.db.repo.claimJobs(
-      "derive",
-      Math.min(batchSize(concurrency), limit - handled),
-    );
-    if (claims.length === 0) break;
+  let claimed = 0;
+  const claim = (): JobClaim | undefined => {
+    if (claimed >= limit || options.signal?.aborted === true) return undefined;
+    const next = claimNext(library, options.wanted);
+    if (next !== undefined) claimed += 1;
+    return next;
+  };
 
-    const outcomes = await mapWithConcurrency(claims, concurrency, (claim) =>
-      deriveOne(library, claim, sizes),
-    );
+  let finished: DeriveOutcomeRow[] = [];
+  let committedAt = performance.now();
+  const commit = (): void => {
+    if (finished.length === 0) return;
+    const outcomes = finished;
+    finished = [];
+    committedAt = performance.now();
 
     // One transaction per batch: a long run commits as it goes, and an
     // interruption costs at most a batch of work rather than the run.
@@ -457,10 +492,22 @@ export async function runDerives(
       }
     });
 
-    handled += claims.length;
     if (redrawn.length > 0) options.onDerived?.(redrawn);
     options.onProgress?.(report);
-  }
+  };
+
+  const worker = async (): Promise<void> => {
+    for (let job = claim(); job !== undefined; job = claim()) {
+      // Awaited into a local first: `finished.push(await ...)` reads
+      // `finished` before the await, and a commit by another worker replaces
+      // it in the meantime.
+      const outcome = await deriveOne(library, job, sizes);
+      finished.push(outcome);
+      if (finished.length >= batch || performance.now() - committedAt >= COMMIT_MS) commit();
+    }
+  };
+  await Promise.all(Array.from({ length: concurrency }, worker));
+  commit();
 
   report.elapsed = performance.now() - started;
   log.info("derive pass complete", {
@@ -472,6 +519,25 @@ export async function runDerives(
     ms: Math.round(report.elapsed),
   });
   return report;
+}
+
+/**
+ * The next job to start: interactive work, then what is on screen, then the
+ * rest of the queue in its own order.
+ */
+function claimNext(library: Library, wanted: Wanted | undefined): JobClaim | undefined {
+  const { repo } = library.db;
+  const urgent = repo.claimJob("derive", JOB_PRIORITY.interactive);
+  if (urgent !== undefined) return urgent;
+
+  // An id with nothing waiting — drawn already, parked, or being drawn — is
+  // simply dropped: it was asked for because its cell had no picture, and the
+  // cell will learn why from the same place it always does.
+  for (let id = wanted?.take(); id !== undefined; id = wanted?.take()) {
+    const onScreen = repo.claimJobFor("derive", id);
+    if (onScreen !== undefined) return onScreen;
+  }
+  return repo.claimJob("derive");
 }
 
 /** An asset with no file under `files/` at all (RL-25). */

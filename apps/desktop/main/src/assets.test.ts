@@ -118,6 +118,21 @@ describe("serving bytes over roost://", () => {
     }
   });
 
+  it("passes the misses on, once for a burst, so the queue can draw them next", async () => {
+    const reported: (readonly string[])[] = [];
+    server.onThumbnailsMissing = (ids) => reported.push(ids);
+
+    // A screen of placeholders is a burst of requests, and the same cell can
+    // ask twice — at two sizes, or once more before the first answer lands.
+    await get(`roost://thumb/${NO_THUMB}@256`);
+    await get(`roost://thumb/${NO_THUMB}@256`);
+    await get(`roost://thumb/${PICTURE}@512`);
+    await get(`roost://thumb/${PICTURE}@256`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(reported).toEqual([[NO_THUMB, PICTURE]]);
+  });
+
   it("streams a managed original whole", async () => {
     const response = await get(`roost://file/${PICTURE}`);
     expect(response.status).toBe(200);

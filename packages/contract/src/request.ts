@@ -603,6 +603,19 @@ export type Request =
    */
   | { readonly type: "derive:retry"; readonly reason: string | null }
   /**
+   * These assets are on screen with no picture: draw them next.
+   *
+   * **Sent by main, not by the window.** A cell learns its thumbnail is absent
+   * by asking `roost://thumb` for it, and the byte server is what hears the
+   * miss — so the signal costs the grid nothing, and the renderer has no
+   * visible-range bookkeeping to keep in step with a scroll. It is still
+   * validated like any request, and one the renderer sent would be harmless:
+   * it can only reorder work that is already queued.
+   *
+   * A hint, answered with nothing. An id that has no work waiting is dropped.
+   */
+  | { readonly type: "derive:wanted"; readonly ids: readonly string[] }
+  /**
    * Install a backend this machine is missing, from its own package manager
    * (ADR-0042).
    *
@@ -765,6 +778,7 @@ export interface Responses {
   "derive:status": WireDeriveStatus;
   /** The status after the retry, so one round trip answers "and now?". */
   "derive:retry": WireDeriveStatus;
+  "derive:wanted": null;
   "capability:install": WireInstallOutcome;
   "derive:failures": WireDeriveFailures;
   /** `false` when there was nothing to copy. */
@@ -1256,6 +1270,11 @@ export const REQUEST_VALIDATORS: {
     const reason = readNullable(source, "reason", readNonEmpty);
     if (!reason.ok) return reason;
     return ok({ type: "derive:retry", reason: reason.value });
+  },
+
+  "derive:wanted": (source) => {
+    const ids = readAssetIdArray(source, "ids");
+    return ids.ok ? ok({ type: "derive:wanted", ids: ids.value }) : ids;
   },
 
   "capability:install": (source) => {
