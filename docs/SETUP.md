@@ -521,7 +521,12 @@ makes a measurement here comparable to one recorded there rather than merely sim
   `fc-list` looks healthy, because Fedora's own fontconfig reads the `cache-9` files beside them.
   `rm ~/.cache/fontconfig/*.cache-11` fixes it, and Electron rebuilds its caches on the next
   start. Seen on Fedora 44 on 2026-09-23. Which program wrote the newer files was not found, so
-  expect it to come back.
+  expect it to come back — and it did, the same day, with a worse symptom: the window **crashed**
+  with `SIGTRAP` on the first text it laid out, the log ending at
+  `SkFontMgr_FontConfigInterface.cpp:163 … Not implemented`. A window check that dies on
+  `location.reload()` and reports only *"unsettled top-level await"* is this. To run the checks
+  without touching the files, give them a cache of their own:
+  `XDG_CACHE_HOME=$(mktemp -d) node scripts/check-….mjs`.
 - **Thumbnails do not survive a rebuild.** They derive from bytes, not from journal records.
   `roost rebuild` says so and tells you to run `roost thumb`.
 - **A library can be open in one process at a time.** The single-instance lock is advisory —

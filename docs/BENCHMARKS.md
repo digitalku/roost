@@ -1,6 +1,6 @@
 # Roost — Benchmarks
 
-Status: **first results in** · Last updated: 2026-09-21
+Status: **first results in** · Last updated: 2026-09-23
 
 Nothing has been measured in this implementation, because nothing has been built. What this
 file holds today is the **baseline**: the numbers the Rust implementation at `../roost-old`
@@ -54,6 +54,93 @@ target now under pressure — and it is measured from M3, the first milestone th
 rather than assumed until someone complains.
 
 ## 3. Results
+
+### 2026-09-23 — what a running derive queue costs everything else
+
+**Machine:** Fedora 44 on the host, Intel Core Ultra 7 155H, 22 threads, 30 GB RAM, Node 22.23.1,
+sharp 0.35.3 against libvips 8.18.3, ffmpeg 8.1.2. The engine's threadpool as main forks it
+(`UV_THREADPOOL_SIZE=22`) unless a row says otherwise.
+
+Asked by the user: *does the "Deriving… N to go" line make everything slower?* Measured with
+`scripts/bench-contention.ts`, which works the queue at a fixed concurrency while it asks for a
+grid page every 25 ms **on the same event loop** — timed from when the page was due, so waiting
+behind the loop is charged — and times a fixed slice of arithmetic on another thread, which
+stands in for main and the renderer. Two corpora: `roost fixture --count 4000 --real-images
+--seed 7` (3,889 imported: JPEG, PNG and WebP gradients, and SVG, PDF and MP4 files of random
+bytes that fail fast), and 80 H.264 clips, 1080p, 20 s, made with ffmpeg's `testsrc2`.
+
+**Pictures: nothing to fix.**
+
+| Derive | Jobs/s | Cores | Page p50 | Page p95 | Page p99 | Loop p99 | Neighbour slice |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| idle | — | 0.3 | 0.74 ms | 1.04 ms | 1.42 ms | 6.14 ms | 1.00× |
+| 16 at once | 458 | 8.9 | 0.28 ms | 1.21 ms | 2.25 ms | 6.39 ms | 1.21× |
+| 8 | 323 | 5.4 | 0.45 ms | 1.07 ms | 1.52 ms | 6.57 ms | 1.09× |
+| 4 | 217 | 3.2 | 0.28 ms | 0.94 ms | 1.18 ms | 5.98 ms | 1.03× |
+| 4, pinned to 4 cores | 224 | 2.9 | 0.35 ms | 2.10 ms | 3.01 ms | 7.70 ms | 1.05× |
+
+(*Cores* is this process's CPU over the run, the neighbour thread's ~0.3 included. The loop's
+p99 has a floor of the histogram's 5 ms resolution.) libvips does its work off the event loop,
+and a thumbnail from a 1200×800 source is cheap enough that even on four cores the neighbour
+lost 5%. The hypothesis that brought this here — derive starving the query — is **wrong for
+pictures**.
+
+**Videos: the event loop is what pays, and it was paying in bursts.**
+
+| Runner | Derive | Jobs/s | Page p95 | Page p99 | Loop p99 |
+| --- | --- | --- | --- | --- | --- |
+| A batch at a time | 16 at once | 16–17 | 5.2–11.7 ms | **50–67 ms** | 18–25 ms |
+| A batch at a time | 4 | 9 | 2.3 ms | 8.8 ms | 10.9 ms |
+| One job at a time | 16 at once | 18 | 10.4–10.7 ms | **17–27 ms** | 18 ms |
+| One job at a time | 4 | 8 | 2.2–3.3 ms | 5.8–8.1 ms | 11 ms |
+
+A CPU profile of the engine thread over 80 clips put **spawn at ~960 ms** of it (`spawn` plus
+`normalizeSpawnArguments`), against 564 ms for BLAKE3 and very little else. `child_process.spawn`
+is synchronous — a `fork` and an `exec` of a process holding a few hundred megabytes — at
+**~5.5 ms each** (p50, 326 MB RSS), and a clip is two of them. The runner claimed a batch of 32,
+started sixteen at once, and waited for all 32 before claiming again, so every batch began with
+sixteen ffprobe spawns back to back: ~80 ms in which no page could be answered. Claiming one job
+per free worker spreads the spawns out and costs nothing in throughput; p99 fell by two to three
+times.
+
+What is left is the spawn itself, and it is not cheap to remove. Passing a snapshot of the
+environment instead of letting Node enumerate `process.env` saved 0.4 ms of the 5.5, which is not
+worth a second copy of the environment. The real lever is spawning from a worker thread, whose
+event loop can block without the engine's noticing — recorded in `TODO.md` rather than done.
+
+**The queue's own bookkeeping was the one thing that got worse with size.** Measured on a
+synthetic `jobs` table with migration 0001's indexes, a million rows, 1% of them blocked:
+
+| Query | As it was | Now | Why |
+| --- | --- | --- | --- |
+| Claim the next job | **69.9 ms** | 0.002 ms | SQLite seeked on `kind` through `UNIQUE (kind, asset_id)` and sorted every ready row; `+kind` sends it down `idx_jobs_ready` in order |
+| Count each state (`jobCounts`) | **238.8 ms** | ~20 ms | A `GROUP BY` over the table; now a covered count per kind, less the unfinished rows grouped through their partial index (0.35 ms) |
+| Blocked reasons | 25.6 ms | 6.8 ms | `state = ?` could not prove the partial index applies; a redundant `state <> 'ready'` lets it |
+
+At 100,000 queued the claim was 6.5 ms and the counts 18 ms — invisible at the sizes anybody had
+tried, and paid **per batch** by the runner and again by the status line, on exactly the library
+that has a million queued: one opened for the first time, or just rebuilt. `job:progress` is now
+sent at most once a second, since the window only uses it as a cue to re-read.
+
+**What is on screen goes first.** The last half of the question was about order. The queue
+worked by priority and then by arrival, so a window opened on 2,000 undrawn pictures drew the
+screen it opened on **last**: an import queues files in the order it met them and the grid shows
+the newest import first. A thumbnail miss is now passed from main to the engine as
+`derive:wanted`. `scripts/check-derive-order.mjs`, with the engine's threadpool at one so the
+queue takes long enough to watch:
+
+| | Screen drawn after | Still queued then |
+| --- | --- | --- |
+| With `derive:wanted` | **451–454 ms** | 1,919 of 2,000 |
+| Without | 11,284 ms | 287 of 2,000 |
+
+**What it revealed.** Three things. Contention is a property of the **format**, not of the
+queue: pictures cost the rest of the application nothing, and a video costs the engine's event
+loop two process spawns. The costs that grow with the library were in **SQL nobody had run at
+size**, which is where they always are. And the first draft of the window check **passed with
+the feature switched off**, twice: once because it scrolled to the part of the grid the queue does
+first anyway, and once because it read `v=` in a thumbnail's address as "drawn" when import has
+already put one there. It was only trusted after it failed without the hint.
 
 ### 2026-09-21 — what libvips' operation cache is worth on the derive path (ADR-0047)
 

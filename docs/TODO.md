@@ -114,6 +114,14 @@ Two things that are no longer blocked, but are still easy to get wrong:
     `libx264`; `-c:v libopenh264` is the spelling that works. Any future fixture meant to be
     *played* has to say so explicitly.
 
+- 🟡 **The newer fontconfig caches came back, and now they crash the window.** Session 79 moved
+  39 `*.cache-11` files out of `~/.cache/fontconfig`; on 2026-09-23 there were 73, the newest
+  written at 07:06 that morning, and Electron no longer drew a window without text — it **died
+  on the first text it laid out** with `SIGTRAP` and
+  `SkFontMgr_FontConfigInterface.cpp:163 Not implemented`. The window checks were run with
+  `XDG_CACHE_HOME` pointed at an empty directory instead, which touches nothing of the user's.
+  Whatever writes them is still unidentified (`SETUP.md` §7).
+
 - 🟡 **Electron will use XWayland unless told not to.** The session is Wayland and both sockets
   are visible in the container, so `pnpm dev` passes `--ozone-platform-hint=auto`. Without it the
   window is blurry on a HiDPI screen and fractional scaling is wrong, which reads as a rendering
@@ -784,6 +792,27 @@ an external one is enough.
 - 🟢 **`roost://page` renders in main.** Deliberate, documented, and cheap because the backend is
   WebAssembly — but it is CPU on the window's process, and a fifty-page-per-second scroll through
   a document would be the thing that proves it wrong.
+
+### The derive queue under load (2026-09-23)
+
+Measured when the user asked whether *Deriving… N to go* slows everything down
+(`BENCHMARKS.md`, 2026-09-23). Built that day: one claim per free worker instead of a batch,
+what is on screen first (`derive:wanted`, sent by main on a thumbnail miss), and the queue's
+claim and counts made cheap at a million. What is still open:
+
+- 🟡 **A video or an audio file costs the engine's event loop two synchronous spawns**, ~5.5 ms
+  each. p99 of a grid page is 17–27 ms while sixteen clips derive, against ~1.5 ms idle. The
+  lever is spawning from a worker thread, whose loop can block without the engine noticing; an
+  environment snapshot was measured and saves 0.4 ms of the 5.5, so it was not done.
+- 🟢 **BLAKE3 runs on the engine thread**: 564 ms per 1.2 GB, in 256 KB slices. Throughput
+  rather than a stall, so it does not show in the page latency — but it is the next thing a
+  worker thread would take.
+- 🟢 **Two open-time passes have not been measured at a million.** `enqueueMissing` is one
+  synchronous `INSERT … SELECT` over every asset with a thumbnail probe each, and `catchUp`
+  stats every file. Neither is awaited by the window, but the first runs on the engine thread
+  before it answers anything else; the cold-start measurement is where it would show.
+- 🟢 **`check-derive-order.mjs` is not in `pnpm verify`**, like every other window check. It is
+  also the only one that needs a threadpool of one to be meaningful, and says why.
 
 ### Conforming to the library format
 
