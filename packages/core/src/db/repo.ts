@@ -9,7 +9,7 @@ import type {
   SortKey,
   Take,
 } from "../model/index.js";
-import { DEFAULT_SORT, rotationFor } from "../model/index.js";
+import { DEFAULT_SORT, JOB_KINDS, rotationFor } from "../model/index.js";
 import type { Cursor, CursorKey, Filter, Page, SearchHit } from "./query.js";
 
 /**
@@ -174,6 +174,14 @@ export interface JobClaim {
   readonly ext: string;
   /** The moment a video's thumbnail is pinned to (ADR-0024 stage 4). */
   readonly posterMs: number | null;
+}
+
+/** A row an `UPDATE ... RETURNING` claimed, before its asset is looked up. */
+interface ClaimedRow {
+  readonly id: number;
+  readonly assetId: AssetId;
+  readonly attempts: number;
+  readonly priority: number;
 }
 
 /** How many jobs are in each state, for a status line. */
@@ -1477,20 +1485,20 @@ export class Repo {
    * the CLI can be running a backfill while the app has a library open.
    */
   claimJobs(kind: JobKind, limit: number): JobClaim[] {
+    // `+kind` keeps SQLite off the `UNIQUE (kind, asset_id)` index. With it,
+    // the planner seeks on the kind and then sorts every ready row to find the
+    // first: 70 ms a claim at a million queued, against 0.002 ms walking
+    // `idx_jobs_ready` in order (`BENCHMARKS.md`). There is one kind, so the
+    // filter rejects nothing it reads.
     const claimed = this.#s(
       `UPDATE jobs SET state = 'running', attempts = attempts + 1
         WHERE id IN (
               SELECT id FROM jobs
-               WHERE kind = ? AND state = 'ready'
+               WHERE +kind = ? AND state = 'ready'
                ORDER BY priority, id
                LIMIT ?)
        RETURNING id, asset_id AS assetId, attempts, priority`,
-    ).all(kind, limit) as {
-      id: number;
-      assetId: AssetId;
-      attempts: number;
-      priority: number;
-    }[];
+    ).all(kind, limit) as ClaimedRow[];
 
     // `RETURNING` reports rows in the order the UPDATE visited them, which is
     // rowid order — the subquery's `ORDER BY` picks *which* rows, not the order
@@ -1501,22 +1509,74 @@ export class Repo {
 
     const claims: JobClaim[] = [];
     for (const job of claimed) {
-      const target = this.thumbnailTarget(job.assetId);
-      // The asset is gone: the row will cascade away with it, and there is
-      // nothing to derive from.
-      if (target === undefined) {
-        this.completeJob(job.id);
-        continue;
-      }
-      claims.push({
-        id: job.id,
-        attempts: job.attempts,
-        assetId: target.id,
-        ext: target.ext,
-        posterMs: target.posterMs,
-      });
+      const claim = this.#claimOf(job);
+      if (claim !== undefined) claims.push(claim);
     }
     return claims;
+  }
+
+  /**
+   * Claims the most urgent ready job, or returns `undefined` when there is none.
+   *
+   * `atMost` bounds the priority: the runner asks for interactive work first,
+   * then for what is on screen, then for anything (`jobs.ts`), and only the
+   * first of those three is a priority the queue can answer by itself.
+   *
+   * One job rather than a batch, because a batch is a promise about the next
+   * several seconds and the screen can change in less than that. Unlike
+   * {@link Repo.claimJobs}, a job whose asset has gone does not end the answer:
+   * it is dropped and the next one is claimed, so `undefined` always means the
+   * queue is empty.
+   */
+  claimJob(kind: JobKind, atMost = Number.MAX_SAFE_INTEGER): JobClaim | undefined {
+    const statement = this.#s(
+      `UPDATE jobs SET state = 'running', attempts = attempts + 1
+        WHERE id = (
+              SELECT id FROM jobs
+               WHERE +kind = ? AND state = 'ready' AND priority <= ?
+               ORDER BY priority, id
+               LIMIT 1)
+       RETURNING id, asset_id AS assetId, attempts, priority`,
+    );
+    for (;;) {
+      const job = statement.get(kind, atMost) as ClaimedRow | undefined;
+      if (job === undefined) return undefined;
+      const claim = this.#claimOf(job);
+      if (claim !== undefined) return claim;
+    }
+  }
+
+  /**
+   * Claims the job for one asset, if it has one waiting.
+   *
+   * `undefined` when it has none — already derived, parked, failed, or being
+   * worked by another runner. A point update on `UNIQUE (kind, asset_id)`.
+   */
+  claimJobFor(kind: JobKind, asset: AssetId): JobClaim | undefined {
+    const job = this.#s(
+      `UPDATE jobs SET state = 'running', attempts = attempts + 1
+        WHERE kind = ? AND asset_id = ? AND state = 'ready'
+       RETURNING id, asset_id AS assetId, attempts, priority`,
+    ).get(kind, asset) as ClaimedRow | undefined;
+    return job === undefined ? undefined : this.#claimOf(job);
+  }
+
+  /** What a runner needs to find the file, or `undefined` if the asset is gone. */
+  #claimOf(job: ClaimedRow): JobClaim | undefined {
+    const target = this.thumbnailTarget(job.assetId);
+    // The asset is gone: the row will cascade away with it, and there is
+    // nothing to derive from.
+    if (target === undefined) {
+      this.completeJob(job.id);
+      return undefined;
+    }
+    return {
+      id: job.id,
+      attempts: job.attempts,
+      assetId: target.id,
+      ext: target.ext,
+      posterMs: target.posterMs,
+    };
   }
 
   /** Removes a finished job. The derived data it produced is the record of it. */
@@ -1578,18 +1638,45 @@ export class Repo {
     ).run(kind, maxAttempts).changes;
   }
 
-  /** How many jobs sit in each state. */
+  /**
+   * How many jobs sit in each state, in `kind, state` order, omitting zeroes.
+   *
+   * Not one `GROUP BY` over the table, which is what it was: that reads every
+   * row into a sorter, 239 ms at a million queued — and a million queued is
+   * exactly the library that asks most often, since a rebuild or a first open
+   * is when the status line is counting down (`BENCHMARKS.md`). Instead, the
+   * few rows that are not `ready` are grouped through their partial index, and
+   * `ready` is what is left of a count the unique index covers: ~20 ms at a
+   * million, per kind, and a fraction of that at any ordinary size.
+   */
   jobCounts(): JobCount[] {
-    return this.#s(
-      "SELECT kind, state, count(*) AS count FROM jobs GROUP BY kind, state ORDER BY kind, state",
-    ).all() as JobCount[];
+    const total = this.#s("SELECT count(*) AS count FROM jobs WHERE kind = ?");
+    const unfinished = this.#s(
+      `SELECT state, count(*) AS count FROM jobs
+        WHERE kind = ? AND state <> 'ready'
+        GROUP BY state`,
+    );
+
+    const counts: JobCount[] = [];
+    for (const kind of JOB_KINDS) {
+      const rows = unfinished.all(kind) as { state: JobState; count: number }[];
+      const all = (total.get(kind) as { count: number }).count;
+      const ready = all - rows.reduce((sum, row) => sum + row.count, 0);
+      if (ready > 0) rows.push({ state: "ready", count: ready });
+      rows.sort((a, b) => a.state.localeCompare(b.state));
+      for (const row of rows) counts.push({ kind, state: row.state, count: row.count });
+    }
+    return counts;
   }
 
   /** What is holding jobs up, most common first. */
   jobReasons(state: JobState): JobReason[] {
+    // `state <> 'ready'` says nothing new about the rows asked for — a ready
+    // job holds nothing up — but it is what lets SQLite prove the partial
+    // index applies to a state it only sees as a parameter.
     return this.#s(
       `SELECT coalesce(reason, 'unknown') AS reason, count(*) AS count
-         FROM jobs WHERE state = ?
+         FROM jobs WHERE state = ? AND state <> 'ready'
         GROUP BY reason ORDER BY count DESC, reason`,
     ).all(state) as JobReason[];
   }
@@ -1608,11 +1695,12 @@ export class Repo {
    * every one of them, and that count is what the caller reports.
    */
   jobsIn(kind: JobKind, state: JobState, limit: number): StalledJob[] {
+    // The redundant `<> 'ready'` is for the partial index, as in `jobReasons`.
     return this.#s(
       `SELECT j.asset_id AS assetId, a.name AS name, a.ext AS ext,
               j.attempts AS attempts, coalesce(j.reason, '') AS reason
          FROM jobs j JOIN assets a ON a.id = j.asset_id
-        WHERE j.kind = ? AND j.state = ?
+        WHERE j.kind = ? AND j.state = ? AND j.state <> 'ready'
         ORDER BY j.id
         LIMIT ?`,
     ).all(kind, state, limit) as StalledJob[];

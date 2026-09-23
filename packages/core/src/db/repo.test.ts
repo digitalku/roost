@@ -763,6 +763,60 @@ describe("the derive queue", () => {
     expect(db.repo.claimJobs("derive", 5)).toEqual([]);
     expect(db.repo.jobCounts()).toEqual([]);
   });
+
+  it("claims one job at a time, most urgent first, and only up to a priority", () => {
+    db.repo.enqueueJob("derive", idOf(1), JOB_PRIORITY.backfill, 1_700_000_000);
+    db.repo.enqueueJob("derive", idOf(2), JOB_PRIORITY.interactive, 1_700_000_001);
+
+    expect(db.repo.claimJob("derive", JOB_PRIORITY.interactive)?.assetId).toBe(idOf(2));
+    // Nothing interactive is left, and the bound is what stops the backfill
+    // being handed out in its place.
+    expect(db.repo.claimJob("derive", JOB_PRIORITY.interactive)).toBeUndefined();
+    expect(db.repo.claimJob("derive")?.assetId).toBe(idOf(1));
+    expect(db.repo.claimJob("derive")).toBeUndefined();
+  });
+
+  it("claims past a job whose asset has gone, so empty means empty", () => {
+    enqueueAll();
+    // Foreign keys would cascade the job away with the asset; a row whose
+    // asset vanished some other way is what this guards against.
+    db.pragma("foreign_keys = OFF");
+    db.repo.applyRemove(idOf(1));
+    db.pragma("foreign_keys = ON");
+
+    expect(db.repo.claimJob("derive")?.assetId).toBe(idOf(2));
+  });
+
+  it("claims the job for one asset only while it is waiting", () => {
+    enqueueAll();
+
+    expect(db.repo.claimJobFor("derive", idOf(3))?.assetId).toBe(idOf(3));
+    // Already running — another runner has it, or this one does.
+    expect(db.repo.claimJobFor("derive", idOf(3))).toBeUndefined();
+
+    const blocked = db.repo.claimJobFor("derive", idOf(2));
+    db.repo.blockJob(blocked?.id ?? 0, "unsupported:zip");
+    // Parked work is released deliberately, never by being looked at.
+    expect(db.repo.claimJobFor("derive", idOf(2))).toBeUndefined();
+    expect(db.repo.claimJobFor("derive", idOf(9))).toBeUndefined();
+  });
+
+  it("counts each state without reading the queue into a sorter", () => {
+    enqueueAll();
+    const [first, second] = db.repo.claimJobs("derive", 2);
+    db.repo.blockJob(first?.id ?? 0, "missing:ffmpeg");
+    expect(second).toBeDefined();
+    db.repo.applyAdd(1_700_000_009, asset(9));
+    db.repo.enqueueJob("derive", idOf(9), JOB_PRIORITY.import, 1_700_000_009);
+
+    // `ready` is what the unfinished states leave of the total, so it has to
+    // come out the same as counting it would.
+    expect(db.repo.jobCounts()).toEqual([
+      { kind: "derive", state: "blocked", count: 1 },
+      { kind: "derive", state: "ready", count: 2 },
+      { kind: "derive", state: "running", count: 1 },
+    ]);
+  });
 });
 
 describe("derived metadata", () => {
