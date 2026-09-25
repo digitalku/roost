@@ -121,6 +121,41 @@ try {
     `${order} / ${newest}`,
   );
 
+  section("A folder's row, in Details and Compact");
+  /*
+   * A row draws the sleeve without pictures, the user's call of 2026-09-25 —
+   * but a sleeve that still reads as a folder. Scaled from the Icons tile its
+   * holes were a pixel wide and the row showed a grey rectangle, so the punch
+   * is sized in pixels there, and this is what asserts it is on screen.
+   */
+  const rowsExpression = `
+    [...document.querySelectorAll(".cell-folder")].map((tile) => ({
+      name: tile.querySelector(".cell-name-text")?.textContent ?? null,
+      pictures: tile.querySelectorAll(".folder-sheet-image").length,
+      holes: [...tile.querySelectorAll(".folder-hole")]
+        .map((hole) => hole.getBoundingClientRect())
+        .filter((box) => box.width >= 2 && box.height >= 2).length,
+    }))`;
+  for (const view of ["details", "compact"]) {
+    await setView(view);
+    const rows = await cdp.evaluate(rowsExpression);
+    if (process.env.ROOST_SHOTS !== undefined) {
+      await cdp.screenshot(join(process.env.ROOST_SHOTS, `folder-rows-${view}.png`));
+    }
+    check(`${view}: every folder is a row`, rows.length === 5, rows.map((r) => r.name).join(", "));
+    check(
+      `${view}: no pictures in a row's sleeve`,
+      rows.every((r) => r.pictures === 0),
+      rows.map((r) => `${r.name}=${r.pictures}`).join(" "),
+    );
+    check(
+      `${view}: three holes, each big enough to see`,
+      rows.every((r) => r.holes === 3),
+      rows.map((r) => `${r.name}=${r.holes}`).join(" "),
+    );
+  }
+  await setView("icons");
+
   section("Double-clicking a folder");
   const design = await cdp.box(`.cell-folder[aria-label^="Design"]`);
   await cdp.mouse.click(design.x, design.y, { clickCount: 1 });
@@ -142,6 +177,17 @@ try {
 } finally {
   await window.close();
   await dispose();
+}
+
+/** Switches the view by its shortcut and waits for the grid to be drawn in it. */
+async function setView(view) {
+  await cdp.keyboard.press(String(["icons", "compact", "details"].indexOf(view) + 1), {
+    ctrl: true,
+  });
+  await cdp.settle(
+    `document.querySelector(".grid")?.dataset.view ?? null`,
+    (seen) => seen === view,
+  );
 }
 
 /** A folder's id, read from the sidebar the window already holds. */

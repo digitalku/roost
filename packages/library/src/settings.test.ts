@@ -79,10 +79,28 @@ describe("reading settings", () => {
     // The steps are the renderer's, so a number a little outside them is a
     // build that changed its steps — and forgetting the preference over that
     // would be worse than snapping it.
-    await write('{ "gridZoom": 100000 }');
-    expect((await readSettings(dir)).gridZoom).toBe(1024);
-    await write('{ "gridZoom": "big" }');
-    expect((await readSettings(dir)).gridZoom).toBe(DEFAULT_SETTINGS.gridZoom);
+    await write('{ "gridZooms": { "icons": 100000, "details": 2 } }');
+    expect((await readSettings(dir)).gridZooms).toEqual({ icons: 1024, details: 16 });
+  });
+
+  it("keeps a zoom per view, dropping only the entries that are damaged", async () => {
+    // ADR-0039 §10. A view this build has not heard of is a newer build's, and
+    // is kept; an entry that is not a number is not a preference.
+    await write('{ "gridZooms": { "icons": 200, "details": "big", "mosaic": 90 } }');
+    expect((await readSettings(dir)).gridZooms).toEqual({ icons: 200, mosaic: 90 });
+    await write('{ "gridZooms": [240] }');
+    expect((await readSettings(dir)).gridZooms).toEqual({});
+  });
+
+  it("no longer reads the single zoom every view shared", async () => {
+    // The user asked for the defaults to be set again (2026-09-25), so a
+    // library that says `gridZoom: 240` opens at the new defaults. The key is
+    // left in the file, as any key this build does not know is.
+    await write('{ "gridZoom": 240 }');
+    expect((await readSettings(dir)).gridZooms).toEqual({});
+    await writeSettings(dir, { gridZooms: { icons: 160 } });
+    const raw = JSON.parse(await readFile(join(dir, SETTINGS_FILE), "utf8"));
+    expect(raw).toEqual({ gridZoom: 240, gridZooms: { icons: 160 } });
   });
 
   it("starts at full volume, which is where a media element starts", async () => {

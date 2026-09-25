@@ -78,6 +78,12 @@ export interface AssetContextMenuProps {
    * would have done, so the menu never disagrees with the shortcut.
    */
   readonly drawable?: boolean;
+  /**
+   * Whether the one selected asset is a picture, which is what makes **Copy
+   * image** mean something. Over a video or a font there is no picture to
+   * paste, and over several there is no one picture.
+   */
+  readonly picture?: boolean;
   readonly children: React.ReactNode;
 }
 
@@ -93,6 +99,7 @@ export function AssetContextMenu({
   onNewFile,
   onOpenHere,
   drawable,
+  picture,
   children,
 }: AssetContextMenuProps): React.JSX.Element {
   const count = ids.length;
@@ -148,10 +155,23 @@ export function AssetContextMenu({
   const copyFiles = (): void => {
     void invoke({ type: "asset:copyFiles", ids }).then((outcome) => {
       if (!outcome.ok) return onProblem(outcome.problem);
+      onNote(copiedLine(outcome.value));
+    });
+  };
+
+  /**
+   * The picture rather than the file, for pasting into something that takes
+   * an image: a chat, an image editor, a slide. The clipboard holds one or the
+   * other, never both (ADR-0034 §3.4), which is why this is a row of its own.
+   */
+  const copyImage = (): void => {
+    if (only === undefined) return;
+    void invoke({ type: "asset:copyImage", id: only }).then((outcome) => {
+      if (!outcome.ok) return onProblem(outcome.problem);
       onNote(
-        outcome.value === 0
-          ? "Nothing could be copied — those files are not on this machine"
-          : `Copied ${assets(outcome.value)} to the clipboard`,
+        outcome.value
+          ? "Copied the picture to the clipboard"
+          : "This picture could not be copied as an image",
       );
     });
   };
@@ -318,6 +338,19 @@ export function AssetContextMenu({
                 <span className="menu-label">
                   {count === 1 ? "Copy file" : `Copy ${count} files`}
                 </span>
+                <span className="menu-accelerator">Ctrl+C</span>
+              </ContextMenu.Item>
+
+              {/* Drawn over anything, and live only over one picture: a row
+                  that came and went with the kind of file under the pointer is
+                  a row people would go looking for. */}
+              <ContextMenu.Item
+                className="menu-item"
+                disabled={only === undefined || picture !== true}
+                onSelect={copyImage}
+              >
+                <span className="menu-mark" />
+                <span className="menu-label">Copy image</span>
               </ContextMenu.Item>
 
               <ContextMenu.Item className="menu-item" onSelect={copyPaths}>
@@ -372,6 +405,17 @@ export function AssetContextMenu({
       </ContextMenu.Portal>
     </ContextMenu.Root>
   );
+}
+
+/**
+ * What the status bar says after the files went onto the clipboard, from the
+ * menu or from `Ctrl+C`: one sentence for both, so the key and the row cannot
+ * describe the same copy differently.
+ */
+export function copiedLine(copied: number): string {
+  return copied === 0
+    ? "Nothing could be copied — those files are not on this machine"
+    : `Copied ${assets(copied)} to the clipboard`;
 }
 
 /** What the status bar says after an export. */

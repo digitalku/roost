@@ -3,6 +3,7 @@ import {
   forwardRef,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,7 +11,7 @@ import {
 } from "react";
 import { benchTarget } from "../bench/bench.js";
 import { useShownAfter } from "../delay.js";
-import { ASSET_DRAG_TYPE, carriesAssets, draggedAssets } from "../dnd.js";
+import { ASSET_DRAG_TYPE, carriesAssets, draggedAssets, dropEffectFor } from "../dnd.js";
 import { FolderContextMenu } from "../FolderContextMenu.js";
 import { AssetCell, cellId } from "./AssetCell.js";
 import { FolderCell } from "./FolderCell.js";
@@ -22,6 +23,7 @@ import {
   layout,
   moveFocus,
   type Rect,
+  rowThumb,
   type Shaped,
   tilesIn,
   visibleTiles,
@@ -97,7 +99,10 @@ export interface GridProps {
   readonly view: GridView;
   /** Icons take the asset's own shape rather than a square (ADR-0018). */
   readonly proportional: boolean;
-  /** The zoom target: roughly how wide a cell wants to be. */
+  /**
+   * The view's zoom (`layout.ts`'s `ZOOMS`): roughly how wide an icon wants to
+   * be, or how tall a Compact or Details row is.
+   */
   readonly target: number;
   readonly selection: SelectionStore;
   readonly onMore: () => void;
@@ -113,6 +118,15 @@ export interface GridProps {
    * on a large library is long enough to look like nothing is there.
    */
   readonly loading?: boolean;
+  /**
+   * Asked in `dragstart` whether these assets go out of the window as files,
+   * and starting that drag if they do (ADR-0034 §4). `true` means a native
+   * drag has been asked for and the grid's own must not start.
+   *
+   * Absent, every drag stays inside the window, as it did before there was a
+   * way out.
+   */
+  readonly onDragOut?: (ids: readonly string[]) => boolean;
 }
 
 /**
@@ -139,6 +153,7 @@ export function Grid({
   onOpen,
   folders,
   loading = false,
+  onDragOut,
 }: GridProps): React.JSX.Element {
   const frame = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -209,6 +224,17 @@ export function Grid({
   useEffect(() => {
     selection.setOrder(grid.order.map((tile) => tile.id).filter((id) => !isFolderTile(id)));
   }, [grid, selection]);
+
+  /*
+   * A row's thumbnail follows the row's zoom (ADR-0039 §10). Written as a custom
+   * property rather than passed to each cell, because the details header's
+   * first track has to be the same width and it is not a cell; and in a layout
+   * effect, so no frame is painted with the old size beside the new rows.
+   */
+  useLayoutEffect(() => {
+    if (view === "icons") frame.current?.style.removeProperty("--row-thumb");
+    else frame.current?.style.setProperty("--row-thumb", `${rowThumb(target)}px`);
+  }, [view, target]);
 
   // Width and height come from the element, so the grid reflows with the window
   // and with the sidebar rather than from a media query guessing at both.
@@ -621,6 +647,10 @@ export function Grid({
       pendingClick.current = undefined;
       const dragged = selection.selected();
       const ids = dragged.includes(id) ? dragged : [id];
+      // Out as files where the window allows it, in which case the drag this
+      // event would have started is cancelled and main starts a native one in
+      // its place (ADR-0034 §4). Otherwise it stays inside the window.
+      if (onDragOut?.(ids) === true) return event.preventDefault();
       event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(ids));
       // Both, because the drop decides which: into a folder from a folder is a
       // move, from anywhere else there is nothing to move out of.
@@ -633,7 +663,7 @@ export function Grid({
         requestAnimationFrame(() => ghost.remove());
       }
     },
-    [selection],
+    [onDragOut, selection],
   );
 
   /**
@@ -669,7 +699,7 @@ export function Grid({
       // `dragover` the browser refuses the drop, and `dropEffect` is what the
       // cursor shows the hand.
       event.preventDefault();
-      event.dataTransfer.dropEffect = event.ctrlKey ? "copy" : "move";
+      event.dataTransfer.dropEffect = dropEffectFor(event.dataTransfer, event.ctrlKey);
       markOver(event.target instanceof Element ? event.target.closest(".cell") : null);
     },
     [folderAt, markOver],

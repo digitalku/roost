@@ -1,12 +1,16 @@
 import { createReadStream } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { Readable } from "node:stream";
+import type { HandoffCost } from "@roost/contract";
 import {
   type AssetId,
   FileStore,
   fileNameFor,
   logger,
   ReadOnlyIndex,
+  reflinkSupported,
+  STAGING_DIR,
   type StoredFile,
   stageFile,
   sweepStaging,
@@ -26,6 +30,12 @@ const log = logger("assets");
  */
 const MAX_SUBTITLE_BYTES = 2 * 1024 * 1024;
 
+/** The thumbnail a drag's picture is made from: the size every asset has. */
+const DRAG_THUMBNAIL_SOURCE = 256;
+
+/** How large a drag's picture is, on its longer edge. Explorer's is about this. */
+const DRAG_PICTURE_EDGE = 96;
+
 /**
  * The `roost://` handler: thumbnails out of the index, files off the disk.
  *
@@ -42,6 +52,10 @@ const MAX_SUBTITLE_BYTES = 2 * 1024 * 1024;
  */
 export class AssetServer {
   #open: OpenLibrary | undefined;
+  #swept: Promise<unknown> = Promise.resolve();
+  #handoff: Promise<HandoffCost> | undefined;
+  /** The decoder, once something has asked for it, for the pictures a drag shows. */
+  #media: typeof import("@roost/media") | undefined;
 
   /**
    * Told which thumbnails were asked for and not there, a few at a time.
@@ -70,12 +84,66 @@ export class AssetServer {
     // Whatever a previous session handed out has been had by now (ADR-0034):
     // a clipboard reference does not survive a reboot, and a drop that was
     // still being read when the window closed has long since finished.
-    void sweepStaging(root);
+    this.#swept = sweepStaging(root);
+    this.#handoff = undefined;
+  }
+
+  /**
+   * What a named copy costs in the open library (ADR-0034 §4).
+   *
+   * `copies` where the probe said no **and** where it could not run: a window
+   * told a drag is free that then copies a gigabyte before anything moves is
+   * the mistake worth avoiding.
+   */
+  handoffCost(): Promise<HandoffCost> {
+    const root = this.#open?.root;
+    if (root === undefined) return Promise.resolve("copies");
+    // Asked once per library, and probed the first time. The probe runs
+    // **after** the sweep and inside `staging/`, for two reasons: the sweep
+    // would otherwise delete the probe's files halfway through, and the
+    // library's root holds only the paths the format names (RL-3), where
+    // `staging/` is already ours.
+    this.#handoff ??= this.#swept
+      .then(async () => {
+        const directory = join(root, STAGING_DIR);
+        await mkdir(directory, { recursive: true });
+        return (await reflinkSupported(directory)) === "yes" ? "free" : "copies";
+      })
+      .catch(() => "copies" as const);
+    return this.#handoff;
+  }
+
+  /**
+   * What a drag out of the window shows under the pointer: the first asset's
+   * thumbnail as a PNG, or `undefined` for the application's own icon.
+   *
+   * **`undefined` until the decoder has loaded**, and the first call starts
+   * loading it. Loading `@roost/media` costs about 180 ms, and a drag that
+   * waited for it would leave the hand holding nothing for that long. So the
+   * first drag of a session carries the icon and every one after it carries
+   * the picture. The decoder is never loaded for a window nobody drags from.
+   */
+  async dragPicture(id: AssetId): Promise<Buffer | undefined> {
+    const media = this.#media;
+    if (media === undefined) {
+      void import("@roost/media").then((loaded) => {
+        this.#media = loaded;
+      });
+      return undefined;
+    }
+    const thumbnail = this.#open?.index.thumbnail(id, DRAG_THUMBNAIL_SOURCE);
+    if (thumbnail === undefined) return undefined;
+    try {
+      return await media.dragPicture(thumbnail, DRAG_PICTURE_EDGE);
+    } catch {
+      return undefined;
+    }
   }
 
   detach(): void {
     this.#open?.index.close();
     this.#open = undefined;
+    this.#handoff = undefined;
     // Ids from the library that is going mean nothing to the next one.
     clearTimeout(this.#reporting);
     this.#reporting = undefined;
@@ -134,6 +202,37 @@ export class AssetServer {
       }
     }
     return files;
+  }
+
+  /**
+   * One asset as a PNG, for putting on the clipboard as a picture, or
+   * `undefined` when there is no picture to be had.
+   *
+   * The decoder is imported here rather than at the top, for the reason
+   * `#serveRender` gives: a window that never copies an image never loads
+   * sharp. The work runs on libvips' own threads, so the one thing this costs
+   * main's thread is the wait.
+   */
+  async still(id: AssetId): Promise<Buffer | undefined> {
+    const open = this.#open;
+    if (open === undefined) return undefined;
+    const record = open.index.findFile(id);
+    if (record === undefined) return undefined;
+    const path = await this.locate(id);
+    if (path === undefined) return undefined;
+
+    try {
+      const { renderStill } = await import("@roost/media");
+      return await renderStill(path, formatFromExtension(record.ext));
+    } catch (error) {
+      // A video, a BMP, a RAW with no preview, a file that is not what its name
+      // says. The caller says so; nothing on the clipboard has been touched.
+      log.debug("could not make a picture to copy", {
+        asset: id,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
   }
 
   async handle(request: Request): Promise<Response> {

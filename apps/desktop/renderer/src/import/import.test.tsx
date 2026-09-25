@@ -1,5 +1,5 @@
 import type { SidebarFolderRow } from "@roost/contract";
-import { render, screen, waitFor } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { App } from "../App.js";
@@ -429,5 +429,127 @@ describe("what the grid does when an import lands", () => {
 
     await waitFor(() => expect(engine.seen.some((r) => r.type === "asset:rate")).toBe(true));
     expect(engine.seen.filter((r) => r.type === "assets:page")).toHaveLength(before);
+  });
+});
+
+/**
+ * A drag out of the grid (ADR-0034 §4), driven through the whole window.
+ *
+ * It goes out as files, and files are what an import is too, so the whole of
+ * what can go wrong is the window mistaking its own drag for one from the
+ * desktop: offering to import copies of the selection over the grid, or a
+ * folder row refusing it because it carries nothing of Roost's own.
+ */
+describe("dragging out of the grid", () => {
+  let engine: FakeEngine;
+  /** Lets the drag end, which main answers only when the hand lets go. */
+  let letGo: () => void = () => {};
+
+  const open = async (options: ConstructorParameters<typeof FakeEngine>[0] = {}) => {
+    const held = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 1 },
+      assets: [fakeAsset(0)],
+      hold: { "asset:dragOut": held },
+      ...WITH_DESIGN,
+      ...options,
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+    // The cost is asked for as the library opens, and the drag reads it.
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "handoff:cost")).toBe(true),
+    );
+    return user;
+  };
+
+  const startDrag = async (user: ReturnType<typeof userEvent.setup>): Promise<Event> => {
+    const cell = await screen.findByRole("option", { name: "asset-0.png" });
+    await user.click(cell);
+    const dataTransfer = {
+      types: [],
+      setData: () => {},
+      getData: () => "",
+      setDragImage: () => {},
+      effectAllowed: "none",
+    } as unknown as DataTransfer;
+    const event = createEvent.dragStart(cell, { dataTransfer });
+    fireEvent(cell, event);
+    return event;
+  };
+
+  const sent = (type: string) => engine.seen.filter((request) => request.type === type);
+
+  it("asks main for a native drag of the selection", async () => {
+    const user = await open();
+    const event = await startDrag(user);
+
+    expect(event.defaultPrevented).toBe(true);
+    await waitFor(() => expect(sent("asset:dragOut")).toHaveLength(1));
+    expect(sent("asset:dragOut")[0]).toMatchObject({ ids: [fakeAsset(0).id] });
+    letGo();
+  });
+
+  it("does not offer to import its own drag when it is let go over the grid", async () => {
+    const user = await open();
+    await startDrag(user);
+    await waitFor(() => expect(sent("asset:dragOut")).toHaveLength(1));
+
+    const staged = droppedFile(`${HOLIDAY}/staging/asset-0.png`);
+    fire("dragenter", [staged]);
+    expect(screen.queryByText(/Drop to import/)).toBeNull();
+    fire("drop", [staged]);
+
+    letGo();
+    await waitFor(() => expect(sent("asset:dragOut")).toHaveLength(1));
+    expect(sent("import:paths")).toHaveLength(0);
+  });
+
+  it("files its own drag into a folder row, by the ids it asked to drag", async () => {
+    const user = await open();
+    await startDrag(user);
+    await waitFor(() => expect(sent("asset:dragOut")).toHaveLength(1));
+
+    // What a native drag carries back into the window that started it:
+    // `Files` and nothing of Roost's own (measured on KDE Wayland).
+    const branch = screen.getByRole("button", { name: /^Design/ }).closest(".sidebar-branch");
+    if (!(branch instanceof HTMLElement)) throw new Error("no branch for Design");
+    const dataTransfer = {
+      types: ["Files"],
+      files: [droppedFile(`${HOLIDAY}/staging/asset-0.png`)],
+      getData: () => "",
+      dropEffect: "none",
+      effectAllowed: "copy",
+    } as unknown as DataTransfer;
+    const over = createEvent.dragOver(branch, { dataTransfer });
+    fireEvent(branch, over);
+    // `copy`, which is all a native drag allows; `move` would be refused.
+    // Read off the event: `createEvent` copies the mock into a `DataTransfer`
+    // of its own, and that copy is what the handler wrote to.
+    expect((over as DragEvent).dataTransfer?.dropEffect).toBe("copy");
+    fireEvent(branch, createEvent.drop(branch, { dataTransfer }));
+
+    await waitFor(() => expect(sent("asset:folderAdd")).toHaveLength(1));
+    expect(sent("asset:folderAdd")[0]).toMatchObject({ ids: [fakeAsset(0).id], folder: 7 });
+    letGo();
+  });
+
+  it("keeps a large drag inside the window where every byte is copied, and says why", async () => {
+    const user = await open({
+      handoffCost: "copies",
+      assets: [fakeAsset(0, { size: 900 * 1024 * 1024 })],
+    });
+    const event = await startDrag(user);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(await screen.findByText(/Dragging within Roost only/)).toBeDefined();
+    expect(sent("asset:dragOut")).toHaveLength(0);
   });
 });

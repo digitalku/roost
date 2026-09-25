@@ -61,32 +61,75 @@ import type { GridView } from "@roost/contract";
 
 export { GRID_VIEWS, type GridView, isGridView } from "@roost/contract";
 
-/** The zoom targets, snapped rather than free (`UI_SPEC.md` §6). */
-export const ZOOM_STEPS = [120, 160, 200, 240, 300, 360, 400] as const;
-export const DEFAULT_ZOOM = 240;
+/** One view's zoom: the steps it snaps to, and the one it starts at. */
+export interface ZoomScale {
+  readonly steps: readonly number[];
+  readonly initial: number;
+}
 
 /**
- * The step nearest `target`, for a zoom coming back from `settings.json`.
+ * A row's height, for Compact and Details alike.
+ *
+ * Every step changes what is drawn. The single zoom these replaced was a cell
+ * width divided down and clamped, which left two steps at each end of a row
+ * view that moved nothing.
+ */
+const ROW_STEPS = [26, 30, 34, 42, 50, 60, 72] as const;
+
+/**
+ * Each view's zoom, snapped rather than free (`UI_SPEC.md` §6, ADR-0039 §10).
+ *
+ * **Icons count a cell's width and the two lists a row's height**, which is why
+ * each view has its own: one number serving all three was right for one view
+ * and wrong for the others. The starting points are the user's, 2026-09-25 —
+ * Icons and Compact had opened too large, and Details was right, so Details
+ * starts where it was and the other two start smaller.
+ */
+export const ZOOMS: Readonly<Record<GridView, ZoomScale>> = {
+  icons: { steps: [120, 160, 200, 240, 300, 360, 400], initial: 160 },
+  compact: { steps: ROW_STEPS, initial: 30 },
+  details: { steps: ROW_STEPS, initial: 34 },
+};
+
+/**
+ * How much of a row its thumbnail leaves: four pixels above and below.
+ *
+ * The thumbnail follows the row's zoom, at the user's choosing on 2026-09-25 —
+ * a row that grows around a picture that does not is only spacing.
+ */
+const ROW_THUMB_INSET = 8;
+
+/** The thumbnail's side in a Compact or Details row this tall. */
+export function rowThumb(rowHeight: number): number {
+  return Math.max(1, rowHeight - ROW_THUMB_INSET);
+}
+
+/**
+ * The step nearest what `settings.json` holds for `view`, or where the view
+ * starts when it holds nothing.
  *
  * The steps are the renderer's and the stored number is only a number, so a
  * build that changes them must not throw away what somebody chose. Snapping to
  * the nearest keeps the size they were working at; falling back to the default
  * would be the application forgetting.
  */
-export function nearestZoom(target: number): number {
-  let best: number = DEFAULT_ZOOM;
-  for (const step of ZOOM_STEPS) {
-    if (Math.abs(step - target) < Math.abs(best - target)) best = step;
+export function zoomFor(view: GridView, stored: number | undefined): number {
+  const { steps, initial } = ZOOMS[view];
+  if (stored === undefined) return initial;
+  let best = initial;
+  for (const step of steps) {
+    if (Math.abs(step - stored) < Math.abs(best - stored)) best = step;
   }
   return best;
 }
 
-/** Moves along {@link ZOOM_STEPS}, stopping at the ends. */
-export function zoomBy(target: number, steps: number): number {
-  const at = ZOOM_STEPS.indexOf(target as (typeof ZOOM_STEPS)[number]);
-  const from = at === -1 ? ZOOM_STEPS.indexOf(DEFAULT_ZOOM) : at;
-  const to = Math.min(ZOOM_STEPS.length - 1, Math.max(0, from + steps));
-  return ZOOM_STEPS[to] ?? DEFAULT_ZOOM;
+/** Moves along `view`'s steps, stopping at the ends. */
+export function zoomBy(view: GridView, zoom: number, steps: number): number {
+  const scale = ZOOMS[view];
+  const at = scale.steps.indexOf(zoom);
+  const from = at === -1 ? scale.steps.indexOf(scale.initial) : at;
+  const to = Math.min(scale.steps.length - 1, Math.max(0, from + steps));
+  return scale.steps[to] ?? scale.initial;
 }
 
 export interface LayoutOptions {
@@ -100,7 +143,10 @@ export interface LayoutOptions {
    */
   readonly proportional: boolean;
   readonly containerWidth: number;
-  /** The zoom target: roughly how wide an icon wants to be. */
+  /**
+   * The view's zoom ({@link ZOOMS}): roughly how wide an icon wants to be, or
+   * how tall a Compact or Details row is.
+   */
   readonly target: number;
   readonly gap: number;
   /** The band under the thumbnail. Reserved, never an overlay (`UI_SPEC.md` §6). */
@@ -108,15 +154,13 @@ export interface LayoutOptions {
 }
 
 /**
- * A compact column has to hold a name beside its thumbnail, so it is wider than
- * the zoom target and never narrower than this.
+ * A compact column has to hold a name beside its thumbnail, so it widens with
+ * the row and is never narrower than this.
  */
 const COMPACT_MIN_WIDTH = 260;
 
-/** What a row is worth at a given zoom, clamped so neither end is unusable. */
-function rowHeight(target: number, divisor: number, low: number, high: number): number {
-  return Math.min(high, Math.max(low, Math.round(target / divisor)));
-}
+/** A compact column's width per pixel of row height, above the minimum. */
+const COMPACT_WIDTH_PER_ROW = 7.5;
 
 /**
  * How far from square a cell may get.
@@ -138,13 +182,15 @@ export function layout(items: readonly Shaped[], options: LayoutOptions): Layout
   const { view, proportional, containerWidth, target, gap, caption } = options;
 
   // Details is one row per asset across the whole width; compact needs room for
-  // a name, so it does not follow the zoom target directly.
+  // a name, so its column follows the row's height rather than being it.
   const count =
     view === "details"
       ? 1
       : columnCountFor(
           containerWidth,
-          view === "compact" ? Math.max(COMPACT_MIN_WIDTH, target + 120) : target,
+          view === "compact"
+            ? Math.max(COMPACT_MIN_WIDTH, Math.round(target * COMPACT_WIDTH_PER_ROW))
+            : target,
           gap,
         );
   const columnWidth = Math.max(1, Math.floor((containerWidth - gap * (count - 1)) / count));
@@ -190,8 +236,7 @@ function bodyHeight(
   target: number,
   item: Shaped,
 ): number {
-  if (view === "compact") return rowHeight(target, 5, 32, 72);
-  if (view === "details") return rowHeight(target, 7, 26, 48);
+  if (view === "compact" || view === "details") return target;
   return packed ? Math.round(columnWidth * ratioOf(item)) : columnWidth;
 }
 

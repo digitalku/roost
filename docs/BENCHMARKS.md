@@ -55,6 +55,31 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-09-25 — a picture onto the clipboard (ADR-0034 §5)
+
+Machine: Fedora 44 host, KDE Plasma. Electron 43.4.1, and a 6000×4000 JPEG (24 megapixels) made
+for the purpose. The clipboard was read back with `wl-paste`. The window ran under XWayland
+(`--ozone-platform=x11`), because Wayland refuses a clipboard write from a window without the
+focus and KDE does not give the focus to a window a script opens.
+
+| Step | Time | Size |
+| --- | --- | --- |
+| JPEG → PNG in sharp, zlib level 0 | 122 ms | 72.1 MB |
+| JPEG → PNG in sharp, zlib level 1 | 555 ms | 18.1 MB |
+| JPEG → PNG in sharp, zlib level 6 (the default) | 2,047 ms | 12.4 MB |
+| `clipboard.writeImage(nativeImage.createFromBuffer(png))`, main's thread | 654–722 ms | re-encoded, 17.0 MB |
+| `clipboard.writeBuffer("image/png", png)`, main's thread | 32–34 ms | the same bytes |
+| `wl-paste -t image/png` reading the 18 MB back | 142 ms | |
+
+**What it revealed** is that the obvious API was the expensive one. `writeImage` takes a
+`NativeImage`, which is a bitmap, so a PNG handed to it is decoded and then encoded again, both on
+the thread that answers every request from the window. That is two-thirds of a second of a frozen
+engine router for one copy. The clipboard on Linux wants `image/png`, which the bytes already are,
+and `writeBuffer` under that name offers exactly the format `writeImage` offers (checked with
+`wl-paste --list-types`) and costs one copy of the buffer. Level 1 is the encode to use. The encode
+runs on libvips' threads, so its time is a wait rather than a stall. A clipboard manager keeps
+every picture it sees, so 72 MB per copy is the wrong direction to save half a second in.
+
 ### 2026-09-25 — the four pictures on a folder's tile (ADR-0043 §7)
 
 Machine: Fedora 44 host. An index built from `0001_initial.sql` with **1,000,000 assets**, every one

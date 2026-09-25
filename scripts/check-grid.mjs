@@ -194,6 +194,13 @@ async function unhover() {
 /** A click on the scroller's own padding, which is background rather than a cell. */
 async function clearSelection() {
   const grid = await cdp.box(".grid");
+  console.log(
+    "DEBUG",
+    grid,
+    await cdp.evaluate(
+      `(() => { const e = document.elementFromPoint(${grid.left + 3}, ${grid.top + 3}); return [e?.className, document.querySelectorAll('.cell[aria-selected="true"]').length, document.querySelector('.grid').scrollTop, JSON.stringify(document.querySelector('.cell')?.getBoundingClientRect())]; })()`,
+    ),
+  );
   await cdp.mouse.click(grid.left + 3, grid.top + 3);
   await cdp.settle(`${selectedHashes}.length`, (n) => n === 0);
 }
@@ -756,6 +763,98 @@ try {
   await chooseSort("A to Z");
   await cdp.settle(drawnExpression, (names) => names[0] === "shot-0.png");
 
+  section("A zoom per view (ADR-0039 §10)");
+  /*
+   * Asked for on 2026-09-25: an icon's width and a row's height are different
+   * quantities, and one number serving all three views was right for one of
+   * them. And a row's thumbnail follows the row, which it never did — the
+   * row grew around a picture that stayed 26 pixels.
+   */
+  const sizeExpression = `
+    (() => {
+      const cell = document.querySelector(".cell:not(.cell-folder)");
+      const thumb = cell?.querySelector(".cell-thumb");
+      if (cell === null || cell === undefined || thumb === null || thumb === undefined) return null;
+      const box = cell.getBoundingClientRect();
+      const picture = thumb.getBoundingClientRect();
+      return { width: Math.round(box.width), height: Math.round(box.height), thumb: Math.round(picture.width) };
+    })()`;
+  const zoom = async (label) => {
+    const trigger = await cdp.box('button[aria-label="View"]');
+    await cdp.mouse.click(trigger.x, trigger.y);
+    await cdp.settle("document.querySelectorAll('[role=menu]').length", (n) => n > 0);
+    const step = await cdp.box(`[role="menuitem"][aria-label="${label}"]`);
+    await cdp.mouse.click(step.x, step.y);
+    await cdp.keyboard.press("Escape");
+    await cdp.settle("document.querySelectorAll('[role=menu]').length", (n) => n === 0);
+    await sleep(200);
+  };
+  const shot = async (name) => {
+    if (process.env.ROOST_SHOTS === undefined) return;
+    await cdp.screenshot(join(process.env.ROOST_SHOTS, `zoom-${name}.png`));
+  };
+
+  await setView("icons");
+  const iconsBefore = await cdp.evaluate(sizeExpression);
+  await shot("icons");
+  await setView("compact");
+  const compact = await cdp.evaluate(sizeExpression);
+  await shot("compact");
+  await setView("details");
+  const detailsStart = await cdp.evaluate(sizeExpression);
+  await shot("details");
+  check(
+    "Details starts where it was: a 34px row and a 26px picture",
+    detailsStart?.height === 34 && detailsStart?.thumb === 26,
+    JSON.stringify(detailsStart),
+  );
+  check("Compact starts smaller than it did", compact?.height === 30, JSON.stringify(compact));
+  check(
+    "Icons starts smaller than it did",
+    iconsBefore !== null && iconsBefore.width < 240,
+    JSON.stringify(iconsBefore),
+  );
+
+  await zoom("Zoom in");
+  const detailsIn = await cdp.evaluate(sizeExpression);
+  await shot("details-in");
+  check(
+    "zooming Details makes the row and its picture larger together",
+    detailsIn?.height === 42 && detailsIn?.thumb === 34,
+    JSON.stringify(detailsIn),
+  );
+  const zoomedHeader = await cdp.evaluate(headerExpression);
+  const zoomedDrift = Math.max(
+    ...zoomedHeader.headerLefts.map((left, at) => Math.abs(left - zoomedHeader.cellLefts[at])),
+  );
+  check(
+    "and the header's columns still start over the row's",
+    zoomedDrift <= 1,
+    `worst drift ${zoomedDrift}px`,
+  );
+
+  await setView("icons");
+  const iconsAfter = await cdp.evaluate(sizeExpression);
+  check(
+    "Icons are the size they were left at, not the rows' zoom",
+    iconsAfter?.width === iconsBefore?.width,
+    `${iconsBefore?.width} → ${iconsAfter?.width}`,
+  );
+  await setView("compact");
+  const compactAfter = await cdp.evaluate(sizeExpression);
+  check(
+    "and so is Compact",
+    compactAfter?.height === compact?.height,
+    `${compact?.height} → ${compactAfter?.height}`,
+  );
+  const zooms = JSON.parse(await readFile(join(root, "settings.json"), "utf8")).gridZooms;
+  check(
+    "each view's zoom is the library's, under its own name",
+    zooms?.details === 42 && zooms?.icons === undefined && zooms?.compact === undefined,
+    JSON.stringify(zooms),
+  );
+  await setView("details");
+
   section("A library opens in the order it was left in (ADR-0039 §7)");
   // A second window, because that is the claim: a preference nothing reads back
   // is a preference nobody has. Started beside the first rather than after it —
@@ -783,6 +882,10 @@ try {
       'document.querySelector(".grid")?.getAttribute("data-view") ?? null',
     );
     check("and in the view it was left in", drawnView === "details", `view=${drawnView}`);
+    const drawnRow = await second.cdp.evaluate(
+      `Math.round(document.querySelector(".cell")?.getBoundingClientRect().height ?? 0)`,
+    );
+    check("at the zoom that view was left at", drawnRow === 42, `row=${drawnRow}px`);
   } finally {
     await second.close();
   }

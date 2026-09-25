@@ -329,6 +329,119 @@ describe("serving a document page", () => {
   });
 });
 
+describe("a picture for the clipboard", () => {
+  let root: string;
+  let server: AssetServer;
+  let png: Buffer;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "roost-still-"));
+    const { encodePng } = await import("@roost/media/png");
+    png = encodePng(Buffer.alloc(8 * 6 * 4, 0x80), 8, 6);
+
+    const storage = new FileStore(root);
+    for (const [id, ext, bytes] of [
+      [PICTURE, "png", png],
+      [TRACK, "srt", Buffer.from(SRT)],
+    ] as const) {
+      const path = storage.locate(id, ext);
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, bytes);
+    }
+
+    const db = Db.open(join(root, INDEX_FILE));
+    db.transaction(() => {
+      const sink = new IndexSink(db);
+      sink.apply({ ts: 1, op: "add", id: PICTURE, ext: "png", name: "logo" });
+      sink.apply({ ts: 1, op: "add", id: TRACK, ext: "srt", name: "film" });
+      // In the index and not on disk, as an asset is when its file has gone.
+      sink.apply({ ts: 1, op: "add", id: ABSENT, ext: "png", name: "gone" });
+    });
+    db.close();
+
+    server = new AssetServer();
+    server.attach(root);
+  });
+
+  afterEach(async () => {
+    server.detach();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("hands a PNG over as the file's own bytes", async () => {
+    const still = await server.still(PICTURE);
+    expect(still?.equals(png)).toBe(true);
+  });
+
+  it("has nothing for a file that is not a picture, or is not there", async () => {
+    // `undefined` is what tells main to leave the clipboard alone, so a paste
+    // afterwards brings back what was there rather than nothing at all.
+    expect(await server.still(TRACK)).toBeUndefined();
+    expect(await server.still(ABSENT)).toBeUndefined();
+    expect(await server.still(SECOND)).toBeUndefined();
+  });
+
+  it("has nothing once the library is closed", async () => {
+    server.detach();
+    expect(await server.still(PICTURE)).toBeUndefined();
+  });
+});
+
+describe("handing files out by dragging (ADR-0034 §4)", () => {
+  let root: string;
+  let server: AssetServer;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "roost-handoff-"));
+    // Imported here and only here: a test is allowed the decoder that main's
+    // own modules must not load at the top of a file.
+    const { gradient } = await import("@roost/media");
+    const webp = await gradient(200, 100, 1, "webp");
+
+    const db = Db.open(join(root, INDEX_FILE));
+    db.transaction(() => {
+      new IndexSink(db).apply({ ts: 1, op: "add", id: PICTURE, ext: "png", name: "logo" });
+      db.repo.putThumbnail(PICTURE, 256, 200, 100, webp);
+    });
+    db.close();
+    // Left by an earlier session, which the sweep at open is for.
+    await mkdir(join(root, "staging"), { recursive: true });
+    await writeFile(join(root, "staging", "handed out before.png"), "old");
+
+    server = new AssetServer();
+    server.attach(root);
+  });
+
+  afterEach(async () => {
+    server.detach();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("says what a copy costs, and leaves nothing of the probe behind", async () => {
+    const cost = await server.handoffCost();
+
+    // Which of the two depends on the filesystem the test runs on.
+    expect(["free", "copies"]).toContain(cost);
+    // Swept first and probed after, so neither the old file nor the probe's
+    // own survive — and the probe never touched the library's root (RL-3).
+    expect(await readdir(join(root, "staging"))).toEqual([]);
+    expect((await readdir(root)).filter((name) => name.startsWith(".roost"))).toEqual([]);
+  });
+
+  it("carries the icon on the first drag and the picture after", async () => {
+    // Loading the decoder costs ~180 ms, which a drag must not wait for.
+    expect(await server.dragPicture(PICTURE)).toBeUndefined();
+
+    let picture: Buffer | undefined;
+    for (let tries = 0; tries < 100 && picture === undefined; tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      picture = await server.dragPicture(PICTURE);
+    }
+    // A PNG, since `nativeImage` reads no WebP.
+    expect(picture?.subarray(1, 4).toString()).toBe("PNG");
+  });
+});
+
 describe("what main is allowed to import", () => {
   it("never pulls the whole of @roost/media, which would load sharp", async () => {
     // ADR-0008 puts the handler in the process that draws the window, and
@@ -359,5 +472,16 @@ describe("what main is allowed to import", () => {
     // else — which is what makes it reachable from here at all.
     expect(source).toContain('await import("@roost/media/png")');
     expect(/^import .*@roost\/media\/document/m.test(source)).toBe(false);
+  });
+
+  it("loads the decoder for a copied picture inside the handler, never at the top", async () => {
+    // **Copy image** is the one gesture that needs sharp in main, as a HEIC's
+    // rendition is (ADR-0040 §7): the import is inside the method, so a window
+    // nobody copies a picture from never loads it.
+    const source = await readFile(
+      join(fileURLToPath(new URL(".", import.meta.url)), "assets.ts"),
+      "utf8",
+    );
+    expect(source).toContain('const { renderStill } = await import("@roost/media")');
   });
 });

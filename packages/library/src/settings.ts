@@ -96,16 +96,23 @@ export interface Settings {
    * day the menu was built and could not put them here, because `settings.json`
    * did not exist until ADR-0036.
    *
-   * `gridView` and `gridZoom` are the renderer's vocabulary, and this file
+   * `gridView` and `gridZooms` are the renderer's vocabulary, and this file
    * checks only their shape: a string for the view — the renderer refuses one
    * it does not know, because the list of views is a fact about the interface —
-   * and a positive number for the zoom, which the renderer clamps to its own
-   * steps. An engine that knew what "compact" is would be an engine holding a
-   * copy of the interface.
+   * and a number per view for the zoom, which the renderer snaps to that view's
+   * own steps. An engine that knew what "compact" is would be an engine holding
+   * a copy of the interface.
+   *
+   * **A zoom per view** since 2026-09-25 (ADR-0039 §10): an icon's width and a
+   * row's height are not the same quantity, and one number serving both made
+   * every size right for one view and wrong for the others. Keyed by the view's
+   * name, and a view absent from the map is at the renderer's default. The
+   * single `gridZoom` it replaces is no longer read — the user asked for the
+   * defaults to be set again — and survives in the file as any unknown key does.
    */
   readonly gridView: string;
   readonly matchImageProportions: boolean;
-  readonly gridZoom: number;
+  readonly gridZooms: Readonly<Record<string, number>>;
   /**
    * Whether the grid draws the folders inside the folder on screen (ADR-0043).
    *
@@ -149,13 +156,14 @@ export interface Settings {
 }
 
 /**
- * The zoom this file will believe, in CSS pixels of a grid cell.
+ * The zoom this file will believe, in CSS pixels — a cell's width or a row's
+ * height, depending on the view, which this file does not know.
  *
  * A guard rather than a vocabulary: the steps are the renderer's (`layout.ts`),
  * and a hand-edited `settings.json` should not be able to make a cell a
  * million pixels wide before anything clamps it.
  */
-const ZOOM_RANGE = { min: 32, max: 1024 } as const;
+const ZOOM_RANGE = { min: 16, max: 1024 } as const;
 
 /** Percent. Clamped rather than rejected, for the same reason the zoom is. */
 const VOLUME_RANGE = { min: 0, max: 100 } as const;
@@ -176,7 +184,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shuffleSeed: DEFAULT_SORT.seed,
   gridView: "icons",
   matchImageProportions: true,
-  gridZoom: 160,
+  gridZooms: {},
   showFolders: true,
   showSidebar: true,
   showInspector: true,
@@ -213,7 +221,7 @@ export async function readSettings(root: string): Promise<Settings> {
       raw["matchImageProportions"],
       DEFAULT_SETTINGS.matchImageProportions,
     ),
-    gridZoom: numberish(raw["gridZoom"], DEFAULT_SETTINGS.gridZoom, ZOOM_RANGE),
+    gridZooms: zoomsish(raw["gridZooms"]),
     showFolders: boolish(raw["showFolders"], DEFAULT_SETTINGS.showFolders),
     showSidebar: boolish(raw["showSidebar"], DEFAULT_SETTINGS.showSidebar),
     showInspector: boolish(raw["showInspector"], DEFAULT_SETTINGS.showInspector),
@@ -297,6 +305,26 @@ function numberish(
 ): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.min(Math.max(value, range.min), range.max);
+}
+
+/**
+ * One zoom per view, each entry falling back on its own.
+ *
+ * ADR-0019's per-key rule carried one level down: a damaged entry is dropped
+ * and the rest kept, and a view this build does not know is kept too, because
+ * it is a newer build's and this file cannot tell a retired view from one it
+ * has not heard of yet.
+ */
+function zoomsish(value: unknown): Readonly<Record<string, number>> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return DEFAULT_SETTINGS.gridZooms;
+  }
+  const zooms: Record<string, number> = {};
+  for (const [view, zoom] of Object.entries(value)) {
+    if (typeof zoom !== "number" || !Number.isFinite(zoom)) continue;
+    zooms[view] = Math.min(Math.max(zoom, ZOOM_RANGE.min), ZOOM_RANGE.max);
+  }
+  return zooms;
 }
 
 /** Whatever is in the file, as an object. Never throws, never rejects. */

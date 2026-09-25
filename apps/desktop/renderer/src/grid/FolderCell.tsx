@@ -123,7 +123,10 @@ export const FolderCell = forwardRef<HTMLDivElement, FolderCellProps>(function F
   );
 });
 
-/** A row's sheet is too small to hold pictures; it is the shape alone. */
+/**
+ * A row draws the sleeve and no pictures — the user's call, 2026-09-25: in a
+ * list the name is what is read, and the icon only has to say *folder*.
+ */
 const NO_COVERS: readonly string[] = [];
 
 /**

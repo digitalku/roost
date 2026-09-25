@@ -3,10 +3,14 @@ import {
   columnCountFor,
   layout,
   moveFocus,
+  rowThumb,
   type Shaped,
   type Tile,
   tilesIn,
   visibleTiles,
+  ZOOMS,
+  zoomBy,
+  zoomFor,
 } from "./layout.js";
 
 const OPTIONS = {
@@ -267,5 +271,44 @@ describe("moving focus with the arrow keys", () => {
   it("says nothing about a id the layout does not hold", () => {
     const grid = layout(shaped(4), uniform);
     expect(moveFocus(grid, "nothing", "down")).toBeUndefined();
+  });
+});
+
+describe("a zoom per view", () => {
+  // ADR-0039 §10: an icon's width and a row's height are different quantities,
+  // so each view snaps to its own steps and starts at its own size.
+  it("starts each view at its own size where the library holds none", () => {
+    expect(zoomFor("icons", undefined)).toBe(ZOOMS.icons.initial);
+    expect(zoomFor("compact", undefined)).toBe(ZOOMS.compact.initial);
+    // Details was right as it was (2026-09-25): a 34px row, a 26px thumbnail.
+    expect(zoomFor("details", undefined)).toBe(34);
+    expect(rowThumb(34)).toBe(26);
+  });
+
+  it("snaps a stored zoom to the nearest of that view's steps", () => {
+    expect(zoomFor("icons", 230)).toBe(240);
+    expect(zoomFor("details", 45)).toBe(42);
+    // An icon's width read as a row's height lands on the tallest row rather
+    // than off the end of the scale.
+    expect(zoomFor("compact", 240)).toBe(72);
+  });
+
+  it("moves every step, and stops at the ends", () => {
+    // The zoom these replaced divided a cell width down and clamped it, so
+    // two steps at each end of a row view moved nothing.
+    const heights = ZOOMS.details.steps.map(
+      (step) => layout(shaped(1), { ...OPTIONS, view: "details", target: step }).order[0]?.height,
+    );
+    expect(new Set(heights).size).toBe(ZOOMS.details.steps.length);
+    const last = ZOOMS.details.steps[ZOOMS.details.steps.length - 1] ?? 0;
+    expect(zoomBy("details", last, 1)).toBe(last);
+    expect(zoomBy("icons", 160, -1)).toBe(120);
+    expect(zoomBy("icons", 120, -1)).toBe(120);
+  });
+
+  it("widens a compact column with its row", () => {
+    const small = layout(shaped(1), { ...OPTIONS, view: "compact", target: 30 });
+    const large = layout(shaped(1), { ...OPTIONS, view: "compact", target: 72 });
+    expect(small.columns.length).toBeGreaterThan(large.columns.length);
   });
 });

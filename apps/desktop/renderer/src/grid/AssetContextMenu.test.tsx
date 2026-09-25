@@ -28,7 +28,11 @@ describe("the asset context menu", () => {
   const show = (
     ids: readonly string[] = HASHES,
     options = {},
-    { inTrash = false, drawable }: { inTrash?: boolean; drawable?: boolean } = {},
+    {
+      inTrash = false,
+      drawable,
+      picture,
+    }: { inTrash?: boolean; drawable?: boolean; picture?: boolean } = {},
   ) => {
     engine = new FakeEngine(options);
     install(engine);
@@ -49,6 +53,7 @@ describe("the asset context menu", () => {
         }}
         onOpenHere={(id) => opened.push(id)}
         {...(drawable === undefined ? {} : { drawable })}
+        {...(picture === undefined ? {} : { picture })}
       >
         <div data-testid="surface" tabIndex={-1}>
           the grid
@@ -116,6 +121,42 @@ describe("the asset context menu", () => {
 
     await waitFor(() => expect(notes.length).toBe(1));
     expect(notes[0]).toMatch(/not on this machine/);
+  });
+
+  it("copies one picture as an image, which is a third thing again", async () => {
+    // For pasting into a chat or an image editor, which take a picture and not
+    // a file. One id, because a clipboard holds one picture.
+    const only = HASHES[1] as string;
+    const { user } = show([only], {}, { picture: true });
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "Copy image" }));
+
+    await waitFor(() => expect(sentTo("asset:copyImage")).toHaveLength(1));
+    expect(sentTo("asset:copyImage")[0]?.id).toBe(only);
+    expect(notes).toEqual(["Copied the picture to the clipboard"]);
+  });
+
+  it("says when no picture could be made, rather than reporting a success", async () => {
+    // A BMP, or a RAW with no preview in it: the clipboard is as it was, and
+    // a paste that brought back the previous thing would look like a bug here.
+    const { user } = show([HASHES[0] as string], { copiesImage: false }, { picture: true });
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "Copy image" }));
+
+    await waitFor(() => expect(notes.length).toBe(1));
+    expect(notes[0]).toMatch(/could not be copied as an image/);
+  });
+
+  it("offers Copy image over one picture and nothing else", async () => {
+    show(HASHES, {}, { picture: false });
+    await open();
+    expect(disabled("Copy image")).toBe(true);
+    cleanup();
+
+    // One asset, but a video: there is a file to copy and no picture.
+    show([HASHES[0] as string], {}, { picture: false });
+    await open();
+    expect(disabled("Copy image")).toBe(true);
   });
 
   it("names the count, so a menu over twelve does not read like a menu over one", async () => {

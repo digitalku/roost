@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASSET_DRAG_TYPE } from "../dnd.js";
 import { FakeEngine, fakeAsset, install } from "../testing/fake-engine.js";
 import { Grid } from "./Grid.js";
+import type { GridView } from "./layout.js";
 import { SelectionStore } from "./selection.js";
 
 /**
@@ -35,7 +36,11 @@ describe("the grid", () => {
   let more: () => void;
   let moreCalls: string[];
 
-  const show = (count: number, proportional = false) => {
+  const show = (
+    count: number,
+    proportional = false,
+    onDragOut?: (ids: readonly string[]) => boolean,
+  ) => {
     const assets = Array.from({ length: count }, (_, i) => fakeAsset(i));
     const view = render(
       <Grid
@@ -46,6 +51,7 @@ describe("the grid", () => {
         selection={selection}
         onMore={more}
         onOpen={onOpen}
+        {...(onDragOut === undefined ? {} : { onDragOut })}
       />,
     );
     return { user: userEvent.setup(), assets, ...view };
@@ -420,6 +426,57 @@ describe("the grid", () => {
     expect(image?.node.querySelector(".drag-ghost-count")?.textContent).toBe("3");
   });
 
+  it("hands the selection to a drag out, and starts none of its own", async () => {
+    // ADR-0034 §4: a drag that can leave the window is a native one, started
+    // by main. The grid's own drag has to be cancelled, or the window would
+    // be carrying two things at once.
+    const asked: (readonly string[])[] = [];
+    const { user, assets } = show(12, false, (ids) => {
+      asked.push(ids);
+      return true;
+    });
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    await user.keyboard("{Shift>}");
+    await user.click(screen.getAllByRole("option")[1] as HTMLElement);
+    await user.keyboard("{/Shift}");
+
+    const set = new Map<string, string>();
+    const dataTransfer = {
+      types: [],
+      setData: (type: string, value: string) => set.set(type, value),
+      getData: (type: string) => set.get(type) ?? "",
+      setDragImage: () => {},
+      effectAllowed: "none",
+    } as unknown as DataTransfer;
+    const cell = screen.getAllByRole("option")[1] as HTMLElement;
+    const event = createEvent.dragStart(cell, { dataTransfer });
+    fireEvent(cell, event);
+
+    expect(asked).toEqual([assets.slice(0, 2).map((asset) => asset.id)]);
+    expect(event.defaultPrevented).toBe(true);
+    expect(set.size).toBe(0);
+  });
+
+  it("drags inside the window as before when the drag cannot go out", async () => {
+    const { user, assets } = show(12, false, () => false);
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+
+    const set = new Map<string, string>();
+    const dataTransfer = {
+      types: [],
+      setData: (type: string, value: string) => set.set(type, value),
+      getData: (type: string) => set.get(type) ?? "",
+      setDragImage: () => {},
+      effectAllowed: "none",
+    } as unknown as DataTransfer;
+    const cell = screen.getAllByRole("option")[0] as HTMLElement;
+    const event = createEvent.dragStart(cell, { dataTransfer });
+    fireEvent(cell, event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(JSON.parse(set.get(ASSET_DRAG_TYPE) ?? "[]")).toEqual([assets[0]?.id]);
+  });
+
   it("keeps a multi-selection through a press, and collapses it on release", async () => {
     // What every file manager defers, and for one reason: pressing one of five
     // selected assets is how a drag of five begins. Found in a real window on
@@ -540,12 +597,12 @@ describe("folders in the grid", () => {
   const ICONS = folderRow(7, "Icons");
   const LOGOS = folderRow(8, "Logos");
 
-  const show = (count: number) => {
+  const show = (count: number, view: GridView = "icons") => {
     const assets = Array.from({ length: count }, (_, i) => fakeAsset(i));
     render(
       <Grid
         assets={assets}
-        view="icons"
+        view={view}
         proportional={false}
         target={240}
         selection={selection}
@@ -617,6 +674,26 @@ describe("folders in the grid", () => {
     // The punched strip is what says "folder" rather than "collage".
     expect(tile(7).querySelectorAll(".folder-hole")).toHaveLength(6);
   });
+
+  it.each(["details", "compact"] as const)(
+    "draws a folder's row in %s as the punched sleeve, without pictures",
+    async (view) => {
+      // The user's call, 2026-09-25: in a list the icon only has to say
+      // "folder", so a row asks for covers it does not draw.
+      const covers = {
+        folder: 7,
+        assets: ["A70000000000"].map((id) => ({ id, posterMs: null, derivedAt: 1_700_000_000 })),
+      };
+      install(new FakeEngine({ folderCovers: [covers] }));
+      show(2, view);
+
+      await waitFor(() => {
+        expect(tile(7).querySelector(".folder-sheet")).not.toBeNull();
+      });
+      expect(tile(7).querySelectorAll(".folder-sheet-image")).toHaveLength(0);
+      expect(tile(7).querySelectorAll(".folder-hole")).toHaveLength(6);
+    },
+  );
 
   it("marks a folder on a click without selecting it", async () => {
     // The mark is the ring. A folder in the selection would be a folder handed

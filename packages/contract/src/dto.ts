@@ -65,6 +65,16 @@ export const IMPORT_SUBJECTS = ["files", "folders"] as const;
 export type ImportSubject = (typeof IMPORT_SUBJECTS)[number];
 
 /**
+ * What handing a file to another application costs in the open library
+ * (ADR-0034 §4): `free` where the filesystem clones a file, `copies` where
+ * every byte is written again. `copies` is also the answer when the probe could
+ * not run, since promising a free copy that turns out to cost a minute is the
+ * worse mistake.
+ */
+export const HANDOFF_COSTS = ["free", "copies"] as const;
+export type HandoffCost = (typeof HANDOFF_COSTS)[number];
+
+/**
  * What an asset broadly is, which is what selects the preview (`UI_SPEC.md` §7).
  *
  * Declared here as well as in `@roost/core` because the renderer needs it and
@@ -609,12 +619,17 @@ export interface WireSettings {
    * `gridView` arrives as a plain string rather than a `GridView`, because the
    * list of views is a fact about the interface and the engine holds no copy of
    * it: a value this build does not know falls back to `icons` in the window,
-   * where the vocabulary is. `gridZoom` is a cell's width in CSS pixels, which
-   * the window clamps to its own steps.
+   * where the vocabulary is.
+   *
+   * `gridZooms` is **one zoom per view**, keyed by the view's name (ADR-0039
+   * §10): a cell's width in Icons, a row's height in Compact and Details, which
+   * the window snaps to that view's own steps. A view with no entry is at the
+   * window's default, and the map is always sent whole — a `settings:write`
+   * replaces it — so a view this build does not know rides along untouched.
    */
   readonly gridView: string;
   readonly matchImageProportions: boolean;
-  readonly gridZoom: number;
+  readonly gridZooms: Readonly<Record<string, number>>;
   /**
    * Whether the folders inside the folder on screen are drawn in it (ADR-0043).
    *

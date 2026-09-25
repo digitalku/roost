@@ -491,6 +491,24 @@ monthly archive under [`sessions/`](sessions/), and what shipped is in
   **never a hardlink**: a shared inode would let another application write into the original.
   Emptied when a library **opens**, since a clipboard reference outlives the session that wrote it.
 
+- ☑ ~~**`Ctrl+C`, and Copy image.**~~ **Built 2026-09-25** (ADR-0034 §5). `Ctrl+C` is Copy file,
+  on the selection or on the asset the preview shows, and leaves the key to the browser while
+  typing or over selected text. **Copy image** puts one picture on the clipboard as a full-size
+  PNG, the right way up. A PNG goes byte for byte, and on Linux it goes through
+  `writeBuffer("image/png")`, which held main for 32 ms where `writeImage` held it for 650–720 ms
+  on a 24-megapixel photograph. `check-clipboard.mjs` reads both copies back with `wl-paste`, under
+  XWayland, because Wayland ignores a clipboard write from a window without the focus: 8 of 8.
+
+- ☑ ~~**Dragging a file out is not built, and cannot be decided by reading.**~~ A window cannot be
+  an HTML5 drag source and a native file drag source in the same gesture: `webContents.startDrag`
+  *replaces* the HTML5 drag, and the grid's drag is already how an asset is filed into a folder
+  (ADR-0033 §5). The design worth wanting — a native drag whose drops the folder rows read back —
+  rests on an untested assumption: **that a native drag started by `startDrag` still delivers `drop`
+  to its own window**, which may differ between X11 and Wayland. It needs somebody to try it.
+  ADR-0034 §4 lays out the three options. **Tried and built 2026-09-25** (ADR-0034 §6). The
+  assumption holds on KDE Wayland. The grid drags out as files, up to 200 MB where a copy is not
+  free, and the folder rows take the drag by the ids the window remembers.
+
 - ☑ ~~**`reflinkSupported()` finally matters.**~~ It has existed since M1 with no caller. It is what
   decides whether a correct filename is free (btrfs, XFS) or costs the whole file (ext4, NTFS).
 
@@ -801,6 +819,11 @@ monthly archive under [`sessions/`](sessions/), and what shipped is in
   Right-clicking an asset already in the selection keeps it; right-clicking one outside makes it
   the selection — the regression test drives both, because the version that called `click()` for
   both would have passed a test that only checked the menu opened.
+
+- ☑ ~~**Copy is a path, not a file.**~~ `Ctrl+V` into a file manager does nothing with it. A real
+  file copy needs `text/uri-list` and, for Nautilus, `x-special/gnome-copied-files`, which is one
+  clipboard format per desktop. **Closed 2026-09-07 by ADR-0034** (Copy file), and ticked
+  2026-09-25 when the section was next touched.
 
 - ☑ ~~**Export to an external folder.**~~ `exportAssets` in `@roost/library`, over the directory
   chooser that already existed. Files land under the library's name rather than the

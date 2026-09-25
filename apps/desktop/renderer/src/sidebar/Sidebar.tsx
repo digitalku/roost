@@ -6,6 +6,7 @@ import {
   carriesFolder,
   draggedAssets,
   draggedFolder,
+  dropEffectFor,
   FOLDER_DRAG_TYPE,
 } from "../dnd.js";
 import { FolderContextMenu } from "../FolderContextMenu.js";
@@ -439,8 +440,9 @@ function Folders({
                   // *every* `dragover` the browser refuses the drop, and
                   // `dropEffect` is what the cursor shows the hand.
                   event.preventDefault();
-                  event.dataTransfer.dropEffect =
-                    carriesAssets(event.dataTransfer) && event.ctrlKey ? "copy" : "move";
+                  event.dataTransfer.dropEffect = carriesAssets(event.dataTransfer)
+                    ? dropEffectFor(event.dataTransfer, event.ctrlKey)
+                    : "move";
                   setOver(row.folder);
                 }}
                 onDragLeave={() => setOver((held) => (held === row.folder ? null : held))}

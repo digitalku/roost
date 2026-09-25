@@ -36,6 +36,8 @@ export {
   type DeriveProgress,
   GRID_VIEWS,
   type GridView,
+  HANDOFF_COSTS,
+  type HandoffCost,
   IMPORT_SUBJECTS,
   type ImportProgress,
   type ImportSubject,

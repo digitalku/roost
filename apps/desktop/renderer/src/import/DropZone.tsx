@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { pathForFile } from "../bridge.js";
+import { isOwnDrag } from "../dnd.js";
 
 /**
  * The whole window is the drop target (`UI_SPEC.md` §3), and it says so only
@@ -38,8 +39,16 @@ export function DropZone({ onDrop, captioning }: DropZoneProps): React.JSX.Eleme
   }, []);
 
   useEffect(() => {
-    const isFiles = (event: DragEvent): boolean =>
-      Array.from(event.dataTransfer?.types ?? []).includes("Files");
+    // **Not the window's own drag.** The grid drags out as files (ADR-0034
+    // §4), so a selection dragged and let go over the grid would otherwise be
+    // offered for import — as copies of itself. It is still stopped, since a
+    // file dropped where nothing takes it is one Chromium navigates to.
+    const isFiles = (event: DragEvent): boolean => {
+      if (!Array.from(event.dataTransfer?.types ?? []).includes("Files")) return false;
+      if (!isOwnDrag(event.dataTransfer)) return true;
+      stop(event);
+      return false;
+    };
 
     const enter = (event: DragEvent): void => {
       if (!isFiles(event)) return;
@@ -56,6 +65,7 @@ export function DropZone({ onDrop, captioning }: DropZoneProps): React.JSX.Eleme
     };
     const drop = (event: DragEvent): void => {
       stop(event);
+      if (isOwnDrag(event.dataTransfer)) return;
       setDepth(0);
       const files = Array.from(event.dataTransfer?.files ?? []);
       // An empty path means the drop carried something that is not a file on

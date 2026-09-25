@@ -441,6 +441,8 @@ the grid's roving ring and the preview's stepping both dead until something is c
 | **Open** | opens it here, in the preview. Disabled for a file Roost cannot draw — there is nothing to open | disabled — a preview shows one asset |
 | **Open externally** | hands the file to the desktop's own handler | disabled — three files is three applications opening |
 | **Show in file manager** | reveals it, selected | disabled, same reason |
+| **Copy file** `Ctrl+C` | the file itself, for pasting into a file manager — a copy under the name the library shows, staged in the library (ADR-0034) | `Copy N files` |
+| **Copy image** | the picture, as a full-size PNG, for pasting into a chat, an editor or a slide. Disabled over anything but a picture (ADR-0034 §5) | disabled — a clipboard holds one picture |
 | **Copy path** | one path | `Copy N paths`, one per line |
 | **Export…** | a directory chooser, then a copy out | `Export N assets…` |
 | **Move to trash** | reversible, so it asks nothing | `Move N assets to trash` |
@@ -1267,6 +1269,16 @@ wanted.
 
 Built 2026-09-07 (ADR-0033 §5). Two gestures, one drop target.
 
+**Since 2026-09-25 the same drag also leaves the window** (ADR-0034 §6): dropped on Dolphin, a
+chat or an editor, it hands over the files under the names the library shows. It is a native drag,
+started by main, so it carries `Files` and nothing of Roost's own. The folder rows and tiles take it
+anyway by remembering which assets the window asked to drag, the import overlay ignores it, and the
+cursor over a folder shows *copy* even where the drop will move, because *copy* is all a native drag
+allows. **On a filesystem without reflink a drag past 200 MB stays inside the window**, and the
+status bar says so: *Dragging within Roost only — 1.2 GB would be copied before the drag could
+start. Copy file (Ctrl+C) hands them over instead.* The first drag of a session carries Roost's
+icon, and later ones carry the thumbnail.
+
 **Since 2026-09-13 a folder row is not the only target**: the grid draws the subfolders of the
 folder on screen (§6, ADR-0043), and a drop onto one of those tiles is this same gesture with this
 same rule. A tile is only ever drawn *inside* a folder, so a drag from the grid onto a sibling is
@@ -1519,8 +1531,12 @@ the columns they name — which costs two things, both found by measuring a real
   right padding, from a width the grid measures and writes as a custom property — CSS cannot
   name it, and it is a platform constant rather than a state to track.
 
-**Zoom** is the cell target, 120–400px, snapped to seven steps. `layout()` has taken it as a
-parameter since M3; the menu is the first thing to pass anything but a constant. The three
+**Zoom** is **the view's own** (ADR-0039 §10): a cell's width in Icons, 120–400px in seven
+steps, starting at 160; a row's height in Compact and Details, 26–72px in seven steps, starting at
+30 and 34. A row's thumbnail is its height less 8px, so zooming a list makes the pictures larger
+and not only the gaps; the text keeps its size. Switching views gives back the size that view was
+left at. `layout()` has taken the zoom as a parameter since M3; the menu is the first thing to pass
+anything but a constant. The three
 controls are one row on one menu line, and **selecting one does not close the menu** — zooming
 twice should not cost two trips. Each is a real menu item underneath, because a bare button
 inside the content would be reachable by pointer and by nothing else (§10).
@@ -1596,8 +1612,10 @@ two to four sit in a 2×2. The holes and the fold line are the ground showing th
 pictures are the colour and a sleeve competing with them would be the loudest thing in a grid of
 photographs. The pictures are `roost://thumb` addresses the engine names through `folder:covers`,
 asked once whenever the list of subfolders is read again. That happens when the library changes,
-so a cover follows imports and derives without a timer. **Its size is per view**: a row's square
-is too small for holes and pictures, so it holds the sleeve alone, and in Icons the sheet takes
+so a cover follows imports and derives without a timer. **Its size is per view**: a row holds **the sleeve without pictures**, because in a list the name is what is
+read — but punched to pixels rather than scaled from the tile, three round holes in a 6-pixel
+strip, since scaled down the holes were a pixel wide and the row showed a grey rectangle
+(2026-09-25) — and in Icons the sheet takes
 most of the picture area's height, capped so it never reads as a panel.
 **The count rides in the caption beside the name**, where every view has room for text, rather
 than as a badge over a filled shape. Four things follow, and none of them is
@@ -2161,6 +2179,7 @@ becomes a preference in M6.
 | `Ctrl+D` | Deselect all |
 | `0`–`5` | Set rating on the selection (`0` clears to unrated) |
 | `T` | Focus the tag editor for the selection |
+| `Ctrl+C` | **Copy file** on the selection, or on the asset the preview is showing (ADR-0034 §5). Not while typing, and not over text somebody has selected — a name or a note in the inspector is text first |
 | `Delete` | Move the selection to the trash — and, inside the Trash place, delete it permanently after confirming (ADR-0022) |
 | `Alt+←` / `Backspace` | Back, through the **places** this window has been (ADR-0044). A filter is not a place, so Back is not an undo for the filter bar — and travelling keeps the chips standing, exactly as clicking a folder does |
 | `Alt+→` | Forward, until something new is chosen and the way ahead is dropped |

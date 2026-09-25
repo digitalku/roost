@@ -244,7 +244,7 @@ export class EngineHost {
           ...(request.matchImageProportions !== undefined && {
             matchImageProportions: request.matchImageProportions,
           }),
-          ...(request.gridZoom !== undefined && { gridZoom: request.gridZoom }),
+          ...(request.gridZooms !== undefined && { gridZooms: request.gridZooms }),
           ...(request.showFolders !== undefined && { showFolders: request.showFolders }),
           ...(request.showSidebar !== undefined && { showSidebar: request.showSidebar }),
           ...(request.showInspector !== undefined && { showInspector: request.showInspector }),
@@ -580,6 +580,9 @@ export class EngineHost {
       case "asset:reveal":
       case "asset:copyPath":
       case "asset:copyFiles":
+      case "asset:copyImage":
+      case "asset:dragOut":
+      case "handoff:cost":
       case "dialog:openLibrary":
       case "dialog:chooseLocation":
       case "app:quit":

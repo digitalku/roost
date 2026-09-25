@@ -120,6 +120,9 @@ describe("validating a request", () => {
       "asset:reveal",
       "asset:copyPath",
       "asset:copyFiles",
+      "asset:copyImage",
+      "asset:dragOut",
+      "handoff:cost",
       "assets:trash",
       "assets:restore",
       "assets:remove",
@@ -262,6 +265,25 @@ describe("validating a change of preferences", () => {
     expect(checkRequest({ type: "settings:write", showSidebar: 0 })).toEqual({
       ok: false,
       reason: "settings:write: showSidebar: expected a boolean",
+    });
+  });
+
+  it("carries a zoom per view, whatever the views are called (ADR-0039 §10)", () => {
+    // The view's name is the window's vocabulary, so a name this build has not
+    // heard of passes; a zoom that is not a positive integer does not.
+    expect(checkRequest({ type: "settings:write", gridZooms: { icons: 160, mosaic: 90 } })).toEqual(
+      {
+        ok: true,
+        value: { type: "settings:write", gridZooms: { icons: 160, mosaic: 90 } },
+      },
+    );
+    expect(checkRequest({ type: "settings:write", gridZooms: [160] })).toEqual({
+      ok: false,
+      reason: "settings:write: gridZooms: expected an object",
+    });
+    expect(checkRequest({ type: "settings:write", gridZooms: { details: 0 } })).toEqual({
+      ok: false,
+      reason: "settings:write: gridZooms.details: expected a positive integer",
     });
   });
 

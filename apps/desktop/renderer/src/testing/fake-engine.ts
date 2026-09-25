@@ -1,6 +1,7 @@
 import type {
   AssetCard,
   AssetPage,
+  HandoffCost,
   ImportProgress,
   LibraryStats,
   LibrarySummary,
@@ -117,6 +118,10 @@ export interface FakeEngineOptions {
   readonly sidebar?: WireSidebar;
   /** How many files a copy put on the clipboard; defaults to the whole selection. */
   readonly copiedFiles?: number;
+  /** Whether a picture could be made of the asset `asset:copyImage` names. */
+  readonly copiesImage?: boolean;
+  /** What a named copy costs in this library (ADR-0034 §4); defaults to `free`. */
+  readonly handoffCost?: HandoffCost;
   /**
    * Queries the engine would refuse to parse, and where each one stopped.
    *
@@ -393,7 +398,7 @@ export class FakeEngine {
       gridView: "icons",
       matchImageProportions: true,
       showFolders: true,
-      gridZoom: 240,
+      gridZooms: {},
       showSidebar: true,
       showInspector: true,
       sidebarWidth: 240,
@@ -978,6 +983,17 @@ export class FakeEngine {
       // "one is" are different sentences, and the window says which.
       case "asset:copyFiles":
         return ok(this.#options.copiedFiles ?? request.ids.length);
+
+      case "asset:copyImage":
+        return ok(this.#options.copiesImage ?? true);
+
+      // Answered at once. A test that needs the drag still in the air holds
+      // this request with `hold`, which is what a hand still holding it is.
+      case "asset:dragOut":
+        return ok(request.ids.length);
+
+      case "handoff:cost":
+        return ok(this.#options.handoffCost ?? "free");
 
       case "assets:export":
         return ok({

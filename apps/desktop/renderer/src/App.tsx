@@ -1,5 +1,6 @@
 import type {
   AssetCard,
+  HandoffCost,
   ImportSubject,
   LibraryStats,
   LibrarySummary,
@@ -27,19 +28,13 @@ import { invoke, onEvent } from "./bridge.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Credit } from "./Credit.js";
 import { DeriveStatus, derivesLeft, useDeriveStatus } from "./DeriveStatus.js";
+import { dragGoesOut, dragOutEnded, dragOutStarted } from "./dnd.js";
 import { FilterBar } from "./filter/FilterBar.js";
 import { childrenOf, parentOf } from "./folders.js";
-import { counted } from "./format.js";
-import { AssetContextMenu } from "./grid/AssetContextMenu.js";
+import { bytes, counted } from "./format.js";
+import { AssetContextMenu, copiedLine } from "./grid/AssetContextMenu.js";
 import { type FolderTiles, Grid } from "./grid/Grid.js";
-import {
-  DEFAULT_ZOOM,
-  GRID_VIEWS,
-  type GridView,
-  isGridView,
-  nearestZoom,
-  zoomBy,
-} from "./grid/layout.js";
+import { GRID_VIEWS, type GridView, isGridView, ZOOMS, zoomBy, zoomFor } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
 import { assets, type ConfirmRequest, useTrashActions } from "./grid/trash-actions.js";
@@ -83,7 +78,7 @@ const DEFAULT_SETTINGS: WireSettings = {
   shuffleSeed: 0,
   gridView: "icons",
   matchImageProportions: true,
-  gridZoom: DEFAULT_ZOOM,
+  gridZooms: {},
   showFolders: true,
   showSidebar: true,
   showInspector: true,
@@ -608,6 +603,12 @@ function drawable(assets: readonly AssetCard[], id: string): boolean {
   return card !== undefined && card.kind !== "other";
 }
 
+/** Whether an asset is a picture, which is what **Copy image** copies. */
+function isPicture(assets: readonly AssetCard[], id: string | undefined): boolean {
+  if (id === undefined) return false;
+  return assets.find((asset) => asset.id === id)?.kind === "image";
+}
+
 /** Whether an asset is the kind a caption track can be attached to (ADR-0025). */
 function captionable(assets: readonly AssetCard[], id: string | undefined): boolean {
   if (id === undefined) return false;
@@ -748,6 +749,27 @@ function LibraryView({
   }, [root]);
 
   /**
+   * What a named copy costs in this library, which decides whether a drag can
+   * leave the window (ADR-0034 §4).
+   *
+   * A ref rather than state: it is read inside `dragstart` and nothing is
+   * drawn from it. `copies` until the answer arrives, which is the answer that
+   * can only err towards keeping a drag inside the window.
+   */
+  const handoff = useRef<HandoffCost>("copies");
+  useEffect(() => {
+    handoff.current = "copies";
+    if (root === undefined) return;
+    let current = true;
+    void invoke({ type: "handoff:cost" }).then((outcome) => {
+      if (current && outcome.ok) handoff.current = outcome.value;
+    });
+    return () => {
+      current = false;
+    };
+  }, [root]);
+
+  /**
    * The remembered volume, written as the player changes it (ADR-0024 §9).
    *
    * **Leading, then trailing.** Dragging the slider emits a `volumechange` per
@@ -791,15 +813,17 @@ function LibraryView({
   /**
    * The view menu's state, read out of the library's settings.
    *
-   * `gridView` and `gridZoom` are checked here rather than in the engine: the
+   * `gridView` and `gridZooms` are checked here rather than in the engine: the
    * vocabulary is the interface's, so a view this build does not know falls
-   * back to Icons and a zoom that is not a step snaps to the nearest one
-   * (`layout.ts`). An engine that knew what "compact" is would be an engine
-   * holding a copy of the interface.
+   * back to Icons and a zoom that is not one of its view's steps snaps to the
+   * nearest (`layout.ts`). An engine that knew what "compact" is would be an
+   * engine holding a copy of the interface. **Each view has its own zoom**
+   * (ADR-0039 §10), so switching views gives back the size that view was left
+   * at.
    */
   const view: GridView = isGridView(settings.gridView) ? settings.gridView : "icons";
   const proportional = settings.matchImageProportions;
-  const zoom = nearestZoom(settings.gridZoom);
+  const zoom = zoomFor(view, settings.gridZooms[view]);
   /*
    * Memoised because it is what makes the grid throw its rows away: `useAssetPages`
    * re-pages when the order changes, and a fresh object every render is a fresh
@@ -1603,6 +1627,77 @@ function LibraryView({
     return () => window.removeEventListener("keydown", onKey);
   }, [goUp, journey]);
 
+  /**
+   * `Ctrl+C` puts the files on the clipboard: **Copy file**, the menu's first
+   * copy row, because copying the file is what a file manager's `Ctrl+C` does
+   * and what somebody pasting into one expects (ADR-0034).
+   *
+   * Over the preview it copies the asset on screen, as the menu there does.
+   * Two things are left to the browser: a key pressed while typing, and a key
+   * pressed over **text somebody has selected** — a name or a note in the
+   * inspector is text first, and taking the key from it would make the one
+   * thing `Ctrl+C` always does stop working in the one place it is asked to.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== "c") return;
+      const target = event.target;
+      if (target instanceof HTMLElement && isTyping(target)) return;
+      if (window.getSelection()?.isCollapsed === false) return;
+      const ids = showingPreview && focused !== undefined ? [focused] : selected;
+      if (ids.length === 0) return;
+      event.preventDefault();
+      void invoke({ type: "asset:copyFiles", ids }).then((outcome) => {
+        if (!outcome.ok) return setActed(outcome.problem);
+        noteResult(copiedLine(outcome.value));
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focused, noteResult, selected, showingPreview]);
+
+  /**
+   * A drag from the grid, going out of the window as files where it can
+   * (ADR-0034 §4).
+   *
+   * Decided here rather than in the grid because this is where both halves of
+   * the rule are held: what a copy costs in this library, and each asset's
+   * size. Where a copy is free the drag always goes out. Where it is not, it
+   * goes out up to {@link DRAG_OUT_BUDGET} and stays inside the window past it,
+   * and the status bar says why. Otherwise a drag that can no longer reach
+   * Dolphin would look broken rather than deliberate.
+   *
+   * The ids are remembered until main answers, which it does when the drag
+   * ends, because a drop back onto a folder in this window carries only files.
+   */
+  const assetsNow = useRef(paging.assets);
+  assetsNow.current = paging.assets;
+  const dragOut = useCallback(
+    (ids: readonly string[]): boolean => {
+      const sizes = ids.map((id) => assetsNow.current.find((asset) => asset.id === id)?.size);
+      const verdict = dragGoesOut(handoff.current, sizes);
+      if (!verdict.out) {
+        noteResult(
+          verdict.bytes === null
+            ? "Dragging within Roost only — the size of some of these is not known yet"
+            : `Dragging within Roost only — ${bytes(verdict.bytes)} would be copied before the drag could start. Copy file (Ctrl+C) hands them over instead`,
+        );
+        return false;
+      }
+      dragOutStarted(ids);
+      void invoke({ type: "asset:dragOut", ids }).then((outcome) => {
+        dragOutEnded();
+        if (!outcome.ok) return setActed(outcome.problem);
+        if (outcome.value === 0) {
+          noteResult("Nothing could be dragged — those files are not on this machine");
+        }
+      });
+      return true;
+    },
+    [noteResult],
+  );
+
   /** The Eagle library the survey dialog is open on, if it is (ADR-0032). */
   const [eagle, setEagle] = useState<string | undefined>();
 
@@ -1978,7 +2073,12 @@ function LibraryView({
                     onProportional={(next) => applyView({ matchImageProportions: next })}
                     onZoom={(steps) =>
                       applyView({
-                        gridZoom: steps === 0 ? DEFAULT_ZOOM : zoomBy(zoom, steps),
+                        // The whole map, since a write replaces it: the other
+                        // views' zooms, and any a newer build left, ride along.
+                        gridZooms: {
+                          ...settings.gridZooms,
+                          [view]: steps === 0 ? ZOOMS[view].initial : zoomBy(view, zoom, steps),
+                        },
                       })
                     }
                     onSort={(next) =>
@@ -2028,6 +2128,7 @@ function LibraryView({
               onConfirm={setConfirming}
               onGone={clearSelection}
               onPosterPinned={paging.pinPoster}
+              picture={isPicture(paging.assets, focused)}
             >
               <PreviewPane
                 id={focused}
@@ -2083,6 +2184,7 @@ function LibraryView({
                 setPreviewing(true);
               }}
               drawable={selected.length === 1 && drawable(paging.assets, selected[0] ?? "")}
+              picture={selected.length === 1 && isPicture(paging.assets, selected[0])}
             >
               <Grid
                 assets={paging.assets}
@@ -2093,6 +2195,7 @@ function LibraryView({
                 onMore={paging.more}
                 onOpen={openAsset}
                 loading={!paging.done}
+                onDragOut={dragOut}
                 {...(folderTiles === undefined ? {} : { folders: folderTiles })}
               />
             </AssetContextMenu>

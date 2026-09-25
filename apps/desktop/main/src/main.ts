@@ -1,7 +1,7 @@
 import { rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type {
   Event,
   ImportSubject,
@@ -27,7 +27,17 @@ import {
   teeSink,
 } from "@roost/core";
 import { SUBTITLE_EXTENSIONS } from "@roost/media/serving";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  nativeImage,
+  protocol,
+  shell,
+  type WebContents,
+} from "electron";
 import { AssetServer } from "./assets.js";
 import { isHttpUrl, pastedName, pathsFromUriList } from "./clipboard.js";
 import { Engine, EngineGoneError, EngineProblem } from "./engine.js";
@@ -111,7 +121,9 @@ if (!app.requestSingleInstanceLock()) {
     // (ADR-0006).
     engine.start();
     protocol.handle(ROOST_SCHEME, (request) => assets.handle(request));
-    ipcMain.handle(REQUEST_CHANNEL, (_source, payload: unknown) => route(engine, payload));
+    ipcMain.handle(REQUEST_CHANNEL, (source, payload: unknown) =>
+      route(engine, payload, source.sender),
+    );
     // Before the first window: Electron installs its default menu when one is
     // created, and replacing it afterwards would flash the menu it replaces.
     installApplicationMenu();
@@ -144,7 +156,7 @@ if (!app.requestSingleInstanceLock()) {
  * arrives here is checked before it goes anywhere near the engine — and checked
  * again by the engine, which is the boundary that matters.
  */
-async function route(engine: Engine, payload: unknown): Promise<unknown> {
+async function route(engine: Engine, payload: unknown, sender: WebContents): Promise<unknown> {
   const checked = checkRequest(payload);
   if (!checked.ok) {
     log.warn("rejected a request from the renderer", { reason: checked.reason });
@@ -159,7 +171,7 @@ async function route(engine: Engine, payload: unknown): Promise<unknown> {
   log.debug("request", { type: request.type });
   try {
     if (ANSWERED_HERE.has(request.type)) {
-      return { ok: true, value: await answerHere(engine, request) };
+      return { ok: true, value: await answerHere(engine, request, sender) };
     }
     const value = await engine.request(request);
     followLibrary(request, value);
@@ -225,6 +237,9 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "asset:reveal",
   "asset:copyPath",
   "asset:copyFiles",
+  "asset:copyImage",
+  "asset:dragOut",
+  "handoff:cost",
   "clipboard:paste",
   "clipboard:copyText",
   "link:open",
@@ -237,11 +252,15 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
 async function answerHere(
   engine: Engine,
   request: Request,
+  sender: WebContents,
 ): Promise<string | number | boolean | readonly string[] | WirePasted | WireAbout | null> {
   if (request.type === "asset:openExternally") return openExternally(request.id);
   if (request.type === "asset:reveal") return reveal(request.id);
   if (request.type === "asset:copyPath") return copyPaths(request.ids);
   if (request.type === "asset:copyFiles") return copyFiles(request.ids);
+  if (request.type === "asset:copyImage") return copyImage(request.id);
+  if (request.type === "asset:dragOut") return dragOut(request.ids, sender);
+  if (request.type === "handoff:cost") return assets.handoffCost();
   if (request.type === "clipboard:paste") return paste(engine, request.take);
   if (request.type === "clipboard:copyText") {
     clipboard.writeText(request.text);
@@ -525,6 +544,69 @@ async function copyFiles(idList: readonly string[]): Promise<number> {
   }
   return files.length;
 }
+
+/**
+ * Puts one asset on the clipboard as a picture.
+ *
+ * **On Linux the PNG goes on as it is**, under `image/png`, which is the one
+ * image format Chromium itself offers there. `writeImage` puts the same single
+ * format on, but only after decoding the picture into a bitmap and encoding it
+ * again, and it does both on this thread. Measured against a 24-megapixel
+ * photograph under KDE: `writeImage` held main for 650–720 ms, and
+ * `writeBuffer` for 32 ms, with the bytes arriving unchanged at the other end.
+ * Elsewhere the desktop's clipboard names its image formats differently
+ * (Windows a bitmap, macOS `public.png`), so a format called `image/png` would
+ * be one nothing reads, and there it goes through `writeImage`. Not measured:
+ * Linux is the one platform this build is packaged for.
+ *
+ * Either way it replaces whatever was on the clipboard, file list included:
+ * the clipboard holds one custom format at a time (ADR-0034 §3.4).
+ */
+async function copyImage(id: string): Promise<boolean> {
+  if (!isAssetId(id)) return false;
+  const png = await assets.still(id);
+  if (png === undefined) return false;
+  if (process.platform === "linux") clipboard.writeBuffer("image/png", png);
+  else clipboard.writeImage(nativeImage.createFromBuffer(png));
+  return true;
+}
+
+/**
+ * Drags the selection out of the window as files (ADR-0034 §4).
+ *
+ * The window cancelled its own drag in `dragstart` and asked for this one, and
+ * the button is still held: `startDrag` begins a drag the compositor carries,
+ * which is the only kind a file manager can take a drop from. The files are
+ * the same named copies **Copy file** stages, so what lands in Dolphin is
+ * `Sunset at the pier.png` rather than an id.
+ *
+ * **`startDrag` returns when the drag ends**, dropped or abandoned. It runs a
+ * nested loop, so main goes on answering the window meanwhile (measured: the
+ * window's own messages arrived in the middle of a drag), and the reply to this
+ * request is how the window learns it is no longer carrying anything.
+ *
+ * A drop back into this window arrives as `Files`, like one from the desktop.
+ * The window tells the two apart by remembering what it asked for, not by
+ * reading these paths back, which are copies and name nothing in the library.
+ */
+async function dragOut(idList: readonly string[], sender: WebContents): Promise<number> {
+  const ids = idList.filter(isAssetId);
+  const [files, picture] = await Promise.all([
+    assets.stage(ids),
+    ids[0] === undefined ? undefined : assets.dragPicture(ids[0]),
+  ]);
+  const [first] = files;
+  if (first === undefined) return 0;
+  const icon = picture === undefined ? DRAG_ICON : nativeImage.createFromBuffer(picture);
+  sender.startDrag(files.length === 1 ? { file: first, icon } : { file: first, files, icon });
+  return files.length;
+}
+
+/**
+ * What a drag carries under the pointer before a picture can be made. A path,
+ * which Electron reads at the drag, so start-up pays nothing for it.
+ */
+const DRAG_ICON = fileURLToPath(new URL("../../../../assets/brand/icon-64.png", import.meta.url));
 
 /** The desktops whose file managers paste from GNOME's own format. */
 const GNOME_DESKTOPS = /gnome|cinnamon|mate|unity|budgie|pantheon/i;

@@ -1,6 +1,6 @@
 import { SORT_KEYS, type SortKey, type WireSort } from "@roost/contract";
 import { DropdownMenu } from "radix-ui";
-import { DEFAULT_ZOOM, GRID_VIEWS, type GridView, ZOOM_STEPS } from "./layout.js";
+import { GRID_VIEWS, type GridView, ZOOMS } from "./layout.js";
 
 /**
  * The view control: one toolbar button, one menu (ADR-0018).
@@ -62,6 +62,7 @@ const SORTS: Readonly<
 export interface ViewMenuProps {
   readonly view: GridView;
   readonly proportional: boolean;
+  /** The zoom of the view on screen: each view has its own (ADR-0039 §10). */
   readonly zoom: number;
   readonly sort: WireSort;
   readonly onView: (view: GridView) => void;
@@ -95,8 +96,9 @@ export function ViewMenu({
   onShowFolders,
   subfolders,
 }: ViewMenuProps): React.JSX.Element {
-  const first = ZOOM_STEPS[0] ?? DEFAULT_ZOOM;
-  const last = ZOOM_STEPS[ZOOM_STEPS.length - 1] ?? DEFAULT_ZOOM;
+  const { steps, initial } = ZOOMS[view];
+  const first = steps[0] ?? initial;
+  const last = steps[steps.length - 1] ?? initial;
 
   return (
     <DropdownMenu.Root>

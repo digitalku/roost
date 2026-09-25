@@ -465,7 +465,8 @@
    * scroller. `Grid.tsx` measures it and writes it here, because it is a
    * platform constant CSS cannot name.
    */
-  --details-columns: 26px minmax(0, 1fr) 65px 78px 104px 104px;
+  --details-columns: var(--row-thumb) minmax(0, 1fr) 65px 78px 104px 104px;
+  /* The fallback only: `Grid.tsx` writes the row zoom's own (ADR-0039 §10). */
   --row-thumb: 26px;
   --scrollbar: 0px;
 
@@ -657,16 +658,39 @@
   object-fit: cover;
 }
 
-/* A row's square is too small for holes and pictures: the sleeve and its fold
-   line are the whole icon there, and they fill the square as a thumbnail does. */
+/*
+ * A row's sleeve holds no pictures (the user's call, 2026-09-25): in a list the
+ * name is what is read, and the icon only has to say *folder*.
+ *
+ * **So the punch is drawn to pixels rather than to percentages.** Scaled down
+ * from the Icons tile, the strip was three pixels wide and its holes one, which
+ * left a grey rectangle — reported from a Details window the same day as
+ * *"hanya kosong begini"*. Three round holes are what 26 pixels can hold, and
+ * the pixels are floors, so a row zoomed larger draws the same shape larger
+ * (ADR-0039 §10). The sheet stops short of the square so that two rows'
+ * sleeves do not run together.
+ */
 .cell[data-view="compact"] .folder-sheet,
 .cell[data-view="details"] .folder-sheet {
-  height: 100%;
+  height: calc(100% - 4px);
   max-width: none;
+  border-radius: 1px max(4px, 12%) max(4px, 12%) 1px;
+}
+
+.cell[data-view="compact"] .folder-sheet-strip,
+.cell[data-view="details"] .folder-sheet-strip {
+  width: max(6px, 28%);
+  padding: max(2px, 8%) 0;
+  border-right-width: 1px;
 }
 
 .cell[data-view="compact"] .folder-hole,
-.cell[data-view="details"] .folder-hole,
+.cell[data-view="details"] .folder-hole {
+  width: max(3px, 45%);
+}
+
+.cell[data-view="compact"] .folder-hole[data-long],
+.cell[data-view="details"] .folder-hole[data-long],
 .cell[data-view="compact"] .folder-sheet-body,
 .cell[data-view="details"] .folder-sheet-body {
   display: none;

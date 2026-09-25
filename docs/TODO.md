@@ -142,6 +142,13 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   *Dragging assets onto a folder* with `never settled: document.querySelectorAll('.cell').length`.
   Both need a first look at whether the script or the window is what changed.
 
+### A zoom per view (ADR-0039 §10) — built 2026-09-25
+
+- 🟢 **`[` and `]` are in the keyboard map and bound to nothing.** `UI_SPEC.md` §9 has listed them
+  as *Zoom cells down · up* since M3, and the zoom is reached only through the view menu. Found
+  while giving each view its own zoom, and not bound then because nobody asked for it: it is one
+  handler in `App.tsx` beside `Ctrl+1..3`, with the same typing guard, calling the menu's `onZoom`.
+
 ### Importing an Eagle library (ADR-0032) — built 2026-09-06
 
 - 🟢 **The folder structure itself is to be revisited**, at the user's word on 2026-09-06: *"nanti
@@ -217,13 +224,23 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 ### Handing a file to another application (ADR-0034, 2026-09-07)
 
-- 🔴 **Dragging a file out is not built, and cannot be decided by reading.** A window cannot be an
-  HTML5 drag source and a native file drag source in the same gesture: `webContents.startDrag`
-  *replaces* the HTML5 drag, and the grid's drag is already how an asset is filed into a folder
-  (ADR-0033 §5). The design worth wanting — a native drag whose drops the folder rows read back —
-  rests on an untested assumption: **that a native drag started by `startDrag` still delivers `drop`
-  to its own window**, which may differ between X11 and Wayland. It needs somebody to try it.
-  ADR-0034 §4 lays out the three options.
+- 🟡 **Dragging out has been tried by hand on KDE Wayland only.** X11, and a GNOME session, are the
+  next two; the Wayland spike is the whole evidence that a native drag delivers `drop` to its own
+  window (ADR-0034 §6.1). A three-file drag dropped back on the window was not seen in the log.
+
+- 🟢 **A native drag shows no count.** The HTML5 drag's ghost says *3*; `startDrag` takes one
+  picture. A picture with the count drawn on it would need composing in main.
+
+- 🟢 **Dragging out of the preview pane.** One asset, and no internal drop to compete with.
+
+- 🟢 **Copy image over a video copies nothing.** A frame of a paused video is a picture too, and
+  the preview knows which one is on screen. It would want the frame drawn in the renderer and
+  handed over as bytes, which invariant 12 forbids, or the engine to ask ffmpeg for the frame at
+  that moment. Not asked for; written down so the answer is not rediscovered.
+
+- 🟢 **Copy image off Linux is not measured.** It goes through `writeImage` there, because
+  `image/png` is not a format the Windows or macOS clipboard names (ADR-0034 §5.3). Worth a paste
+  into Paint the next time a Windows build runs.
 
 - 🟢 **One format, chosen by the desktop.** Electron's clipboard holds exactly one custom format —
   `writeBuffer` clears what was there, measured rather than assumed — and GNOME's file managers read
@@ -632,10 +649,6 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   desktop's default. A real chooser has no Electron API and would mean reading `.desktop` files
   and `mimeapps.list` on Linux with nothing shared by the other two platforms — an ADR, not a
   menu item.
-
-- 🟡 **Copy is a path, not a file.** `Ctrl+V` into a file manager does nothing with it. A real
-  file copy needs `text/uri-list` and, for Nautilus, `x-special/gnome-copied-files`, which is one
-  clipboard format per desktop.
 
 - 🟡 **Focus returning to what the menu was opened over is a real-window claim.** The fix is
   `onCloseAutoFocus`: Radix hands focus to the trigger, a wrapper with no `tabindex`, so a real

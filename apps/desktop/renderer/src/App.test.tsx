@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { App } from "./App.js";
 import { ASSET_DRAG_TYPE } from "./dnd.js";
+import { ZOOMS, zoomBy } from "./grid/layout.js";
 import { sound } from "./preview/sound.js";
 import { FakeEngine, fakeAsset, fakeDetail, install } from "./testing/fake-engine.js";
 
@@ -73,6 +74,9 @@ describe("opening a library", () => {
       // This library's preferences, asked for before anything is drawn from
       // them, because the **order** is one of them (ADR-0039 §7).
       "settings:read",
+      // What a named copy costs here, which a drag out of the grid has to know
+      // inside `dragstart`, synchronously (ADR-0034 §4). Answered by main.
+      "handoff:cost",
       // The derive queue, as soon as there is a library: an empty cell has to
       // be able to say whether it is waiting, parked, or simply undrawable.
       "derive:status",
@@ -568,6 +572,45 @@ describe("the library view", () => {
     expect(screen.getByText("Moved 1 asset to the trash")).toBeDefined();
   });
 
+  it("copies the selected files with Ctrl+C, and says so", async () => {
+    // What a file manager's `Ctrl+C` does, so what a paste into one expects
+    // (ADR-0034). The ids are counted rather than the request type: a copy of
+    // the focused asset alone would send one request too.
+    const { engine, user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    await user.keyboard("{Shift>}");
+    await user.click(screen.getAllByRole("option")[2] as HTMLElement);
+    await user.keyboard("{/Shift}");
+
+    await user.keyboard("{Control>}c{/Control}");
+
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:copyFiles")).toHaveLength(1),
+    );
+    const sent = engine.seen.find((request) => request.type === "asset:copyFiles");
+    expect(sent?.type === "asset:copyFiles" && sent.ids.length).toBe(3);
+    expect(await screen.findByText("Copied 3 assets to the clipboard")).toBeDefined();
+  });
+
+  it("leaves Ctrl+C to the search field, and to text somebody has selected", async () => {
+    // Taking the key from either would stop the one thing `Ctrl+C` always does
+    // from working in the one place it was asked to.
+    const { engine, user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+
+    await user.click(screen.getByRole("searchbox", { name: /Search/ }));
+    await user.keyboard("{Control>}c{/Control}");
+
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    const words = screen.getByText(/12 assets/);
+    window.getSelection()?.selectAllChildren(words);
+    await user.keyboard("{Control>}c{/Control}");
+
+    expect(engine.seen.some((request) => request.type === "asset:copyFiles")).toBe(false);
+  });
+
   it("keeps the selection after an export, which takes nothing off screen", async () => {
     // The other half of the rule: only actions that remove assets from the view
     // clear the selection, or exporting twelve would deselect them.
@@ -676,6 +719,35 @@ describe("the library view", () => {
     await waitFor(() => expect(box().width).toBe(before));
   });
 
+  it("gives each view its own zoom, and remembers each", async () => {
+    // ADR-0039 §10, asked for on 2026-09-25: an icon's width and a row's height
+    // are different quantities, so zooming one view leaves the others alone.
+    const { engine, user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+    const icons = box().width;
+
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Zoom in" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(box().width).toBeGreaterThan(icons));
+    const zoomedIcons = box().width;
+
+    await user.keyboard("{Control>}3{/Control}");
+    // Details opens at its own size, not at the icons' zoom.
+    await waitFor(() => expect(box().height).toBe(ZOOMS.details.initial));
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Zoom in" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(box().height).toBeGreaterThan(ZOOMS.details.initial));
+
+    await user.keyboard("{Control>}1{/Control}");
+    await waitFor(() => expect(box().width).toBe(zoomedIcons));
+    expect(engine.settings.gridZooms).toEqual({
+      icons: zoomBy("icons", ZOOMS.icons.initial, 1),
+      details: zoomBy("details", ZOOMS.details.initial, 1),
+    });
+  });
+
   /**
    * Opens the view menu and its Sort By submenu.
    *
@@ -764,7 +836,7 @@ describe("the library view", () => {
         gridView: "details",
         matchImageProportions: false,
         showFolders: true,
-        gridZoom: 400,
+        gridZooms: { details: 60 },
         showSidebar: true,
         showInspector: true,
         sidebarWidth: 240,
@@ -806,7 +878,7 @@ describe("the library view", () => {
         gridView: "gallery",
         matchImageProportions: true,
         showFolders: true,
-        gridZoom: 240,
+        gridZooms: {},
         showSidebar: true,
         showInspector: true,
         sidebarWidth: 240,
@@ -2213,7 +2285,7 @@ describe("the volume a library remembers", () => {
         gridView: "icons",
         matchImageProportions: true,
         showFolders: true,
-        gridZoom: 240,
+        gridZooms: {},
         showSidebar: true,
         showInspector: true,
         sidebarWidth: 240,
@@ -2457,7 +2529,7 @@ describe("showing and hiding the side panes", () => {
               gridView: "icons",
               matchImageProportions: true,
               showFolders: true,
-              gridZoom: 240,
+              gridZooms: {},
               showSidebar: true,
               showInspector: true,
               sidebarWidth: 240,

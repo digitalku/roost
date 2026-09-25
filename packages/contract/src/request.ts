@@ -49,6 +49,7 @@ import type {
   WireTagRule,
 } from "./dto.js";
 import {
+  type HandoffCost,
   IMPORT_SUBJECTS,
   type ImportSubject,
   INSTALLABLE_BACKENDS,
@@ -207,7 +208,7 @@ export type Request =
       readonly shuffleSeed?: number;
       readonly gridView?: string;
       readonly matchImageProportions?: boolean;
-      readonly gridZoom?: number;
+      readonly gridZooms?: Readonly<Record<string, number>>;
       readonly showFolders?: boolean;
       readonly showSidebar?: boolean;
       readonly showInspector?: boolean;
@@ -482,6 +483,38 @@ export type Request =
    * Both are offered, because they answer different questions.
    */
   | { readonly type: "asset:copyFiles"; readonly ids: readonly string[] }
+  /**
+   * Puts one asset on the clipboard as a **picture**, for pasting into
+   * something that takes an image rather than a file: a chat, an image editor,
+   * a slide.
+   *
+   * One id, not a selection: a clipboard holds one picture. It is a separate
+   * request from `asset:copyFiles` because the clipboard holds one format at a
+   * time (ADR-0034 §3.4), so "the file" and "the picture" cannot be put on it
+   * together.
+   */
+  | { readonly type: "asset:copyImage"; readonly id: string }
+  /**
+   * Drags the selection out of the window as files (ADR-0034 §4).
+   *
+   * Sent from `dragstart` after the window has cancelled its own drag, and
+   * answered by **main**, which stages a named copy of each file and hands them
+   * to the desktop as a native drag. The answer arrives when the drag **ends**,
+   * dropped or abandoned, which is how the window knows it is no longer
+   * carrying anything. Zero when nothing could be staged, in which case no drag
+   * was started.
+   */
+  | { readonly type: "asset:dragOut"; readonly ids: readonly string[] }
+  /**
+   * What a named copy costs in this library: `free` where the filesystem can
+   * clone a file, `copies` where every byte is written again.
+   *
+   * Asked once per library, because the window has to decide **inside**
+   * `dragstart`, synchronously, whether a drag goes out as files or stays
+   * inside the window, and on a filesystem that copies, a large selection
+   * would keep the hand waiting before anything moved (ADR-0034 §4).
+   */
+  | { readonly type: "handoff:cost" }
   /**
    * Move the selection to the trash, or bring it back out (ADR-0022).
    *
@@ -790,6 +823,11 @@ export interface Responses {
   "asset:copyPath": boolean;
   /** How many files reached the clipboard; zero when none could be staged. */
   "asset:copyFiles": number;
+  /** `false` when no picture could be made of it, so the clipboard is as it was. */
+  "asset:copyImage": boolean;
+  /** How many files the drag carried; zero when none could be staged. */
+  "asset:dragOut": number;
+  "handoff:cost": HandoffCost;
   "assets:trash": null;
   "assets:restore": null;
   "assets:remove": WireRemoval;
@@ -949,7 +987,7 @@ export const REQUEST_VALIDATORS: {
       shuffleSeed?: number;
       gridView?: string;
       matchImageProportions?: boolean;
-      gridZoom?: number;
+      gridZooms?: Readonly<Record<string, number>>;
       showFolders?: boolean;
       showSidebar?: boolean;
       showInspector?: boolean;
@@ -988,7 +1026,22 @@ export const REQUEST_VALIDATORS: {
       patch.gridView = view.value;
     }
 
-    for (const key of ["shuffleSeed", "gridZoom", "sidebarWidth", "inspectorWidth"] as const) {
+    // Keyed by the view's name, which is the window's vocabulary and not
+    // checked here for the reason `gridView` is not.
+    if (source["gridZooms"] !== undefined) {
+      const zooms = source["gridZooms"];
+      if (!isRecord(zooms)) return bad("gridZooms: expected an object");
+      const checked: Record<string, number> = {};
+      for (const [view, zoom] of Object.entries(zooms)) {
+        if (typeof zoom !== "number" || !Number.isSafeInteger(zoom) || zoom <= 0) {
+          return bad(`gridZooms.${view}: expected a positive integer`);
+        }
+        checked[view] = zoom;
+      }
+      patch.gridZooms = checked;
+    }
+
+    for (const key of ["shuffleSeed", "sidebarWidth", "inspectorWidth"] as const) {
       if (source[key] === undefined) continue;
       const value = readInteger(source, key);
       if (!value.ok) return value;
@@ -1236,6 +1289,18 @@ export const REQUEST_VALIDATORS: {
     const ids = readAssetIdArray(source, "ids");
     return ids.ok ? ok({ type: "asset:copyFiles", ids: ids.value }) : ids;
   },
+
+  "asset:copyImage": (source) => {
+    const id = readAssetId(source, "id");
+    return id.ok ? ok({ type: "asset:copyImage", id: id.value }) : id;
+  },
+
+  "asset:dragOut": (source) => {
+    const ids = readAssetIdArray(source, "ids");
+    return ids.ok ? ok({ type: "asset:dragOut", ids: ids.value }) : ids;
+  },
+
+  "handoff:cost": () => ok({ type: "handoff:cost" }),
 
   "assets:trash": (source) => {
     const ids = readAssetIdArray(source, "ids");
