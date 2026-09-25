@@ -224,9 +224,9 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 ### Handing a file to another application (ADR-0034, 2026-09-07)
 
-- 🟡 **Dragging out has been tried by hand on KDE Wayland only.** X11, and a GNOME session, are the
-  next two; the Wayland spike is the whole evidence that a native drag delivers `drop` to its own
-  window (ADR-0034 §6.1). A three-file drag dropped back on the window was not seen in the log.
+- 🟡 **Dragging out has been tried by hand on KDE Wayland only.** There it works: in the spike, and
+  in the real window on 2026-09-25, where the user confirmed it. X11 and a GNOME session are the
+  next two to try (ADR-0034 §6.4).
 
 - 🟢 **A native drag shows no count.** The HTML5 drag's ghost says *3*; `startDrag` takes one
   picture. A picture with the count drawn on it would need composing in main.
