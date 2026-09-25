@@ -26,7 +26,7 @@ import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Credit } from "./Credit.js";
-import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
+import { DeriveStatus, derivesLeft, useDeriveStatus } from "./DeriveStatus.js";
 import { FilterBar } from "./filter/FilterBar.js";
 import { childrenOf, parentOf } from "./folders.js";
 import { counted } from "./format.js";
@@ -51,6 +51,7 @@ import { type Importing, useImport } from "./import/useImport.js";
 import { Inspector } from "./inspector/Inspector.js";
 import { JournalNotice } from "./JournalNotice.js";
 import { isTyping } from "./keyboard.js";
+import { type Opening, OpeningStatus, openingName } from "./library/OpeningStatus.js";
 import { RecentList } from "./library/RecentList.js";
 import { NavButtons } from "./NavButtons.js";
 import { NewFileDialog } from "./NewFileDialog.js";
@@ -165,6 +166,7 @@ export function App(): React.JSX.Element {
   const [opened, setOpened] = useState<Opened | undefined>();
   const [problem, setProblem] = useState<WireProblem | undefined>();
   const [busy, setBusy] = useState(false);
+  const [opening, setOpening] = useState<Opening | undefined>();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [location, setLocation] = useState<string | undefined>();
@@ -263,6 +265,18 @@ export function App(): React.JSX.Element {
     [opened, readStats],
   );
 
+  // Only while an open is in flight: a fold is the one part of opening that has
+  // a number to show, and the engine sends it before its reply does.
+  const isOpening = opening !== undefined;
+  useEffect(() => {
+    if (!isOpening) return;
+    return onEvent((event) => {
+      if (event.type !== "library:folding") return;
+      const fraction = event.total === 0 ? 1 : event.done / event.total;
+      setOpening((current) => (current === undefined ? current : { ...current, fraction }));
+    });
+  }, [isOpening]);
+
   /**
    * Opens a library by path.
    *
@@ -272,8 +286,11 @@ export function App(): React.JSX.Element {
    */
   const openPath = async (path: string) => {
     setBusy(true);
+    const known = recent.find((entry) => entry.root === path);
+    setOpening({ name: known?.name ?? openingName(path, LIBRARY_SUFFIX), fraction: undefined });
     const outcome = await invoke({ type: "library:open", path });
     setBusy(false);
+    setOpening(undefined);
     if (!outcome.ok) {
       setOpened(undefined);
       // The recent list is the likeliest way to reach a library that has been
@@ -435,6 +452,7 @@ export function App(): React.JSX.Element {
             New library…
           </button>
         </div>
+        <OpeningStatus opening={opening} />
         {problem !== undefined && <Problem problem={problem} />}
         <RecentList
           entries={recent}
@@ -1821,6 +1839,14 @@ function LibraryView({
       onInspector={(on) => applyView({ showInspector: on })}
       onCloseLibrary={onClose}
       onReclaim={reclaim}
+      {...(derives.status?.paused === true && derivesLeft(derives.status) > 0
+        ? {
+            resumeDeriving: {
+              left: derivesLeft(derives.status),
+              onResume: () => void derives.resume(),
+            },
+          }
+        : {})}
       onAbout={() => setAbout(true)}
       onQuit={() => {
         void invoke({ type: "app:quit" });
@@ -2019,9 +2045,15 @@ function LibraryView({
                 {...(settings.showSidebar ? {} : { menu: appMenu })}
               />
             </AssetContextMenu>
-          ) : paging.assets.length === 0 && paging.done ? (
+          ) : paging.assets.length === 0 && paging.done && folderTiles === undefined ? (
             /* The menu over nothing belongs here most of all: an empty library is
-             exactly where somebody wants to paste or make a file. */
+             exactly where somebody wants to paste or make a file.
+
+             Not where the folder on screen has subfolders: it holds nothing of
+             its own, and its folders are what a person came to open. Until
+             2026-09-25 a folder of folders said "Nothing matches this query"
+             and drew none of them — found drawing the covers of just such a
+             folder. */
             <AssetContextMenu
               ids={[]}
               inTrash={inTrash}
@@ -2060,6 +2092,7 @@ function LibraryView({
                 selection={selection}
                 onMore={paging.more}
                 onOpen={openAsset}
+                loading={!paging.done}
                 {...(folderTiles === undefined ? {} : { folders: folderTiles })}
               />
             </AssetContextMenu>
@@ -2094,6 +2127,7 @@ function LibraryView({
               folders={sidebar?.folders ?? NO_FOLDERS}
               onRenamed={paging.rename}
               onPick={pickQuery}
+              onConfirm={setConfirming}
             />
           </>
         )}
@@ -2142,7 +2176,11 @@ function LibraryView({
           </span>
         )}
         <ImportStatus importing={importing} />
-        <DeriveStatus status={derives.status} onRetry={(reason) => void derives.retry(reason)} />
+        <DeriveStatus
+          status={derives.status}
+          onPause={() => void derives.pause()}
+          onResume={() => void derives.resume()}
+        />
         {/* Quiet and permanent for as long as it is true: another build holds
             meaning this one cannot show, and only the person can act on it. */}
         <JournalNotice notice={opened.summary.journal} />
@@ -2167,7 +2205,10 @@ function LibraryView({
           confirming?.run(optionOn);
           setConfirming(undefined);
         }}
-        onCancel={() => setConfirming(undefined)}
+        onCancel={() => {
+          confirming?.onCancel?.();
+          setConfirming(undefined);
+        }}
       />
 
       {/* Mounted only while it is open, so the name it starts with is the state

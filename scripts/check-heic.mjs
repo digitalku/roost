@@ -55,25 +55,15 @@ const pictureExpression = `
     };
   })()`;
 
-/**
- * The status line, but only while it is a button.
- *
- * The bar is one element that changes what it is — a `span` reading "Deriving…"
- * while the queue works, a `button` when it has stopped — so a click aimed at
- * the button a moment earlier lands on the span and does nothing, which is what
- * the span is for. Measured on 2026-09-10, twice, in two different checks.
- */
-const buttonExpression = `document.querySelector("button.status-job")?.textContent ?? null`;
-
-const dialogExpression = `
+/** The selected file's card in the inspector, in one round trip (ADR-0050). */
+const cardExpression = `
   (() => {
-    const dialog = document.querySelector(".dialog");
-    if (dialog === null) return null;
+    const card = document.querySelector(".inspector .file-problem");
+    if (card === null) return null;
     return {
-      title: dialog.querySelector(".dialog-title")?.textContent ?? null,
-      lines: [...dialog.querySelectorAll(".failure-line")].map((n) => n.textContent),
-      install: [...dialog.querySelectorAll(".failure-install")].map((n) => n.textContent),
-      buttons: [...dialog.querySelectorAll("button")].map((n) => n.textContent),
+      line: card.querySelector(".file-problem-line")?.textContent ?? null,
+      command: card.querySelector(".file-problem-command")?.textContent ?? null,
+      buttons: [...card.querySelectorAll(".file-problem-actions button")].map((n) => n.textContent),
     };
   })()`;
 
@@ -88,27 +78,6 @@ const openPreview = `
       new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
     );
   })()`;
-
-/**
- * Opens the parked list from the status bar, and tries again if the queue moved
- * under the click.
- */
-async function openList(cdp) {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    await cdp.settle(buttonExpression, (text) => text !== null);
-    await cdp.evaluate(`document.querySelector("button.status-job")?.click()`);
-    try {
-      return await cdp.settle(
-        dialogExpression,
-        (state) => state !== null && state.lines.length > 0,
-        { attempts: 20 },
-      );
-    } catch {
-      // The click landed on the queue rather than on the button. Ask again.
-    }
-  }
-  throw new Error("the parked list never opened");
-}
 
 try {
   const root = await library();
@@ -153,25 +122,32 @@ try {
       env: { ROOST_HEIF_DEC: join(dir, "no-such-heif-dec") },
     });
     try {
-      const status = await window.cdp.settle(buttonExpression, (text) =>
-        text?.includes("install libheif"),
+      // The cell is badged once the queue has parked it, and that badge is how
+      // a person finds it; the status bar says nothing about it (ADR-0050).
+      await window.cdp.settle(
+        `document.querySelector(".cell .placeholder-badge")?.textContent ?? null`,
+        (text) => text === "Needs libheif",
       );
-      check(
-        "the status bar names the backend rather than counting a failure",
-        status.includes("install libheif"),
-        `status=${JSON.stringify(status)}`,
+      const bar = await window.cdp.evaluate(
+        `[...document.querySelectorAll(".status .status-job")].map((n) => n.textContent).join(" | ")`,
       );
+      check("the cell says what it needs, and the status bar does not", bar === "", bar);
 
-      const shown = await openList(window.cdp);
-      check(
-        "the list explains it in words",
-        shown.lines.some((line) => line.includes("libheif")),
-        `lines=${shown.lines.join(" / ")}`,
+      const cell = await window.cdp.box(".cell");
+      await window.cdp.mouse.click(cell.x, cell.y);
+      const shown = await window.cdp.settle(
+        cardExpression,
+        (state) => state !== null && state.command !== null,
       );
       check(
-        "and prints the command for this machine, beside its own Try again",
-        shown.install.length === 1 && shown.buttons.includes("Try again"),
-        `install=${shown.install.join(" / ")}`,
+        "the file's card explains it in words",
+        shown.line?.includes("libheif") === true,
+        `line=${shown.line}`,
+      );
+      check(
+        "and prints the command for this machine, with Try again beside it",
+        shown.buttons.some((label) => label.startsWith("Try again")),
+        `command=${shown.command} · ${shown.buttons.join(" / ")}`,
       );
     } finally {
       await window.close();
@@ -213,7 +189,7 @@ async function library({ derive = true } = {}) {
 async function idIn(root) {
   const opened = await Library.open(root, { readOnly: true });
   try {
-    return opened.db.repo.allHashes()[0];
+    return opened.db.repo.allIds()[0];
   } finally {
     await opened.close();
   }

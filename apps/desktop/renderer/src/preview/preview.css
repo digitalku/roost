@@ -302,6 +302,81 @@
   display: none;
 }
 
+/*
+ * What stands where the asset cannot be shown (UI_SPEC.md §7.3): the kind, the
+ * reason, the facts the probe found, and what can be done. Centred in the room
+ * the asset would have had, at a reading width rather than the pane's — a
+ * sentence stretched across a wide window is one nobody finishes.
+ */
+.preview-unshowable {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-items: center;
+  max-width: 440px;
+  margin: auto;
+  padding: var(--space-4);
+  color: var(--text-muted);
+  text-align: center;
+  text-wrap: balance;
+}
+
+.preview-unshowable-art {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: center;
+  margin-bottom: var(--space-2);
+  color: var(--text-subtle);
+}
+
+.preview-unshowable-art .placeholder-glyph {
+  width: 56px;
+}
+
+.preview-unshowable p {
+  margin: 0;
+}
+
+.preview-unshowable-line {
+  color: var(--text);
+  font-size: var(--text-md);
+  line-height: var(--leading-md);
+}
+
+.preview-unshowable-hint {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.preview-unshowable-facts {
+  color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+/* The card, at the width of the sentences above it rather than of its own
+   buttons. */
+.preview-unshowable .file-problem {
+  align-self: stretch;
+  margin-top: var(--space-2);
+}
+
+.preview-unshowable-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
+  margin-top: var(--space-2);
+}
+
+/* The element keeps playing the sound while the panel stands in for its
+   picture, so it stays in the document; `hidden` alone loses to a rule here
+   that sets `display`. */
+.preview-media[hidden] {
+  display: none;
+}
+
 /* What the window could not play, and why. Beside the picture rather than over
    it: a message on top of a black rectangle reads as part of the video, and
    this one is about the video. */

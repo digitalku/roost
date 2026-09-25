@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { asPathArgument } from "./external.js";
-import { frameTimestamp, readProbe } from "./ffmpeg.js";
+import { asPathArgument, telling } from "./external.js";
+import { frameTimestamp, readDecoders, readProbe } from "./ffmpeg.js";
 
 describe("reading what ffprobe said", () => {
   it("takes a video's duration, size, and codec", () => {
@@ -113,5 +113,62 @@ describe("handing a path to a tool that reads a leading dash as an option", () =
   it("leaves an ordinary path and an absolute one alone", () => {
     expect(asPathArgument("holiday.mp4")).toBe("holiday.mp4");
     expect(asPathArgument("/srv/media/-weird.mp4")).toBe("/srv/media/-weird.mp4");
+  });
+});
+
+describe("reading what this ffmpeg can decode", () => {
+  // Abridged from `ffmpeg -hide_banner -decoders` on Fedora 44's ffmpeg-free
+  // 8.1.2, the build that lacks `hevc` (ADR-0017, amended 2026-09-24).
+  const LISTED = `Decoders:
+ V..... = Video
+ A..... = Audio
+ S..... = Subtitle
+ .F.... = Frame-level multithreading
+ ------
+ V....D libopenh264          OpenH264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (codec h264)
+ VFS..D prores               Apple ProRes (iCodec Pro)
+ V....D libdav1d             dav1d AV1 decoder by VideoLAN (codec av1)
+ AF...D flac                 FLAC (Free Lossless Audio Codec)
+ A....D aac                  AAC (Advanced Audio Coding)
+`;
+
+  it("keys on the codec, which is what ffprobe names a stream by", () => {
+    const decoders = readDecoders(LISTED);
+    expect(decoders.has("h264")).toBe(true);
+    expect(decoders.has("av1")).toBe(true);
+    expect(decoders.has("libopenh264")).toBe(false);
+    expect(decoders.has("prores")).toBe(true);
+    expect(decoders.has("aac")).toBe(true);
+    expect(decoders.has("hevc")).toBe(false);
+  });
+
+  it("does not read the legend as decoders", () => {
+    // ` V..... = Video` has a row's shape, and would add a codec called `=`.
+    const decoders = readDecoders(LISTED);
+    expect(decoders.has("=")).toBe(false);
+    expect(decoders.size).toBe(5);
+  });
+});
+
+describe("the line kept from a tool's stderr", () => {
+  it("is the last one, usually", () => {
+    expect(telling("banner\nsomething\n  Invalid data found when processing input  \n\n")).toBe(
+      "Invalid data found when processing input",
+    );
+  });
+
+  it("is the missing decoder, where ffmpeg buried it under a consequence", () => {
+    // Verbatim from `ffmpeg-free` 8.1.2 on an HEVC stream, bar the banner. The
+    // last line is what the failures list showed a user, and it names nothing
+    // anybody could install.
+    const stderr = [
+      "  Stream #0:0[0x1](und): Video: hevc (hvc1 / 0x31637668), none, 640x360",
+      "[vist#0:0/hevc @ 0x5630e0793740] Decoding requested, but no decoder found for: hevc",
+      "Error opening output file out.png.",
+      "Error opening output files: Invalid argument",
+    ].join("\n");
+    // Without the bracket, whose address differs on every run and would split
+    // one fault into a group per file.
+    expect(telling(stderr)).toBe("Decoding requested, but no decoder found for: hevc");
   });
 });

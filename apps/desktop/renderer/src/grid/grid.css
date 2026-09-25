@@ -105,21 +105,130 @@
 }
 
 /*
+ * A cell before any page has arrived (`UI_SPEC.md` §8). The shapes of a cell and
+ * nothing else — no name, no extension, no ring — and **still**: a shimmer is a
+ * spinner spread across the grid, and there is no count here for it to be
+ * honest about (§0.6). It is where the cells will be, which is all it says.
+ */
+.cell-skeleton {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  pointer-events: none;
+}
+
+.cell-skeleton-thumb {
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.cell-skeleton-line {
+  width: 60%;
+  height: var(--space-2);
+  margin: var(--space-1) var(--space-1) 0;
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+}
+
+.cell-skeleton[data-view="compact"],
+.cell-skeleton[data-view="details"] {
+  flex-direction: row;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 0 var(--space-2);
+}
+
+.cell-skeleton[data-view="compact"] .cell-skeleton-thumb,
+.cell-skeleton[data-view="details"] .cell-skeleton-thumb {
+  flex: none;
+  width: var(--row-thumb);
+  height: var(--row-thumb);
+  border-radius: var(--radius-sm);
+}
+
+.cell-skeleton[data-view="compact"] .cell-skeleton-line,
+.cell-skeleton[data-view="details"] .cell-skeleton-line {
+  width: 40%;
+  margin: 0;
+}
+
+/*
  * The placeholder, drawn underneath rather than swapped in on error.
  *
  * A library holds anything (CONCEPT.md §5), so a .blend and a .zip are ordinary
- * members of the grid: the extension, in the monospace stack, legible at the
- * smallest zoom. It sits behind the image, so a thumbnail that has not arrived
- * and one that never will look the same and neither needs a re-render to draw.
+ * members of the grid: a shape for the kind and the extension, in the
+ * monospace stack, legible at the smallest zoom. It sits behind the image, so
+ * neither a thumbnail arriving nor one failing needs a re-render to draw.
+ *
+ * What it adds when the queue has given up on a picture for a reason somebody
+ * can act on is the badge (UI_SPEC.md §6.1): the only coloured thing in an
+ * empty cell, and so the only thing in a grid of them that reads as "look".
  */
-.cell-kind {
+.placeholder {
   position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2);
+  color: var(--text-subtle);
+  /* Its size is its cell's, never its content's, so containing it costs the
+     layout nothing — and it is what lets a short cell drop the shape first. */
+  container-type: size;
+}
+
+/* A short cell — a wide video at a small zoom — keeps the words and drops the
+   shape: the badge is the one part that says something the others do not. */
+@container (max-height: 104px) {
+  .placeholder-glyph {
+    display: none;
+  }
+}
+
+@container (max-height: 56px) {
+  .cell[data-view="icons"] .placeholder[data-badge] > .cell-kind {
+    display: none;
+  }
+}
+
+.placeholder-glyph {
+  flex: none;
+  width: clamp(20px, 28%, 44px);
+  height: auto;
+  opacity: 0.7;
+}
+
+.cell-kind {
   color: var(--text-subtle);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: var(--leading-sm);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.placeholder-badge {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--warning);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.placeholder-badge-glyph {
+  flex: none;
+  width: 12px;
+  height: 12px;
 }
 
 .cell-image {
@@ -227,6 +336,23 @@
 .cell[data-view="compact"] .cell-kind,
 .cell[data-view="details"] .cell-kind {
   font-size: 8px;
+}
+
+/* A row's thumbnail is too small for a shape and a sentence: the extension
+   alone, as it always was, and the badge's colour on it where there is one. */
+.cell[data-view="compact"] .placeholder,
+.cell[data-view="details"] .placeholder {
+  padding: 0;
+}
+
+.cell[data-view="compact"] :is(.placeholder-glyph, .placeholder-badge),
+.cell[data-view="details"] :is(.placeholder-glyph, .placeholder-badge) {
+  display: none;
+}
+
+.cell[data-view="compact"] .placeholder[data-badge] .cell-kind,
+.cell[data-view="details"] .placeholder[data-badge] .cell-kind {
+  color: var(--warning);
 }
 
 .cell[data-view="compact"] .cell-name,
@@ -462,36 +588,88 @@
   background: none;
 }
 
-.folder-back {
-  fill: var(--folder-back);
-}
-
-.folder-front {
-  fill: var(--folder-front);
-}
-
 /*
- * How big, per view — and it has to be per view, because the box is 40px in a
- * row and several hundred in Icons. One number cannot serve both: a fraction
- * that reads as an icon at 400px is a speck at 40, and filling the box at 40
- * makes a slab at 400. Both were drawn and both were reported, on 2026-09-13.
+ * The sheet protector (ADR-0043 §7): a punched strip down the left, a thin
+ * fold line, and a body whose right-hand corners are rounded, holding up to
+ * four of the folder's pictures. The user's drawing, 2026-09-25.
  *
- * A row fills its square, because that square *is* the icon's size — it is the
- * same box a thumbnail fills. Icons takes a fraction of the picture area
- * instead, so that a folder sits in the same optical rhythm as the photographs
- * beside it rather than shouting over them.
+ * **Sized by height, shaped by ratio.** It is a portrait sheet in a cell that
+ * may be square, wide or tall, so it takes most of the picture area's height
+ * and derives its width — and gives way to the width where a narrow cell would
+ * otherwise push it out. Capped, for the reason the old glyph was: past a size
+ * a folder stops reading as a folder and starts reading as a panel.
  */
-.cell-folder-glyph {
+.folder-sheet {
+  display: flex;
+  height: 86%;
+  max-width: 92%;
+  max-height: 320px;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border-radius: 2px 10% 10% 2px / 2px 8% 8% 2px;
+  background: var(--folder-sheet);
+}
+
+.folder-sheet-strip {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-evenly;
+  width: 13%;
+  padding: 6% 0;
+  border-right: max(1px, 1.5%) solid var(--folder-hole);
+}
+
+.folder-hole {
+  width: 34%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-full);
+  background: var(--folder-hole);
+}
+
+.folder-hole[data-long] {
+  aspect-ratio: 1 / 2;
+}
+
+.folder-sheet-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 6%;
+  min-width: 0;
+  padding: 9% 8%;
+}
+
+/* One picture fills the sheet; a quarter-sheet of one looked like three
+   missing. */
+.folder-sheet[data-covers="1"] .folder-sheet-body {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+.folder-sheet-image {
   width: 100%;
   height: 100%;
+  min-height: 0;
+  border-radius: 3px;
+  object-fit: cover;
 }
 
-.cell[data-view="icons"] .cell-folder-glyph {
-  width: 62%;
-  height: auto;
-  /* Past this it stops reading as an icon and starts reading as a panel, which
-     is what the zoom's top step did. */
-  max-width: 220px;
+/* A row's square is too small for holes and pictures: the sleeve and its fold
+   line are the whole icon there, and they fill the square as a thumbnail does. */
+.cell[data-view="compact"] .folder-sheet,
+.cell[data-view="details"] .folder-sheet {
+  height: 100%;
+  max-width: none;
+}
+
+.cell[data-view="compact"] .folder-hole,
+.cell[data-view="details"] .folder-hole,
+.cell[data-view="compact"] .folder-sheet-body,
+.cell[data-view="details"] .folder-sheet-body {
+  display: none;
 }
 
 /*

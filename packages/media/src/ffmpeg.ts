@@ -54,6 +54,45 @@ export async function ffprobeVersion(): Promise<string | null> {
 }
 
 /**
+ * The codecs this ffmpeg can decode, or `null` where it could not be asked.
+ *
+ * A version says that ffmpeg runs, not what it can open: Fedora's `ffmpeg-free`
+ * runs, reports 8.1.2, and has no `hevc` decoder, which is most of what a phone
+ * records (ADR-0017, amended 2026-09-24).
+ */
+export async function ffmpegDecoders(): Promise<ReadonlySet<string> | null> {
+  try {
+    const listed = await capture(FFMPEG, ["-hide_banner", "-decoders"], 5_000);
+    return readDecoders(listed.toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The codec ids in `ffmpeg -decoders`.
+ *
+ * **Codecs, not decoders.** A decoder whose name is not its codec's says so in
+ * parentheses — `libopenh264 … (codec h264)` — and `ffprobe` names a stream by
+ * its codec, so the codec is what a stream is looked up by. The legend above
+ * the `------` rule has the same shape as a row and is skipped for that reason.
+ */
+export function readDecoders(listed: string): ReadonlySet<string> {
+  const codecs = new Set<string>();
+  let rows = false;
+  for (const line of listed.split("\n")) {
+    if (!rows) {
+      rows = line.trim().startsWith("------");
+      continue;
+    }
+    const row = /^\s*[A-Z.]{6}\s+(\S+)\s*(.*)$/.exec(line);
+    if (row?.[1] === undefined) continue;
+    codecs.add(/\(codec (\S+)\)\s*$/.exec(row[2] ?? "")?.[1] ?? row[1]);
+  }
+  return codecs;
+}
+
+/**
  * Asks a tool for its version.
  *
  * A version call rather than a PATH lookup, because "present" and "runs" are

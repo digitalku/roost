@@ -163,9 +163,11 @@
   color: var(--text);
 }
 
-/* A folder chip's name shows the folder (`UI_SPEC.md` §3.9), so it is a button
-   — reachable from the keyboard, and undressed to look like the text it
-   replaced. It wraps, because a path is as long as the tree is deep. */
+/* A chip's name is a button — a folder's shows the folder and a tag's filters by
+   it (`UI_SPEC.md` §3.7, §3.9) — reachable from the keyboard, and undressed to
+   look like the text it replaced. It wraps, because a path is as long as the
+   tree is deep. */
+.tag .tag-name,
 .folder .folder-name {
   height: auto;
   padding: 0;
@@ -178,6 +180,8 @@
   white-space: normal;
 }
 
+.tag .tag-name:hover:not(:disabled),
+.tag .tag-name:focus-visible,
 .folder .folder-name:hover:not(:disabled),
 .folder .folder-name:focus-visible {
   background: none;

@@ -1,6 +1,6 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { capture } from "./external.js";
 
 /**
@@ -132,10 +132,41 @@ export async function decodeHeif(path: string): Promise<Buffer> {
   const output = join(directory, "decoded.jpg");
   try {
     await capture(found.name, ["--quiet", "-q", String(QUALITY), path, output], TIMEOUT_MS);
-    return await readFile(output);
+    const written = await readdir(directory);
+    if (written.includes(basename(output))) return await readFile(output);
+    return await readFile(join(directory, `decoded-${await primaryOf(found.name, path)}.jpg`));
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+/**
+ * Which of a file's top-level images is the photograph, counted from 1.
+ *
+ * **A HEIC can hold several, and then `heif-dec` writes every one of them** —
+ * `decoded-1.jpg`, `decoded-2.jpg`, … — and never the name it was given. A
+ * burst did exactly that, and the read that followed failed with `ENOENT` on a
+ * file that was never going to exist (found 2026-09-25, the first time the
+ * test library met a real libheif). It has no option for the primary image
+ * alone, so `heif-info` — the same package — is asked which one is marked
+ * `primary`. It lists them in the order `heif-dec` numbers them.
+ *
+ * The first, where `heif-info` cannot say: a phone writes its photograph first.
+ */
+async function primaryOf(decoder: string, path: string): Promise<number> {
+  const info = decoder.includes("/") ? join(dirname(decoder), "heif-info") : "heif-info";
+  try {
+    return primaryIn((await capture(info, [path], TIMEOUT_MS)).toString("utf8"));
+  } catch {
+    return 1;
+  }
+}
+
+/** The 1-based position of the image `heif-info` marks primary, or 1. */
+export function primaryIn(info: string): number {
+  const images = info.split("\n").filter((line) => /^image:/.test(line.trim()));
+  const at = images.findIndex((line) => /,\s*primary\b/.test(line));
+  return at < 0 ? 1 : at + 1;
 }
 
 /** Forgets which tool answered, so a newly installed one is found. */

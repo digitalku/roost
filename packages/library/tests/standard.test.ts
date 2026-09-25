@@ -193,9 +193,19 @@ describe("meeting a library whose cache is not ours (RL-2, RL-11)", () => {
       await rm(join(root, `index.db${suffix}`), { force: true });
     }
 
-    const second = await Library.open(root);
+    const journal = join(root, "journal");
+    let total = 0;
+    for (const month of await readdir(journal)) total += (await stat(join(journal, month))).size;
+
+    // A fold is seconds at a hundred thousand assets, and the window has
+    // nothing else to show for them (`UI_SPEC.md` §8).
+    const progress: { done: number; total: number }[] = [];
+    const second = await Library.open(root, { onFold: (step) => progress.push(step) });
     try {
       expect(second.stats().assets).toBe(1);
+      expect(progress.length).toBeGreaterThan(0);
+      expect(progress.every((step) => step.total === total && step.done <= step.total)).toBe(true);
+      expect(progress.at(-1)).toEqual({ done: total, total });
     } finally {
       await second.close();
     }
@@ -300,10 +310,16 @@ describe("meeting a library whose cache is not ours (RL-2, RL-11)", () => {
     const fileSize = (await stat(first.journal.pathFor(month))).size;
     await first.close();
 
-    const second = await Library.open(root);
+    let folded = false;
+    const second = await Library.open(root, {
+      onFold: () => {
+        folded = true;
+      },
+    });
     try {
       // The mark the import left behind still describes the journal on disk, so
-      // the open had nothing to do.
+      // the open had nothing to do — and nothing to report doing.
+      expect(folded).toBe(false);
       expect(second.db.repo.meta("journal.folded")).toBe(JSON.stringify({ [month]: fileSize }));
       expect(second.notice.skipped).toEqual([]);
       expect(second.stats().assets).toBe(1);

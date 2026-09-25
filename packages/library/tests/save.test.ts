@@ -67,7 +67,7 @@ describe("saving an edit", () => {
     const folder = await createFolder(library, "Writing", null);
     await addToFolder(library, [note], folder);
     await rate(library, [note], 4);
-    await setNote(library, note, "for review");
+    await setNote(library, [note], "for review");
     await addComment(library, note, null, "the second paragraph repeats itself");
 
     await saveEdit(library, note, text("second draft\n"));

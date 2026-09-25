@@ -7,6 +7,7 @@ import {
   readNonEmpty,
   readNullable,
   readOneOf,
+  readString,
   within,
 } from "./checked.js";
 import type { DeriveProgress, ImportProgress, InstallableBackend, WireRedrawn } from "./dto.js";
@@ -28,6 +29,17 @@ export type Event =
    * either way — and an event with a payload nobody uses is a shape that drifts.
    */
   | { readonly type: "library:changed" }
+  /**
+   * How far opening a library has got, while it folds the journal.
+   *
+   * Only an open that finds the index behind the journal sends it — a library
+   * another implementation wrote, or one whose index was deleted — because
+   * that open replays the whole journal before it answers, which is seconds at
+   * a hundred thousand assets. Bytes, because the total is the size of the
+   * files and is known before the first line is read; the window draws a
+   * fraction and never the numbers themselves.
+   */
+  | { readonly type: "library:folding"; readonly done: number; readonly total: number }
   /**
    * How far an import has got.
    *
@@ -56,7 +68,8 @@ export type Event =
    *
    * So the ids arrive and the window patches the cards it is already holding,
    * the way it does for a pinned poster and a rename. `derivedAt` is the new
-   * cache key rather than something a cell draws (ADR-0047).
+   * cache key rather than something a cell draws (ADR-0047), and `undrawn` is
+   * why a cell still has no picture, which it does draw (`UI_SPEC.md` §6.1).
    */
   | { readonly type: "assets:derived"; readonly assets: readonly WireRedrawn[] }
   /**
@@ -85,6 +98,14 @@ export const EVENT_VALIDATORS: {
   readonly [T in EventType]: (source: Record<string, unknown>) => Checked<EventOf<T>>;
 } = {
   "library:changed": () => ok({ type: "library:changed" }),
+
+  "library:folding": (source) => {
+    const done = readInteger(source, "done");
+    if (!done.ok) return done;
+    const total = readInteger(source, "total");
+    if (!total.ok) return total;
+    return ok({ type: "library:folding", done: done.value, total: total.value });
+  },
 
   "import:progress": (source) => {
     const counts: Record<string, number> = {};
@@ -133,9 +154,11 @@ export const EVENT_VALIDATORS: {
       if (!isRecord(entry)) return bad("assets: expected objects");
       const id = readNonEmpty(entry, "id");
       if (!id.ok) return id;
-      const derivedAt = readInteger(entry, "derivedAt");
+      const derivedAt = readNullable(entry, "derivedAt", readInteger);
       if (!derivedAt.ok) return derivedAt;
-      redrawn.push({ id: id.value, derivedAt: derivedAt.value });
+      const undrawn = readNullable(entry, "undrawn", readString);
+      if (!undrawn.ok) return undrawn;
+      redrawn.push({ id: id.value, derivedAt: derivedAt.value, undrawn: undrawn.value });
     }
     return ok({ type: "assets:derived", assets: redrawn });
   },

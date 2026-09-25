@@ -150,7 +150,7 @@ export {
   runDerives,
 } from "./jobs.js";
 export { type JournalNotice, NOTHING_SKIPPED, type SkippedOp } from "./journal-state.js";
-export { Library, nowUnix, type OpenOptions } from "./library.js";
+export { type FoldProgress, Library, nowUnix, type OpenOptions } from "./library.js";
 export {
   alignExtension,
   type FileAmbiguous,
@@ -225,5 +225,5 @@ export {
   redrawPoster,
   type ThumbnailReport,
 } from "./thumbnails.js";
-export { Wanted } from "./wanted.js";
+export { Requested, Wanted } from "./wanted.js";
 export { type FileWatcher, type WatchOptions, watchFiles } from "./watch.js";

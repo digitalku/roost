@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readdir, readlink, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReplyEnvelope, Request } from "@roost/contract";
 import { ASSET_KINDS as WIRE_KINDS, LIBRARY_SUFFIX as WIRE_SUFFIX } from "@roost/contract";
 import { KINDS, latestSchemaVersion } from "@roost/core";
-import { createFolder, importInto, LIBRARY_SUFFIX, Library } from "@roost/library";
+import { createFolder, importInto, LIBRARY_SUFFIX, Library, runDerives } from "@roost/library";
+import { GRID_SIZE, gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost } from "./host.js";
 import type { Port } from "./port.js";
@@ -284,6 +285,129 @@ describe("the engine's message loop", () => {
     await ask(100, { type: "library:open", path: root });
   };
 
+  it("pauses the queue, remembers it, and still draws a file somebody opens", async () => {
+    // ADR-0049: × stops the queue until Resume, the library remembers it, and
+    // a file opened meanwhile gets its thumbnail on the spot.
+    const source = join(dir, "pictures");
+    await mkdir(source, { recursive: true });
+    for (const n of [1, 2, 3]) {
+      await writeFile(join(source, `picture-${n}.png`), await gradient(64, 48, n, "png"));
+    }
+    const root = join(dir, `Paused${LIBRARY_SUFFIX}`);
+    const made = await Library.create(root, "Paused");
+    let ids: string[];
+    try {
+      ids = (await importInto(made, [source])).importedIds;
+      await made.updateSettings({ derivePaused: true });
+    } finally {
+      await made.close();
+    }
+
+    const thumbnails = async (): Promise<number> =>
+      ((await ask(90, { type: "library:stats" })) as { value: { thumbnails: number } }).value
+        .thumbnails;
+    const until = async (done: () => Promise<boolean>): Promise<void> => {
+      for (let tries = 0; tries < 100 && !(await done()); tries += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    };
+    const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 300));
+
+    await ask(1, { type: "library:open", path: root });
+    expect(await ask(2, { type: "derive:status" })).toMatchObject({
+      value: { paused: true, ready: 3 },
+    });
+    // Opening a paused library derives nothing on its own.
+    await settle();
+    expect(await thumbnails()).toBe(0);
+
+    // Opened: that one, and only that one.
+    await ask(3, { type: "asset:detail", id: ids[0] ?? "" });
+    await until(async () => (await thumbnails()) === 1);
+    await settle();
+    expect(await thumbnails()).toBe(1);
+
+    expect(await ask(4, { type: "derive:resume" })).toMatchObject({ value: { paused: false } });
+    await until(async () => (await thumbnails()) === 3);
+    expect(await thumbnails()).toBe(3);
+    const settings = async (): Promise<unknown> =>
+      JSON.parse(await readFile(join(root, "settings.json"), "utf8"));
+    expect(await settings()).toMatchObject({ derivePaused: false });
+
+    expect(await ask(5, { type: "derive:pause" })).toMatchObject({ value: { paused: true } });
+    expect(await settings()).toMatchObject({ derivePaused: true });
+
+    // An import is somebody asking for these files now, paused or not.
+    const more = join(dir, "more");
+    await mkdir(more);
+    await writeFile(join(more, "picture-4.png"), await gradient(64, 48, 4, "png"));
+    await ask(6, { type: "import:paths", paths: [more], take: "copy", tags: [], folder: null });
+    expect(await thumbnails()).toBe(4);
+  });
+
+  it("names the pictures a folder's tile draws, and never sends them", async () => {
+    // ADR-0043 §7: ids and the parts of an address; the bytes go over roost://.
+    const source = join(dir, "covers");
+    await mkdir(source, { recursive: true });
+    for (const n of [1, 2]) {
+      await writeFile(join(source, `picture-${n}.png`), await gradient(32, 32, n, "png"));
+    }
+    const root = join(dir, `Covers${LIBRARY_SUFFIX}`);
+    const made = await Library.create(root, "Covers");
+    let folder: number;
+    try {
+      folder = await createFolder(made, "Design", null);
+      await importInto(made, [source], { folder });
+      await runDerives(made, { sizes: [GRID_SIZE] });
+    } finally {
+      await made.close();
+    }
+    await ask(1, { type: "library:open", path: root });
+
+    const reply = await ask(2, { type: "folder:covers", folders: [folder] });
+    const [cover] = (reply as { value: { folder: number; assets: Record<string, unknown>[] }[] })
+      .value;
+    expect(cover?.folder).toBe(folder);
+    expect(cover?.assets).toHaveLength(2);
+    expect(Object.keys(cover?.assets[0] ?? {}).sort()).toEqual(["derivedAt", "id", "posterMs"]);
+  });
+
+  it("tries one file again, even with the queue paused", async () => {
+    // ADR-0050: the per-file Try again, from the inspector or the preview.
+    const source = join(dir, "torn");
+    await mkdir(source, { recursive: true });
+    const header = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    await writeFile(join(source, "torn.png"), Buffer.concat([header, Buffer.alloc(64)]));
+    const root = join(dir, `Torn${LIBRARY_SUFFIX}`);
+    const made = await Library.create(root, "Torn");
+    let id: string;
+    try {
+      id = (await importInto(made, [source])).importedIds[0] ?? "";
+    } finally {
+      await made.close();
+    }
+    await ask(1, { type: "library:open", path: root });
+    const failed = async (): Promise<number> =>
+      ((await ask(90, { type: "derive:status" })) as { value: { failed: number } }).value.failed;
+    for (let tries = 0; tries < 100 && (await failed()) === 0; tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(await failed()).toBe(1);
+    await ask(2, { type: "derive:pause" });
+
+    // Released and tried at once; still damaged, so it fails again — and the
+    // attempt is what the answer and the count say happened.
+    expect(await ask(3, { type: "derive:retryAsset", id })).toMatchObject({ value: true });
+    for (let tries = 0; tries < 100 && (await failed()) === 0; tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(await failed()).toBe(1);
+    // An id with nothing stalled has nothing to release.
+    expect(await ask(4, { type: "derive:retryAsset", id: "ZZZZZZZZZZZZ" })).toMatchObject({
+      value: false,
+    });
+  });
+
   const pageOfHits = (reply: ReplyEnvelope | undefined): { names: string[]; next: unknown } => {
     const value = (reply as { value: { assets: { name: string }[]; next: unknown } }).value;
     return { names: value.assets.map((a) => a.name), next: value.next };
@@ -355,6 +479,9 @@ describe("the engine's message loop", () => {
       "posterMs",
       "rating",
       "size",
+      // Why there is no picture, in the queue's words: a string or null, and
+      // never the picture (`UI_SPEC.md` §6.1).
+      "undrawn",
       "width",
     ]);
   });
@@ -562,6 +689,7 @@ describe("the engine's message loop", () => {
         "subtitles",
         "tags",
         "trashedAt",
+        "undrawn",
         "width",
       ].sort(),
     );
@@ -608,17 +736,17 @@ describe("the engine's message loop", () => {
 
     // The engine drops an all-whitespace note rather than storing one: a note
     // badge that is on forever and says nothing is worse than no badge.
-    await ask(4, { type: "asset:note", id, note: "   " });
+    await ask(4, { type: "asset:note", ids: [id], note: "   " });
     expect((await detail())["note"]).toBeNull();
-    await ask(5, { type: "asset:note", id, note: "  keep this  " });
+    await ask(5, { type: "asset:note", ids: [id], note: "  keep this  " });
     expect((await detail())["note"]).toBe("keep this");
 
     // A source follows the note's rule exactly (ADR-0030): trimmed, and blank
     // means absent. What it does *not* do is validate — the value is the
     // user's answer to a question, not an address the engine vouches for.
-    await ask(6, { type: "asset:source", id, url: "  instagram.com/p/xyz  " });
+    await ask(6, { type: "asset:source", ids: [id], url: "  instagram.com/p/xyz  " });
     expect((await detail())["sourceUrl"]).toBe("instagram.com/p/xyz");
-    await ask(7, { type: "asset:source", id, url: "  " });
+    await ask(7, { type: "asset:source", ids: [id], url: "  " });
     expect((await detail())["sourceUrl"]).toBeNull();
 
     await ask(8, { type: "asset:tagAdd", ids: [id], tags: ["Wood", " wood "] });

@@ -2,8 +2,8 @@
  * Folders, asserted against a **running window** (ADR-0033, and the inspector's
  * chips from the session before it).
  *
- * It also covers what a chip *does*: a folder chip shows its folder on a click
- * and a tag chip offers the same through a menu (`UI_SPEC.md` §3.7, §3.9). The
+ * It also covers what a chip *does*: a click on a folder chip shows its folder
+ * and a click on a tag chip filters by it (`UI_SPEC.md` §3.7, §3.9). The
  * component tests can see which query was handed over; only a window can say
  * whether it reached the search field and the grid.
  *
@@ -521,16 +521,15 @@ try {
 
   section("Filtering from a chip in the inspector");
   // What the unit tests cannot see: whether the query on a chip reaches the
-  // search field and the grid. Both gestures were asked for on 2026-09-07 and
-  // they are deliberately different — a folder chip says one thing, so a click
-  // shows it; a tag chip has two things to offer, so it opens a menu.
+  // search field and the grid. Both were asked for on 2026-09-07, the tag chip
+  // as a right-click menu; since 2026-09-24 both are a click.
   await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === ASSETS);
   await clickFirstCell();
   const both = await cdp.settle(chipsExpression, (state) => state?.chips.length > 0);
   check(
     "the asset on screen carries both a folder and a tag",
     both.chips[0]?.path === "Design/Alpha" &&
-      (await cdp.evaluate("document.querySelector('.tag span')?.textContent ?? null")) === TAG,
+      (await cdp.evaluate("document.querySelector('.tag .tag-name')?.textContent ?? null")) === TAG,
     `chips=${JSON.stringify(both.chips)}`,
   );
 
@@ -547,23 +546,25 @@ try {
   // The panel reads the library for itself, so the chip is a frame or two
   // behind the click that selected the asset.
   await clickFirstCell();
-  await cdp.settle("document.querySelector('.tag span')?.textContent ?? null", (t) => t === TAG);
-  const tagChip = await cdp.box(".tag");
-  await cdp.mouse.click(tagChip.x, tagChip.y, { button: "right" });
-  const tagItems = await cdp.settle(
-    "[...document.querySelectorAll('[role=menuitem]')].map((i) => i.textContent)",
-    (list) => Array.isArray(list) && list.length > 0,
+  await cdp.settle(
+    "document.querySelector('.tag .tag-name')?.textContent ?? null",
+    (t) => t === TAG,
   );
+  // One click, as a folder chip is (2026-09-24). It was a right-click menu
+  // first, so the right-click is asked about too: a menu still opening there
+  // would be the old gesture left behind beside the new one.
+  const tagChip = await cdp.box(".tag .tag-name");
+  await cdp.mouse.click(tagChip.x, tagChip.y, { button: "right" });
+  await sleep(300);
   check(
-    "a tag chip opens a menu, and offers the two things a tag can do",
-    tagItems.join(" · ") === "Filter by this tag · Remove tag",
-    tagItems.join(" · "),
+    "a tag chip opens no menu",
+    (await cdp.evaluate("document.querySelectorAll('[role=menu]').length")) === 0,
   );
 
-  await cdp.evaluate(clickMenuItem("Filter by this tag"));
+  await cdp.mouse.click(tagChip.x, tagChip.y);
   await cdp.settle("document.querySelectorAll('.cell').length", (n) => n === 1);
   check(
-    "and filtering by it asks for exactly what the sidebar row asks for",
+    "clicking it filters by it, with exactly what the sidebar row asks for",
     (await cdp.evaluate("document.querySelector('.search-input')?.value ?? null")) === `tag:${TAG}`,
     await cdp.evaluate("document.querySelector('.search-input')?.value ?? null"),
   );

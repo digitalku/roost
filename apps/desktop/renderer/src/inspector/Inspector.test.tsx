@@ -10,6 +10,7 @@ import type {
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ConfirmRequest } from "../grid/trash-actions.js";
 import { FakeEngine, fakeDetail, install } from "../testing/fake-engine.js";
 import { Inspector } from "./Inspector.js";
 
@@ -254,6 +255,23 @@ describe("the inspector", () => {
     expect(document.querySelector(".inspector-preview .cell-kind")?.textContent).toBe("png");
   });
 
+  it("says why a selected file has no preview, and what to do, the moment it is selected", async () => {
+    // ADR-0050: the problem is told on the file, not counted in the status bar.
+    const { user } = show({
+      ext: "png",
+      undrawn: "Input file has corrupt header: VipsJpeg: premature end of JPEG image",
+    });
+    expect(await screen.findByText("The file is damaged or incomplete")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(engine.seen).toContainEqual({ type: "derive:retryAsset", id: HASH });
+  });
+
+  it("says nothing of the kind for a file that has its picture", async () => {
+    show({ ext: "png" });
+    await screen.findByRole("complementary");
+    expect(screen.queryByRole("region", { name: "Why there is no preview" })).toBeNull();
+  });
+
   it("draws the next asset's preview after one that had none", async () => {
     // The panel keeps one `<img>` for whatever is selected, and the fallback
     // hides that element by writing to the node — which React does not undo.
@@ -365,47 +383,33 @@ describe("the inspector", () => {
     expect(screen.getByText("metal")).toBeDefined();
   });
 
-  /** Right-clicks a tag's chip and waits for its menu. */
-  const openTagMenu = async (tag: string): Promise<void> => {
-    // Dispatched rather than driven through `userEvent`, as the grid's menu is:
-    // Radix opens on a `contextmenu` event and happy-dom does not synthesise
-    // one from a right click.
-    const chip = await screen.findByText(tag);
-    chip.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
-    await screen.findByRole("menu");
-  };
-
-  it("filters by a tag from its chip, with the query the engine wrote", async () => {
-    // Asked for on 2026-09-07: the tag on the panel is the fastest way to ask
-    // what else is like this, and the query is the sidebar row's own — the
-    // quoting belongs to `@roost/library`, not to a chip.
+  it("filters by a tag when its chip is clicked, with the query the engine wrote", async () => {
+    // One click since 2026-09-24, as a folder chip is; a right-click menu first.
+    // The query is the sidebar row's own — the quoting belongs to
+    // `@roost/library`, not to a chip.
     const { user } = show({ tags: ["olahraga"] });
-    await openTagMenu("olahraga");
 
-    await user.click(screen.getByRole("menuitem", { name: "Filter by this tag" }));
+    await user.click(await screen.findByRole("button", { name: "olahraga" }));
     expect(picked).toEqual(['tag:"olahraga"']);
   });
 
-  it("removes a tag from the same menu, which the × does with a pointer only", async () => {
-    const { user } = show({ tags: ["olahraga", "metal"] });
-    await openTagMenu("olahraga");
+  it("opens no menu on a tag chip, now that the click does what the menu did", async () => {
+    show({ tags: ["olahraga"] });
+    const chip = await screen.findByRole("button", { name: "olahraga" });
 
-    await user.click(screen.getByRole("menuitem", { name: "Remove tag" }));
-    await waitFor(() => expect(screen.queryByText("olahraga")).toBeNull());
-    expect(screen.getByText("metal")).toBeDefined();
-    expect(picked).toEqual([]);
+    chip.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("offers no filter for a tag the sidebar has not caught up with", async () => {
     // The moment after a tag is made: the chip is drawn from the asset's record
     // and the query comes from the sidebar, which the window re-reads on its
-    // own schedule. Disabled rather than absent, so the menu keeps its shape.
+    // own schedule.
     const { user } = show({ tags: ["wood"] });
-    await openTagMenu("wood");
 
-    const filter = screen.getByRole("menuitem", { name: "Filter by this tag" });
-    expect(filter.getAttribute("aria-disabled")).toBe("true");
-    await user.click(filter);
+    const name = await screen.findByRole("button", { name: "wood" });
+    expect((name as HTMLButtonElement).disabled).toBe(true);
+    await user.click(name);
     expect(picked).toEqual([]);
   });
 
@@ -772,7 +776,10 @@ describe("the inspector over several assets", () => {
 
   const THREE = [0, 1, 2].map((index) => fakeDetail(index).id);
 
-  const show = (details: readonly Partial<WireAssetDetail>[]) => {
+  const show = (
+    details: readonly Partial<WireAssetDetail>[],
+    onConfirm?: (request: ConfirmRequest) => void,
+  ) => {
     engine = new FakeEngine({
       details: details.map((over, index) => fakeDetail(index, over)),
       sidebar: SIDEBAR,
@@ -785,6 +792,7 @@ describe("the inspector over several assets", () => {
         vocabulary={VOCABULARY}
         folders={FOLDERS}
         onPick={remember}
+        {...(onConfirm === undefined ? {} : { onConfirm })}
       />,
     );
     return { user: userEvent.setup(), ...view };
@@ -886,17 +894,120 @@ describe("the inspector over several assets", () => {
     await waitFor(() => expect(sentTo("asset:folderRemove")).toEqual(THREE));
   });
 
-  it("offers no name, no note, and no preview", async () => {
-    // Each of the three would be wrong in its own way: a name is unique to one
-    // asset, a note written across twelve would destroy eleven, and one
-    // asset's picture over controls that edit all of them is the misreading
-    // this whole panel exists to correct.
+  it("offers no name and no preview", async () => {
+    // A name is unique to one asset, and one asset's picture over controls that
+    // edit all of them is the misreading this whole panel exists to correct.
+    // The note and the source used to be on this list (ADR-0048).
     show([{}, {}, {}]);
     await screen.findByText("3 assets");
 
     expect(screen.queryByLabelText("Name")).toBeNull();
-    expect(screen.queryByLabelText("Note")).toBeNull();
     expect(document.querySelector(".inspector-preview")).toBeNull();
+  });
+
+  describe("the note and the source (ADR-0048)", () => {
+    it("writes a note to every asset when none of them has one, without asking", async () => {
+      const asked: ConfirmRequest[] = [];
+      const { user } = show([{}, {}, {}], (request) => asked.push(request));
+      const field = await screen.findByLabelText("Note");
+
+      await user.type(field, "for the client");
+      await user.tab();
+
+      await waitFor(() => expect(sentTo("asset:note")).toEqual(THREE));
+      expect(asked).toEqual([]);
+    });
+
+    it("shows the note they share, and replaces it everywhere without asking", async () => {
+      // Agreement is the single-asset case twelve times over: what is replaced
+      // is what is on screen.
+      const asked: ConfirmRequest[] = [];
+      const shared = { note: "draft" };
+      const { user } = show([shared, shared, shared], (request) => asked.push(request));
+      const field = (await screen.findByLabelText("Note")) as HTMLTextAreaElement;
+      await waitFor(() => expect(field.value).toBe("draft"));
+
+      await user.clear(field);
+      await user.type(field, "final");
+      await user.tab();
+
+      await waitFor(() => expect(sentTo("asset:note")).toEqual(THREE));
+      expect(asked).toEqual([]);
+    });
+
+    it("says how a mixed selection disagrees, rather than showing an empty note", async () => {
+      show([{ note: "one" }, { note: "two" }, {}]);
+      const field = (await screen.findByLabelText("Note")) as HTMLTextAreaElement;
+      await waitFor(() => expect(field.placeholder).toBe("Mixed — 2 different notes"));
+      expect(field.value).toBe("");
+    });
+
+    it("counts the assets lacking the one value some of them hold", async () => {
+      show([{ sourceUrl: "https://example.com/post" }, {}, {}]);
+      const field = (await screen.findByLabelText("Source")) as HTMLInputElement;
+      await waitFor(() => expect(field.placeholder).toBe("Mixed — 1 of 3 have a source"));
+      // No one address to open while they disagree.
+      expect(screen.queryByRole("button", { name: "Open source in browser" })).toBeNull();
+    });
+
+    it("asks before replacing notes that differ, and writes all of them on Replace", async () => {
+      const asked: ConfirmRequest[] = [];
+      const { user } = show([{ note: "one" }, { note: "two" }, {}], (request) =>
+        asked.push(request),
+      );
+      const field = await screen.findByLabelText("Note");
+
+      await user.type(field, "approved");
+      await user.tab();
+
+      await waitFor(() => expect(asked).toHaveLength(1));
+      expect(asked[0]?.body).toBe("Replace the note on 3 assets? 2 of them already have one.");
+      expect(asked[0]?.confirmLabel).toBe("Replace");
+      expect(sentTo("asset:note")).toEqual([]);
+
+      asked[0]?.run(false);
+      await waitFor(() => expect(sentTo("asset:note")).toEqual(THREE));
+      const request = [...engine.seen].reverse().find((r) => r.type === "asset:note");
+      expect((request as { note: string | null }).note).toBe("approved");
+    });
+
+    it("puts the field back and writes nothing when the question is declined", async () => {
+      const asked: ConfirmRequest[] = [];
+      const { user } = show([{ note: "one" }, { note: "two" }, {}], (request) =>
+        asked.push(request),
+      );
+      const field = (await screen.findByLabelText("Note")) as HTMLTextAreaElement;
+
+      await user.type(field, "approved");
+      await user.tab();
+      await waitFor(() => expect(asked).toHaveLength(1));
+
+      act(() => asked[0]?.onCancel?.());
+      expect(field.value).toBe("");
+      expect(sentTo("asset:note")).toEqual([]);
+    });
+
+    it("writes nothing mixed at all when there is no way to ask", async () => {
+      const { user } = show([{ note: "one" }, { note: "two" }, {}]);
+      const field = await screen.findByLabelText("Note");
+
+      await user.type(field, "approved");
+      await user.tab();
+      await new Promise((resume) => setTimeout(resume, 50));
+
+      expect(sentTo("asset:note")).toEqual([]);
+    });
+
+    it("writes one source to every asset, which is what a set saved from one post wants", async () => {
+      const { user } = show([{}, {}, {}]);
+      const field = await screen.findByLabelText("Source");
+
+      await user.type(field, "https://example.com/post{Enter}");
+
+      await waitFor(() => expect(sentTo("asset:source")).toEqual(THREE));
+      // Read back as shared, so the one address is offered.
+      expect(await screen.findByRole("button", { name: "Open source in browser" })).toBeDefined();
+    });
   });
 
   it("asks once for the whole selection rather than once per asset", async () => {

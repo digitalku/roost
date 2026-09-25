@@ -1,21 +1,27 @@
 /**
- * What could not be drawn, asserted against a **running window**
- * (`UI_SPEC.md` §3.13).
+ * What could not be drawn, asserted against a **running window** (ADR-0050,
+ * `UI_SPEC.md` §3.13).
  *
  *     node scripts/check-failures.mjs
  *
  * **It builds its own library** in a temporary directory and deletes it again.
  * Two of the files in it are deliberately broken — a PNG signature with nothing
- * behind it — because the whole feature is about what the queue says when a
+ * behind it — because the whole feature is about what the window says when a
  * decode throws, and no fixture of valid images can produce that state.
  *
- * Three things here cannot be checked anywhere else. The **message is the
- * backend's**, so only a run with `sharp` in it proves the sentence the window
- * shows is the one this build's failures actually map to. The **clipboard is
- * main's** (invariant 11), so `clipboard:copyText` reaching it is a fact about
- * the request allowlist and not about the renderer. And **Try again ignores the
- * attempts cap** — the bug that made the old button do nothing at all after
- * three tries — which is only visible by retrying and asking the queue again.
+ * Since 2026-09-25 the window says it **on the file**, not in the status bar:
+ * the bar counts nothing, the cell carries its badge, and selecting the file
+ * puts a card in the inspector — what went wrong, what to try, and Try again,
+ * Open externally and Show in folder. The preview says the same at full size.
+ * Three things here cannot be checked anywhere else: the **message is the
+ * backend's**, so only a run with `sharp` in it proves the sentence the card
+ * shows is the one this build's failures map to; **Try again ignores the
+ * attempts cap**, which is only visible by retrying and asking the queue; and
+ * nothing the card adds may push the frame past the window.
+ *
+ * Open externally and Show in folder are found and not pressed: each hands
+ * something to the desktop, and a check has no business opening applications
+ * on somebody's screen.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -38,71 +44,24 @@ const window = await launch({ library: root });
 const { cdp } = window;
 const { check, section, report } = ledger();
 
-/** What the dialog is showing, in one round trip. */
-const dialogExpression = `
+/** A card, wherever it is drawn, in one round trip. */
+const cardExpression = (where) => `
   (() => {
-    const dialog = document.querySelector(".dialog");
-    if (dialog === null) return null;
+    const card = document.querySelector(${JSON.stringify(`${where} .file-problem`)});
+    if (card === null) return null;
     return {
-      title: dialog.querySelector(".dialog-title")?.textContent ?? null,
-      lines: [...dialog.querySelectorAll(".failure-line")].map((n) => n.textContent),
-      reasons: [...dialog.querySelectorAll(".failure-reason")].map((n) => n.textContent),
-      asides: [...dialog.querySelectorAll(".failure-aside")].map((n) => n.textContent),
-      files: [...dialog.querySelectorAll(".failure-files li")].map((n) => n.textContent),
-      buttons: [...dialog.querySelectorAll("button")].map((n) => n.textContent),
+      line: card.querySelector(".file-problem-line")?.textContent ?? null,
+      steps: [...card.querySelectorAll(".file-problem-steps li")].map((n) => n.textContent),
+      said: card.querySelector(".file-problem-said")?.textContent ?? null,
+      buttons: [...card.querySelectorAll(".file-problem-actions button")].map((n) => n.textContent),
     };
   })()`;
 
-/** The status bar's line, but only while it is a button — that is, while the
- * queue has stopped and there is something to open. */
-const buttonExpression = `
-  document.querySelector("button.status-job")?.textContent ?? null`;
-
-/**
- * Opens the list from the status bar, the way a person does.
- *
- * Two things here are the check being careful rather than the window being
- * fragile, and both were measured on 2026-09-10. The status bar is **one
- * element that changes what it is** — a `span` reading "Deriving… 2 to go"
- * while a run is in flight, a `button` when it has stopped — so a click aimed
- * at the button a moment earlier can land on the span and do exactly nothing,
- * which is what the span is for. And a **retry puts the queue back in flight**,
- * so the state after one oscillates for a second or so before it settles.
- *
- * So this waits for a button, clicks it with a real pointer, and tries again if
- * the list did not open. A dispatched `element.click()` was tried first and is
- * worse: it reaches the span too.
- */
-const openList = async () => {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    await cdp.settle(buttonExpression, (text) => text !== null);
-    const box = await cdp.evaluate(`
-      (() => {
-        const node = document.querySelector("button.status-job");
-        if (node === null) return null;
-        const rect = node.getBoundingClientRect();
-        return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
-      })()`);
-    if (box === null) continue;
-    await cdp.mouse.click(box.x, box.y);
-    try {
-      return await cdp.settle(
-        dialogExpression,
-        (state) => state !== null && state.lines.length > 0,
-        {
-          attempts: 20,
-        },
-      );
-    } catch {
-      // The click landed on the queue rather than on the button. Ask again.
-    }
-  }
-  throw new Error("the failure list never opened");
-};
-
-const clickButton = (label) => `
-  [...document.querySelectorAll(".dialog button")]
-    .find((button) => button.textContent === ${JSON.stringify(label)})?.click()`;
+/** The ids of the cells whose badge says they could not be drawn. */
+const brokenCells = `
+  [...document.querySelectorAll(".cell")]
+    .filter((cell) => cell.querySelector(".placeholder-badge")?.textContent === "Could not be drawn")
+    .map((cell) => cell.dataset.id)`;
 
 /**
  * What, if anything, hangs out of the window — and what it was.
@@ -146,11 +105,36 @@ const overflowExpression = `
 
 try {
   section("The status bar");
-  const status = await cdp.settle(buttonExpression, (text) => text?.includes("could not be drawn"));
+  await cdp.settle(brokenCells, (ids) => Array.isArray(ids) && ids.length === BROKEN);
+  const bar = await cdp.evaluate(
+    `[...document.querySelectorAll(".status .status-job")].map((n) => n.textContent)`,
+  );
+  check("it counts no failures — the file says it (ADR-0050)", bar.length === 0, bar.join(" | "));
+
+  section("The grid");
+  const ids = await cdp.evaluate(brokenCells);
+  check("each broken file carries its badge", ids.length === BROKEN, `${ids.length} badged`);
+
+  section("Selecting one");
+  const box = await cdp.box(`[data-id="${ids[0]}"]`);
+  await cdp.mouse.click(box.x, box.y);
+  const card = await cdp.settle(cardExpression(".inspector"), (state) => state !== null);
   check(
-    "it counts what failed, and does not offer a retry it cannot explain",
-    status === `${BROKEN} could not be drawn`,
-    `status=${JSON.stringify(status)}`,
+    "the inspector says what went wrong, in words",
+    card.line === "The file is damaged or incomplete",
+    `line=${JSON.stringify(card.line)}`,
+  );
+  check("and what to try, as steps", card.steps.length >= 2, card.steps.join(" / "));
+  check(
+    "the backend's own message is kept, with no path in it",
+    card.said !== null && card.said.length > 0 && !card.said.includes(dir),
+    `said=${JSON.stringify(card.said)}`,
+  );
+  check(
+    "with the three buttons the user chose",
+    JSON.stringify(card.buttons) ===
+      JSON.stringify(["Try again", "Open externally", "Show in folder"]),
+    card.buttons.join(", "),
   );
 
   section("The window, which is not a page");
@@ -161,58 +145,42 @@ try {
     `${frame.over}px below and ${frame.wide}px past the right, from ${frame.culprits.join(", ")}`,
   );
 
-  section("The list");
-  const shown = await openList();
-
-  check(
-    "the title is the count somebody clicked on",
-    shown.title === `${BROKEN} could not be drawn`,
-    `title=${JSON.stringify(shown.title)}`,
-  );
-  check(
-    "one row, because both files broke the same way",
-    shown.lines.length === 1 && shown.reasons.length === 1,
-    `${shown.lines.length} rows: ${shown.lines.join(" / ")}`,
-  );
-  check(
-    "and it says what that way was, in words",
-    shown.lines[0] === "The file is damaged or incomplete",
-    `line=${JSON.stringify(shown.lines[0])}`,
-  );
-  check(
-    "the backend's own message is kept, with no path in it",
-    shown.reasons[0].length > 0 && !shown.reasons[0].includes(dir),
-    `reason=${JSON.stringify(shown.reasons[0])}`,
-  );
-  check(
-    "and the files are named, which is what makes it something to act on",
-    shown.files.length === BROKEN && shown.files.every((name) => name.startsWith("broken-")),
-    `files=${shown.files.join(", ")}`,
-  );
-
-  section("The clipboard, which is main's");
-  await cdp.evaluate(clickButton("Copy list"));
-  const copied = await cdp.settle(dialogExpression, (state) => state.buttons.includes("Copied"));
-  check(
-    "Copy list reaches main and comes back having written something",
-    copied.buttons.includes("Copied"),
-    `buttons=${copied.buttons.join(", ")}`,
-  );
-
   section("Trying again");
-  await cdp.evaluate(clickButton("Try again"));
-  await cdp.settle(dialogExpression, (state) => state === null);
-  check("the list closes on the retry, rather than sitting over the answer", true);
-
-  // The retry re-runs the derive, it fails again, and the count comes back.
-  // What matters is the *second* opening: a queue that had refused to retry
-  // would still say one attempt.
-  const again = await openList();
+  const attempts = () =>
+    cdp.evaluate(
+      `window.roost.invoke({ type: "derive:failures", state: "failed" }).then((o) => o.value.groups.map((g) => g.attempts))`,
+    );
+  check("one try so far", JSON.stringify(await attempts()) === "[1]");
+  await cdp.evaluate(`
+    [...document.querySelectorAll(".inspector .file-problem-actions button")]
+      .find((button) => button.textContent === "Try again")?.click()`);
+  // It fails again, and the second try is what shows the cap on attempts is
+  // not the button's: a queue that refused would still say one.
+  const tried = await cdp
+    .settle(attempts, (list) => Array.isArray(list) && list.includes(2), {
+      attempts: 100,
+    })
+    .catch(async () => await attempts());
   check(
-    "and the queue really did try again — the cap on attempts is not the button's",
-    again.asides.some((line) => line.startsWith("Tried 2 times")),
-    `asides=[${again.asides.join(" / ")}] reasons=[${again.reasons.join(" / ")}]`,
+    "the queue really did try this file again",
+    Array.isArray(tried) && tried.includes(2),
+    JSON.stringify(tried),
   );
+
+  section("The preview");
+  await cdp.keyboard.press("Enter");
+  const big = await cdp
+    .settle(
+      `document.querySelector(".preview-unshowable .file-problem") !== null`,
+      (value) => value === true,
+    )
+    .catch(() => false);
+  check("the preview draws the same card, full size", big === true);
+  const line = await cdp.evaluate(
+    `document.querySelector(".preview-unshowable-line")?.textContent ?? null`,
+  );
+  check("under the same line", line === "The file is damaged or incomplete", JSON.stringify(line));
+  await cdp.keyboard.press("Escape");
 
   report();
 } catch (error) {

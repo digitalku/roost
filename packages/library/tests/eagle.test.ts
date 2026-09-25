@@ -311,8 +311,8 @@ describe("importing an Eagle library", () => {
     await importEagle(library, eagle);
     const hash = hashOf(library, "photo two.jpg");
     await rate(library, [hash], 1);
-    await setNote(library, hash, "what I actually think");
-    await setSource(library, hash, "https://example.test/mine");
+    await setNote(library, [hash], "what I actually think");
+    await setSource(library, [hash], "https://example.test/mine");
 
     const second = await importEagle(library, eagle);
 

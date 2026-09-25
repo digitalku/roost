@@ -166,6 +166,8 @@ export interface EagleReport {
   readonly bytes: number;
   readonly elapsed: number;
   readonly failed: readonly ImportFailure[];
+  /** The assets this run added, for a paused derive queue to work (ADR-0049). */
+  readonly importedIds: readonly AssetId[];
 }
 
 export interface EagleImportOptions {
@@ -553,6 +555,7 @@ export async function importEagle(
   const seen = new Set<string>();
   const written: Written = new Map();
   const failed: ImportFailure[] = [];
+  const importedIds: AssetId[] = [];
   const counts = {
     imported: 0,
     duplicates: 0,
@@ -586,6 +589,7 @@ export async function importEagle(
       written,
       counts,
       failed,
+      importedIds,
       () => {
         done += 1;
         onProgress?.(done, survey.items);
@@ -624,6 +628,7 @@ export async function importEagle(
     bytes: counts.bytes,
     elapsed: performance.now() - started,
     failed,
+    importedIds,
   };
   log.info("Eagle import complete", {
     assets: report.assets,
@@ -743,6 +748,7 @@ async function importChunk(
   written: Written,
   counts: Counts,
   failed: ImportFailure[],
+  importedIds: AssetId[],
   /** Called once per item whose bytes have been placed, for the progress line. */
   onItem: () => void,
 ): Promise<void> {
@@ -768,6 +774,7 @@ async function importChunk(
     },
   });
   counts.imported += report.imported;
+  importedIds.push(...report.importedIds);
   counts.duplicates += report.duplicates;
   counts.subtitles += report.subtitles;
   counts.bytes += report.bytes;

@@ -55,6 +55,7 @@ import {
   ensurePreview,
   exportAssets,
   type FileWatcher,
+  type FoldProgress,
   forgetLibrary,
   type ImportReport,
   importEagle,
@@ -69,6 +70,7 @@ import {
   pinLibrary,
   queueStatus,
   type Redrawn,
+  Requested,
   rate,
   readSidebar,
   reclaim,
@@ -96,7 +98,7 @@ import {
   Wanted,
   watchFiles,
 } from "@roost/library";
-import { capabilities, installBackend, refreshCapabilities } from "@roost/media";
+import { capabilities, GRID_SIZE, installBackend, refreshCapabilities } from "@roost/media";
 import {
   formatFromExtension,
   isBrowserDrawable,
@@ -141,7 +143,12 @@ export class EngineHost {
   async handle(request: Request): Promise<ResponseOf<Request["type"]>> {
     switch (request.type) {
       case "library:open":
-        return this.#open(await Library.open(resolve(request.path), { exclusive: true }));
+        return this.#open(
+          await Library.open(resolve(request.path), {
+            exclusive: true,
+            onFold: this.#foldAnnouncer(),
+          }),
+        );
 
       case "library:create": {
         // `<parent>/<name>.roost`, composed here because this is the side with
@@ -258,10 +265,18 @@ export class EngineHost {
         // a million (`serving.ts`). One asset, and only if it already has a
         // grid thumbnail — proof that something here can draw it.
         await ensurePreview(library, request.id);
+        // Opened while the queue is paused: its thumbnail is made now, and the
+        // rest keeps waiting (ADR-0049). A file with nothing queued is skipped
+        // by the runner, so there is nothing to check here first.
+        if (this.#paused) {
+          this.#requested.open(found.id);
+          void this.#runDerives();
+        }
         return detailOf(
           found,
           library.db.repo.commentsFor(found.id),
           library.db.repo.subtitlesFor(found.id),
+          library.db.repo.stalledReasons("derive", [found.id]).get(found.id) ?? null,
         );
       }
 
@@ -272,14 +287,16 @@ export class EngineHost {
         return this.#edit(() => rate(this.#require(), ids(request.ids), request.rating));
 
       case "asset:note":
-        return this.#edit(() => setNote(this.#require(), parseAssetId(request.id), request.note));
+        return this.#edit(() => setNote(this.#require(), ids(request.ids), request.note));
 
       case "asset:source":
-        return this.#edit(() => setSource(this.#require(), parseAssetId(request.id), request.url));
+        return this.#edit(() => setSource(this.#require(), ids(request.ids), request.url));
 
       case "asset:poster":
         return this.#edit(async () => {
           const pinned = await setPoster(this.#require(), parseAssetId(request.id), request.atMs);
+          // A gesture about this one file, so a pause does not hold it back.
+          if (pinned && this.#paused) this.#requested.open(parseAssetId(request.id));
           // The picture is not made here: the service queues the derive at
           // interactive priority and this works the queue in the background,
           // which is the same path a rebuild takes. Nothing to work when the
@@ -298,6 +315,7 @@ export class EngineHost {
             new TextEncoder().encode(request.text),
           );
           // Always a new asset in version 2, so the derive always has work.
+          if (this.#paused) this.#requested.open(parseAssetId(id));
           void this.#runDerives();
           return { id };
         });
@@ -435,6 +453,57 @@ export class EngineHost {
       case "derive:failures":
         return deriveFailures(this.#require(), { state: request.state });
 
+      case "derive:pause": {
+        // Remembered before anything stops, so a crash in between still comes
+        // back paused — which is what was asked for (ADR-0049).
+        await this.#require().updateSettings({ derivePaused: true });
+        this.#paused = true;
+        // What is in flight finishes; nothing new is claimed.
+        this.#stopDeriving?.abort();
+        return this.#deriveStatus();
+      }
+
+      case "folder:covers": {
+        // Four per folder, at the grid's size: a tile draws a 2×2 of them.
+        const covers = this.#require().db.repo.folderCovers(request.folders, GRID_SIZE, 4);
+        return [...covers].map(([folder, assets]) => ({
+          folder,
+          assets: assets.map((asset) => ({
+            id: asset.id,
+            posterMs: asset.posterMs,
+            derivedAt: asset.derivedAt,
+          })),
+        }));
+      }
+
+      case "derive:retryAsset": {
+        const library = this.#require();
+        const id = parseAssetId(request.id);
+        // Probed again first, for the reason `derive:retry` is: the tool this
+        // file was waiting for may have been installed a minute ago.
+        await refreshCapabilities();
+        if (!library.db.repo.requeueJobFor("derive", id)) return false;
+        // Next, whichever way the queue is running: somebody is looking at it.
+        if (this.#paused) this.#requested.open(id);
+        else this.#wanted.add([id]);
+        void this.#runDerives();
+        return true;
+      }
+
+      case "derive:resume": {
+        await this.#require().updateSettings({ derivePaused: false });
+        this.#paused = false;
+        this.#requested.clear();
+        // A paused run working an opened file may be in flight, and a second
+        // caller joins the run in flight rather than starting one — so it is
+        // stopped, and the whole queue started once it has let go.
+        this.#stopDeriving?.abort();
+        const letting = this.#deriving;
+        if (letting === undefined) void this.#runDerives();
+        else void letting.catch(() => undefined).then(() => this.#runDerives());
+        return this.#deriveStatus();
+      }
+
       case "derive:wanted":
         // Nothing is started here. Work is only ever wanted because it is
         // queued, and a queue with work in it is already being worked: the run
@@ -451,6 +520,17 @@ export class EngineHost {
         // process still believes is absent. It was never wired until the day
         // libheif arrived and proved it (ADR-0040 §6).
         await refreshCapabilities();
+        // Paused, the button still does what it says — for what it releases,
+        // and not for the rest of the queue (ADR-0049). Read before the release,
+        // which is what turns these rows back into ordinary queued work.
+        if (this.#paused) {
+          const everything = Number.MAX_SAFE_INTEGER;
+          const parked = library.db.repo
+            .jobsIn("derive", "blocked", everything)
+            .filter((row) => request.reason === null || row.reason === request.reason);
+          const failed = library.db.repo.jobsIn("derive", "failed", everything);
+          this.#requested.queue([...parked, ...failed].map((row) => row.assetId));
+        }
         retryBlocked(library, request.reason ?? undefined);
         // Every failure, however many times it has already been tried. The
         // attempts cap belongs to the sweep that offers work again on its own;
@@ -542,8 +622,12 @@ export class EngineHost {
       ...(cursor && { after: cursor }),
     });
     const last = hits.length < limit ? undefined : lastCursor(hits);
+    const stalled = library.db.repo.stalledReasons(
+      "derive",
+      hits.map((hit) => hit.id),
+    );
     return {
-      assets: hits.map(cardOf),
+      assets: hits.map((hit) => cardOf(hit, stalled.get(hit.id) ?? null)),
       next: last === undefined ? null : { key: last.key, id: last.id },
     };
   }
@@ -584,7 +668,9 @@ export class EngineHost {
     // watching produces a screen of placeholders without them.
     //
     // The importer has already queued the jobs, in the transaction that wrote
-    // the rows — this only works the queue.
+    // the rows — this only works the queue. A paused queue works these and no
+    // others: an import is somebody asking for these files now (ADR-0049).
+    if (this.#paused) this.#requested.queue(report.importedIds);
     const derived = await this.#runDerives((running) => {
       this.onProgress?.(progressOf(report, running.derived));
     });
@@ -649,6 +735,7 @@ export class EngineHost {
       });
     });
 
+    if (this.#paused) this.#requested.queue(report.importedIds);
     const derived = await this.#runDerives((running) => {
       this.onProgress?.({
         scanned: report.survey.items,
@@ -691,9 +778,12 @@ export class EngineHost {
         failed: report.failed,
       });
     };
+    // Paused, only what was asked for by name, and nothing when nothing was.
+    const paused = this.#paused;
+    if (paused && this.#requested.size === 0) return undefined;
     const run = runDerives(library, {
       signal: this.#stopDeriving.signal,
-      wanted: this.#wanted,
+      ...(paused ? { only: this.#requested } : { wanted: this.#wanted }),
       // Per batch, unlike `onChanged` below. A card the window is already
       // holding is patched with its new cache key, so a cell whose file changed
       // redraws while the rest of the run is still going — and nothing re-reads
@@ -726,6 +816,11 @@ export class EngineHost {
     // placeholders find their thumbnails. Per batch would be a redraw every
     // hundred assets for a run that can take minutes.
     if (report.derived > 0) this.onChanged?.();
+    // Asked for while this run was letting go — a file opened just as a pause
+    // stopped the last one — would otherwise wait for the next trigger.
+    if (this.#library === library && this.#paused && this.#requested.size > 0) {
+      void this.#runDerives();
+    }
     return report;
   }
 
@@ -736,6 +831,34 @@ export class EngineHost {
   #stopDeriving: AbortController | undefined;
   /** What the window is showing placeholders for. Forgotten with the library. */
   readonly #wanted = new Wanted();
+  /** Whether the queue is paused, as the library remembers it (ADR-0049). */
+  #paused = false;
+  /** What a paused queue still works: opened files and new imports. */
+  readonly #requested = new Requested();
+
+  /**
+   * Called while an open folds the journal. Set by `serve`, like
+   * {@link onChanged}.
+   */
+  onFolding: ((progress: FoldProgress) => void) | undefined;
+
+  /**
+   * A fold's progress, at most ten times a second and always the last one.
+   *
+   * Ten because it drives a bar, which a person watches move, where
+   * `job:progress` drives a count and once a second is plenty. A fold reads a
+   * chunk every few milliseconds, and a message per chunk would be hundreds a
+   * second for a bar that cannot draw them.
+   */
+  #foldAnnouncer(): (progress: FoldProgress) => void {
+    let announcedAt = Number.NEGATIVE_INFINITY;
+    return (progress) => {
+      const now = performance.now();
+      if (progress.done < progress.total && now - announcedAt < 100) return;
+      announcedAt = now;
+      this.onFolding?.(progress);
+    };
+  }
 
   /** Called as the derive queue works. Set by `serve`, like {@link onChanged}. */
   onJobProgress: ((progress: DeriveProgress) => void) | undefined;
@@ -750,6 +873,7 @@ export class EngineHost {
   async #deriveStatus(): Promise<WireDeriveStatus> {
     const status = queueStatus(this.#require());
     return {
+      paused: this.#paused,
       ready: status.ready,
       running: status.running,
       blocked: status.blocked,
@@ -816,6 +940,8 @@ export class EngineHost {
     // anything about the next one. Nor can what its window was waiting for.
     this.#duplicates = undefined;
     this.#wanted.clear();
+    this.#requested.clear();
+    this.#paused = false;
 
     // The watcher goes first of all: a pending refresh landing after the
     // database is closed would throw, and its whole subject is leaving anyway.
@@ -849,6 +975,7 @@ export class EngineHost {
     // a parked `unsupported:heic` is a fact about the build that wrote it
     // rather than about the file (ADR-0040 §6).
     releaseNowSupported(library);
+    this.#paused = library.settings.derivePaused;
 
     // Whatever the last session left undone, plus whatever a rebuild dropped.
     // Queued and worked in the background, so opening a library is not held up
@@ -979,7 +1106,7 @@ function statsOf(library: Library): LibraryStats {
  * shape are allowed to differ and this is the place that has to notice when
  * they do (ADR-0007 — the duplication is the boundary).
  */
-function cardOf(hit: SearchHit): AssetPage["assets"][number] {
+function cardOf(hit: SearchHit, undrawn: string | null): AssetPage["assets"][number] {
   return {
     id: hit.id,
     name: hit.name,
@@ -990,6 +1117,7 @@ function cardOf(hit: SearchHit): AssetPage["assets"][number] {
     // draws: see `AssetCard` in the contract.
     posterMs: hit.posterMs,
     derivedAt: hit.derivedAt,
+    undrawn,
     width: hit.width,
     height: hit.height,
     importedAt: hit.importedAt,
@@ -1132,6 +1260,7 @@ function detailOf(
   detail: AssetDetail,
   comments: readonly CommentRow[],
   tracks: readonly SubtitleRow[],
+  undrawn: string | null,
 ): WireAssetDetail {
   return {
     id: detail.id,
@@ -1145,6 +1274,7 @@ function detailOf(
     height: detail.height,
     contentHash: detail.contentHash,
     derivedAt: detail.derivedAt,
+    undrawn,
     createdAt: detail.createdAt,
     importedAt: detail.importedAt,
     trashedAt: detail.trashedAt,

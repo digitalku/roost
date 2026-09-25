@@ -282,6 +282,7 @@ type for each member, and the event union; `preload` exposes a single typed
 why the Rust project's generated-bindings rule does not translate.
 
 Events (engine → renderer): `import:progress`, `job:progress`, `library:changed`,
+`library:folding` (bytes of the journal an open has folded, ten times a second at most),
 `asset:updated`, `thumbnail:ready`. They travel the same port and are re-emitted by main to the
 window; the renderer subscribes through the same typed surface.
 

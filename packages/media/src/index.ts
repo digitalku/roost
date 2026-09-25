@@ -44,6 +44,7 @@ export {
 } from "./font.js";
 export {
   extensionOf,
+  extensionsNaming,
   FORMATS,
   type Format,
   formatFromExtension,

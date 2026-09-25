@@ -7,6 +7,7 @@ import {
   importInto,
   Library,
   queueStatus,
+  Requested,
   releaseNowSupported,
   retryBlocked,
   runDerives,
@@ -94,6 +95,47 @@ describe("the derive queue", () => {
     expect(library.stats().thumbnails).toBe(4);
   });
 
+  it("tells the window why a picture is missing, as it decides", async () => {
+    // A cell parked on a missing decoder said nothing until the grid
+    // re-paged: `onDerived` carried only the assets that were drawn
+    // (`UI_SPEC.md` §6.1).
+    await writeFile(
+      join(source, "image-1.png"),
+      Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        Buffer.alloc(64),
+      ]),
+    );
+    await importInto(library, [source]);
+    const ids = library.db.repo.allIds();
+    // Chosen by name: ids are random (RL-15), and a pick by position was the
+    // damaged PNG one run in four, which left nothing to fail.
+    const gone = ids.find((id) => library.db.repo.assetDetail(id)?.name === "image-2") as AssetId;
+    const ext = library.db.repo.assetDetail(gone)?.ext ?? "";
+    await rename(library.storage.locate(gone, ext), join(dir, "moved.png"));
+
+    const told: { id: string; derivedAt: number | null; undrawn: string | null }[] = [];
+    await runDerives(library, { sizes: [GRID_SIZE], onDerived: (assets) => told.push(...assets) });
+
+    const byId = new Map(told.map((one) => [one.id, one]));
+    expect(told).toHaveLength(4);
+    // Parked, with nothing measured: a reason and no new cache key.
+    expect(byId.get(gone)).toEqual({ id: gone, derivedAt: null, undrawn: "missing:file" });
+    const failed = told.filter((one) => one.undrawn !== null && one.id !== gone);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.derivedAt).toBeNull();
+    // Drawn: a new key, and no reason — which is what clears a badge a retry
+    // has just made obsolete.
+    const drawn = told.filter((one) => one.undrawn === null);
+    expect(drawn).toHaveLength(2);
+    expect(drawn.every((one) => typeof one.derivedAt === "number")).toBe(true);
+
+    // And the same answer is there to be read by a page that arrives later.
+    const stalled = library.db.repo.stalledReasons("derive", ids);
+    expect(stalled.get(gone)).toBe("missing:file");
+    expect(stalled.size).toBe(2);
+  });
+
   it("groups what failed, and names the files it happened to", async () => {
     // A PNG header with nothing behind it: the format is recognised, the
     // backend is present, and the decode throws — which is a failure rather
@@ -161,7 +203,77 @@ describe("the derive queue", () => {
     const [again] = library.db.repo.claimJobs("derive", 1);
     library.db.repo.blockJob(again?.id ?? 0, "unsupported:zip");
     expect(releaseNowSupported(library)).toBe(0);
-    expect(queueStatus(library).blocked).toBe(1);
+    expect(library.db.repo.jobReasons("blocked")).toEqual([
+      { reason: "unsupported:zip", count: 1 },
+    ]);
+  });
+
+  it("gives a GIMP file its name back, once, and leaves a damaged JPEG alone", async () => {
+    // Reported 2026-09-24: an `.xcf` parked as "a kind of file Roost does not
+    // recognise" by a build that had no `xcf` in its table.
+    await rm(source, { recursive: true });
+    await mkdir(source);
+    await writeFile(
+      join(source, "edit.xcf"),
+      Buffer.concat([Buffer.from("gimp xcf v019\0"), Buffer.alloc(96, 1)]),
+    );
+    // Sniffs as unknown under any build: not something a table can fix.
+    await writeFile(join(source, "broken.jpg"), Buffer.alloc(128, 7));
+    await importInto(library, [source]);
+    await runDerives(library, { sizes: [GRID_SIZE] });
+    expect(library.db.repo.jobReasons("blocked")).toEqual(
+      expect.arrayContaining([
+        { reason: "unsupported:xcf", count: 1 },
+        { reason: "unsupported:unknown", count: 1 },
+      ]),
+    );
+
+    // What the older build left behind: the GIMP file parked as unknown too.
+    expect(library.db.repo.requeueBlocked("derive", "unsupported:xcf")).toBe(1);
+    const [claim] = library.db.repo.claimJobs("derive", 1);
+    library.db.repo.blockJob(claim?.id ?? 0, "unsupported:unknown");
+
+    // Released by extension, and only the one whose format now has a name.
+    expect(releaseNowSupported(library)).toBe(1);
+    await runDerives(library, { sizes: [GRID_SIZE] });
+    expect(library.db.repo.jobReasons("blocked")).toEqual(
+      expect.arrayContaining([
+        { reason: "unsupported:xcf", count: 1 },
+        { reason: "unsupported:unknown", count: 1 },
+      ]),
+    );
+
+    // And convergent: the next open finds nothing to release.
+    expect(releaseNowSupported(library)).toBe(0);
+  });
+
+  it("tells nobody about a file of kind other having no picture", async () => {
+    // Asked for on 2026-09-24: an `.xcf`, made `other`, was still in the list
+    // behind the status bar. An archive, a GIMP file and a file nothing
+    // recognises have no picture by nature; a BMP nothing here draws still
+    // counts, because it is a picture that cannot be shown.
+    await rm(source, { recursive: true });
+    await mkdir(source);
+    await writeFile(join(source, "edit.xcf"), Buffer.from("gimp xcf v019\0padding"));
+    await writeFile(join(source, "notes.bin"), Buffer.alloc(80, 3));
+    await writeFile(join(source, "old.bmp"), Buffer.concat([Buffer.from("BM"), Buffer.alloc(80)]));
+    await importInto(library, [source]);
+    await runDerives(library, { sizes: [GRID_SIZE] });
+
+    // Parked, all three, so the sweep does not offer them again…
+    expect(library.db.repo.jobCounts()).toContainEqual({
+      kind: "derive",
+      state: "blocked",
+      count: 3,
+    });
+    // …and only the picture is reported.
+    expect(queueStatus(library)).toMatchObject({
+      blocked: 1,
+      reasons: [{ reason: "unsupported:bmp", count: 1 }],
+    });
+    const listed = deriveFailures(library, { state: "blocked" });
+    expect(listed.total).toBe(1);
+    expect(listed.groups.map((group) => group.reason)).toEqual(["unsupported:bmp"]);
   });
 
   it("reports progress as it commits, not at the end", async () => {
@@ -194,6 +306,30 @@ describe("the derive queue", () => {
 
     expect(report.derived).toBe(20);
     expect(queueStatus(library)).toMatchObject({ ready: 0, running: 0 });
+  });
+
+  it("works only what was asked for by name, when told to", async () => {
+    // A paused queue (ADR-0049): an opened file and a new import are derived,
+    // and nothing else is touched.
+    const report = await importInto(library, [source]);
+    expect(report.importedIds).toHaveLength(4);
+    const [a, b] = report.importedIds as AssetId[];
+    const requested = new Requested();
+    requested.queue([b as AssetId, a as AssetId, b as AssetId]);
+    const order: string[] = [];
+
+    const run = await runDerives(library, {
+      sizes: [GRID_SIZE],
+      concurrency: 1,
+      only: requested,
+      onDerived: (assets) => order.push(...assets.map((asset) => asset.id)),
+    });
+
+    // `b` a second time has nothing waiting, and is skipped rather than drawn
+    // twice; the other two assets are still queued, untouched.
+    expect(order).toEqual([b, a]);
+    expect(run.derived).toBe(2);
+    expect(queueStatus(library).ready).toBe(2);
   });
 
   it("works what is on screen first, the latest asked for first", async () => {

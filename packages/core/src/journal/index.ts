@@ -15,6 +15,7 @@ export {
 export {
   CollectingSink,
   isClean,
+  type ReplayOptions,
   type ReplayReport,
   type ReplaySink,
   replay,

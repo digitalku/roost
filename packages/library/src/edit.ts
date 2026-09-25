@@ -291,11 +291,24 @@ export async function rate(
 /**
  * `null` clears the note, and so does an all-whitespace one: storing that would
  * show an empty note badge on the asset forever.
+ *
+ * Several assets take one line each, in one batch (ADR-0048). Whether writing
+ * over notes that differ is wanted is asked in the window, not here.
  */
-export async function setNote(library: Library, hash: AssetId, note: string | null): Promise<void> {
-  requireAsset(library, hash);
+export async function setNote(
+  library: Library,
+  assets: readonly AssetId[],
+  note: string | null,
+): Promise<void> {
   const trimmed = note === null ? null : note.trim();
-  return apply(library, [{ op: "note_set", asset: hash, note: trimmed === "" ? null : trimmed }]);
+  const value = trimmed === "" ? null : trimmed;
+  return apply(
+    library,
+    assets.map((hash) => {
+      requireAsset(library, hash);
+      return { op: "note_set", asset: hash, note: value } as const;
+    }),
+  );
 }
 
 /**
@@ -314,12 +327,18 @@ export async function setNote(library: Library, hash: AssetId, note: string | nu
  */
 export async function setSource(
   library: Library,
-  hash: AssetId,
+  assets: readonly AssetId[],
   url: string | null,
 ): Promise<void> {
-  requireAsset(library, hash);
   const trimmed = url === null ? null : url.trim();
-  return apply(library, [{ op: "source_set", asset: hash, url: trimmed === "" ? null : trimmed }]);
+  const value = trimmed === "" ? null : trimmed;
+  return apply(
+    library,
+    assets.map((hash) => {
+      requireAsset(library, hash);
+      return { op: "source_set", asset: hash, url: value } as const;
+    }),
+  );
 }
 
 // --- Comments (ADR-0023) -----------------------------------------------------

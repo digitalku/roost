@@ -59,7 +59,7 @@ export async function note(
     const hashes = resolveAll(library, [needle]);
     const hash = hashes[0];
     if (hash === undefined) throw new Error("resolveAll returned nothing for one argument");
-    await setNote(library, hash, text ?? null);
+    await setNote(library, [hash], text ?? null);
     streams.out(
       text === undefined ? `Cleared the note on ${short(hash)}` : `Set the note on ${short(hash)}`,
     );
@@ -84,7 +84,7 @@ export async function source(
     const hashes = resolveAll(library, [needle]);
     const hash = hashes[0];
     if (hash === undefined) throw new Error("resolveAll returned nothing for one argument");
-    await setSource(library, hash, url ?? null);
+    await setSource(library, [hash], url ?? null);
     streams.out(
       url === undefined
         ? `Cleared the source on ${short(hash)}`

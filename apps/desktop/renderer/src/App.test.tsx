@@ -261,7 +261,10 @@ describe("a library that is already open", () => {
     expect(id).not.toBe("");
 
     const pages = engine.seen.filter((request) => request.type === "assets:page").length;
-    engine.emit({ type: "assets:derived", assets: [{ id, derivedAt: 1_799_999_999 }] });
+    engine.emit({
+      type: "assets:derived",
+      assets: [{ id, derivedAt: 1_799_999_999, undrawn: null }],
+    });
 
     await waitFor(() => {
       const after =
@@ -273,6 +276,54 @@ describe("a library that is already open", () => {
     // Patched, not re-paged: a save somewhere else must not throw away the
     // scroll position or the pages below it.
     expect(engine.seen.filter((request) => request.type === "assets:page").length).toBe(pages);
+  });
+
+  it("says on the cell why its picture is missing, as the queue decides", async () => {
+    // Reported 2026-09-24: a HEIC waiting on libheif was a grey square with
+    // "HEIC" in it, exactly like one still in the queue (`UI_SPEC.md` §6.1).
+    const engine = new FakeEngine({
+      openLibraryDialog: "/home/you/Holiday Photos.roost",
+      existing: [{ root: "/home/you/Holiday Photos.roost", name: "Holiday Photos" }],
+      stats: { assets: 2 },
+      assets: [fakeAsset(0, { ext: "heic", derivedAt: null }), fakeAsset(1)],
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    const cell = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(".cell");
+      if (found === null) throw new Error("no cell yet");
+      return found;
+    });
+    const id = cell.dataset["id"] ?? "";
+    const src = cell.querySelector(".cell-image")?.getAttribute("src");
+    expect(cell.querySelector(".placeholder-badge")).toBeNull();
+
+    // Parked, with nothing measured: a reason and no new cache key.
+    engine.emit({
+      type: "assets:derived",
+      assets: [{ id, derivedAt: null, undrawn: "missing:libheif" }],
+    });
+    const badge = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(`[data-id="${id}"] .placeholder-badge`);
+      if (found === null) throw new Error("no badge yet");
+      return found;
+    });
+    expect(badge.textContent).toBe("Needs libheif");
+    expect(badge.title).toBe("HEIC photographs need libheif");
+    // `null` means "nothing written", not "forget the key".
+    expect(document.querySelector(`[data-id="${id}"] .cell-image`)?.getAttribute("src")).toBe(src);
+
+    // Installed, retried and drawn: the reason goes with the new picture.
+    engine.emit({
+      type: "assets:derived",
+      assets: [{ id, derivedAt: 1_799_999_999, undrawn: null }],
+    });
+    await waitFor(() => {
+      expect(document.querySelector(`[data-id="${id}"] .placeholder-badge`)).toBeNull();
+    });
   });
 
   it("ignores a redraw for an asset it is not showing", async () => {
@@ -292,7 +343,10 @@ describe("a library that is already open", () => {
     });
     const before = document.querySelector<HTMLImageElement>(".cell-image")?.getAttribute("src");
 
-    engine.emit({ type: "assets:derived", assets: [{ id: "ZZZZZZZZZZZZ", derivedAt: 1 }] });
+    engine.emit({
+      type: "assets:derived",
+      assets: [{ id: "ZZZZZZZZZZZZ", derivedAt: 1, undrawn: null }],
+    });
 
     // A page this window has not reached will carry the new key when it
     // arrives; nothing here should move, and nothing should be fetched.
@@ -1727,6 +1781,34 @@ describe("folders in the grid, in the window (ADR-0043)", () => {
     expect(tiles()[0]?.getAttribute("aria-label")).toBe("Icons, folder, 2 assets");
   });
 
+  it("draws the subfolders of a folder that holds nothing of its own", async () => {
+    // Found 2026-09-25 while drawing covers: a folder of folders said "Nothing
+    // matches this query" and drew none of the folders it holds.
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 2 },
+      assets: [fakeAsset(0), fakeAsset(1)],
+      byQuery: { "infolder:Design": [], "infolder:Design/Icons": [fakeAsset(0), fakeAsset(1)] },
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [DESIGN, ICONS],
+        smartFolders: [],
+        tags: [],
+        types: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+
+    await waitFor(() => expect(tiles().length).toBe(1));
+    expect(screen.queryByText(/Nothing matches/)).toBeNull();
+  });
+
   it("draws none once the query is narrowed past the folder itself", async () => {
     // The tiles follow `openFolder`, which matches the query the **engine**
     // wrote for the row — so a filter over the folder takes them away, which is
@@ -2269,6 +2351,34 @@ describe("the recent list on the picker", () => {
     await user.click(await screen.findByRole("menuitem", { name: /Quit/ }));
 
     expect(engine.seen.some((request) => request.type === "app:quit")).toBe(true);
+  });
+
+  it("offers to resume a paused queue from the menu while work is left", async () => {
+    // ADR-0049 §3: the ☰ is where somebody goes looking for commands, so the
+    // reminder is there as well as in the status bar.
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      deriveStatus: {
+        paused: true,
+        ready: 1_240,
+        running: 0,
+        blocked: 0,
+        failed: 0,
+        reasons: [],
+        capabilities: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    expect(await screen.findByText("Paused · 1,240 left")).toBeDefined();
+    await user.click(await screen.findByRole("button", { name: "Menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Resume deriving (1,240 left)" }));
+
+    expect(engine.seen.some((request) => request.type === "derive:resume")).toBe(true);
   });
 
   it("asks again when a missing row is clicked, and opens once the drive is back", async () => {

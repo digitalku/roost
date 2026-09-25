@@ -56,6 +56,22 @@ export interface OpenOptions {
    * thing to want, and WAL is built for exactly that.
    */
   readonly exclusive?: boolean;
+
+  /**
+   * How far a fold on open has got, when the open needs one.
+   *
+   * Most opens do not: the index matches the journal and this is never called.
+   * One that finds the index behind replays the whole journal first, which is
+   * seconds at a hundred thousand assets, and a window with nothing to show for
+   * those seconds looks hung (`UI_SPEC.md` §0.6).
+   */
+  readonly onFold?: (progress: FoldProgress) => void;
+}
+
+/** Bytes of the journal folded so far, out of the bytes it had when the fold began. */
+export interface FoldProgress {
+  readonly done: number;
+  readonly total: number;
 }
 
 /**
@@ -135,7 +151,7 @@ export class Library {
       // that is exactly what it did.
       const fingerprint = await journalFingerprint(journal.dir);
       if (indexMatchesJournal(db, fingerprint)) library.#notice = journalNotice(db);
-      else await library.#fold(fingerprint);
+      else await library.#fold(fingerprint, options.onFold);
 
       log.debug("library opened", {
         root,
@@ -281,8 +297,23 @@ export class Library {
    * than it was, and those records would never be read. Under-claiming costs
    * one redundant fold at the next open; over-claiming loses data.
    */
-  async #fold(fingerprint: Record<string, number>): Promise<ReplayReport> {
-    const report = await replay(this.#journal.dir, new IndexSink(this.#db));
+  async #fold(
+    fingerprint: Record<string, number>,
+    onFold?: (progress: FoldProgress) => void,
+  ): Promise<ReplayReport> {
+    let total = 0;
+    for (const size of Object.values(fingerprint)) total += size;
+    const report = await replay(
+      this.#journal.dir,
+      new IndexSink(this.#db),
+      onFold === undefined
+        ? {}
+        : {
+            // Capped, because a journal another process appends to while this
+            // reads it has grown past the size the bar was drawn against.
+            onProgress: (bytesRead) => onFold({ done: Math.min(bytesRead, total), total }),
+          },
+    );
 
     this.#db.transaction(() => {
       rememberSkips(this.#db, report);

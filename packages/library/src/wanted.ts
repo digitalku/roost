@@ -61,3 +61,55 @@ export class Wanted {
     return this.#ids.size;
   }
 }
+
+/**
+ * What a paused derive queue works, and nothing else (ADR-0049).
+ *
+ * Two lines, and the first is always served first. **Opened** is a file
+ * somebody is looking at right now, newest first, so it is the last one opened
+ * and not the first. **Queued** is an import, or what *Try again* released, in
+ * the order it was asked for. That list can be a hundred thousand long, which
+ * is why it is an array with a head rather than a {@link Wanted}: finding the
+ * newest end of a `Map` walks it, and a walk per claim over an import that size
+ * is quadratic.
+ *
+ * An id handed out that has nothing waiting is simply skipped by the runner, so
+ * nothing here has to know what is already drawn.
+ */
+export class Requested {
+  readonly #opened = new Wanted();
+  #queued: AssetId[] = [];
+  #head = 0;
+
+  /** A file somebody opened: ahead of everything, the latest first. */
+  open(id: AssetId): void {
+    this.#opened.add([id]);
+  }
+
+  /** Files asked for together, worked in the order given. */
+  queue(ids: Iterable<AssetId>): void {
+    for (const id of ids) this.#queued.push(id);
+  }
+
+  take(): AssetId | undefined {
+    const opened = this.#opened.take();
+    if (opened !== undefined) return opened;
+    if (this.#head >= this.#queued.length) {
+      this.clear();
+      return undefined;
+    }
+    const next = this.#queued[this.#head];
+    this.#head += 1;
+    return next;
+  }
+
+  clear(): void {
+    this.#opened.clear();
+    this.#queued = [];
+    this.#head = 0;
+  }
+
+  get size(): number {
+    return this.#opened.size + this.#queued.length - this.#head;
+  }
+}

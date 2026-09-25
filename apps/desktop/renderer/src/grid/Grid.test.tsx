@@ -1,10 +1,10 @@
 import type { SidebarFolderRow } from "@roost/contract";
-import { createEvent, fireEvent, render, screen } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASSET_DRAG_TYPE } from "../dnd.js";
-import { fakeAsset } from "../testing/fake-engine.js";
+import { FakeEngine, fakeAsset, install } from "../testing/fake-engine.js";
 import { Grid } from "./Grid.js";
 import { SelectionStore } from "./selection.js";
 
@@ -80,6 +80,74 @@ describe("the grid", () => {
     // way short of two thousand, and the whole point of the exercise.
     expect(drawn.length).toBeGreaterThan(0);
     expect(drawn.length).toBeLessThan(200);
+  });
+
+  describe("before the first page", () => {
+    const waiting = (assets = 0) =>
+      render(
+        <Grid
+          assets={Array.from({ length: assets }, (_, i) => fakeAsset(i))}
+          view="icons"
+          proportional={false}
+          target={240}
+          selection={selection}
+          onMore={more}
+          loading
+        />,
+      );
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("draws nothing for the first 150ms, so a quick page does not flash", () => {
+      waiting();
+      act(() => {
+        vi.advanceTimersByTime(149);
+      });
+      expect(document.querySelectorAll(".cell-skeleton")).toHaveLength(0);
+    });
+
+    it("then draws skeleton cells, as many as the window holds and no more", () => {
+      waiting();
+      act(() => {
+        vi.advanceTimersByTime(150);
+      });
+      const cells = document.querySelectorAll(".cell-skeleton");
+      // Four columns of ~250px cells over an 800px window: a screenful, and a
+      // long way short of the hundred and sixty it was laid out from.
+      expect(cells.length).toBeGreaterThan(4);
+      expect(cells.length).toBeLessThan(40);
+      // Not options: nothing in them can be selected, and the grid says it is
+      // busy instead (`UI_SPEC.md` §8).
+      expect(screen.queryAllByRole("option")).toHaveLength(0);
+      expect(screen.getByRole("listbox").getAttribute("aria-busy")).toBe("true");
+    });
+
+    it("gives way to the assets the moment they arrive", () => {
+      const { rerender } = waiting();
+      act(() => {
+        vi.advanceTimersByTime(150);
+      });
+      rerender(
+        <Grid
+          assets={[fakeAsset(0)]}
+          view="icons"
+          proportional={false}
+          target={240}
+          selection={selection}
+          onMore={more}
+          loading
+        />,
+      );
+      expect(document.querySelectorAll(".cell-skeleton")).toHaveLength(0);
+      expect(screen.getAllByRole("option")).toHaveLength(1);
+      expect(screen.getByRole("listbox").hasAttribute("aria-busy")).toBe(false);
+    });
   });
 
   it("points the thumbnail at roost:// and never at a data URL", () => {
@@ -524,6 +592,30 @@ describe("folders in the grid", () => {
     expect(cells[0]?.getAttribute("aria-label")).toBe("Icons, folder, 3 assets");
     // Two tiles and twelve assets: the tiles are laid out, not overlaid.
     expect(cells.length).toBe(14);
+  });
+
+  it("draws a folder as a sleeve with its newest pictures in it", async () => {
+    // ADR-0043 §7, the user's drawing of 2026-09-25: up to four, and one fills
+    // the sheet. Addresses only — the pictures come over roost://thumb.
+    const covers = (folder: number, n: number) => ({
+      folder,
+      assets: Array.from({ length: n }, (_, i) => ({
+        id: `A${folder}${String(i).padStart(10, "0")}`,
+        posterMs: null,
+        derivedAt: 1_700_000_000,
+      })),
+    });
+    install(new FakeEngine({ folderCovers: [covers(7, 4), covers(8, 1)] }));
+    show(2);
+
+    await waitFor(() => {
+      expect(tile(7).querySelectorAll(".folder-sheet-image")).toHaveLength(4);
+    });
+    const first = tile(7).querySelector(".folder-sheet-image")?.getAttribute("src");
+    expect(first).toBe("roost://thumb/A70000000000@256?v=1700000000");
+    expect(tile(8).querySelector(".folder-sheet")?.getAttribute("data-covers")).toBe("1");
+    // The punched strip is what says "folder" rather than "collage".
+    expect(tile(7).querySelectorAll(".folder-hole")).toHaveLength(6);
   });
 
   it("marks a folder on a click without selecting it", async () => {

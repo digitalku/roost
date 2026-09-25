@@ -31,6 +31,7 @@ import type {
   WireExportReport,
   WireFacets,
   WireFiled,
+  WireFolderCover,
   WireFolderDeleted,
   WireImportReport,
   WireInstallOutcome,
@@ -242,16 +243,27 @@ export type Request =
       readonly ids: readonly string[];
       readonly rating: number | null;
     }
-  /** `null` clears the note, and so does an all-whitespace one. */
-  | { readonly type: "asset:note"; readonly id: string; readonly note: string | null }
+  /**
+   * `null` clears the note, and so does an all-whitespace one.
+   *
+   * Every asset in `ids` gets the same note (ADR-0048). Whether that replaces
+   * notes that differ is asked in the window before this is sent.
+   */
+  | {
+      readonly type: "asset:note";
+      readonly ids: readonly string[];
+      readonly note: string | null;
+    }
   /**
    * Where the file came from (ADR-0030). `null` clears it, and so does an
-   * all-whitespace value.
-   *
-   * One asset, like the note and unlike the rating: a source is one asset's
-   * answer, and writing one across a selection is a mistake with no undo.
+   * all-whitespace value. Every asset in `ids` gets the same one (ADR-0048),
+   * which is what twelve pictures saved from one post want.
    */
-  | { readonly type: "asset:source"; readonly id: string; readonly url: string | null }
+  | {
+      readonly type: "asset:source";
+      readonly ids: readonly string[];
+      readonly url: string | null;
+    }
   /**
    * Pin a video's thumbnail to a moment, or let it go back to the default
    * (ADR-0024 stage 4).
@@ -382,6 +394,8 @@ export type Request =
    * undeletable through it.
    */
   | { readonly type: "folder:move"; readonly folder: number; readonly parent: number | null }
+  /** The pictures each of these folders' tiles draws (ADR-0043 §7). */
+  | { readonly type: "folder:covers"; readonly folders: readonly number[] }
   | {
       readonly type: "folder:delete";
       readonly folder: number;
@@ -603,6 +617,18 @@ export type Request =
    */
   | { readonly type: "derive:retry"; readonly reason: string | null }
   /**
+   * Stop working the queue, and keep it stopped until `derive:resume`
+   * (ADR-0049). Remembered by the library. What is in flight finishes; opened
+   * files and new imports are still derived.
+   */
+  | { readonly type: "derive:pause" }
+  /**
+   * *Try again* for one file (ADR-0050): its parked or failed job goes back in
+   * the queue and is derived next, paused or not. `false` when it had none.
+   */
+  | { readonly type: "derive:retryAsset"; readonly id: string }
+  | { readonly type: "derive:resume" }
+  /**
    * These assets are on screen with no picture: draw them next.
    *
    * **Sent by main, not by the window.** A cell learns its thumbnail is absent
@@ -749,6 +775,7 @@ export interface Responses {
   "folder:create": number;
   "folder:rename": null;
   "folder:move": null;
+  "folder:covers": readonly WireFolderCover[];
   "folder:delete": WireFolderDeleted;
   "comment:add": null;
   "comment:set": null;
@@ -778,6 +805,9 @@ export interface Responses {
   "derive:status": WireDeriveStatus;
   /** The status after the retry, so one round trip answers "and now?". */
   "derive:retry": WireDeriveStatus;
+  "derive:pause": WireDeriveStatus;
+  "derive:retryAsset": boolean;
+  "derive:resume": WireDeriveStatus;
   "derive:wanted": null;
   "capability:install": WireInstallOutcome;
   "derive:failures": WireDeriveFailures;
@@ -1002,22 +1032,22 @@ export const REQUEST_VALIDATORS: {
   },
 
   "asset:note": (source) => {
-    const id = readAssetId(source, "id");
-    if (!id.ok) return id;
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
     const note = readNullable(source, "note", readString);
     if (!note.ok) return note;
-    return ok({ type: "asset:note", id: id.value, note: note.value });
+    return ok({ type: "asset:note", ids: ids.value, note: note.value });
   },
 
   "asset:source": (source) => {
-    const id = readAssetId(source, "id");
-    if (!id.ok) return id;
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
     // No shape beyond "a string or an explicit null": what counts as a source
     // is the user's to decide (ADR-0030 §2), and the scheme is read where the
     // value is *opened*, not where it is stored.
     const url = readNullable(source, "url", readString);
     if (!url.ok) return url;
-    return ok({ type: "asset:source", id: id.value, url: url.value });
+    return ok({ type: "asset:source", ids: ids.value, url: url.value });
   },
 
   "link:open": (source) => {
@@ -1132,6 +1162,22 @@ export const REQUEST_VALIDATORS: {
     const parent = readNullable(source, "parent", readFolderIn);
     if (!parent.ok) return parent;
     return ok({ type: "folder:move", folder: folder.value, parent: parent.value });
+  },
+
+  "folder:covers": (source) => {
+    const list = source["folders"];
+    if (!Array.isArray(list)) return bad("folders: expected an array");
+    // Bounded: the window asks for the children on screen, and a list this
+    // long is a message nothing here wrote.
+    if (list.length > 10_000) return bad("folders: too many");
+    const folders: number[] = [];
+    for (const value of list) {
+      if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+        return bad("folders: expected folder ids");
+      }
+      folders.push(value);
+    }
+    return ok({ type: "folder:covers", folders });
   },
 
   "folder:delete": (source) => {
@@ -1271,6 +1317,13 @@ export const REQUEST_VALIDATORS: {
     if (!reason.ok) return reason;
     return ok({ type: "derive:retry", reason: reason.value });
   },
+
+  "derive:pause": () => ok({ type: "derive:pause" }),
+  "derive:retryAsset": (source) => {
+    const id = readAssetId(source, "id");
+    return id.ok ? ok({ type: "derive:retryAsset", id: id.value }) : id;
+  },
+  "derive:resume": () => ok({ type: "derive:resume" }),
 
   "derive:wanted": (source) => {
     const ids = readAssetIdArray(source, "ids");

@@ -1,5 +1,6 @@
 import { memo } from "react";
 import { bytes } from "../format.js";
+import { Placeholder } from "../Placeholder.js";
 import { gridSrc } from "../thumbnail.js";
 import type { GridView } from "./layout.js";
 
@@ -59,6 +60,10 @@ export interface AssetCellProps {
   readonly id: string;
   readonly name: string;
   readonly ext: string;
+  /** An `AssetKind`, for the shape drawn while there is no picture. */
+  readonly kind: string;
+  /** Why there is no picture, if the queue has said (`UI_SPEC.md` §6.1). */
+  readonly undrawn: string | null;
   /** Part of the thumbnail's address, not something the cell draws. */
   readonly posterMs: number | null;
   /**
@@ -95,6 +100,8 @@ export const AssetCell = memo(function AssetCell({
   derivedAt,
   name,
   ext,
+  kind,
+  undrawn,
   x,
   y,
   width,
@@ -108,7 +115,7 @@ export const AssetCell = memo(function AssetCell({
   assetHeight,
   importedAt,
 }: AssetCellProps): React.JSX.Element {
-  const kind = ext === "" ? "file" : ext;
+  const label = ext === "" ? "file" : ext;
 
   if (view !== "icons") {
     return (
@@ -130,7 +137,7 @@ export const AssetCell = memo(function AssetCell({
         style={{ transform: `translate(${x}px, ${y}px)`, width, height }}
       >
         <div className="cell-thumb">
-          <span className="cell-kind">{kind}</span>
+          <Placeholder kind={kind} ext={ext} undrawn={undrawn} />
           <img
             className="cell-image"
             src={gridSrc(id, posterMs, derivedAt)}
@@ -147,7 +154,7 @@ export const AssetCell = memo(function AssetCell({
         </span>
         {view === "details" && (
           <>
-            <span className="cell-field">{kind.toUpperCase()}</span>
+            <span className="cell-field">{label.toUpperCase()}</span>
             <span className="cell-field">{bytes(size)}</span>
             <span className="cell-field">
               {assetWidth === null || assetHeight === null ? "" : `${assetWidth} × ${assetHeight}`}
@@ -183,12 +190,13 @@ export const AssetCell = memo(function AssetCell({
       <div className="cell-thumb" style={{ height: height - caption }}>
         {/*
           The placeholder is a first-class cell, not a broken one: a library
-          holds anything (`CONCEPT.md` §5), so a `.zip` shows its extension
-          rather than a broken-image glyph. It is drawn underneath and the image
-          covers it — and the image hides itself when it fails, because Chromium
-          draws a broken icon otherwise.
+          holds anything (`CONCEPT.md` §5), so a `.zip` shows its kind and
+          extension rather than a broken-image glyph, and a HEIC waiting on a
+          decoder says so. It is drawn underneath and the image covers it — and
+          the image hides itself when it fails, because Chromium draws a broken
+          icon otherwise.
         */}
-        <span className="cell-kind">{kind}</span>
+        <Placeholder kind={kind} ext={ext} undrawn={undrawn} />
         <img
           className="cell-image"
           src={gridSrc(id, posterMs, derivedAt)}

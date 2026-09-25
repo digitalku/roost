@@ -12,9 +12,11 @@ import type { GridView } from "./layout.js";
  * ordinary is the context menu: the folder menu is a Radix trigger wrapped
  * around the cell, which needs the props and the ref forwarded to the element.
  *
- * There is no `<img>` here and no `roost://` address. A folder has no
- * thumbnail — the cover mosaic ADR-0043 §7 leaves for later is where that would
- * arrive — so the glyph is the whole picture.
+ * **The tile is a sheet protector with the folder's pictures in it** — the
+ * user's own drawing, 2026-09-25, which also asked for the cover ADR-0043 §7 had
+ * left for later: up to four of the folder's newest pictures, its own first and
+ * then its subfolders'. They are `roost://thumb` addresses the engine named
+ * (`folder:covers`), never bytes (invariant 12).
  */
 
 export interface FolderCellProps extends React.ComponentPropsWithoutRef<"div"> {
@@ -36,10 +38,12 @@ export interface FolderCellProps extends React.ComponentPropsWithoutRef<"div"> {
    */
   readonly isFocused: boolean;
   readonly view: GridView;
+  /** Up to four thumbnail addresses to draw inside the sheet, newest first. */
+  readonly covers: readonly string[];
 }
 
 export const FolderCell = forwardRef<HTMLDivElement, FolderCellProps>(function FolderCell(
-  { id, name, count, x, y, width, height, caption, isFocused, view, ...rest },
+  { id, name, count, x, y, width, height, caption, isFocused, view, covers, ...rest },
   ref,
 ) {
   const label = count === null ? `${name}, folder` : `${name}, folder, ${count} assets`;
@@ -80,7 +84,7 @@ export const FolderCell = forwardRef<HTMLDivElement, FolderCellProps>(function F
         style={style}
       >
         <div className="cell-thumb">
-          <FolderGlyph />
+          <FolderSheet covers={NO_COVERS} />
         </div>
         {nameBand}
         {view === "details" && (
@@ -112,40 +116,61 @@ export const FolderCell = forwardRef<HTMLDivElement, FolderCellProps>(function F
       style={style}
     >
       <div className="cell-thumb" style={{ height: height - caption }}>
-        <FolderGlyph />
+        <FolderSheet covers={covers} />
       </div>
       {nameBand}
     </div>
   );
 });
 
+/** A row's sheet is too small to hold pictures; it is the shape alone. */
+const NO_COVERS: readonly string[] = [];
+
 /**
- * The folder itself, drawn rather than typed.
+ * The sleeve, and what is filed in it.
  *
- * The same reasoning as the sidebar's chevron: a glyph from the font is a
- * different weight and a different size in every stack, and this one has to
- * read at 40px in a Details row and at a few hundred in Icons.
+ * Drawn in markup rather than as an SVG so that the pictures can sit inside it
+ * as ordinary `<img>`s: Chromium decodes and caches them exactly as it does a
+ * cell's, and an image in an SVG `<image>` would be a second path for that.
  *
- * **Two tones, not a silhouette.** One filled shape is a blob at the small end
- * and a slab of colour at the large one — both reported from a real window on
- * 2026-09-13, in that order. The sheet in front of the tab is what says
- * *folder* rather than *rectangle*, and it costs one more path.
+ * **The punched strip is what says *folder*.** Without it a grey rectangle with
+ * four pictures in it reads as a collage, which is a different thing — a sheet
+ * protector is the shape a person already files things in. The holes are the
+ * ground showing through, so they are right on either theme.
  *
- * The `viewBox` is the drawing's own box: an icon grid reserves a margin inside
- * itself, and a cell that then centres the element adds a second one, which is
- * how the first build drew a speck in the middle of a lot of nothing.
+ * One picture fills the sheet, and two to four make a 2×2: a single picture in
+ * a quarter of the sheet looked like three missing ones.
  */
-function FolderGlyph(): React.JSX.Element {
+function FolderSheet({ covers }: { readonly covers: readonly string[] }): React.JSX.Element {
   return (
-    <svg className="cell-folder-glyph" viewBox="0 0 24 19" aria-hidden="true" focusable="false">
-      <path
-        className="folder-back"
-        d="M3 1h6.17a2 2 0 0 1 1.41.59L12.41 3H21a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2z"
-      />
-      <path
-        className="folder-front"
-        d="M3 6.5h18a2 2 0 0 1 2 2V16a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2z"
-      />
-    </svg>
+    <div className="folder-sheet" data-covers={covers.length}>
+      <div className="folder-sheet-strip" aria-hidden="true">
+        <span className="folder-hole" data-long="" />
+        <span className="folder-hole" />
+        <span className="folder-hole" data-long="" />
+        <span className="folder-hole" />
+        <span className="folder-hole" />
+        <span className="folder-hole" data-long="" />
+      </div>
+      <div className="folder-sheet-body">
+        {covers.map((src) => (
+          <img
+            key={src}
+            className="folder-sheet-image"
+            src={src}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            onError={hideBroken}
+          />
+        ))}
+      </div>
+    </div>
   );
+}
+
+/** A picture that went away between the cover being named and being drawn. */
+function hideBroken(event: React.SyntheticEvent<HTMLImageElement>): void {
+  event.currentTarget.hidden = true;
 }

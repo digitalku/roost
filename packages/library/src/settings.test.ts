@@ -52,6 +52,15 @@ describe("reading settings", () => {
     expect(await readSettings(dir)).toEqual({ ...DEFAULT_SETTINGS, showInspector: false });
   });
 
+  it("derives unless somebody paused it, and remembers the pause", async () => {
+    // ADR-0049: remembered until Resume, at the user's choosing.
+    expect(DEFAULT_SETTINGS.derivePaused).toBe(false);
+    await write('{ "derivePaused": true }');
+    expect((await readSettings(dir)).derivePaused).toBe(true);
+    await write('{ "derivePaused": "yes" }');
+    expect((await readSettings(dir)).derivePaused).toBe(false);
+  });
+
   it("starts in the order the application had before it had a menu", async () => {
     // ADR-0039: `added` descending is what every library shows until somebody
     // asks for something else, and a new library must not open shuffled.

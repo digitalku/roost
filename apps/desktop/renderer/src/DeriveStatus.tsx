@@ -1,17 +1,18 @@
 import type { WireDeriveStatus } from "@roost/contract";
 import { useCallback, useEffect, useState } from "react";
 import { invoke, onEvent } from "./bridge.js";
-import { DeriveFailures } from "./DeriveFailures.js";
-import { CAPABILITY_OF_REASON } from "./deriveReason.js";
 import { counted } from "./format.js";
 
 /**
  * What the derive queue is doing, in the status bar (`ROADMAP.md` M4).
  *
- * An empty cell in the grid is not self-explanatory: a thumbnail that has not
- * been made yet, a format nothing in this build draws, and a video waiting for
- * an ffmpeg nobody installed all look identical. This is the line that tells
- * them apart, and the button that acts on the one the user can fix.
+ * **Progress, and only progress** (ADR-0050): how much is left, with a × that
+ * pauses it, or what a pause left, with Resume (ADR-0049). Why a particular
+ * cell has no picture is said by the cell's badge and, when the file is opened,
+ * by the file itself — in the inspector and in the preview, with what can be
+ * done about it. This line used to count what failed and what waited on a
+ * tool, and to open a list of them; the user found that was not the question
+ * they had (*"pop up X could not be drawn tidak perlu"*, 2026-09-25).
  *
  * It says nothing at all when there is nothing to say. A library whose queue is
  * empty should not carry a status about a queue.
@@ -22,7 +23,9 @@ const POLL_MS = 1500;
 
 export function useDeriveStatus(revision: number): {
   readonly status: WireDeriveStatus | undefined;
-  readonly retry: (reason?: string) => Promise<void>;
+  /** Stop working the queue until {@link resume} (ADR-0049). */
+  readonly pause: () => Promise<void>;
+  readonly resume: () => Promise<void>;
 } {
   const [status, setStatus] = useState<WireDeriveStatus | undefined>();
 
@@ -60,107 +63,65 @@ export function useDeriveStatus(revision: number): {
     return stop;
   }, [read]);
 
-  const retry = useCallback(async (reason?: string) => {
-    const outcome = await invoke({ type: "derive:retry", reason: reason ?? null });
+  const pause = useCallback(async () => {
+    const outcome = await invoke({ type: "derive:pause" });
     if (outcome.ok) setStatus(outcome.value);
   }, []);
 
-  return { status, retry };
+  const resume = useCallback(async () => {
+    const outcome = await invoke({ type: "derive:resume" });
+    if (outcome.ok) setStatus(outcome.value);
+  }, []);
+
+  return { status, pause, resume };
+}
+
+/** What a paused queue has left: queued, and anything still finishing. */
+export function derivesLeft(status: WireDeriveStatus | undefined): number {
+  return status === undefined ? 0 : status.ready + status.running;
 }
 
 export interface DeriveStatusProps {
   readonly status: WireDeriveStatus | undefined;
-  readonly onRetry: (reason?: string) => void;
+  /** The × beside the running count, and Resume beside the paused one (ADR-0049). */
+  readonly onPause?: () => void;
+  readonly onResume?: () => void;
 }
 
-export function DeriveStatus({ status, onRetry }: DeriveStatusProps): React.JSX.Element | null {
+export function DeriveStatus({
+  status,
+  onPause,
+  onResume,
+}: DeriveStatusProps): React.JSX.Element | null {
   if (status === undefined) return null;
 
   const working = status.ready + status.running;
-  if (working > 0) {
-    return <span className="status-job">Deriving… {counted(working)} to go</span>;
-  }
-
-  if (status.failed > 0) {
-    return (
-      <Stalled
-        state="failed"
-        label={`${counted(status.failed)} could not be drawn`}
-        capabilities={status.capabilities}
-        onRetry={onRetry}
-      />
-    );
-  }
-
-  if (status.blocked > 0) {
-    // Something parked on a tool this machine does not have is the one case a
-    // person can act on, so it is what the line says when there is one — the
-    // capability's own sentence rather than a count. Everything else parked is
-    // a format nothing here draws, and that is a number.
-    const missing = status.reasons.find(
-      (reason) => CAPABILITY_OF_REASON[reason.reason] !== undefined,
-    );
-    const capability = status.capabilities.find(
-      (entry) =>
-        !entry.available &&
-        entry.name === (missing === undefined ? "" : CAPABILITY_OF_REASON[missing.reason]),
-    );
-
-    return (
-      <Stalled
-        state="blocked"
-        label={capability?.detail ?? `${counted(status.blocked)} without a preview`}
-        capabilities={status.capabilities}
-        onRetry={onRetry}
-      />
-    );
-  }
-
-  return null;
-}
-
-/**
- * Work with no picture, and the list that says which files and why.
- *
- * It **opens the list** rather than acting (`UI_SPEC.md` §3.13). A button that
- * only retried was answering a question nobody had asked: a person looking at
- * "36 could not be drawn" wants to know which thirty-six and why, and pressing
- * Try again on a folder of damaged files produces the same thirty-six a minute
- * later with nothing learned. The same is true one degree further along for
- * parked work — "19 without a preview" is a number whose whole content is the
- * reasons behind it. Acting is still one click away, inside the dialog, next to
- * the thing it would act on.
- */
-function Stalled({
-  state,
-  label,
-  capabilities,
-  onRetry,
-}: {
-  readonly state: "failed" | "blocked";
-  readonly label: string;
-  readonly capabilities: WireDeriveStatus["capabilities"];
-  readonly onRetry: (reason?: string) => void;
-}): React.JSX.Element {
-  const [showing, setShowing] = useState(false);
-
-  return (
+  if (working === 0) return null;
+  return status.paused ? (
     <>
-      <button
-        type="button"
-        className="status-job"
-        onClick={() => setShowing(true)}
-        title={state === "failed" ? "See what failed, and why" : "See what has no preview, and why"}
-      >
-        {label}
-      </button>
-      {showing && (
-        <DeriveFailures
-          state={state}
-          capabilities={capabilities}
-          onRetry={onRetry}
-          onClose={() => setShowing(false)}
-        />
+      <span className="status-job">Paused · {counted(working)} left</span>
+      {onResume !== undefined && (
+        <button type="button" className="status-job status-job-action" onClick={onResume}>
+          Resume
+        </button>
+      )}
+    </>
+  ) : (
+    <>
+      <span className="status-job">Deriving… {counted(working)} to go</span>
+      {/* A button of its own rather than the line: the line was never a
+            control while work is going, and a click that stopped the work would
+            be a pause nobody meant to make. */}
+      {onPause !== undefined && (
+        <button
+          type="button"
+          className="status-job status-job-action"
+          aria-label="Pause deriving"
+          title="Pause — what is left waits until Resume. Files you open are still drawn."
+          onClick={onPause}
+        >
+          ×
+        </button>
       )}
     </>
   );

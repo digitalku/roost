@@ -128,9 +128,17 @@ describe("a folder with one of everything in it", () => {
     expect(detailFor("capture.nef")).toMatchObject({ width: 6000, height: 4000 });
     expect(detailFor("typeface.ttf").props).toMatchObject({ "font.family": "Timber Sans" });
 
-    // The zip is parked with a reason, which is what lets the window say why
-    // that cell is empty rather than leaving it looking broken.
-    expect(queueStatus(library).reasons).toContainEqual({ reason: "unsupported:zip", count: 1 });
+    // The zip is parked with a reason, which keeps the sweep from offering it
+    // again — and is not reported, because an archive with no picture is what
+    // an archive looks like (2026-09-24).
+    expect(library.db.repo.jobReasons("blocked")).toContainEqual({
+      reason: "unsupported:zip",
+      count: 1,
+    });
+    expect(queueStatus(library).reasons).not.toContainEqual({
+      reason: "unsupported:zip",
+      count: 1,
+    });
   });
 
   it.runIf(hasFfmpeg)("takes a frame from the video and a waveform from the audio", async () => {

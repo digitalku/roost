@@ -2,12 +2,15 @@ import type { WireAssetDetail, WireSubtitle } from "@roost/contract";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../bridge.js";
+import { codecName } from "../deriveReason.js";
 import { counted } from "../format.js";
+import { Placeholder } from "../Placeholder.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { Picture, type PictureHandle } from "./Picture.js";
 import { playhead, SKIP_MS } from "./playhead.js";
 import { sound } from "./sound.js";
 import { Transport } from "./Transport.js";
+import { Unshowable } from "./Unshowable.js";
 
 /**
  * One asset, filling the content region (`UI_SPEC.md` §7).
@@ -477,6 +480,8 @@ function Player({
 }): React.JSX.Element {
   const [element, setElement] = useState<HTMLVideoElement | HTMLAudioElement | null>(null);
   const [problem, setProblem] = useState<{ line: string; said: string } | undefined>();
+  /** The sound plays and the picture does not: see {@link Player}'s `measured`. */
+  const [blind, setBlind] = useState(false);
   const stage = useRef<HTMLDivElement>(null);
 
   /*
@@ -487,7 +492,32 @@ function Player({
    * what the rule below counts as an extra dependency.
    */
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
-  useEffect(() => setProblem(undefined), [src]);
+  useEffect(() => {
+    setProblem(undefined);
+    setBlind(false);
+  }, [src]);
+
+  /**
+   * Whether the picture can be decoded, which an error does not say.
+   *
+   * **Chromium drops a video track it has no decoder for and plays the rest.**
+   * An HEVC clip with AAC sound raises no `error` at all: it loads, reports its
+   * duration, and plays the sound under an empty rectangle, with the timeline
+   * moving (seen 2026-09-24 against Electron 43, which has no HEVC decoder
+   * whatever the system has installed). The one sign is a width of zero, and it
+   * means something only when the probe found a picture there — an `.mp4` that
+   * is only sound is zero wide too, and is simply audio.
+   *
+   * Paused rather than left to play: sound from a preview whose picture is
+   * missing sounds like a bug, and the transport still plays it on request.
+   */
+  const measured = (event: React.SyntheticEvent<HTMLMediaElement>): void => {
+    const media = event.currentTarget;
+    if (!(media instanceof HTMLVideoElement) || media.videoWidth > 0) return;
+    if ((detail.width ?? 0) === 0) return;
+    media.pause();
+    setBlind(true);
+  };
 
   /**
    * What the element says when it cannot play what it was given.
@@ -611,6 +641,13 @@ function Player({
           tools,
         );
 
+  const unshown =
+    detail.kind !== "video" ? undefined : problem !== undefined ? (
+      <Unshowable detail={detail} line={problem.line} said={problem.said} />
+    ) : blind ? (
+      <Unshowable detail={detail} line={blindLine(detail)} hint={blindHint(detail)} />
+    ) : undefined;
+
   return (
     <div
       className="preview-player"
@@ -643,6 +680,9 @@ function Player({
           <video
             ref={attach}
             className="preview-media"
+            // Still mounted when its picture cannot be shown, because the sound
+            // can be, and the transport under it is what plays it.
+            hidden={unshown !== undefined}
             src={src}
             /* Not decoration and not caution: a caption track is fetched with
                CORS or not at all, so without this the `<track>` below ends at
@@ -652,16 +692,19 @@ function Player({
             crossOrigin="anonymous"
             autoPlay
             onError={failed}
+            onLoadedMetadata={measured}
           >
             {tracks.map((track) => (
               <Caption key={track.id} track={track} />
             ))}
           </video>
         )}
+        {unshown}
       </div>
       {/* Outside the picture, because audio hides that box entirely and an
-          unplayable sound file has the same nothing to say about itself. */}
-      {problem !== undefined && (
+          unplayable sound file has the same nothing to say about itself. A
+          video says it in the picture's place instead (§7.3). */}
+      {problem !== undefined && detail.kind === "audio" && (
         <div className="preview-media-problem">
           <p>{problem.line}</p>
           {problem.said !== "" && <p className="preview-media-said">{problem.said}</p>}
@@ -679,6 +722,33 @@ function Player({
       {fitControl}
     </div>
   );
+}
+
+/** What a video whose picture this window cannot decode says first. */
+function blindLine(detail: WireAssetDetail): string {
+  const codec = detail.props["video.codec"];
+  return codec === undefined
+    ? "This window cannot play the picture in this video"
+    : `This window cannot play ${codecName(codec)} video`;
+}
+
+/**
+ * And what it means, which is not what the thumbnail's missing decoder means.
+ *
+ * Two decoders are involved and only one of them is the system's: the pane
+ * plays through Chromium's, which is fixed when Electron is built, and the
+ * thumbnail is drawn by the system's ffmpeg (ADR-0017). Installing something
+ * fixes the second and never the first — so the sentence says which is which,
+ * rather than sending somebody to install a codec that the pane will ignore.
+ */
+function blindHint(detail: WireAssetDetail): string {
+  const sound =
+    detail.props["audio.codec"] === undefined
+      ? ""
+      : "The sound can still be played — only the picture is missing. ";
+  // What installing something would do for the *thumbnail* is the card's to
+  // say, under this, with the command beside it (ADR-0050).
+  return `${sound}Chromium, which draws this window, has no decoder for it, and nothing installed on the system changes that; a player that has one can open it.`;
 }
 
 /**
@@ -800,7 +870,7 @@ function Fallback({ detail }: { readonly detail: WireAssetDetail }): React.JSX.E
   return (
     <div className="preview-fallback">
       <div className="inspector-preview">
-        <span className="cell-kind">{detail.ext === "" ? "file" : detail.ext}</span>
+        <Placeholder kind={detail.kind} ext={detail.ext} undrawn={detail.undrawn} />
         <img
           className="cell-image"
           src={previewSrc(detail.id, detail.posterMs, detail.derivedAt)}

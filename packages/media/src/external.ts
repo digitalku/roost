@@ -77,9 +77,9 @@ export async function capture(
           return;
         }
         // `stderr` carries ffmpeg's own explanation, which is far more useful
-        // in a job's `reason` than "exited with code 1". Trimmed to the last
-        // line, since the banner above it is the same every time.
-        const said = lastLine(stderr.toString("utf8"));
+        // in a job's `reason` than "exited with code 1". Trimmed to one line,
+        // since the banner above it is the same every time.
+        const said = telling(stderr.toString("utf8"));
         reject(new ExternalToolError(tool, said === "" ? error.message : said));
       },
     );
@@ -130,17 +130,28 @@ export async function stream(
       clearTimeout(timer);
       if (code === 0) resolve();
       else {
-        const said = lastLine(errorOutput);
+        const said = telling(errorOutput);
         reject(new ExternalToolError(tool, said === "" ? `exited with ${code}` : said));
       }
     });
   });
 }
 
-function lastLine(text: string): string {
+/**
+ * The one line of a tool's stderr worth keeping.
+ *
+ * Usually the last. The exception is a missing decoder, which ffmpeg reports
+ * first and then buries under `Error opening output files: Invalid argument` —
+ * a line that describes the consequence and names nothing anybody can install
+ * (ADR-0017, amended 2026-09-24).
+ */
+export function telling(text: string): string {
   const lines = text
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line !== "");
-  return lines.at(-1) ?? "";
+  const decoder = lines.find((line) => /no decoder found for/i.test(line));
+  // Without the `[vist#0:0/hevc @ 0x…]` it opens with: the address differs on
+  // every run, and the failures list groups by the text.
+  return decoder?.replace(/^\[[^\]]*\]\s*/, "") ?? lines.at(-1) ?? "";
 }

@@ -111,6 +111,7 @@ describe("validating a request", () => {
       "folder:create",
       "folder:rename",
       "folder:move",
+      "folder:covers",
       "folder:delete",
       "comment:add",
       "comment:set",
@@ -132,6 +133,9 @@ describe("validating a request", () => {
       "eagle:import",
       "derive:status",
       "derive:retry",
+      "derive:pause",
+      "derive:retryAsset",
+      "derive:resume",
       "derive:wanted",
       "capability:install",
       "derive:failures",
@@ -537,8 +541,8 @@ describe("validating an envelope", () => {
       checkEvent({
         type: "assets:derived",
         assets: [
-          { id: "K7QM4X2AJH9F", derivedAt: 1_700_000_000 },
-          { id: "5KM76B88XVJM", derivedAt: 1_700_000_001 },
+          { id: "K7QM4X2AJH9F", derivedAt: 1_700_000_000, undrawn: null },
+          { id: "5KM76B88XVJM", derivedAt: 1_700_000_001, undrawn: null },
         ],
       }),
     ).toEqual({
@@ -546,11 +550,23 @@ describe("validating an envelope", () => {
       value: {
         type: "assets:derived",
         assets: [
-          { id: "K7QM4X2AJH9F", derivedAt: 1_700_000_000 },
-          { id: "5KM76B88XVJM", derivedAt: 1_700_000_001 },
+          { id: "K7QM4X2AJH9F", derivedAt: 1_700_000_000, undrawn: null },
+          { id: "5KM76B88XVJM", derivedAt: 1_700_000_001, undrawn: null },
         ],
       },
     });
+
+    // A derive that parked or failed: a reason, and a time only if it wrote
+    // anything about the file (`UI_SPEC.md` §6.1).
+    expect(
+      checkEvent({
+        type: "assets:derived",
+        assets: [
+          { id: "K7QM4X2AJH9F", derivedAt: null, undrawn: "missing:libheif" },
+          { id: "5KM76B88XVJM", derivedAt: 1, undrawn: "missing:decoder:hevc" },
+        ],
+      }),
+    ).toMatchObject({ ok: true });
 
     // An empty batch is valid and means nothing was redrawn; the engine does
     // not send one, and a validator that refused it would be a second rule to
@@ -561,20 +577,30 @@ describe("validating an envelope", () => {
       ok: false,
       reason: "assets:derived: assets: expected an array",
     });
-    expect(checkEvent({ type: "assets:derived", assets: [{ id: "K7QM4X2AJH9F" }] })).toEqual({
+    expect(
+      checkEvent({ type: "assets:derived", assets: [{ id: "K7QM4X2AJH9F", undrawn: null }] }),
+    ).toEqual({
       ok: false,
       reason: "assets:derived: derivedAt: expected a safe integer",
+    });
+    expect(
+      checkEvent({ type: "assets:derived", assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1 }] }),
+    ).toEqual({
+      ok: false,
+      reason: "assets:derived: undrawn: expected a string",
     });
 
     // Built field by field, so a path or a thumbnail cannot ride along
     // (invariant 12).
     const smuggled = checkEvent({
       type: "assets:derived",
-      assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1, path: "/home/someone/secret.png" }],
+      assets: [
+        { id: "K7QM4X2AJH9F", derivedAt: 1, undrawn: null, path: "/home/someone/secret.png" },
+      ],
     });
     expect(smuggled.ok && smuggled.value).toEqual({
       type: "assets:derived",
-      assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1 }],
+      assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1, undrawn: null }],
     });
   });
 
@@ -664,6 +690,15 @@ describe("validating an envelope", () => {
     expect(checkEvent({ type: "install:progress", backend: "images", line: "x" }).ok).toBe(false);
     // A blank line is the package manager drawing rather than saying.
     expect(checkEvent({ type: "install:progress", backend: "media", line: " " }).ok).toBe(false);
+  });
+
+  it("carries a fold's progress as two whole byte counts", () => {
+    expect(checkEvent({ type: "library:folding", done: 4096, total: 8192 })).toEqual({
+      ok: true,
+      value: { type: "library:folding", done: 4096, total: 8192 },
+    });
+    expect(checkEvent({ type: "library:folding", done: 0.5, total: 1 }).ok).toBe(false);
+    expect(checkEvent({ type: "library:folding", done: 1 }).ok).toBe(false);
   });
 
   it("validates an event the same way", () => {

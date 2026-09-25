@@ -19,6 +19,7 @@ export const FORMATS = [
   "heic",
   "raw",
   "svg",
+  "xcf",
   "pdf",
   "mp4",
   "mkv",
@@ -65,6 +66,13 @@ const KIND_OF: Readonly<Record<Format, Kind>> = {
   woff: "font",
   woff2: "font",
   zip: "other",
+  // GIMP's own file, layers and all. **Named, and `other` on purpose**: an
+  // `.xcf` is a working file that belongs to GIMP, so a double-click hands it
+  // there as it does a `.zip`, and the preview pane never tries to draw it. The
+  // user's call on 2026-09-24, after a build that called it `image` opened it
+  // into a pane with nothing to show. Named at all so that it stops being "a
+  // kind of file Roost does not recognise".
+  xcf: "other",
   unknown: "other",
 };
 
@@ -95,6 +103,8 @@ const MEDIA_TYPE_OF: Readonly<Record<Format, string>> = {
   // JPEG the camera embedded, which reaches the window as a thumbnail.
   raw: "application/octet-stream",
   svg: "image/svg+xml",
+  // The type GIMP and shared-mime-info register.
+  xcf: "image/x-xcf",
   pdf: "application/pdf",
   mp4: "video/mp4",
   mkv: "video/x-matroska",
@@ -142,6 +152,7 @@ const FORMAT_OF_EXTENSION: Readonly<Record<string, Format>> = {
   pef: "raw",
   srw: "raw",
   svg: "svg",
+  xcf: "xcf",
   pdf: "pdf",
   mp4: "mp4",
   m4v: "mp4",
@@ -172,6 +183,18 @@ export function formatFromExtension(ext: string): Format {
 }
 
 /**
+ * Every extension that names this format, lower case: `jpg` and `jpeg` both.
+ *
+ * For a question asked of the index, which holds extensions and not formats —
+ * which parked assets a build that now knows the format should look at again.
+ */
+export function extensionsNaming(format: Format): string[] {
+  return Object.entries(FORMAT_OF_EXTENSION)
+    .filter(([, named]) => named === format)
+    .map(([ext]) => ext);
+}
+
+/**
  * The extension a file of this format is conventionally called by.
  *
  * The inverse of {@link formatFromExtension} where one exists, choosing the
@@ -193,6 +216,7 @@ const EXTENSION_OF: Readonly<Partial<Record<Format, string>>> = {
   avif: "avif",
   heic: "heic",
   svg: "svg",
+  xcf: "xcf",
   pdf: "pdf",
   mp4: "mp4",
   mkv: "mkv",
@@ -334,6 +358,9 @@ export function sniff(bytes: Uint8Array): Format {
   }
   if (at(bytes, 0, "FUJIFILMCCD-RAW")) return "raw";
   if (at(bytes, 0, "%PDF-")) return "pdf";
+  // GIMP's header names itself and then its version: `gimp xcf file` for the
+  // oldest, `gimp xcf v019` for GIMP 3.
+  if (at(bytes, 0, "gimp xcf ")) return "xcf";
   if (at(bytes, 0, "OggS")) return "ogg";
   if (at(bytes, 0, "fLaC")) return "flac";
   if (at(bytes, 0, "ID3") || startsWith(bytes, [0xff, 0xfb]) || startsWith(bytes, [0xff, 0xf3])) {

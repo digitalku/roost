@@ -41,6 +41,9 @@ export function serve(port: Port, host: EngineHost = new EngineHost()): Server {
       event: { type: "assets:derived", assets: assets.map((a) => ({ ...a })) },
     } satisfies EventEnvelope);
   };
+  host.onFolding = ({ done, total }) => {
+    port.postMessage({ event: { type: "library:folding", done, total } } satisfies EventEnvelope);
+  };
   host.onProgress = (progress) => {
     port.postMessage({ event: { type: "import:progress", ...progress } } satisfies EventEnvelope);
   };

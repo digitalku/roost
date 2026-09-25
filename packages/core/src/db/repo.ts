@@ -184,6 +184,22 @@ interface ClaimedRow {
   readonly priority: number;
 }
 
+/**
+ * Above this many members a folder's cover is found by walking the newest
+ * assets rather than by sorting its own (`Repo.folderCovers`).
+ */
+const COVER_SORT_MAX = 20_000;
+
+/** How far that walk goes before it gives up and sorts after all. */
+const COVER_WALK = 50_000;
+
+/** One picture on a folder's tile, and the parts of its thumbnail's address. */
+export interface CoverAsset {
+  readonly id: AssetId;
+  readonly posterMs: number | null;
+  readonly derivedAt: number | null;
+}
+
 /** How many jobs are in each state, for a status line. */
 export interface JobCount {
   readonly kind: string;
@@ -237,6 +253,28 @@ export interface SelectionSummary {
   readonly partialFolders: readonly FolderMembership[];
   /** The commonest extensions present, most first. At most five. */
   readonly kinds: readonly string[];
+  /** What their notes say, together (ADR-0048). */
+  readonly note: SharedText;
+  /** What their sources say, together (ADR-0048). */
+  readonly source: SharedText;
+}
+
+/**
+ * One free-text field across a selection (ADR-0048).
+ *
+ * Counts rather than the values: a selection is routinely hundreds of rows, and
+ * what the panel needs is whether they agree and whether writing would replace
+ * something — never the eleven notes it is not showing.
+ */
+export interface SharedText {
+  /** The value every asset holds, when they agree; `null` when none holds one or they differ. */
+  readonly value: string | null;
+  /** They do not all hold the same value. Every asset empty is agreement. */
+  readonly mixed: boolean;
+  /** How many different values are held, not counting empty. */
+  readonly distinct: number;
+  /** How many of the assets hold a value at all. */
+  readonly holding: number;
 }
 
 /**
@@ -1174,7 +1212,10 @@ export class Repo {
 
     const totals = this.#s(
       `SELECT count(*) AS count, coalesce(sum(size), 0) AS totalBytes,
-              count(rating) AS rated, min(rating) AS lowest, max(rating) AS highest
+              count(rating) AS rated, min(rating) AS lowest, max(rating) AS highest,
+              count(note) AS notes, count(DISTINCT note) AS noteValues, min(note) AS note,
+              count(source_url) AS sources, count(DISTINCT source_url) AS sourceValues,
+              min(source_url) AS source
          FROM assets WHERE id IN (SELECT value FROM json_each(?))`,
     ).get(list) as {
       count: number;
@@ -1182,6 +1223,12 @@ export class Repo {
       rated: number;
       lowest: number | null;
       highest: number | null;
+      notes: number;
+      noteValues: number;
+      note: string | null;
+      sources: number;
+      sourceValues: number;
+      source: string | null;
     };
 
     const tagged = this.#s(
@@ -1228,6 +1275,8 @@ export class Repo {
       sharedFolders: inFolders.filter((f) => f.carrying === totals.count).map(membership),
       partialFolders: inFolders.filter((f) => f.carrying !== totals.count).map(membership),
       kinds: kinds.map((k) => k.ext),
+      note: sharedText(totals.count, totals.notes, totals.noteValues, totals.note),
+      source: sharedText(totals.count, totals.sources, totals.sourceValues, totals.source),
     };
   }
 
@@ -1630,6 +1679,129 @@ export class Repo {
         ).run(kind, reason).changes;
   }
 
+  /**
+   * Releases jobs parked on `reason` whose asset carries one of `exts`.
+   *
+   * For the one release a reason alone cannot scope: work parked as
+   * `unsupported:unknown` by a build that could not name a format this one
+   * can. The extension is the only thing the index holds that says which of
+   * them are worth reading again, and the job's own `(kind, asset_id)` key is
+   * what each candidate is found by.
+   */
+  requeueBlockedWithExt(kind: JobKind, reason: string, exts: readonly string[]): number {
+    if (exts.length === 0) return 0;
+    return this.#s(
+      `UPDATE jobs SET state = 'ready', reason = NULL
+        WHERE kind = ? AND state = 'blocked' AND reason = ?
+          AND asset_id IN (SELECT id FROM assets
+                            WHERE lower(ext) IN (SELECT value FROM json_each(?)))`,
+    ).run(kind, reason, JSON.stringify(exts)).changes;
+  }
+
+  /**
+   * Up to `limit` assets to draw on each folder's tile, keyed by folder
+   * (ADR-0043 §7, built 2026-09-25).
+   *
+   * **The folder's own contents first, then its subfolders'**, newest imported
+   * first within each — the user's choice, so a folder that holds only folders
+   * still shows what is in it. Only what can be drawn: live, and with a thumbnail
+   * at `size`, because a cover of placeholders says nothing a glyph does not.
+   * The bytes still travel over `roost://thumb` (invariant 12); this names them.
+   */
+  folderCovers(folders: readonly number[], size: number, limit: number): Map<number, CoverAsset[]> {
+    const covers = new Map<number, CoverAsset[]>();
+    for (const folder of folders) {
+      const found = this.#newestIn(folder, size, limit);
+      if (found.length < limit) {
+        const seen = new Set(found.map((asset) => asset.id));
+        for (const below of this.#foldersBelow(folder)) {
+          for (const asset of this.#newestIn(below, size, limit - found.length)) {
+            if (seen.has(asset.id)) continue;
+            seen.add(asset.id);
+            found.push(asset);
+          }
+          if (found.length >= limit) break;
+        }
+      }
+      covers.set(folder, found);
+    }
+    return covers;
+  }
+
+  /**
+   * The newest drawable assets filed directly in one folder.
+   *
+   * **Two plans, chosen by the folder's size**, because neither is right for
+   * both ends (measured at 1,000,000 assets, `BENCHMARKS.md`). Sorting a
+   * folder's members costs what the folder holds: 0.04 ms for twenty, 4 ms for
+   * five thousand, 80 ms for a hundred thousand. Walking the library newest
+   * first and stopping at the first matches costs what the library holds
+   * *above* them: 3 ms for that dense hundred thousand, 140 ms for five
+   * thousand that are all old. So a small folder is sorted, and a large one is
+   * found in a bounded walk of the newest {@link COVER_WALK} — falling back to
+   * the sort only where a large folder has nothing that recent.
+   */
+  #newestIn(folder: number, size: number, limit: number): CoverAsset[] {
+    const members = (
+      this.#s("SELECT count(*) AS n FROM asset_folders WHERE folder_id = ?").get(folder) as {
+        n: number;
+      }
+    ).n;
+    if (members > COVER_SORT_MAX) {
+      const walked = this.#s(
+        `SELECT id, posterMs, derivedAt FROM (
+           SELECT a.id AS id, a.poster_ms AS posterMs, a.derived_at AS derivedAt,
+                  a.imported_at AS importedAt
+             FROM assets a INDEXED BY idx_assets_imported
+            WHERE a.trashed_at IS NULL
+            ORDER BY a.imported_at DESC, a.id DESC
+            LIMIT ?) recent
+          WHERE EXISTS (SELECT 1 FROM asset_folders af
+                         WHERE af.asset_id = recent.id AND af.folder_id = ?)
+            AND EXISTS (SELECT 1 FROM thumbs t WHERE t.asset_id = recent.id AND t.size = ?)
+          ORDER BY importedAt DESC, id DESC
+          LIMIT ?`,
+      ).all(COVER_WALK, folder, size, limit) as CoverAsset[];
+      if (walked.length >= limit) return walked;
+    }
+    // `CROSS JOIN` pins the order: from the folder's own index into `assets`,
+    // never the other way round, which is the plan that read the whole library.
+    return this.#s(
+      `SELECT a.id AS id, a.poster_ms AS posterMs, a.derived_at AS derivedAt
+         FROM asset_folders af CROSS JOIN assets a ON a.id = af.asset_id
+        WHERE af.folder_id = ? AND a.trashed_at IS NULL
+          AND EXISTS (SELECT 1 FROM thumbs t WHERE t.asset_id = a.id AND t.size = ?)
+        ORDER BY a.imported_at DESC, a.id DESC
+        LIMIT ?`,
+    ).all(folder, size, limit) as CoverAsset[];
+  }
+
+  /** Every folder beneath one, nearest first. The table is small; this is a walk of it. */
+  #foldersBelow(folder: number): number[] {
+    const rows = this.#s(
+      `WITH RECURSIVE sub(id, depth) AS (
+         SELECT id, 1 FROM folders WHERE parent_id = ?
+         UNION ALL
+         SELECT f.id, sub.depth + 1 FROM folders f JOIN sub ON f.parent_id = sub.id
+       )
+       SELECT id FROM sub ORDER BY depth, id`,
+    ).all(folder) as { id: number }[];
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Puts one asset's parked or failed job back in the queue, and says whether
+   * there was one — the per-file *Try again* (ADR-0050).
+   */
+  requeueJobFor(kind: JobKind, asset: AssetId): boolean {
+    return (
+      this.#s(
+        `UPDATE jobs SET state = 'ready', reason = NULL
+          WHERE kind = ? AND asset_id = ? AND state IN ('blocked', 'failed')`,
+      ).run(kind, asset).changes > 0
+    );
+  }
+
   /** Retries jobs that failed, up to `maxAttempts` tries each. */
   requeueFailed(kind: JobKind, maxAttempts: number): number {
     return this.#s(
@@ -1694,16 +1866,52 @@ export class Repo {
    * one thing wrong with it rather than a hundred thousand. `jobReasons` counts
    * every one of them, and that count is what the caller reports.
    */
-  jobsIn(kind: JobKind, state: JobState, limit: number): StalledJob[] {
+  /**
+   * Why each of these assets has no picture, for those whose job is parked or
+   * failed. An asset with nothing stalled is absent from the map.
+   *
+   * Asked for a page of the grid at a time, **after** the page is read rather
+   * than joined into it: the random order has no index and sorts every match
+   * (ADR-0039), and a column computed per row would be computed for all of
+   * them. Here it is one lookup per card on `UNIQUE (kind, asset_id)`.
+   *
+   * The ids travel as one JSON parameter, for {@link Repo.selectionSummary}'s
+   * reason.
+   */
+  stalledReasons(kind: JobKind, ids: readonly AssetId[]): Map<AssetId, string> {
+    if (ids.length === 0) return new Map();
+    const rows = this.#s(
+      `SELECT j.asset_id AS assetId, coalesce(j.reason, '') AS reason
+         FROM json_each(?) e
+         JOIN jobs j ON j.kind = ? AND j.asset_id = e.value
+        WHERE j.state IN ('blocked', 'failed')`,
+    ).all(JSON.stringify(ids), kind) as { assetId: AssetId; reason: string }[];
+    return new Map(rows.map((row) => [row.assetId, row.reason]));
+  }
+
+  /**
+   * The stalled jobs in one state, oldest first, with the asset each is about.
+   *
+   * `except` leaves out reasons nobody needs told about, in the query rather
+   * than after it: filtered afterwards, a library with a thousand archives
+   * would fill `limit` with them and leave no room for the rest.
+   */
+  jobsIn(
+    kind: JobKind,
+    state: JobState,
+    limit: number,
+    except: readonly string[] = [],
+  ): StalledJob[] {
     // The redundant `<> 'ready'` is for the partial index, as in `jobReasons`.
     return this.#s(
       `SELECT j.asset_id AS assetId, a.name AS name, a.ext AS ext,
               j.attempts AS attempts, coalesce(j.reason, '') AS reason
          FROM jobs j JOIN assets a ON a.id = j.asset_id
         WHERE j.kind = ? AND j.state = ? AND j.state <> 'ready'
+          AND coalesce(j.reason, '') NOT IN (SELECT value FROM json_each(?))
         ORDER BY j.id
         LIMIT ?`,
-    ).all(kind, state, limit) as StalledJob[];
+    ).all(kind, state, JSON.stringify(except), limit) as StalledJob[];
   }
 
   /** Every asset id in the index, for comparing a rebuild against the original. */
@@ -2170,4 +2378,21 @@ export function searchSql(
 export function lastCursor(hits: readonly SearchHit[]): Cursor | undefined {
   const last = hits.at(-1);
   return last === undefined ? undefined : { key: last.sortKey, id: last.id };
+}
+
+/**
+ * Whether a selection agrees about one free-text field.
+ *
+ * The same rule as the rating's, for the same reason: `min` skips NULLs, so two
+ * assets reading "approved" and one with no note would agree on "approved" if
+ * the count of holders were not checked against the count of assets.
+ */
+function sharedText(
+  count: number,
+  holding: number,
+  distinct: number,
+  lowest: string | null,
+): SharedText {
+  const agreed = holding === 0 || (holding === count && distinct === 1);
+  return { value: agreed ? lowest : null, mixed: !agreed, distinct, holding };
 }

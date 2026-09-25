@@ -393,7 +393,49 @@ monthly archive under [`sessions/`](sessions/), and what shipped is in
   are ever exercised on a machine that has the decoder. It **skips loudly** where libheif is
   absent, because a check that quietly passed without it would assert nothing.
 
+- ☑ ~~**The `media` capability did not check for HEVC the way `heif` does.**~~ Found in a library on
+  2026-09-24: sixteen phone videos under *"ffmpeg could not read this file"*, with `Error opening
+  output files: Invalid argument` beneath. That was ffmpeg's third line, and the first said *no
+  decoder found for: hevc*. The probe now reads `ffmpeg -decoders`, a codec not on the list parks as
+  `missing:decoder:<codec>` with what `ffprobe` read kept, and `media` carries the command that
+  replaces the ffmpeg (ADR-0017, amended 2026-09-24). The first draft of the test wrapper hid
+  `mpeg4` and it was still listed: Fedora's build also has `mpeg4_v4l2m2m … (codec mpeg4)`. That is
+  the reason the set holds codecs and not decoder names.
+
+- ☑ ~~**Fedora's install line assumed RPM Fusion was on.**~~ Both packages are in its free
+  repository, which GNOME Software's third-party switch does not enable, so the copied line ended
+  in *No match for argument*. The enabling line is now prefixed where `rpmfusion-free.repo` is
+  absent or disabled (ADR-0040 §5, 2026-09-24).
+
 ### What could not be drawn (2026-09-10)
+
+- ☑ ~~**No window check drives a cell's badge or the pane's panel** (`UI_SPEC.md` §6.1, §7.3).
+  Both were driven by hand on 2026-09-24 against a copy of a HEIC-and-HEVC library on a machine
+  with neither decoder, with a throwaway script over `scripts/lib/`; the renderer tests cover the
+  logic. A check would need a library whose derive parks, which `check-heic.mjs` already builds
+  on a machine without libheif, and a clip Chromium cannot decode, which nothing here can encode
+  without a fuller ffmpeg — the samples came from a scratch Python environment with its own x265.
+  **Closed 2026-09-25.** `check-failures.mjs` now drives the badge, the inspector's card, Try again
+  and the preview's card. `check-heic.mjs` now runs here, because `heif-enc` arrived with libheif.
+  It drives the *Needs libheif* badge and the card's command, and it found `allHashes()`, a
+  version 1 name that no longer existed.
+
+- ☑ ~~**The inspector shows the badge and nothing to act on.**~~ The pane has *Show what to
+  install*; the panel beside the grid, where most people will first see the badge, has only its
+  tooltip. Worth adding if a person asks where the command is without opening the preview.
+  **Closed 2026-09-25** by ADR-0050. The inspector draws the file's card, with the steps, the
+  command and the three buttons.
+
+- ☑ ~~**The status bar says one thing, and a missing codec is third in line.**~~ *Deriving… N to go*
+  comes first, then *N could not be drawn*, and only then a parked reason. So a library that has
+  both damaged files and HEVC videos shows the count of damaged files, and the line naming the
+  codec to install is visible only inside that list. Seen while explaining the ADR-0017 amendment
+  on 2026-09-24. The fix would be a second item beside the first, and `UI_SPEC.md` §8 would have
+  to say so.
+  **Closed 2026-09-25**, when the user asked for it directly (*"walau belum selesai deriving
+  (kondisi pause), apakah bisa menampilkan yang preview bermasalah?"*). The bar draws progress,
+  failures and the parked line side by side (`DeriveStatus.tsx`, `UI_SPEC.md` §8, ADR-0049 §3),
+  and `check-pause.mjs` asserts *could not be drawn* beside both *Deriving…* and *Paused*.
 
 - ☑ ~~**"36 could not be drawn" opens a list instead of retrying.**~~ Asked for from the user's own
   library: *"ada keterangan 36 could not be drawn. apakah bisa buat lebih informatif?"* The number
@@ -1131,3 +1173,26 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
   way), and a gesture must continue from **what is drawn** rather than from the prop, which is a
   round trip behind while a commit is in flight — found as a flake in `check-panes.mjs` before any
   person could have hit it.
+
+### Flakes
+
+- [x] 🟡 **`no-ffmpeg.test.ts` — "imports everything, draws what it can" times out under load.** Seen
+  twice on 2026-09-07 in `pnpm verify` and never when run alone; it took 5.4s on the run that
+  failed. It spawns the built CLI and probes for ffmpeg, so it is the slowest test in the suite and
+  the first to lose a race for the machine. Not caused by that day's work — nothing in it touches
+  the import path — but a suite that fails one run in three is a suite people stop reading.
+  **Closed 2026-09-24**: it failed twice running in a row in `pnpm verify` and passed three
+  times out of three alone (1.4–1.6 s). Given a 30 s timeout of its own, which is what a test
+  that spawns four processes needs, rather than vitest's 5 s default.
+
+### Folders in the grid (ADR-0043, asked for and built 2026-09-13)
+
+- ☑ ~~**A folder tile draws a glyph, not a cover.**~~ **Built 2026-09-25**, from the user's own
+  drawing of a punched sheet protector. It shows four pictures, the newest, the folder's own first
+  and then its subfolders'. The request is `folder:covers`, and the query has two plans chosen by
+  folder size (`BENCHMARKS.md`). A folder holding only folders also drew none of them, which was
+  fixed the same day.
+- ☑ ~~**No window check covers the tiles, and one is owed — the fifteenth.**~~ **Closed
+  2026-09-25** by `check-folder-tiles.mjs`, which covers the double-click, the layout, the covers
+  and the folder of folders. The drop outline is left as its own item in `TODO.md`.
+

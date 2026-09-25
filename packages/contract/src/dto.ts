@@ -198,6 +198,22 @@ export interface WireFolderRef {
 }
 
 /**
+ * What a folder's tile draws inside it (ADR-0043 §7): up to four assets, the
+ * folder's own newest first and then its subfolders'.
+ *
+ * Ids and the two parts of a thumbnail's address, never the pictures: those
+ * travel over `roost://thumb/<id>@256` like every other (invariant 12).
+ */
+export interface WireFolderCover {
+  readonly folder: number;
+  readonly assets: readonly {
+    readonly id: string;
+    readonly posterMs: number | null;
+    readonly derivedAt: number | null;
+  }[];
+}
+
+/**
  * What a selection of several assets shares, and what it does not.
  *
  * The inspector edits the selection, so it has to be able to say "3 assets ·
@@ -221,6 +237,25 @@ export interface WireSelectionSummary {
   readonly partialFolders: readonly WireFolderRef[];
   /** The commonest extensions present, most first. At most five. */
   readonly kinds: readonly string[];
+  /** What their notes say, together (ADR-0048). */
+  readonly note: WireSharedText;
+  /** What their sources say, together (ADR-0048). */
+  readonly source: WireSharedText;
+}
+
+/**
+ * One free-text field across a selection (ADR-0048): whether they agree, and
+ * how many would lose a value to a write. Counts, never the values.
+ */
+export interface WireSharedText {
+  /** The value every asset holds, when they agree; `null` when none holds one or they differ. */
+  readonly value: string | null;
+  /** They do not all hold the same value. Every asset empty is agreement. */
+  readonly mixed: boolean;
+  /** How many different values are held, not counting empty. */
+  readonly distinct: number;
+  /** How many of the assets hold a value at all. */
+  readonly holding: number;
 }
 
 /** The counts behind a library's summary view. */
@@ -350,6 +385,16 @@ export interface AssetCard {
    * with it (ADR-0047).
    */
   readonly derivedAt: number | null;
+  /**
+   * Why there is no thumbnail, in the queue's own words — `missing:libheif`,
+   * `missing:decoder:hevc`, or what a backend said when it failed — or `null`
+   * when nothing is stalled: drawn, or simply not reached yet.
+   *
+   * Raw rather than a sentence, for the reason `deriveReason.ts` gives: the
+   * wording is the interface's, and a backend that rewords its errors must not
+   * mean an engine change (`UI_SPEC.md` §6.1).
+   */
+  readonly undrawn: string | null;
 }
 
 /**
@@ -360,8 +405,13 @@ export interface AssetCard {
  */
 export interface WireRedrawn {
   readonly id: string;
-  /** Unix seconds; goes into the thumbnail's address as `?v=`. */
-  readonly derivedAt: number;
+  /**
+   * Unix seconds; goes into the thumbnail's address as `?v=`. `null` when the
+   * derive wrote nothing about the file, so the card keeps the key it has.
+   */
+  readonly derivedAt: number | null;
+  /** {@link AssetCard.undrawn}, as the derive left it. */
+  readonly undrawn: string | null;
 }
 
 /** One page of the grid, and where the next one starts. */
@@ -703,6 +753,8 @@ export interface WireAssetDetail {
   readonly contentHash: string | null;
   /** When the derived fields above were last taken, unix seconds. */
   readonly derivedAt: number | null;
+  /** {@link AssetCard.undrawn}: why there is no picture, if something says. */
+  readonly undrawn: string | null;
   /** The source file's date at import, unix seconds. `null` when unknown. */
   readonly createdAt: number | null;
   readonly importedAt: number;
@@ -827,6 +879,11 @@ export interface WireDeriveReason {
  * format nothing draws, or a tool nobody installed (`ROADMAP.md` M4).
  */
 export interface WireDeriveStatus {
+  /**
+   * Whether the queue is paused (ADR-0049). `ready` is then what is left,
+   * not what is being worked: only what is asked for by name is derived.
+   */
+  readonly paused: boolean;
   readonly ready: number;
   readonly running: number;
   readonly blocked: number;

@@ -59,7 +59,9 @@ describe("a thumbnail's address", () => {
 });
 
 describe("stepping down from a rendition", () => {
-  const HASH = "a".repeat(64);
+  // A version 2 id (RL-13). The 64-hex hash these tests used to carry is what
+  // let a pattern that matched only hashes pass for a year of ids.
+  const HASH = "ZA23511MJFSW";
 
   it("falls back to the picture Roost already derived", () => {
     // A rendition can fail for reasons the window cannot see — no libheif, a
@@ -78,7 +80,7 @@ describe("stepping down from a rendition", () => {
     expect(preview.image.src).toBe(gridSrc(HASH));
 
     const grid = imageEvent(gridSrc(HASH));
-    fallbackFromRendition(grid.event);
+    expect(fallbackFromRendition(grid.event)).toBe(false);
     expect(grid.image.hidden).toBe(true);
   });
 });

@@ -60,6 +60,68 @@ describe("folding one operation at a time", () => {
     db.close();
   });
 
+  it("covers a folder with its own newest pictures, then its subfolders'", () => {
+    // ADR-0043 §7, built 2026-09-25: the user chose the newest, the folder's
+    // own first, topped up from below so a folder of folders is not blank.
+    const png = Buffer.from([0]);
+    const drawn = (n: number, ts: number): AssetId => {
+      db.repo.applyAdd(ts, asset(n));
+      db.repo.putThumbnail(idOf(n), 256, 1, 1, png);
+      return idOf(n);
+    };
+    db.repo.applyFolderCreate(1, null, "Design");
+    db.repo.applyFolderCreate(2, 1, "Icons");
+    db.repo.applyFolderCreate(3, 2, "Old");
+    db.repo.applyFolderCreate(4, null, "Only folders");
+    db.repo.applyFolderCreate(5, 4, "Inside");
+
+    const own = [drawn(1, 10), drawn(2, 20)];
+    for (const id of own) db.repo.applyFolderAdd(id, 1);
+    db.repo.applyFolderAdd(drawn(3, 90), 2);
+    db.repo.applyFolderAdd(drawn(4, 80), 3);
+    db.repo.applyFolderAdd(drawn(5, 70), 3);
+    // Not drawn, and trashed: neither is a picture to put on a cover.
+    db.repo.applyAdd(99, asset(6));
+    db.repo.applyFolderAdd(idOf(6), 1);
+    db.repo.applyFolderAdd(drawn(7, 95), 1);
+    db.repo.applyTrash(idOf(7), 96);
+    db.repo.applyFolderAdd(drawn(8, 50), 5);
+
+    const covers = db.repo.folderCovers([1, 4, 5, 3], 256, 4);
+    // Own first, newest first; then the subfolders', nearest first.
+    expect(covers.get(1)?.map((c) => c.id)).toEqual([idOf(2), idOf(1), idOf(3), idOf(4)]);
+    expect(covers.get(4)?.map((c) => c.id)).toEqual([idOf(8)]);
+    expect(covers.get(3)?.map((c) => c.id)).toEqual([idOf(4), idOf(5)]);
+    // An asset in two folders of one subtree is drawn once.
+    db.repo.applyFolderAdd(idOf(3), 1);
+    expect(
+      db.repo
+        .folderCovers([1], 256, 4)
+        .get(1)
+        ?.map((c) => c.id),
+    ).toEqual([idOf(3), idOf(2), idOf(1), idOf(4)]);
+  });
+
+  it("finds a large folder's cover by walking the newest, and still finds an old one", () => {
+    // More members than the sort is allowed, so the bounded walk runs; the
+    // folder of old ones walks past nothing and falls back to the sort.
+    const png = Buffer.from([0]);
+    db.repo.applyFolderCreate(1, null, "Huge");
+    db.transaction(() => {
+      for (let n = 0; n < 20_010; n += 1) {
+        db.repo.applyAdd(n, asset(n));
+        db.repo.putThumbnail(idOf(n), 256, 1, 1, png);
+        db.repo.applyFolderAdd(idOf(n), 1);
+      }
+    });
+    expect(
+      db.repo
+        .folderCovers([1], 256, 4)
+        .get(1)
+        ?.map((c) => c.id),
+    ).toEqual([idOf(20_009), idOf(20_008), idOf(20_007), idOf(20_006)]);
+  });
+
   it("re-importing the same bytes keeps the tags the asset already carried", () => {
     // This is why the insert is `ON CONFLICT ... DO UPDATE` and not
     // `INSERT OR REPLACE`: replace deletes the row first, and the schema's
@@ -734,6 +796,39 @@ describe("the derive queue", () => {
     expect(db.repo.jobsIn("derive", "failed", 1)).toHaveLength(1);
   });
 
+  it("puts one file's stalled job back, and nothing else", () => {
+    // The per-file Try again (ADR-0050).
+    enqueueAll();
+    const claims = db.repo.claimJobs("derive", 3);
+    db.repo.failJob(claims[0]?.id ?? 0, "sharp: corrupt header");
+    db.repo.blockJob(claims[1]?.id ?? 0, "missing:libheif");
+
+    expect(db.repo.requeueJobFor("derive", idOf(1))).toBe(true);
+    expect(db.repo.requeueJobFor("derive", idOf(1))).toBe(false);
+    // Still running: not stalled, so not this button's to release.
+    expect(db.repo.requeueJobFor("derive", idOf(3))).toBe(false);
+    expect(db.repo.stalledReasons("derive", [idOf(1), idOf(2)])).toEqual(
+      new Map([[idOf(2), "missing:libheif"]]),
+    );
+  });
+
+  it("says why each asset on a page has no picture, and nothing for the rest", () => {
+    // A grid cell with no thumbnail used to be a grey square with an extension
+    // in it, whatever the reason; the card now carries the reason.
+    enqueueAll();
+    const claims = db.repo.claimJobs("derive", 3);
+    db.repo.blockJob(claims[0]?.id ?? 0, "missing:libheif");
+    db.repo.failJob(claims[1]?.id ?? 0, "sharp: unsupported image format");
+    // The third is still running: not stalled, so absent.
+
+    const reasons = db.repo.stalledReasons("derive", [idOf(1), idOf(2), idOf(3)]);
+    expect(Object.fromEntries(reasons)).toEqual({
+      [idOf(1)]: "missing:libheif",
+      [idOf(2)]: "sharp: unsupported image format",
+    });
+    expect(db.repo.stalledReasons("derive", [])).toEqual(new Map());
+  });
+
   it("reads parked work the same way, because the question about it is the same", () => {
     // `blocked` is not a failure — a format nothing here draws, or a decoder
     // nobody installed (ADR-0040) — but "which files, and why" is asked of both.
@@ -927,6 +1022,51 @@ describe("summarising a selection", () => {
     db.repo.applyRate(ids[0] as AssetId, 4);
     db.repo.applyRate(ids[1] as AssetId, 4);
     expect(db.repo.selectionSummary(ids)).toMatchObject({ rating: null, ratingMixed: true });
+  });
+
+  it("says whether their notes agree, and how many hold one (ADR-0048)", () => {
+    const ids = three();
+    // Nobody has a note: agreement, with nothing to replace.
+    expect(db.repo.selectionSummary(ids).note).toEqual({
+      value: null,
+      mixed: false,
+      distinct: 0,
+      holding: 0,
+    });
+
+    for (const id of ids) db.repo.applyNoteSet(id, "draft");
+    expect(db.repo.selectionSummary(ids).note).toEqual({
+      value: "draft",
+      mixed: false,
+      distinct: 1,
+      holding: 3,
+    });
+
+    // The rating's trap again: `min` skips NULLs, so two "draft"s and an empty
+    // note would read as agreement if the holders were not counted.
+    db.repo.applyNoteSet(ids[2] as AssetId, null);
+    expect(db.repo.selectionSummary(ids).note).toEqual({
+      value: null,
+      mixed: true,
+      distinct: 1,
+      holding: 2,
+    });
+
+    db.repo.applyNoteSet(ids[2] as AssetId, "final");
+    expect(db.repo.selectionSummary(ids).note).toMatchObject({ mixed: true, distinct: 2 });
+  });
+
+  it("does the same for the source, independently of the note", () => {
+    const ids = three();
+    for (const id of ids) db.repo.applySourceSet(id, "https://example.com/post");
+    const summary = db.repo.selectionSummary(ids);
+    expect(summary.source).toEqual({
+      value: "https://example.com/post",
+      mixed: false,
+      distinct: 1,
+      holding: 3,
+    });
+    expect(summary.note.holding).toBe(0);
   });
 
   it("separates a tag they all carry from one only some carry", () => {

@@ -434,17 +434,24 @@ describe("generating thumbnails", () => {
     expect(again.failed).toEqual([]);
     expect(library.stats().thumbnails).toBe(1);
 
+    // Parked, and not reported: a zip without a picture is not news.
+    expect(library.db.repo.jobReasons("blocked")).toEqual([
+      { reason: "unsupported:zip", count: 1 },
+    ]);
     const status = queueStatus(library);
-    expect(status.blocked).toBe(1);
+    expect(status.blocked).toBe(0);
     expect(status.failed).toBe(1);
-    expect(status.reasons).toEqual([{ reason: "unsupported:zip", count: 1 }]);
+    expect(status.reasons).toEqual([]);
   });
 
   it("retries a failure when asked, and leaves the parked work parked", async () => {
     await generateMissing(library, [GRID_SIZE]);
 
     expect(retryFailed(library)).toBe(1);
-    expect(queueStatus(library)).toMatchObject({ ready: 1, blocked: 1 });
+    expect(queueStatus(library)).toMatchObject({ ready: 1, blocked: 0 });
+    expect(library.db.repo.jobReasons("blocked")).toEqual([
+      { reason: "unsupported:zip", count: 1 },
+    ]);
 
     const again = await generateMissing(library, [GRID_SIZE]);
     // Still torn, so still a failure — but it was tried, which is the

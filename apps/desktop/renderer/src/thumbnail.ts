@@ -59,16 +59,18 @@ function version(posterMs: number | null, derivedAt: number | null): string {
  *
  * Once, because a second failure means the asset has no thumbnail at all — a
  * format nothing draws, or work the queue has not reached — and retrying would
- * be a loop against a 404.
+ * be a loop against a 404. Answers whether there was a step left to take, so a
+ * caller with something better to draw than nothing can draw it.
  */
-export function fallbackToGrid(event: React.SyntheticEvent<HTMLImageElement>): void {
+export function fallbackToGrid(event: React.SyntheticEvent<HTMLImageElement>): boolean {
   const image = event.currentTarget;
   const fallback = image.src.replace("@512", "@256");
   if (fallback === image.src) {
     image.hidden = true;
-    return;
+    return false;
   }
   image.src = fallback;
+  return true;
 }
 
 /**
@@ -81,16 +83,23 @@ export function fallbackToGrid(event: React.SyntheticEvent<HTMLImageElement>): v
  * honest answer then, and Chromium's broken-image glyph is not.
  *
  * `render → @512 → @256 → hidden`, and each failure moves one step, so a
- * missing thumbnail cannot become a loop against a 404.
+ * missing thumbnail cannot become a loop against a 404. `false` once there is
+ * nowhere left to go.
+ *
+ * **The address is matched on the id, whatever it looks like.** This matched
+ * sixty-four hex digits — version 1's content hash — and version 2's twelve
+ * characters of Crockford base32 (RL-13) never did, so a HEIC whose rendition
+ * failed skipped its thumbnail and went straight to hidden: an empty pane
+ * (reported 2026-09-24). The tests used 64-hex ids and passed throughout.
  */
-export function fallbackFromRendition(event: React.SyntheticEvent<HTMLImageElement>): void {
+export function fallbackFromRendition(event: React.SyntheticEvent<HTMLImageElement>): boolean {
   const image = event.currentTarget;
-  const rendition = /^roost:\/\/render\/([0-9a-f]{64})$/.exec(image.src);
+  const rendition = /^roost:\/\/render\/([^/?#]+)$/.exec(image.src);
   if (rendition?.[1] !== undefined) {
     image.src = previewSrc(rendition[1]);
-    return;
+    return true;
   }
-  fallbackToGrid(event);
+  return fallbackToGrid(event);
 }
 
 /**

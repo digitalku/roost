@@ -379,6 +379,56 @@ body {
   gap: var(--space-2);
 }
 
+/* An open that has taken long enough to say so (`UI_SPEC.md` §8). Under the
+   buttons it disabled, so the eye goes from what was pressed to what it is
+   doing. */
+.opening {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: center;
+  width: min(360px, 100%);
+}
+
+.opening-name {
+  color: var(--text);
+}
+
+.opening-stage {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.opening-track {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  width: 100%;
+}
+
+.opening-bar {
+  flex: 1;
+  overflow: hidden;
+  height: var(--space-1);
+  border-radius: var(--radius-full);
+  background: var(--surface-overlay);
+}
+
+.opening-fill {
+  height: 100%;
+  background: var(--accent-5);
+  transition: width var(--dur-fast) linear;
+}
+
+/* Tabular, so the number does not jitter the bar beside it as it counts. */
+.opening-percent {
+  width: 4ch;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .panel code {
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
@@ -559,6 +609,18 @@ button:disabled {
   color: var(--text-muted);
   font: inherit;
   font-size: var(--text-sm);
+}
+
+/* The × and Resume beside the derive count (ADR-0049): the same chip, told
+   apart from the count by being the one that reacts to the pointer. */
+.status-job-action {
+  margin-left: calc(-1 * var(--space-1));
+  color: var(--text);
+  cursor: pointer;
+}
+
+.status-job-action:hover {
+  background: var(--surface-overlay);
 }
 
 /*
@@ -1056,7 +1118,7 @@ button:disabled {
   margin-left: calc(var(--space-5) * -1);
 }
 
-/* ── What could not be drawn (`UI_SPEC.md` §3.13) ──────────────────────────── */
+/* ── A list inside a dialog, and the aside under it (JournalNotice) ─────────── */
 
 /* Scrolls rather than grows: one group is three lines and eight names, and a
    library with six distinct faults would otherwise be taller than the window. */
@@ -1068,106 +1130,91 @@ button:disabled {
   overflow-y: auto;
 }
 
-.failure-group {
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-
-.failure-group > summary {
-  display: flex;
-  gap: var(--space-3);
-  align-items: baseline;
-  justify-content: space-between;
-  cursor: default;
-}
-
-.failure-line {
-  font-weight: 600;
-}
-
-/* The count is what the eye goes to when the dialog opens: which of these is
-   most of the thirty-six. */
-.failure-count {
-  flex: none;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.failure-hint {
-  margin: var(--space-2) 0 0;
-  color: var(--text-muted);
-}
-
-/* The backend's own words. Monospaced because they are a machine's, and never
-   the first thing read — the sentence above says what they mean. */
-.failure-reason {
-  margin: var(--space-2) 0 0;
-  color: var(--text-subtle);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  overflow-wrap: anywhere;
-}
-
-/* The command that would supply a missing backend (ADR-0040 §5). Selectable and
-   monospaced, because it is a command whether or not the button below it exists
-   — on Linux the line begins with `sudo` and there is no button (ADR-0042 §3). */
-.failure-install {
-  margin: var(--space-2) 0 0;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  /* One step below the dialog, which sits on `--surface-raised`. */
-  background: var(--surface);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  user-select: text;
-  overflow-wrap: anywhere;
-}
-
-/* Beside the thing they act on, rather than in the dialog's own row: these
-   belong to one reason, and the footer's buttons belong to the whole list. */
-.failure-install-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-
-/* What the package manager said, verbatim. Scrolled rather than allowed to grow
-   past the dialog: winget answers in paragraphs when it answers at all. */
-.failure-install-output {
-  margin: var(--space-2) 0 0;
-  max-height: 8rem;
-  overflow-y: auto;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  white-space: pre-wrap;
-  user-select: text;
-  overflow-wrap: anywhere;
-}
-
 .failure-aside {
   margin: var(--space-2) 0 0;
   color: var(--text-subtle);
   font-size: var(--text-sm);
 }
 
-.failure-files {
-  margin: var(--space-2) 0 0;
-  padding-left: var(--space-5);
+/* ── Why a file has no preview, and what to do (ADR-0050) ───────────────────── */
+
+/* The same card in the inspector and, full size, in the preview. One step off
+   its ground rather than coloured: it is advice, not an alarm — the warning
+   colour is the badge's alone. */
+.file-problem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  text-align: left;
 }
 
-.failure-rest {
-  list-style: none;
-  margin-left: calc(var(--space-5) * -1);
+.file-problem p {
+  margin: 0;
+}
+
+.file-problem-line {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.file-problem-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+/* Selectable, because the next step is a terminal. */
+.file-problem-command {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  user-select: text;
+  overflow-wrap: anywhere;
+}
+
+.file-problem-install {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* What the package manager said, verbatim, scrolled rather than grown: winget
+   answers in paragraphs when it answers at all. */
+.file-problem-output {
+  max-height: 8rem;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The backend's own words: small, last, and never the first thing read. */
+.file-problem-said {
   color: var(--text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.file-problem-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 /* Not the danger ramp: nothing is being destroyed, these are items the import

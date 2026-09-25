@@ -1,12 +1,14 @@
 /**
  * Installing a missing backend from the window, asserted against a **running
- * window** (ADR-0042, `UI_SPEC.md` §3.13).
+ * window** (ADR-0042, ADR-0050, `UI_SPEC.md` §3.13).
  *
  *     node scripts/check-install.mjs
  *
  * **It builds its own library** in a temporary directory and deletes it again:
  * one video, imported and derived with ffmpeg hidden, so the queue parks it on
- * `missing:ffmpeg` and the dialog has the group this feature is about. Making
+ * `missing:ffmpeg`. Since ADR-0050 the offer is on the **file**: selecting
+ * the clip puts a card in the inspector with the command beside it, where it
+ * used to be a group in a list the status bar opened. Making
  * the clip needs a real ffmpeg and the derive must not see one, which works
  * because the two ask differently: the fixture runs `ffmpeg` by name, and the
  * engine reads `ROOST_FFMPEG`.
@@ -23,7 +25,7 @@
  * main's**, so only a real window proves this request is one the preload will
  * carry. And the **command is the engine's**, chosen from the platform it is
  * actually running on, which is the whole of what was broken on Windows: the
- * dialog printed the words `install ffmpeg`.
+ * list printed the words `install ffmpeg`.
  */
 import { join } from "node:path";
 import { ledger } from "./lib/checks.mjs";
@@ -69,33 +71,29 @@ const window = await launch({
 const { cdp } = window;
 const { check, section, report } = ledger();
 
-/** What the parked group is offering, in one round trip. */
+/** What the file's card is offering, in one round trip. */
 const groupExpression = `
   (() => {
-    const dialog = document.querySelector(".dialog");
-    if (dialog === null) return null;
+    const card = document.querySelector(".inspector .file-problem");
+    if (card === null) return null;
     return {
-      title: dialog.querySelector(".dialog-title")?.textContent ?? null,
-      lines: [...dialog.querySelectorAll(".failure-line")].map((n) => n.textContent),
-      command: dialog.querySelector(".failure-install")?.textContent ?? null,
-      buttons: [...dialog.querySelectorAll(".failure-install-actions button")]
-        .map((n) => n.textContent),
-      output: dialog.querySelector(".failure-install-output")?.textContent ?? null,
+      lines: [...card.querySelectorAll(".file-problem-line")].map((n) => n.textContent),
+      command: card.querySelector(".file-problem-command")?.textContent ?? null,
+      buttons: [...card.querySelectorAll(".file-problem-actions button")].map((n) => n.textContent),
+      output: card.querySelector(".file-problem-output")?.textContent ?? null,
     };
   })()`;
 
-const statusExpression = `document.querySelector("button.status-job")?.textContent ?? null`;
-
 const clickInGroup = (label) => `
-  [...document.querySelectorAll(".failure-install-actions button")]
+  [...document.querySelectorAll(".inspector .file-problem-actions button")]
     .find((button) => button.textContent === ${JSON.stringify(label)})?.click()`;
 
 try {
-  section("The parked group, with ffmpeg hidden");
+  section("The parked clip, with ffmpeg hidden");
 
-  const opened = await openList();
+  const opened = await openCard();
   check(
-    "the list names the backend rather than the file",
+    "the card names the backend rather than the file",
     opened.lines.includes("Videos and audio need ffmpeg"),
     opened.lines.join(" · "),
   );
@@ -124,7 +122,11 @@ try {
     opened.buttons.includes("Install it") === onWindows,
     opened.buttons.join(" · "),
   );
-  check("Try again is still there", opened.buttons.includes("Try again"));
+  check(
+    "Try again is still there",
+    opened.buttons.some((label) => label.startsWith("Try again")),
+    opened.buttons.join(" · "),
+  );
 
   await cdp.evaluate(clickInGroup("Copy command"));
   const copied = await cdp.settle(
@@ -193,38 +195,17 @@ async function parkedLibrary(scratchDir) {
 }
 
 /**
- * Opens the list from the status bar, the way a person does.
+ * Selects the clip, the way a person does, and waits for its card.
  *
- * Lifted from `check-failures.mjs`, and for its reason: the status bar is one
- * element that changes what it is — a `span` while a run is in flight and a
- * `button` when it has stopped — so a click aimed a moment early lands on the
- * span and does nothing at all.
+ * The command arrives after the card does — it is read from the engine's
+ * capabilities once the card knows the file waits on a tool — so the wait is
+ * for the command, not for the card.
  */
-async function openList() {
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    await cdp.settle(statusExpression, (text) => text !== null);
-    const box = await cdp.evaluate(`
-      (() => {
-        const node = document.querySelector("button.status-job");
-        if (node === null) return null;
-        const rect = node.getBoundingClientRect();
-        return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
-      })()`);
-    if (box === null) continue;
-    await cdp.mouse.click(box.x, box.y);
-    try {
-      return await cdp.settle(
-        groupExpression,
-        (state) => state !== null && state.lines.length > 0,
-        {
-          attempts: 20,
-        },
-      );
-    } catch {
-      // The click landed on the queue rather than on the button. Ask again.
-    }
-  }
-  throw new Error("the parked list never opened");
+async function openCard() {
+  await cdp.settle(`document.querySelector(".cell") !== null`, (found) => found === true);
+  const box = await cdp.box(".cell");
+  await cdp.mouse.click(box.x, box.y);
+  return cdp.settle(groupExpression, (state) => state !== null && state.command !== null);
 }
 
 /**

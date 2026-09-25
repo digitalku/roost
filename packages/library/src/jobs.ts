@@ -12,8 +12,11 @@ import {
   capabilityFor,
   derive,
   EAGER_SIZES,
+  extensionsNaming,
+  FORMATS,
   hashFile,
   isFormat,
+  kindOf,
   type Thumbnail,
 } from "@roost/media";
 import type { Library } from "./library.js";
@@ -122,6 +125,16 @@ export interface RunOptions {
    * purpose, and this is a picture nobody has seen yet.
    */
   readonly wanted?: Wanted;
+  /**
+   * The assets to work, **instead of** the queue (ADR-0049).
+   *
+   * A paused queue still derives what is asked for by name — an opened file,
+   * a new import — and nothing else. Consulted at every claim like
+   * {@link RunOptions.wanted}, so an id added mid-run is picked up; the run ends
+   * when it has nothing left to hand out. `wanted` is ignored alongside it,
+   * because the grid's screenful is exactly what a pause is holding back.
+   */
+  readonly only?: { take(): AssetId | undefined };
   /** Stops the run: nothing new is started, and what is in flight is kept. */
   readonly signal?: AbortSignal;
 }
@@ -161,14 +174,23 @@ export function enqueueMissing(
   return library.db.repo.enqueueMissingDerives("derive", sizes, priority, now, limit);
 }
 
-/** What the queue is holding, for a status line or a capability prompt. */
-/** One asset whose derived data was just replaced, and when. */
+/** One asset a derive just finished with, one way or the other. */
 export interface Redrawn {
   readonly id: AssetId;
-  /** Unix seconds, and the cache key a thumbnail's address carries. */
-  readonly derivedAt: number;
+  /**
+   * Unix seconds, and the cache key a thumbnail's address carries. `null` when
+   * nothing about the file was written, which a failure writes nothing of.
+   */
+  readonly derivedAt: number | null;
+  /**
+   * Why it still has no picture, in the queue's own words, or `null` for one
+   * that was drawn. A cell that knew only the time could not say *"needs
+   * libheif"* until the grid re-paged.
+   */
+  readonly undrawn: string | null;
 }
 
+/** What the queue is holding, for a status line or a capability prompt. */
 export interface QueueStatus {
   readonly ready: number;
   readonly running: number;
@@ -178,17 +200,42 @@ export interface QueueStatus {
   readonly reasons: readonly JobReason[];
 }
 
+/**
+ * The reasons a file of kind `other` has no picture: a `.zip`, an `.xcf`, a
+ * file nothing recognises.
+ *
+ * **That is the expected outcome, not news**, so it is counted nowhere a
+ * person is told about missing pictures — not in the status bar, not in the
+ * list behind it. Asked for on 2026-09-24, beside an `.xcf` the list was
+ * still reporting after it had been made `other`: *"file other langsung
+ * tampil saja tidak ada notifikasi"*. The jobs stay parked, which is what
+ * keeps the backfill sweep from enqueueing them again on every open; they are
+ * only not reported.
+ *
+ * An image nothing here draws — a BMP, a RAW with no embedded preview — is not
+ * in this list: a picture that cannot be shown is still worth a word.
+ */
+export const EXPECTED_ABSENCES: readonly string[] = FORMATS.filter(
+  (format) => kindOf(format) === "other",
+).map((format) => `unsupported:${format}`);
+
 export function queueStatus(library: Library): QueueStatus {
   const counts = library.db.repo.jobCounts();
   const of = (state: string): number =>
     counts.find((row) => row.state === state && row.kind === "derive")?.count ?? 0;
 
+  const parked = library.db.repo.jobReasons("blocked");
+  const reported = parked.filter((row) => !EXPECTED_ABSENCES.includes(row.reason));
+  const expected = parked
+    .filter((row) => EXPECTED_ABSENCES.includes(row.reason))
+    .reduce((sum, row) => sum + row.count, 0);
+
   return {
     ready: of("ready"),
     running: of("running"),
-    blocked: of("blocked"),
+    blocked: of("blocked") - expected,
     failed: of("failed"),
-    reasons: library.db.repo.jobReasons("blocked"),
+    reasons: reported,
   };
 }
 
@@ -268,7 +315,12 @@ const FAILURE_SAMPLES = 8;
  */
 export function deriveFailures(library: Library, options: FailureOptions = {}): DeriveFailures {
   const state = options.state ?? "failed";
-  const rows = library.db.repo.jobsIn("derive", state, options.rows ?? FAILURE_ROWS);
+  const rows = library.db.repo.jobsIn(
+    "derive",
+    state,
+    options.rows ?? FAILURE_ROWS,
+    EXPECTED_ABSENCES,
+  );
   const wanted = options.samples ?? FAILURE_SAMPLES;
 
   const groups = new Map<
@@ -292,8 +344,9 @@ export function deriveFailures(library: Library, options: FailureOptions = {}): 
   const kept = ordered.slice(0, options.groups ?? FAILURE_GROUPS);
 
   return {
-    total:
-      library.db.repo.jobCounts().find((c) => c.kind === "derive" && c.state === state)?.count ?? 0,
+    // The same count the status bar shows, so the list's heading and the line
+    // that opened it are one number.
+    total: state === "blocked" ? queueStatus(library).blocked : queueStatus(library).failed,
     read: rows.length,
     hidden: ordered.slice(kept.length).reduce((sum, group) => sum + group.count, 0),
     groups: kept,
@@ -380,8 +433,36 @@ export function releaseNowSupported(library: Library): number {
     if (capabilityFor(format) === undefined) continue;
     released += library.db.repo.requeueBlocked("derive", parked.reason);
   }
+  released += releaseNowNamed(library);
   if (released > 0) log.info("released work this build has learned to draw", { jobs: released });
   return released;
+}
+
+/**
+ * Formats this build can name and cannot draw, which is what `unsupported:`
+ * followed by something other than `unknown` means.
+ */
+const NAMED_ONLY: readonly string[] = FORMATS.filter(
+  (format) => format !== "unknown" && capabilityFor(format) === undefined,
+).flatMap(extensionsNaming);
+
+/**
+ * Releases work parked as `unknown` whose format this build can now name.
+ *
+ * A GIMP file parked as *"a kind of file Roost does not recognise"* before
+ * `xcf` was in the table (2026-09-24) says so for ever otherwise: the reason is
+ * the old build's, and nothing retries an `unsupported:` reason. Released, it
+ * parks again as `unsupported:xcf` — the same absence of a picture, now with
+ * its right name.
+ *
+ * **Only for formats that are named and not drawn.** Releasing every
+ * `unknown` whose extension is known would release a damaged `.jpg` — which
+ * sniffs as unknown, and will again — at every open, for ever. Scoped to these,
+ * the same can happen only to a damaged `.xcf` or `.zip`, which costs one
+ * 64-byte read each time a library opens.
+ */
+function releaseNowNamed(library: Library): number {
+  return library.db.repo.requeueBlockedWithExt("derive", "unsupported:unknown", NAMED_ONLY);
 }
 
 /** Retries work that failed, while it is still worth retrying. */
@@ -433,7 +514,10 @@ export async function runDerives(
   let claimed = 0;
   const claim = (): JobClaim | undefined => {
     if (claimed >= limit || options.signal?.aborted === true) return undefined;
-    const next = claimNext(library, options.wanted);
+    const next =
+      options.only === undefined
+        ? claimNext(library, options.wanted)
+        : claimOnly(library, options.only);
     if (next !== undefined) claimed += 1;
     return next;
   };
@@ -467,7 +551,7 @@ export async function runDerives(
           }
           library.db.repo.putDerived(id, outcome.metadata, now);
           library.db.repo.completeJob(outcome.claim.id);
-          redrawn.push({ id, derivedAt: now });
+          redrawn.push({ id, derivedAt: now, undrawn: null });
           report.derived += 1;
         } else if (outcome.kind === "blocked") {
           // What was measured survives the block: a format this build cannot
@@ -475,15 +559,21 @@ export async function runDerives(
           // would report every one of those assets as never read.
           if (outcome.measured !== undefined) {
             library.db.repo.putDerived(id, outcome.measured, now);
-            // A blocked asset draws a placeholder rather than a picture, and
-            // its *size* is on screen in the details view either way.
-            redrawn.push({ id, derivedAt: now });
           }
+          // A blocked asset draws a placeholder rather than a picture, and
+          // the placeholder says why; its *size* is on screen in the details
+          // view either way.
+          redrawn.push({
+            id,
+            derivedAt: outcome.measured === undefined ? null : now,
+            undrawn: outcome.reason,
+          });
           library.db.repo.blockJob(outcome.claim.id, outcome.reason);
           if (outcome.reason === MISSING_FILE) report.missing += 1;
           else report.blocked += 1;
         } else {
           library.db.repo.failJob(outcome.claim.id, outcome.reason);
+          redrawn.push({ id, derivedAt: null, undrawn: outcome.reason });
           report.failed += 1;
           if (report.failures.length < REPORTED_FAILURES) {
             report.failures.push({ id: outcome.claim.assetId, reason: outcome.reason });
@@ -538,6 +628,18 @@ function claimNext(library: Library, wanted: Wanted | undefined): JobClaim | und
     if (onScreen !== undefined) return onScreen;
   }
   return repo.claimJob("derive");
+}
+
+/**
+ * The next job among the assets asked for by name, skipping any with nothing
+ * waiting — drawn already, parked, or never queued.
+ */
+function claimOnly(library: Library, only: { take(): AssetId | undefined }): JobClaim | undefined {
+  for (let id = only.take(); id !== undefined; id = only.take()) {
+    const claim = library.db.repo.claimJobFor("derive", id);
+    if (claim !== undefined) return claim;
+  }
+  return undefined;
 }
 
 /** An asset with no file under `files/` at all (RL-25). */
@@ -617,7 +719,13 @@ async function deriveOne(
           thumbnails: outcome.thumbnails,
           metadata: { ...outcome.metadata, ...measured },
         }
-      : { kind: "blocked", claim, reason: outcome.reason, measured };
+      : {
+          kind: "blocked",
+          claim,
+          reason: outcome.reason,
+          measured:
+            outcome.metadata === undefined ? measured : { ...outcome.metadata, ...measured },
+        };
   } catch (error) {
     return {
       kind: "failed",

@@ -101,6 +101,20 @@ async function endsWithNewline(path: string): Promise<boolean> {
   }
 }
 
+/** What a caller of {@link replay} may ask for besides the records. */
+export interface ReplayOptions {
+  /**
+   * Bytes of the journal read so far, across every month.
+   *
+   * Called once per chunk the file stream reads — tens of kilobytes, not once
+   * per line — so a caller drawing a bar pays nothing measurable for it. The
+   * figure runs up to one chunk ahead of the records applied, which a bar
+   * cannot show. Bytes rather than lines because the total is known before the
+   * first line is read: it is the size of the files.
+   */
+  readonly onProgress?: (bytesRead: number) => void;
+}
+
 /**
  * Replays every month file in `journalDir`, oldest first.
  *
@@ -110,7 +124,11 @@ async function endsWithNewline(path: string): Promise<boolean> {
  * write. Every problem is counted and reported instead, and the caller decides
  * what to say about it.
  */
-export async function replay(journalDir: string, sink: ReplaySink): Promise<ReplayReport> {
+export async function replay(
+  journalDir: string,
+  sink: ReplaySink,
+  options: ReplayOptions = {},
+): Promise<ReplayReport> {
   const report: ReplayReport = {
     months: await monthsIn(journalDir),
     applied: 0,
@@ -120,8 +138,16 @@ export async function replay(journalDir: string, sink: ReplaySink): Promise<Repl
     dangling: [],
   };
 
+  let before = 0;
   for (const month of report.months) {
-    await replayFile(join(journalDir, `${month}.jsonl`), month, sink, report);
+    before += await replayFile(
+      join(journalDir, `${month}.jsonl`),
+      month,
+      sink,
+      report,
+      before,
+      options.onProgress,
+    );
   }
 
   sink.finish?.();
@@ -133,7 +159,9 @@ async function replayFile(
   month: string,
   sink: ReplaySink,
   report: ReplayReport,
-): Promise<void> {
+  before: number,
+  onProgress: ((bytesRead: number) => void) | undefined,
+): Promise<number> {
   let complete: boolean;
   try {
     complete = await endsWithNewline(path);
@@ -141,10 +169,9 @@ async function replayFile(
     throw new IoError("read", path, cause);
   }
 
-  const reader = createInterface({
-    input: createReadStream(path),
-    crlfDelay: Number.POSITIVE_INFINITY,
-  });
+  const input = createReadStream(path);
+  if (onProgress !== undefined) input.on("data", () => onProgress(before + input.bytesRead));
+  const reader = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
 
   // One line of lookahead, so a parse failure can tell "the last line of a file
   // that was still being written" from "corruption in the middle".
@@ -161,6 +188,7 @@ async function replayFile(
     throw new IoError("read", path, cause);
   }
   if (pending) applyLine(pending, true);
+  return input.bytesRead;
 
   function applyLine(entry: { text: string; number: number }, isLast: boolean): void {
     const text = entry.text.trim();

@@ -339,6 +339,50 @@ describe("watching files/ for other applications' saves", () => {
     }
   });
 
+  it.runIf(process.platform === "linux")(
+    "watches a shard directory created after it started",
+    async () => {
+      // On Linux the watch is one per shard directory rather than Node's
+      // recursive walk, which blocked the engine for a second per hundred
+      // thousand files (2026-09-24). So a directory that did not exist when the
+      // watch began has to be noticed and watched on its own — which is what
+      // every import into an empty shard makes.
+      const changed: string[] = [];
+      const watcher = await watchFiles(library, {
+        quietMs: 30,
+        onChanged: (asset) => changed.push(asset),
+      });
+
+      try {
+        const before = new Set(library.db.repo.allIds());
+        const source = join(dir, "later");
+        await mkdir(source, { recursive: true });
+        // Different bytes, so it is not a duplicate of the picture already in.
+        await writeFile(join(source, "second.png"), Buffer.concat([PNG, Buffer.alloc(64, 1)]));
+        await importInto(library, [source]);
+        const id = library.db.repo.allIds().find((each) => !before.has(each));
+        if (id === undefined) throw new Error("nothing imported");
+        const found = await resolveFile(library, id);
+        if (found.kind !== "found") throw new Error("no file");
+        // Long enough for the new directory's own watch to be in place.
+        await new Promise((resume) => setTimeout(resume, 100));
+
+        await writeFile(found.path, Buffer.concat([PNG, Buffer.alloc(256, 2)]));
+        const later = new Date(Date.now() + 5000);
+        await utimes(found.path, later, later);
+        // Waited for rather than timed: under a full parallel run the chain —
+        // the directory's event, its `stat`, its watch, the debounce — can take
+        // longer than one `settled()` round, and the claim is that it arrives.
+        const deadline = Date.now() + 3000;
+        while (!changed.includes(id) && Date.now() < deadline) await watcher.settled();
+
+        expect(changed).toContain(id);
+      } finally {
+        watcher.close();
+      }
+    },
+  );
+
   it("closes twice without complaining", async () => {
     const watcher = await watchFiles(library, { quietMs: 10 });
     watcher.close();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { hasHeicDecoder } from "./heif.js";
-import { installCommand, installOffer } from "./install.js";
+import { hasHeicDecoder, primaryIn } from "./heif.js";
+import { installCommand, installOffer, repositoryEnabled } from "./install.js";
 
 /**
  * Telling a libheif that can decode a photograph from one that cannot.
@@ -55,13 +55,96 @@ describe("whether a libheif can decode HEIC", () => {
   });
 });
 
+describe("which image of a HEIC is the photograph", () => {
+  // Verbatim from `heif-info` 1.23.4 on a three-image burst (2026-09-25).
+  // `heif-dec` wrote `decoded-1.jpg` … `decoded-3.jpg` for it and no
+  // `decoded.jpg`, and the derive failed reading a file that never existed.
+  it("finds the one marked primary, counted as heif-dec numbers them", () => {
+    const burst = [
+      "MIME type: image/heic",
+      "image: 1024x768 (id=1), primary",
+      "image: 1024x768 (id=2)",
+      "image: 1024x768 (id=3)",
+    ].join("\n");
+    expect(primaryIn(burst)).toBe(1);
+    expect(
+      primaryIn("image: 640x480 (id=4)\nimage: 4032x3024 (id=9), primary\n  thumbnail: 320x240"),
+    ).toBe(2);
+  });
+
+  it("takes the first where nothing is marked", () => {
+    expect(primaryIn("")).toBe(1);
+    expect(primaryIn("image: 10x10 (id=1)\nimage: 10x10 (id=2)")).toBe(1);
+  });
+});
+
 describe("what to tell somebody to install", () => {
   it("names Fedora's two packages, one of which is not Fedora's", () => {
     // Verified on Fedora 44 on 2026-09-10: `libheif-freeworld` is RPM Fusion's,
     // because Fedora ships no HEVC decoder at all.
-    expect(installCommand("heif", { ID: "fedora" }, "linux")).toBe(
+    expect(installCommand("heif", { ID: "fedora" }, "linux", () => true)).toBe(
       "sudo dnf install libheif-tools libheif-freeworld",
     );
+  });
+
+  it("switches RPM Fusion on first where it is off", () => {
+    // Found on Fedora 44 on 2026-09-24: GNOME Software's third-party switch
+    // brings RPM Fusion's nonfree NVIDIA and Steam repositories and not the
+    // free one, which is where both packages live — so the bare line was
+    // "No match for argument" on the machine it was written for.
+    const enable =
+      "sudo dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm && ";
+    expect(installCommand("heif", { ID: "fedora" }, "linux", () => false)).toBe(
+      `${enable}sudo dnf install libheif-tools libheif-freeworld`,
+    );
+    expect(installCommand("media", { ID: "fedora" }, "linux", () => false)).toBe(
+      `${enable}sudo dnf swap ffmpeg-free ffmpeg --allowerasing`,
+    );
+    // A derivative that ships it on — Nobara — gets the bare line.
+    expect(installCommand("media", { ID: "nobara", ID_LIKE: "fedora" }, "linux", () => true)).toBe(
+      "sudo dnf swap ffmpeg-free ffmpeg --allowerasing",
+    );
+  });
+
+  it("replaces an ffmpeg that lacks decoders only where the distribution's is the one lacking", () => {
+    // Fedora's own ffmpeg is the one without HEVC, so the answer is the swap.
+    expect(installCommand("decoders", { ID: "fedora" }, "linux", () => true)).toBe(
+      "sudo dnf swap ffmpeg-free ffmpeg --allowerasing",
+    );
+    // Debian's and Windows' decode all of it: one that does not is somebody's
+    // own build, and installing the distribution's would install what they have.
+    expect(installCommand("decoders", { ID: "debian" }, "linux")).toBe(
+      "install an ffmpeg build with the decoders this one lacks",
+    );
+    expect(installCommand("decoders", {}, "win32")).toBe(
+      "install an ffmpeg build with the decoders this one lacks",
+    );
+    expect(installOffer("decoders", {}, "win32").argv).toBeNull();
+  });
+
+  it("asks about RPM Fusion on Fedora and nowhere else", () => {
+    let asked = 0;
+    const probe = (): boolean => {
+      asked += 1;
+      return false;
+    };
+    installCommand("media", { ID: "debian" }, "linux", probe);
+    installCommand("media", { ID: "plan9" }, "linux", probe);
+    installCommand("media", {}, "win32", probe);
+    expect(asked).toBe(0);
+  });
+
+  it("reads a repository as dnf does", () => {
+    const repo = (enabled: string): string =>
+      `[rpmfusion-free]\nname=RPM Fusion\n${enabled}\n\n[rpmfusion-free-debuginfo]\nenabled=1\n`;
+    expect(repositoryEnabled(repo("enabled=1"), "rpmfusion-free")).toBe(true);
+    expect(repositoryEnabled(repo("enabled=0"), "rpmfusion-free")).toBe(false);
+    expect(repositoryEnabled(repo("enabled = False"), "rpmfusion-free")).toBe(false);
+    // No `enabled=` line is enabled, which is dnf's default.
+    expect(repositoryEnabled(repo(""), "rpmfusion-free")).toBe(true);
+    // Another section's setting is not this one's.
+    expect(repositoryEnabled(repo("enabled=0"), "rpmfusion-free-debuginfo")).toBe(true);
+    expect(repositoryEnabled("[rpmfusion-nonfree]\nenabled=1\n", "rpmfusion-free")).toBe(false);
   });
 
   it("follows ID_LIKE, so a derivative gets its parent's line", () => {
@@ -107,8 +190,8 @@ describe("what to tell somebody to install", () => {
   });
 
   it("carries the same command an offer shows and a person would type", () => {
-    expect(installOffer("media", { ID: "fedora" }, "linux").command).toBe(
-      installCommand("media", { ID: "fedora" }, "linux"),
+    expect(installOffer("media", { ID: "fedora" }, "linux", () => false).command).toBe(
+      installCommand("media", { ID: "fedora" }, "linux", () => false),
     );
   });
 

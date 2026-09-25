@@ -138,7 +138,9 @@ Legend: **M** = must have (v1.0) · **S** = should have · **C** = could have ·
 - M — PDF: first-page thumbnail + page-through
 - S — Fonts: TTF/OTF/WOFF specimen rendering
 - S — RAW photos: CR2, NEF, ARW, DNG
-- S — Design files: PSD, XCF, AI (thumbnail via embedded preview)
+- S — Design files: PSD, AI (thumbnail via embedded preview). **Not XCF**: GIMP's file is
+  recognised by name and is `other`, like an archive — it opens in GIMP and is not drawn here
+  (the user's decision, 2026-09-24)
 - M — **Anything else: the thumbnail if there is one, the metadata, and Open externally.** A
   format Roost cannot draw is not a dead end
 - C — 3D: GLB, OBJ, STL

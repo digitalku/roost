@@ -3,11 +3,14 @@ import type {
   WireAssetDetail,
   WireFolderRef,
   WireSelectionSummary,
+  WireSharedText,
 } from "@roost/contract";
-import { ContextMenu } from "radix-ui";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
+import { FileProblem } from "../FileProblem.js";
 import { bytes, counted } from "../format.js";
+import type { ConfirmRequest } from "../grid/trash-actions.js";
+import { Placeholder } from "../Placeholder.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { duration } from "../timecode.js";
 import { Comments } from "./Comments.js";
@@ -99,6 +102,16 @@ export interface InspectorProps {
    * the panel assembles none of it (`UI_SPEC.md` §3.2).
    */
   readonly onPick: (query: string) => void;
+  /**
+   * Ask before a write that would replace what several assets hold (ADR-0048).
+   *
+   * The window's dialog rather than one of the panel's own, because the
+   * question is raised on blur — usually by a click on another cell, which
+   * changes the selection and can unmount the very panel that asked.
+   * Optional, like `onRenamed`: without it nothing is asked and nothing mixed
+   * is written.
+   */
+  readonly onConfirm?: (request: ConfirmRequest) => void;
 }
 
 export function Inspector({
@@ -108,6 +121,7 @@ export function Inspector({
   folders,
   onRenamed,
   onPick,
+  onConfirm,
 }: InspectorProps): React.JSX.Element | null {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [summary, setSummary] = useState<WireSelectionSummary | undefined>();
@@ -180,6 +194,7 @@ export function Inspector({
         folders={folders}
         onPick={onPick}
         onSaved={read}
+        {...(onConfirm === undefined ? {} : { onConfirm })}
       />
     );
   }
@@ -195,11 +210,11 @@ export function Inspector({
       {/*
         The 512px thumbnail, generated on first use rather than at import
         (`ARCHITECTURE.md` §4.5) — so an asset nobody has looked at yet has none, and
-        the extension shows through underneath exactly as it does in the grid.
+        the placeholder shows through underneath exactly as it does in the grid.
         Bytes come over `roost://`, never through a message (invariant 12).
       */}
       <div className="inspector-preview">
-        <span className="cell-kind">{detail.ext === "" ? "file" : detail.ext}</span>
+        <Placeholder kind={detail.kind} ext={detail.ext} undrawn={detail.undrawn} />
         <img
           className="cell-image"
           src={previewSrc(detail.id, detail.posterMs, detail.derivedAt)}
@@ -210,6 +225,10 @@ export function Inspector({
           onError={fallbackToGrid}
         />
       </div>
+
+      {/* Why this file has no picture and what to do, the moment it is selected
+          (ADR-0050). Nothing at all for a file that has one. */}
+      <FileProblem detail={detail} />
 
       <NameField detail={detail} onRenamed={onRenamed} onSaved={read} />
 
@@ -231,8 +250,8 @@ export function Inspector({
         onPick={onPick}
         onSaved={read}
       />
-      <NoteField detail={detail} onSaved={read} />
-      <SourceField detail={detail} onSaved={read} />
+      <NoteField ids={ids} held={single(detail.note)} trigger={detail} onSaved={read} />
+      <SourceField ids={ids} held={single(detail.sourceUrl)} trigger={detail} onSaved={read} />
       {/* Keyed on the id so a half-typed comment does not follow the
           selection onto the next asset: the drafts here belong to the asset
           they were started on, and React would otherwise keep them across a
@@ -569,66 +588,45 @@ function TagEditor({
   };
 
   /**
-   * One chip, with the menu the user asked for on 2026-09-07.
+   * One chip. **The name is a button, and clicking it filters by the tag** —
+   * the gesture the folder chip beside it already had. It was a right-click
+   * menu first (2026-09-07), holding *Filter by this tag* and *Remove tag*;
+   * the user asked on 2026-09-24 for the filter to be one click, and with it
+   * on the name the menu had nothing left to offer that the `×` does not.
    *
-   * **Filter is the reason it exists**: a tag on the panel is the fastest way
-   * to ask "what else is like this", and until this the answer was to find the
-   * same tag again in the sidebar. Remove is beside it because the `×` is a
-   * pointer-only target, and a menu that offers one of a chip's two actions
-   * reads as if the other were unavailable.
-   *
-   * The item is disabled rather than hidden when the vocabulary does not know
-   * the tag — which is the moment after one is added, before the window has
-   * re-read the sidebar. A chip whose menu changes shape in that window would
-   * be a menu people learn not to trust; assembling the missing query here
-   * would be the renderer spelling the grammar (`Sidebar`'s own rule).
+   * Disabled when the vocabulary does not know the tag — which is the moment
+   * after one is added, before the window has re-read the sidebar. Assembling
+   * the missing query here would be the renderer spelling the grammar
+   * (`Sidebar`'s own rule).
    */
   const chip = (tag: string, only: boolean): React.JSX.Element => {
     const query = queries.get(tag.toLowerCase());
     return (
-      <ContextMenu.Root key={tag}>
-        <ContextMenu.Trigger asChild>
-          <li className="tag" {...(only ? { "data-partial": "" } : {})}>
-            <span
-              {...(only
-                ? { title: `Only some of the ${ids.length} selected assets carry this` }
-                : {})}
-            >
-              {tag}
-            </span>
-            <button
-              type="button"
-              className="chip-remove"
-              aria-label={`Remove ${tag}`}
-              onClick={() => remove(tag)}
-            >
-              ×
-            </button>
-          </li>
-        </ContextMenu.Trigger>
-
-        <ContextMenu.Portal>
-          <ContextMenu.Content className="menu" collisionPadding={8}>
-            <ContextMenu.Item
-              className="menu-item"
-              disabled={query === undefined}
-              onSelect={() => {
-                if (query !== undefined) onPick(query);
-              }}
-            >
-              <span className="menu-mark" />
-              <span className="menu-label">Filter by this tag</span>
-            </ContextMenu.Item>
-
-            <ContextMenu.Separator className="menu-separator" />
-
-            <ContextMenu.Item className="menu-item" onSelect={() => remove(tag)}>
-              <span className="menu-mark" />
-              <span className="menu-label">Remove tag</span>
-            </ContextMenu.Item>
-          </ContextMenu.Content>
-        </ContextMenu.Portal>
-      </ContextMenu.Root>
+      <li key={tag} className="tag" {...(only ? { "data-partial": "" } : {})}>
+        <button
+          type="button"
+          className="tag-name"
+          disabled={query === undefined}
+          title={
+            only
+              ? `Only some of the ${ids.length} selected assets carry this`
+              : `Show everything tagged ${tag}`
+          }
+          onClick={() => {
+            if (query !== undefined) onPick(query);
+          }}
+        >
+          {tag}
+        </button>
+        <button
+          type="button"
+          className="chip-remove"
+          aria-label={`Remove ${tag}`}
+          onClick={() => remove(tag)}
+        >
+          ×
+        </button>
+      </li>
     );
   };
 
@@ -694,9 +692,9 @@ function FolderEditor({
 
   /**
    * One chip. **The name is a button, and clicking it shows the folder** —
-   * asked for on 2026-09-07, beside the tag chip's menu and deliberately not
-   * the same gesture. A folder chip says one thing where a tag chip says two:
-   * there is nothing to choose between, so a menu would be a click in the way.
+   * asked for on 2026-09-07. A folder chip says one thing, so there is nothing
+   * to choose between and a menu would be a click in the way. The tag chip
+   * took the same gesture on 2026-09-24.
    *
    * It is a plain button when the tree has not arrived — the panel and the
    * navigation pane read the library separately, and a chip that navigated
@@ -760,6 +758,7 @@ function Selection({
   folders,
   onPick,
   onSaved,
+  onConfirm,
 }: {
   readonly ids: readonly string[];
   readonly summary: WireSelectionSummary;
@@ -767,6 +766,7 @@ function Selection({
   readonly folders: readonly SidebarFolderRow[];
   readonly onPick: (query: string) => void;
   readonly onSaved: () => Promise<void>;
+  readonly onConfirm?: (request: ConfirmRequest) => void;
 }): React.JSX.Element {
   return (
     <aside className="inspector" aria-label="Inspector">
@@ -792,6 +792,21 @@ function Selection({
         onSaved={onSaved}
       />
 
+      <NoteField
+        ids={ids}
+        held={summary.note}
+        trigger={summary}
+        onSaved={onSaved}
+        {...(onConfirm === undefined ? {} : { onConfirm })}
+      />
+      <SourceField
+        ids={ids}
+        held={summary.source}
+        trigger={summary}
+        onSaved={onSaved}
+        {...(onConfirm === undefined ? {} : { onConfirm })}
+      />
+
       <dl className="metadata">
         <div className="metadata-row">
           <dt>Size</dt>
@@ -812,38 +827,110 @@ function Selection({
   );
 }
 
-/** Autosaves on blur and after a second's idle (`UI_SPEC.md` §3). */
-function NoteField({
-  detail,
-  onSaved,
-}: {
-  readonly detail: WireAssetDetail;
+/** One asset's value of a free-text field, in the shape a selection's takes. */
+function single(value: string | null): WireSharedText {
+  return { value, mixed: false, distinct: value === null ? 0 : 1, holding: value === null ? 0 : 1 };
+}
+
+/** What a free-text field needs to know to write across a selection (ADR-0048). */
+interface TextFieldProps {
+  readonly ids: readonly string[];
+  /** What the selection holds, together — one asset's is {@link single}. */
+  readonly held: WireSharedText;
+  /**
+   * Whatever the panel re-read, as the signal that it did: a fresh object per
+   * read. See {@link useStoredValue}.
+   */
+  readonly trigger: object;
   readonly onSaved: () => Promise<void>;
-}): React.JSX.Element {
-  const [draft, setDraft] = useState(detail.note ?? "");
-  const saved = useRef(detail.note ?? "");
-  useStoredValue(detail, detail.note ?? "", saved, setDraft);
+  readonly onConfirm?: (request: ConfirmRequest) => void;
+}
+
+/**
+ * A free-text field's draft, and the one way it is written (ADR-0048).
+ *
+ * **One asset and twelve are the same code**, as the rating and the tags are
+ * (`UI_SPEC.md` §3.2): the single-asset panel passes a list of one, whose
+ * field can never be mixed. Where the selection agrees — the same value, or
+ * none at all — the field shows it and a write replaces what is on screen.
+ * Where it disagrees the field starts empty, and a write that would replace
+ * something asks first; cancelling puts the field back to empty.
+ *
+ * A mixed field is written on blur alone, never on the idle timer: the timer is
+ * there so a note survives a crash mid-paragraph, and here it would raise a
+ * dialog in the middle of one.
+ */
+function useTextField(
+  { ids, held, trigger, onSaved, onConfirm }: TextFieldProps,
+  noun: string,
+  send: (ids: readonly string[], value: string | null) => Promise<unknown>,
+): {
+  readonly draft: string;
+  readonly setDraft: (value: string) => void;
+  readonly save: () => void;
+  readonly placeholder: string | undefined;
+} {
+  const stored = held.value ?? "";
+  const [draft, setDraft] = useState(stored);
+  const saved = useRef(stored);
+  useStoredValue(trigger, stored, saved, setDraft);
 
   const save = useCallback((): void => {
     if (draft === saved.current) return;
-    saved.current = draft;
-    void invoke({
-      type: "asset:note",
-      id: detail.id,
-      note: draft.trim() === "" ? null : draft,
-    }).then(onSaved);
-  }, [draft, detail.id, onSaved]);
+    const text = draft;
+    const write = (): void => {
+      saved.current = text;
+      void send(ids, text.trim() === "" ? null : text).then(onSaved);
+    };
+    if (!held.mixed || held.holding === 0) {
+      write();
+      return;
+    }
+    // Never written without the question: a panel with no way to ask writes
+    // nothing mixed at all.
+    onConfirm?.({
+      title: `Replace the ${noun}s?`,
+      body:
+        `Replace the ${noun} on ${counted(ids.length)} assets? ` +
+        `${counted(held.holding)} of them already have one.`,
+      confirmLabel: "Replace",
+      run: write,
+      onCancel: () => setDraft(saved.current),
+    });
+  }, [draft, ids, held, noun, send, onSaved, onConfirm]);
 
   useEffect(() => {
+    if (held.mixed) return;
     const timer = setTimeout(save, NOTE_IDLE_MS);
     return () => clearTimeout(timer);
-  }, [save]);
+  }, [save, held.mixed]);
+
+  // Says how it disagrees, so an empty field is not read as "none of them has
+  // one": several different values, or one value some of them lack.
+  const placeholder = !held.mixed
+    ? undefined
+    : held.distinct > 1
+      ? `Mixed — ${counted(held.distinct)} different ${noun}s`
+      : `Mixed — ${counted(held.holding)} of ${counted(ids.length)} have a ${noun}`;
+
+  return { draft, setDraft, save, placeholder };
+}
+
+const sendNote = (ids: readonly string[], note: string | null) =>
+  invoke({ type: "asset:note", ids, note });
+
+const sendSource = (ids: readonly string[], url: string | null) =>
+  invoke({ type: "asset:source", ids, url });
+
+/** Autosaves on blur and after a second's idle (`UI_SPEC.md` §3). */
+function NoteField(props: TextFieldProps): React.JSX.Element {
+  const { draft, setDraft, save, placeholder } = useTextField(props, "note", sendNote);
 
   return (
     <textarea
       className="note"
       aria-label="Note"
-      placeholder="Note"
+      placeholder={placeholder ?? "Note"}
       rows={3}
       value={draft}
       onChange={(changed) => setDraft(changed.target.value)}
@@ -870,36 +957,14 @@ function NoteField({
  * A single line, not a textarea: this has one value and no paragraphs, and
  * `Enter` therefore saves rather than making a second line.
  */
-function SourceField({
-  detail,
-  onSaved,
-}: {
-  readonly detail: WireAssetDetail;
-  readonly onSaved: () => Promise<void>;
-}): React.JSX.Element {
-  const [draft, setDraft] = useState(detail.sourceUrl ?? "");
-  const saved = useRef(detail.sourceUrl ?? "");
-  useStoredValue(detail, detail.sourceUrl ?? "", saved, setDraft);
-
-  const save = useCallback((): void => {
-    if (draft === saved.current) return;
-    saved.current = draft;
-    void invoke({
-      type: "asset:source",
-      id: detail.id,
-      url: draft.trim() === "" ? null : draft,
-    }).then(onSaved);
-  }, [draft, detail.id, onSaved]);
-
-  useEffect(() => {
-    const timer = setTimeout(save, NOTE_IDLE_MS);
-    return () => clearTimeout(timer);
-  }, [save]);
+function SourceField(props: TextFieldProps): React.JSX.Element {
+  const { draft, setDraft, save, placeholder } = useTextField(props, "source", sendSource);
 
   // What the *engine* holds, not what is being typed: an address half-entered
   // is not one to offer, and the button would flicker in and out on the way to
-  // `https://`.
-  const openable = detail.sourceUrl !== null && /^https?:\/\/\S+$/.test(detail.sourceUrl);
+  // `https://`. A mixed selection holds no one value to open.
+  const url = props.held.value;
+  const openable = url !== null && /^https?:\/\/\S+$/.test(url);
 
   return (
     <div className="source">
@@ -907,7 +972,7 @@ function SourceField({
         type="text"
         className="source-field"
         aria-label="Source"
-        placeholder="Source — where this came from"
+        placeholder={placeholder ?? "Source — where this came from"}
         spellCheck={false}
         value={draft}
         onChange={(changed) => setDraft(changed.target.value)}
@@ -926,8 +991,8 @@ function SourceField({
           type="button"
           className="source-open"
           aria-label="Open source in browser"
-          title={detail.sourceUrl ?? ""}
-          onClick={() => void invoke({ type: "link:open", url: detail.sourceUrl ?? "" })}
+          title={url}
+          onClick={() => void invoke({ type: "link:open", url })}
         >
           <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
             <path
@@ -960,13 +1025,13 @@ function SourceField({
  * stomping a half-typed draft.
  */
 function useStoredValue(
-  detail: WireAssetDetail,
+  trigger: object,
   stored: string,
   sent: React.RefObject<string>,
   adopt: (value: string) => void,
 ): void {
   /*
-   * `detail` is the trigger — a fresh object per re-read — and everything the
+   * `trigger` is the trigger — a fresh object per re-read — and everything the
    * body reads comes from it or from a ref.
    */
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
@@ -974,7 +1039,7 @@ function useStoredValue(
     if (stored === sent.current) return;
     sent.current = stored;
     adopt(stored);
-  }, [detail]);
+  }, [trigger]);
 }
 
 /** What the library knows and nobody can edit. */

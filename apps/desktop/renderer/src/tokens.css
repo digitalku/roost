@@ -156,12 +156,13 @@
   --accent-hover: var(--accent-5);
   --accent-text: var(--gray-0);
 
-  /* The folder drawn in the grid (ADR-0043). Two tones rather than one, because
-     a silhouette at 400px is a slab of colour and at 40px is a blob: the tab
-     and the sheet in front of it are what make the shape legible at both ends.
-     One step apart on the same ramp, never two decisions. */
-  --folder-back: var(--accent-3);
-  --folder-front: var(--accent-4);
+  /* The folder drawn in the grid: a punched sheet protector with the folder's
+     pictures in it (ADR-0043 §7, the user's drawing of 2026-09-25). A grey
+     rather than the accent: the pictures inside are the colour, and a sleeve
+     that competed with them would be the loudest thing in a grid of photographs.
+     The holes and the fold line are the ground showing through. */
+  --folder-sheet: var(--gray-5);
+  --folder-hole: var(--bg);
 
   /* Text that hands a URL to the desktop's browser. One step brighter than
      `--accent` on this ground, because `--accent` is a *fill* colour here and
@@ -219,9 +220,9 @@
   --accent-hover: var(--accent-2);
   --accent-text: var(--gray-12);
 
-  /* The ramp reversing, as every fill on this theme does. */
-  --folder-back: var(--accent-2);
-  --folder-front: var(--accent-3);
+  /* Darker than its ground, as on the dark theme it is lighter: the same sleeve. */
+  --folder-sheet: var(--gray-6);
+  --folder-hole: var(--bg);
 
   /* The ramp reversing, for the reason the dark theme's does: darker text on a
      light ground is the same decision made the other way. */

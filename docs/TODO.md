@@ -132,6 +132,16 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
+### Window checks found failing on 2026-09-24
+
+- 🟡 **Two window checks fail on `main`, before and after that day's change.** Found while
+  looking for a tag bug that did not reproduce; not investigated. `check-eagle.mjs` fails 3 of
+  32 under *A judgement made here survives the next import*: the rated item is not found by name
+  (`id=null`), so the rating and note checks after it read nothing. It may be the check rather than
+  the importer: the `preserved=3` report beside them passes. `check-folders.mjs` stops after
+  *Dragging assets onto a folder* with `never settled: document.querySelectorAll('.cell').length`.
+  Both need a first look at whether the script or the window is what changed.
+
 ### Importing an Eagle library (ADR-0032) — built 2026-09-06
 
 - 🟢 **The folder structure itself is to be revisited**, at the user's word on 2026-09-06: *"nanti
@@ -158,12 +168,15 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   nothing stored. Caching them in `index.db` would be megabytes each and a derived column for
   `rebuild` to worry about (invariant 1). Revisit if the pane ever feels slow on a slow disk.
 
-- 🟢 **The `media` capability does not check for HEVC the way `heif` does.** ADR-0040 §2 made the
-  point for libheif — a version is not a capability — and ffmpeg has the same shape: Fedora's
-  `ffmpeg-free` runs, reports 8.1.2, and has **no `hevc` decoder at all**, so an iPhone `.mov`
-  fails its derive with ffmpeg's own words rather than parking with something to install. Reading
-  `ffmpeg -decoders` once per session would fix it, and the honest version is a small table of
-  codec-to-package rather than one flag. Nobody has hit it yet in a library here.
+- 🟡 **An HEVC video cannot be played in the window, whatever is installed.** Measured on
+  2026-09-24 against Electron 43.4.1: `canPlayType` answers `""` for `hvc1` and `hev1`, with and
+  without Chromium's VAAPI feature flags, and the binary carries VAAPI decoder delegates for H.264
+  and VP9 and **none for H.265** — so no driver a person installs reaches it. The proposal, not yet
+  written as an ADR or decided: a rendition streamed from the **system's** ffmpeg through
+  `roost://render`, the way HEIC is drawn, with a seek restarting it at `-ss` (the transport is
+  ours, ADR-0024). Needs measuring first: what a 4K HEVC clip costs this machine to transcode live.
+  Until then the pane **says so** rather than playing the sound under nothing (`UI_SPEC.md` §7.3,
+  2026-09-24).
 
 - 🟢 **No HEIC encoding, and no animated HEIF.** Roost reads them and never writes one; a Live
   Photo's video half is a separate file on the phone.
@@ -175,6 +188,17 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   (`DATA_MODEL.md` §1). Worth doing if somebody wants to trash or re-import the whole set at once —
   `is:undrawn` is the obvious spelling, and it would have to compile to a `thumbs` anti-join rather
   than to anything about the queue, which is derived state a rebuild empties.
+
+- 🟢 **The test fakes still mint version 1 ids.** `fakeAsset` and `fakeDetail` build sixty-four
+  hex digits, which is a content hash, and that is what let `fallbackFromRendition` match only
+  hashes for as long as it did (`UI_SPEC.md` §7.1). Twelve characters of Crockford base32 would
+  have failed the day version 2 arrived. A wide change — hundreds of assertions spell the id.
+
+- 🟢 **A press on the ☰ once opened nothing, with a paused queue.** Seen once while writing
+  `check-pause.mjs` on 2026-09-25, and not seen again in the runs after. The status bar re-reads the
+  queue every 1.5 s, and the guess is a press landing on that re-render. The check presses up to
+  three times rather than asserting a cause nobody has shown. If a person reports a ☰ that
+  sometimes does not open, start here.
 
 ### Chrome the pictures have to live with (2026-09-07)
 
@@ -539,21 +563,11 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 ### Folders in the grid (ADR-0043, asked for and built 2026-09-13)
 
-- 🟡 **No window check covers the tiles, and one is owed — the fifteenth.** Three of the claims
-  in ADR-0043 are ones a component test cannot make, and the first is the reason the gesture was
-  chosen at all: that a **double-click does not land a preview on the folder it just opened**.
-  happy-dom fires both clicks against a DOM that never re-queried, so the hazard the design is
-  defending against is exactly the one no test here can see. The other two are the layout (the
-  tiles are laid out, not overlaid, and they take the first row) and the drop outline, which is
-  written to the element rather than rendered. `scripts/lib/` has everything it needs; the
-  fixture wants a folder with subfolders in it, which `check-folders.mjs` already builds.
-
-- 🟢 **A folder tile draws a glyph, not a cover.** ADR-0043 §7 keeps the mosaic of up to four
-  thumbnails from inside the folder — what Eagle and a modern Explorer both draw — as the
-  follow-up, at the user's choosing. It is the one part of this that needs the engine: a request
-  naming a parent and answering with up to four hashes per child, asked once when the folder
-  changes. The bytes still arrive over `roost://thumb/<hash>@256`, so it is one small query and
-  no new transport.
+- 🟢 **The drop outline on a folder tile has no window check.** `check-folder-tiles.mjs`
+  (2026-09-25) covers the other two claims in ADR-0043 that only a window can make: a double-click
+  opens the folder without landing a preview on it, and the tiles are laid out rather than
+  overlaid. The outline is written to the element during a drag rather than rendered, and a
+  synthetic drag is what `check-folders.mjs` already fails on (see *Window checks found failing*).
 
 - 🟢 **A tile cannot be dragged, only dropped onto.** Re-parenting a folder by dragging it onto
   another is the tree's gesture (`UI_SPEC.md` §4.3) and `folder:move` is already wired; ADR-0043
@@ -799,10 +813,18 @@ claim and counts made cheap at a million. What is still open:
 - 🟢 **BLAKE3 runs on the engine thread**: 564 ms per 1.2 GB, in 256 KB slices. Throughput
   rather than a stall, so it does not show in the page latency — but it is the next thing a
   worker thread would take.
-- 🟢 **Two open-time passes have not been measured at a million.** `enqueueMissing` is one
-  synchronous `INSERT … SELECT` over every asset with a thumbnail probe each, and `catchUp`
-  stats every file. Neither is awaited by the window, but the first runs on the engine thread
-  before it answers anything else; the cold-start measurement is where it would show.
+- 🟡 **Two open-time passes, measured at 100k on 2026-09-24** (`BENCHMARKS.md`). The watcher
+  that was costing 1.4 s of every open is fixed (ADR-0047 §10); these two remain.
+  `enqueueMissing` is **~200 ms before the reply**, on every open, in a library where nothing
+  has a thumbnail — every row reaches the `ON CONFLICT` of a job already queued. That is about
+  2 s at a million. It would be cheaper to skip assets that already have a job, or to run it
+  after the first page has gone out. `catchUp` is **7 s** at 100k and not awaited (worst loop
+  gap 7 ms), but it runs alongside the first pages the window asks for.
+- 🟡 **Import measured 270 files/sec on 2026-09-24** — 100,000 fixture files in 6 min 15 s,
+  below `CONCEPT.md` §7's floor of 300 and far below the 2,178/sec recorded before format 2.
+  Found while building a library to measure opening, not investigated. The report's own stages
+  (indexing 4.8 s, walking 0.8 s) add up to a fraction of the wall time, so the time is going
+  somewhere they do not count.
 - 🟢 **`check-derive-order.mjs` is not in `pnpm verify`**, like every other window check. It is
   also the only one that needs a threadpool of one to be meaningful, and says why.
 
@@ -977,12 +999,6 @@ claim and counts made cheap at a million. What is still open:
   in a live window.
 
 ### Flakes
-
-- 🟡 **`no-ffmpeg.test.ts` — "imports everything, draws what it can" times out under load.** Seen
-  twice on 2026-09-07 in `pnpm verify` and never when run alone; it took 5.4s on the run that
-  failed. It spawns the built CLI and probes for ffmpeg, so it is the slowest test in the suite and
-  the first to lose a race for the machine. Not caused by that day's work — nothing in it touches
-  the import path — but a suite that fails one run in three is a suite people stop reading.
 
 - 🟡 **`check-grid.mjs` and `check-folders.mjs` fail on their synthetic drags on Windows.**
   Seen 2026-09-21 after the format-2 port: the marquee section reports no sweep and the folder

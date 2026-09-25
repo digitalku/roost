@@ -210,6 +210,13 @@ export interface ImportReport {
    */
   readonly duplicateIds: AssetId[];
   /**
+   * The assets this run added, in walk order.
+   *
+   * What a paused derive queue still works (ADR-0049): an import is somebody
+   * asking for these files now, and the rest of the queue waits.
+   */
+  readonly importedIds: AssetId[];
+  /**
    * The first {@link DUPLICATE_PREVIEW} of them by name, for a dialog to draw.
    *
    * Names and not paths: the question a person answers is "which of my files
@@ -240,6 +247,7 @@ function emptyReport(): ImportReport {
     subtitlesUnattached: 0,
     failed: [],
     duplicateIds: [],
+    importedIds: [],
     duplicateNames: [],
   };
 }
@@ -537,6 +545,7 @@ async function ingest(
   }
 
   report.imported += 1;
+  report.importedIds.push(id);
   report.bytes += hashed.size;
   onAsset?.(path, id);
   return { id, path, records, derived };

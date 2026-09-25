@@ -1,6 +1,6 @@
 import { decoderVersions } from "./decoder.js";
 import { documentVersion } from "./document.js";
-import { ffmpegVersion, ffprobeVersion } from "./ffmpeg.js";
+import { ffmpegDecoders, ffmpegVersion, ffprobeVersion } from "./ffmpeg.js";
 import type { Format } from "./format.js";
 import { heifVersion } from "./heif.js";
 import { installCommand, installOffer } from "./install.js";
@@ -77,7 +77,23 @@ export function capabilityFor(format: Format): CapabilityName | undefined {
   return undefined;
 }
 
-let probed: Promise<readonly Capability[]> | undefined;
+/**
+ * The codecs a phone, a camera or a streaming download is made of.
+ *
+ * An ffmpeg lacking any of them is one worth replacing, so its capability
+ * carries a command even though it runs. The list decides nothing about which
+ * files park — every file is checked against whatever this ffmpeg decodes — and
+ * is only what makes the machine worth mentioning before a file has been met.
+ */
+export const EXPECTED_DECODERS = ["h264", "hevc", "av1", "vp9", "aac", "ac3", "eac3"] as const;
+
+interface Probed {
+  readonly capabilities: readonly Capability[];
+  /** What ffmpeg decodes, or `null` where it is absent or would not say. */
+  readonly decoders: ReadonlySet<string> | null;
+}
+
+let probed: Promise<Probed> | undefined;
 
 /**
  * What this build can do, probed once per process.
@@ -90,13 +106,26 @@ let probed: Promise<readonly Capability[]> | undefined;
  */
 export async function capabilities(): Promise<readonly Capability[]> {
   probed ??= probe();
-  return probed;
+  return (await probed).capabilities;
 }
 
 /** Discards the cache and probes again. */
 export async function refreshCapabilities(): Promise<readonly Capability[]> {
   probed = probe();
-  return probed;
+  return (await probed).capabilities;
+}
+
+/**
+ * The codecs this machine's ffmpeg decodes, probed with the capabilities and
+ * refreshed with them.
+ *
+ * `null` means unknown rather than none: an ffmpeg that runs and would not list
+ * its decoders is left to try every file, because parking a whole library on a
+ * listing that failed would be worse than the failures it prevents.
+ */
+export async function mediaDecoders(): Promise<ReadonlySet<string> | null> {
+  probed ??= probe();
+  return (await probed).decoders;
 }
 
 /** One capability by name, for a caller that only cares about one. */
@@ -109,16 +138,20 @@ export async function capability(name: CapabilityName): Promise<Capability> {
   return found;
 }
 
-async function probe(): Promise<readonly Capability[]> {
-  const [ffmpeg, ffprobe, heif] = await Promise.all([
+async function probe(): Promise<Probed> {
+  const [ffmpeg, ffprobe, heif, listed] = await Promise.all([
     ffmpegVersion(),
     ffprobeVersion(),
     heifVersion(),
+    ffmpegDecoders(),
   ]);
   const decoder = decoderVersions();
   const hasMedia = ffmpeg !== null && ffprobe !== null;
+  const decoders = hasMedia ? listed : null;
+  const lacking =
+    decoders === null ? [] : EXPECTED_DECODERS.filter((codec) => !decoders.has(codec));
 
-  return [
+  const capabilities: readonly Capability[] = [
     {
       name: "images",
       available: true,
@@ -152,10 +185,19 @@ async function probe(): Promise<readonly Capability[]> {
       // other, and half of the pair is not a working backend.
       available: hasMedia,
       version: ffmpeg,
-      detail: hasMedia
-        ? `ffmpeg ${ffmpeg}, ffprobe ${ffprobe}`
-        : "install ffmpeg for video and audio previews",
-      install: hasMedia ? null : installCommand("media"),
+      detail: !hasMedia
+        ? "install ffmpeg for video and audio previews"
+        : lacking.length > 0
+          ? `ffmpeg ${ffmpeg}, ffprobe ${ffprobe}, without ${lacking.join(", ")}`
+          : `ffmpeg ${ffmpeg}, ffprobe ${ffprobe}`,
+      // A command while it is still available, where it lacks what a phone
+      // records: replacing it is the one thing that draws those files, and the
+      // window shows this beside them (ADR-0017, amended 2026-09-24).
+      install: !hasMedia
+        ? installCommand("media")
+        : lacking.length > 0
+          ? installCommand("decoders")
+          : null,
       installable: !hasMedia && installOffer("media").argv !== null,
       formats: CAPABILITY_FORMATS.media,
     },
@@ -172,4 +214,5 @@ async function probe(): Promise<readonly Capability[]> {
       formats: CAPABILITY_FORMATS.heif,
     },
   ];
+  return { capabilities, decoders };
 }

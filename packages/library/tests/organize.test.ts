@@ -279,15 +279,15 @@ describe("organizing a library", () => {
   it("stores a source as typed, and clears it on a blank", async () => {
     const asset = ids[0] as AssetId;
 
-    await setSource(library, asset, "  instagram.com/p/xyz  ");
+    await setSource(library, [asset], "  instagram.com/p/xyz  ");
     expect(library.db.repo.assetDetail(asset)?.sourceUrl).toBe("instagram.com/p/xyz");
 
-    await setSource(library, asset, "   ");
+    await setSource(library, [asset], "   ");
     expect(library.db.repo.assetDetail(asset)?.sourceUrl).toBe(null);
 
     // And it survives losing the index, because it is a journal line first
     // (invariant 9) — the whole reason it is an op rather than a column write.
-    await setSource(library, asset, "https://example.com/a");
+    await setSource(library, [asset], "https://example.com/a");
     await library.rebuild();
     expect(library.db.repo.assetDetail(asset)?.sourceUrl).toBe("https://example.com/a");
   });
@@ -298,7 +298,7 @@ describe("organizing a library", () => {
     // `is:favorite` stays in the grammar, because a smart folder that says it
     // must still parse — so what a library already holds is still findable.
     await apply(library, [{ op: "favorite_set", asset: ids[1] as AssetId, favorite: true }]);
-    await setNote(library, ids[2] as AssetId, "  needs a crop  ");
+    await setNote(library, [ids[2] as AssetId], "  needs a crop  ");
 
     expect(count(library, "rating:>=4")).toBe(1);
     expect(count(library, "is:favorite")).toBe(1);
@@ -308,8 +308,26 @@ describe("organizing a library", () => {
     await expect(rate(library, [ids[0] as AssetId], 9)).rejects.toBeInstanceOf(InvalidRatingError);
     // A note of nothing but whitespace clears the note rather than storing one,
     // which would show as an empty badge on the asset forever.
-    await setNote(library, ids[2] as AssetId, "   ");
+    await setNote(library, [ids[2] as AssetId], "   ");
     expect(library.db.repo.assetDetail(ids[2] as AssetId)?.note).toBe(null);
+  });
+
+  it("writes one note and one source across several assets, a line each (ADR-0048)", async () => {
+    const three = ids.slice(0, 3) as AssetId[];
+    await setNote(library, three, "  for the client  ");
+    await setSource(library, three, "https://example.com/post");
+
+    for (const id of three) {
+      expect(library.db.repo.assetDetail(id)).toMatchObject({
+        note: "for the client",
+        sourceUrl: "https://example.com/post",
+      });
+    }
+    // No new operation: the registry's own `note_set` and `source_set`, one per
+    // asset, so another implementation reads them already (ADR-0045).
+    const lines = await journalLines();
+    expect(lines.filter((line) => line.op === "note_set")).toHaveLength(3);
+    expect(lines.filter((line) => line.op === "source_set")).toHaveLength(3);
   });
 
   it("renames what the library shows, and the full-text index with it", async () => {
@@ -494,7 +512,7 @@ describe("organizing a library", () => {
     await addToFolder(library, [first], folder);
     await tagAdd(library, [first], ["timber"]);
     await rate(library, [first], 4);
-    await setNote(library, first, "client approved");
+    await setNote(library, [first], "client approved");
 
     await trashAssets(library, [first]);
     await restoreAssets(library, [first]);
@@ -790,7 +808,7 @@ describe("organizing a library", () => {
     await tagRename(library, "wood", "timber");
     await rate(library, [ids[0] as AssetId], 5);
     await apply(library, [{ op: "favorite_set", asset: ids[1] as AssetId, favorite: true }]);
-    await setNote(library, ids[2] as AssetId, "a note");
+    await setNote(library, [ids[2] as AssetId], "a note");
     const comment = await addComment(library, ids[0] as AssetId, 91_500, "a comment");
     await setComment(library, comment, 91_000, "an edited comment");
     await addComment(library, ids[0] as AssetId, null, "and one about the asset");
@@ -841,7 +859,7 @@ describe("organizing a library", () => {
     // person actually wrote was the one thing search could not find.
 
     it("finds an asset by a word in its note", async () => {
-      await setNote(library, ids[0] as AssetId, "needs a reshoot before the deadline");
+      await setNote(library, [ids[0] as AssetId], "needs a reshoot before the deadline");
 
       expect(count(library, "reshoot")).toBe(1);
       // Typed, not composed: bare words are already free-text terms, so the
@@ -859,10 +877,10 @@ describe("organizing a library", () => {
     });
 
     it("follows an edit rather than keeping what was written first", async () => {
-      await setNote(library, ids[0] as AssetId, "provisional");
+      await setNote(library, [ids[0] as AssetId], "provisional");
       const id = await addComment(library, ids[0] as AssetId, null, "ask marketing");
 
-      await setNote(library, ids[0] as AssetId, "approved");
+      await setNote(library, [ids[0] as AssetId], "approved");
       await setComment(library, id, null, "marketing approved it");
 
       expect(count(library, "provisional")).toBe(0);
@@ -880,8 +898,8 @@ describe("organizing a library", () => {
     });
 
     it("clears the note from the index when the note is cleared", async () => {
-      await setNote(library, ids[0] as AssetId, "temporary");
-      await setNote(library, ids[0] as AssetId, null);
+      await setNote(library, [ids[0] as AssetId], "temporary");
+      await setNote(library, [ids[0] as AssetId], null);
 
       expect(count(library, "temporary")).toBe(0);
     });

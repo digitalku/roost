@@ -29,6 +29,13 @@ export interface ConfirmRequest {
    */
   readonly option?: { readonly label: string };
   readonly run: (option: boolean) => void;
+  /**
+   * What declining puts back, for a request made on behalf of something still
+   * on screen — a field holding the text that was about to be written
+   * (ADR-0048). Harmless if it also runs after a confirm, and it may: the
+   * dialog closes itself either way.
+   */
+  readonly onCancel?: () => void;
 }
 
 export interface TrashActionsOptions {

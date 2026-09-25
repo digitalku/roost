@@ -390,13 +390,16 @@ for one path and not the other.
 | Rating | The rating they share; `mixed` beside empty stars when they disagree. Clicking the shared rating clears it, as for one asset; a mixed selection has nothing to clear, so a click always sets |
 | Tags | Tags **all** of them carry, then tags **some** carry, drawn apart and labelled. Adding applies to everything; removing a partial tag is the same call, since the engine ignores an asset that does not carry it |
 | Folders | The same rule, and the same two halves: folders all of them are in, then folders some are in. §3.9 |
+| Note, Source | The value they share, edited as for one asset. When they differ, the field is empty and its placeholder says how: *Mixed — 2 different notes*, or *Mixed — 1 of 3 have a source*. A write then asks first — *Replace the note on 12 assets? 3 of them already have one.* It saves on blur and never on the idle timer, and Cancel empties the field again. ADR-0048 |
 | Metadata | Total size and the commonest kinds. Nothing per-asset |
 
 **What it deliberately does not show**, each for its own reason:
 
 - **No name field.** A name belongs to one asset.
-- **No note, and no source.** A note is a paragraph about one thing and a source is one thing's
-  answer to where it came from; writing either across twelve would silently destroy eleven.
+- ~~**No note, and no source.**~~ Until 2026-09-24: *writing either across twelve would silently
+  destroy eleven*. ADR-0048 keeps the word **silently** as the rule rather than the refusal. A
+  write across a selection that disagrees is asked about first, and one across a selection that
+  agrees replaces only what is on screen.
 - **No preview.** One asset's picture above controls that edit all of them is exactly the
   misreading this panel exists to correct.
 - **No "Open externally".** Handing twenty files to the desktop is more than a click's worth of
@@ -680,18 +683,19 @@ displacing the tag somebody is plainly typing. Ties break on the name, so the or
 eight are offered, and a tag the selection already carries is never among them — its chip is on
 screen a few pixels above, and adding it again is a no-op.
 
-**A tag already on the asset is a chip, and right-clicking one opens a menu.** Asked for on
+**A tag already on the asset is a chip, and clicking its name filters by it.** Asked for on
 2026-09-07, from a panel where the only way to see everything else carrying a tag was to find that
-tag again in the sidebar. Two items and no more: **Filter by this tag**, which replaces the query
-exactly as clicking the row in the navigation pane does, and **Remove tag**, which is what the `×`
-does — offered here because the `×` is a pointer-only target, and a menu holding one of a chip's
-two actions reads as if the other were unavailable.
+tag again in the sidebar. The filter replaces the query exactly as clicking the row in the
+navigation pane does, and the `×` beside the name removes the tag. It was a **right-click menu**
+first — *Filter by this tag* and *Remove tag* — and the user asked on 2026-09-24 for the filter to
+be one click, the gesture the folder chip in §3.9 already had. With the filter on the name, the
+menu held nothing the `×` does not, so **there is no menu**: right-clicking a chip does nothing.
 
 **The query travels; it is never assembled.** The chip filters with the RQL the engine wrote for
 that tag's sidebar row, quoting included — the rule §4.1 states for the pane, and the same reason:
 a renderer spelling `tag:Some Name` is a second implementation of the grammar and the one that
 gets it wrong. A tag the sidebar has not caught up with — the moment after one is added — leaves
-the item **disabled rather than absent**, so the menu does not change shape between two openings.
+the name **disabled** until it has.
 
 **Nothing is highlighted until an arrow key highlights it.** This is the rule that keeps a *new*
 tag possible while an old one is on offer: Enter adds exactly what was typed unless a suggestion
@@ -798,9 +802,9 @@ else. The needle is forgotten between two openings, and the caret starts in the 
 **A chip says the path, not the name**, for the same reason: it is what somebody reads before
 pressing the `×` beside it.
 
-**Clicking the path shows that folder.** Asked for on 2026-09-07, beside the tag chip's menu in
-§3.7 and deliberately not the same gesture: a folder chip offers one thing, so a menu would be a
-click in the way, while a tag chip offers two and has to ask which. The name is therefore a button
+**Clicking the path shows that folder.** Asked for on 2026-09-07: a folder chip offers one thing,
+so a menu would be a click in the way. The tag chip in §3.7 had a menu then and has taken this
+gesture since 2026-09-24. The name is therefore a button
 — reachable from the keyboard, undressed to look like the text it replaced — and the query it
 sends is the **sidebar row's own**, found by the folder's id in the tree this control already
 holds. A chip whose folder the tree does not know yet is drawn plainly and does nothing, because
@@ -962,86 +966,81 @@ with **Open library…** is an advert.
 
 ### 3.13 What has no preview, and why
 
-The status bar counts three states of the derive queue (§8), and one of them is a number nobody
-can act on: *"36 could not be drawn"* says that thirty-six files have no preview without saying
-which files, what went wrong, or whether pressing anything would change it. Clicking it **opens the
-list**; it no longer retries on the spot.
+**A file with no picture says why on itself, when it is opened** (ADR-0050). The status bar counts
+nothing about it (§8), and there is no list. Until 2026-09-25 the bar carried *"36 could not be
+drawn"* and the parked line, and each opened a list of reasons and file names. The user found that
+this was not the question they had: *"pop up X could not be drawn tidak perlu. namun jika ada
+kendala seperti itu, tampilkan ketika membuka file nya saja … isinya rekomendasi yang bisa
+dilakukan untuk file tersebut"*.
+
+There are three places, from a glance to a close look:
+
+- **The cell** carries a badge in the warning colour, *Could not be drawn* or *Needs libheif*
+  (§6.1). That is how a person finds one in a grid of pictures.
+- **The inspector**, the moment the file is selected, draws a card under the thumbnail:
 
 ```
-┌────────────────────────────────────────────────────────┐
-│  36 could not be drawn                                 │
-│  These files are in the library — it is their previews │
-│  that are missing.                                     │
-│                                                        │
-│  ▾ The file is damaged or incomplete              20   │
-│      The bytes stop before the picture does — usually  │
-│      an interrupted copy or download.                  │
-│      Input file has corrupt header:                    │
-│      · IMG_0421.jpg                                    │
-│      · scan-3.png            …and 18 more              │
-│  ▸ ffmpeg could not read this file                10   │
-│  ▸ Roost could not draw this file                  6   │
-│                                                        │
-│      [ Copy list ]     [ Try again ]     [ Close ]     │
-└────────────────────────────────────────────────────────┘
+┌──────────────────────────────┐
+│ The file is damaged or       │
+│ incomplete                   │
+│ The bytes stop before the    │
+│ picture does — usually an    │
+│ interrupted copy or download.│
+│ • Get a fresh copy from      │
+│   wherever this one came from│
+│ • Show in folder, and put the│
+│   fresh copy in its place    │
+│   under the same name: Roost │
+│   notices and draws it.      │
+│ • Open it externally to check│
+│   whether any application can│
+│   still read this copy.      │
+│ Input file has corrupt header│
+│ [Try again]                  │
+│ [Open externally]            │
+│ [Show in folder]             │
+└──────────────────────────────┘
 ```
 
-**Both halves of "no picture" open the same list.** The status bar draws one line for work that
-*failed* and another for work that is *parked* — "36 could not be drawn" and "19 without a
-preview" — and both are numbers whose whole content is the reasons behind them, so both are
-buttons. What differs is what can be done: a failure offers one retry for everything, while a
-parked group offers one only where something could have arrived, and offers it **beside the thing
-it is waiting for**. A group parked on a missing backend carries the command that would supply it,
-in monospace, chosen for the machine Roost is running on (ADR-0040 §5).
+- **The preview** draws the same card at full size, under the kind's outline and the line (§7.3).
 
-**Under that command: up to three buttons** (ADR-0042). *Copy command* everywhere, because the next
-step is a terminal and retyping a package name is where this goes wrong. *Install it* only where
-the command needs no password — which today is winget's ffmpeg on Windows and nothing on Linux,
-where every line begins with `sudo` and a window asking for a root password would be teaching a
-habit worth nobody's convenience. *Try again* where an arrival could release the work. **The command
-stays visible whether or not the button is there**: somebody who would rather see what is about to
-happen to their machine should not have to take it on trust. While it runs, the button reads
-*Installing…* and is disabled, and **under it the package manager's latest line**, replaced as it
-arrives — an install fetches a hundred and fifty megabytes, and a disabled button held for three
-minutes is indistinguishable from one that has hung. It is the tool's own line and never a parsed
-percentage: a package manager's progress format is nobody's promise, and a wrong reading of it
-would be wrong silently. If it refuses, its output stays there verbatim, because that is the half a
-bug report is pasted from. On success nothing is announced — the line goes, the work is released,
-the previews appear, and the list behind the dialog is the answer.
+**What the card says, in order.** The line, which is the interface's reading of the fault. The
+hint, which says why. The **steps**, which are what to do about this file, each naming the button
+it needs where one of the card's buttons is the way to do it. For a file waiting on a tool, the
+**command** that would supply it. Then, small and monospaced, **what the backend actually said**.
+The two voices keep their order: the translation lives in the renderer (`deriveReason.ts`) and is
+stored nowhere, so a backend that rewords its errors must not mean a migration. A message the table
+does not recognise still gets a card, reading *"Roost could not draw this file"*, with steps to try
+once and then to check the file itself.
 
-**Grouped by fault, because the answer is usually one answer.** Thirty-six failures are rarely
-thirty-six problems: they are a folder of renamed files, or a drive unplugged halfway through an
-import. The grouping happens in the engine and it groups on a **normalised** message — every
-backend that shells out names the file it was handed, so `ffmpeg: /photos/a.mov: Invalid data found
-when processing input` and the next thirty are one fault written thirty ways. Paths and content
-hashes come out; **numbers stay**, because an exit code is what such a message is about.
+**Three buttons, the user's choice**: **Try again**, **Open externally**, **Show in folder**. Show
+in folder is how a damaged copy gets replaced. Roost edits nothing in place, but the file is a
+workspace file (RL-20): put a fresh copy there under the same name and the watcher redraws it
+(ADR-0047).
 
-**Two voices, and the order between them is the point.** The heading is this build's reading of the
-message — *"The file is damaged or incomplete"* — and under it, small and monospaced, is what the
-backend actually said. The translation lives in the renderer (`deriveReason.ts`) and is stored
-nowhere: it is a sentence in the interface's voice, and a backend that rewords its errors must not
-mean a migration. A message the table does not recognise still gets a row, reading *"Roost could not
-draw this file"* with the original underneath — which is the state a real library reaches more often
-than it should, since sharp reports a truncated file as `Input file has corrupt header:` and nothing
-else.
+**Try again means two things, and the button says which.** For a file that **failed**, it is this
+file (`derive:retryAsset`), because a damaged copy replaced is one file fixed. For a file
+**waiting on a tool**, it is every file waiting on the same tool (`derive:retry` with the reason),
+and the label counts them: *Try again (8 files)*. Installing libheif fixes eight hundred HEICs at
+once, and a button that released one would have somebody open each of them in turn. Either way it
+works while the queue is paused (ADR-0049), because it is a request by name. It also ignores how
+many times the job has been tried. The queue stops offering a failure after three attempts, which
+is right for the sweep that runs on its own and wrong for a button somebody pressed.
 
-**The files are named**, up to eight per group, with *"…and N more"* for the rest. A name is the
-only part of this a person can go and look at.
+**The command, and the button that runs it** (ADR-0042), moved here whole from the list. *Copy
+command* is offered everywhere. *Install it* is offered only where the command needs no password,
+which today means winget's ffmpeg on Windows and nothing on Linux, where every line begins with
+`sudo`. **The command stays visible whether or not the button is there.** While an install runs,
+the button reads *Installing…* and the package manager's latest line is drawn under it. If the
+package manager refuses, its words stay. On success nothing is announced: Try again is pressed for
+the person, and the pictures arriving are the answer.
 
-**Try again ignores how many times a job has already been tried.** The queue stops offering a
-failure again after three attempts, which is right for the sweep that runs on its own and wrong for
-a button: before this, a library whose failures had been retried three times had a *Try again* that
-did nothing at all, silently. A retry asked for by a person is a deliberate act and gets one; the
-group says *"Tried 3 times already."* so the button is a known quantity rather than a hope.
-
-**Copy list** puts the whole thing on the clipboard as text — the backend's messages, not this
-file's translations, and every name the engine sampled. It goes through main like everything else
-the renderer cannot do for itself (invariant 11).
-
-A parked group whose reason is `unsupported:` gets **no** button: nothing arriving would change it,
-and a retry would produce the same answer at the same cost. That is not a dead end for the user
-either — the list still names the files and says plainly that the asset is fine and only its
-picture is missing.
+**A file of kind `other` gets no card, no badge and no count.** A `.zip`, an `.xcf` and a file
+nothing recognises have no picture by nature. That is the expected outcome, not news (asked for on
+2026-09-24: *"file other langsung tampil saja tidak ada notifikasi"*). Their jobs stay parked, which
+keeps the backfill sweep from offering them again. **An image nothing here draws still gets one**,
+such as a BMP or a RAW with no embedded preview, because a picture that cannot be shown is still
+worth a word.
 
 ### 3.14 What another build wrote, and this one cannot show
 
@@ -1562,8 +1561,9 @@ metadata arrives — the only reflow the grid is permitted, and it happens off-s
 derive queue is keeping up.
 
 **Cell contract, non-negotiable:**
-- `AssetCell` is `memo`'d and receives only primitives: `hash`, `ext`, `width`, `height`,
-  `name`, `isSelected`, `isFocused`. No objects, no closures, no callbacks constructed inline.
+- `AssetCell` is `memo`'d and receives only primitives: `id`, `ext`, `kind`, `undrawn`, `width`,
+  `height`, `name`, `isSelected`, `isFocused`. No objects, no closures, no callbacks constructed
+  inline.
 - Callbacks come from a stable module-level dispatcher keyed by hash, not from props.
 - Selection and hover live in a store outside the cell tree with per-cell subscriptions.
   Selecting one item must not re-render ten thousand cells.
@@ -1576,20 +1576,29 @@ derive queue is keeping up.
   underneath, a thumbnail that has not arrived and one that never will look the same, and
   neither costs a render.
 - **The placeholder is a first-class cell, not a broken one.** A library is not only media
-  (`CONCEPT.md` §5), so a `.blend` or a `.zip` is an ordinary member of the grid: the extension
-  set in the monospace stack, legible at the smallest zoom, over the surface colour — never a
-  broken-image glyph and never an empty box.
+  (`CONCEPT.md` §5), so a `.blend` or a `.zip` is an ordinary member of the grid: a shape for
+  its kind and the extension set in the monospace stack, legible at the smallest zoom, over the
+  surface colour — never a broken-image glyph and never an empty box. Where the queue has given
+  up on a picture for a reason somebody can act on, it says so (§6.1).
 
 **Folders are drawn in the grid, and they are not results** (ADR-0043, built 2026-09-13). Where
 the query is one folder's own contents, its subfolders are laid out **ahead of the assets** — a
-glyph, the name in the caption band, the count in the corner — so that descending into a library
-is the gesture a file manager has taught everybody. **The glyph has no ground**: an asset's thumbnail sits in a raised box because a
-picture needs something to sit on, and a folder is already a shape. **Its size is per view**, and
-it has to be: the box is 40px in a row and several hundred in Icons, so a row fills its square —
-the same square a thumbnail fills — while Icons takes a fraction of the picture area, so that a
-folder sits in the same optical rhythm as the photographs beside it rather than shouting over
-them. It is drawn in **two tones** (§2), because one fill is a blob at the small end and a slab
-of colour at the large one; both were built and both were reported, in that order, on 2026-09-13.
+sheet, the name in the caption band, the count beside it — so that descending into a library is
+the gesture a file manager has taught everybody.
+
+**A folder is a punched sheet protector with its pictures in it** (ADR-0043 §7). This is the
+user's own drawing of 2026-09-25, and it replaced a two-tone folder glyph. Down the left is a
+strip of holes, then a fold line, then a body with rounded right-hand corners holding **up to four
+of the folder's pictures**. They are the newest, the folder's own first and then its subfolders',
+so a folder that holds only folders still shows what is in it. One picture fills the sheet, and
+two to four sit in a 2×2. The holes and the fold line are the ground showing through
+(`--folder-hole`), and the sleeve is a grey (`--folder-sheet`) rather than the accent, because the
+pictures are the colour and a sleeve competing with them would be the loudest thing in a grid of
+photographs. The pictures are `roost://thumb` addresses the engine names through `folder:covers`,
+asked once whenever the list of subfolders is read again. That happens when the library changes,
+so a cover follows imports and derives without a timer. **Its size is per view**: a row's square
+is too small for holes and pictures, so it holds the sleeve alone, and in Icons the sheet takes
+most of the picture area's height, capped so it never reads as a panel.
 **The count rides in the caption beside the name**, where every view has room for text, rather
 than as a badge over a filled shape. Four things follow, and none of them is
 negotiable:
@@ -1683,6 +1692,57 @@ element beside `aria-activedescendant` rather than rendered, for the same reason
 mode drives the grid and prints frame percentiles, and refuses to print a number when the
 window was not being composited. `roost-old` measured no dropped frames at reading speed and
 0.25% while flinging through 79,800 assets, on a weaker webview than Chromium. That is the bar.
+
+### 6.1 A cell with no picture, and why
+
+Reported on 2026-09-24 against a library of HEIC photographs and HEVC clips on a machine with
+neither decoder: *"tidak sekedar blank gitu saja"*. Every one of them was a grey square with its
+extension in it — exactly what a photograph still in the queue looks like, and exactly what a
+`.zip` that will never have a picture looks like. Three different states, one drawing.
+
+```
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│              │  │              │  │     MP4      │  ← a short cell keeps the
+│     ▣        │  │     ▷        │  │ ⚠ No HEVC    │    words and drops the shape
+│    HEIC      │  │    ZIP       │  │   decoder    │
+│ ⚠ Needs      │  │              │  └──────────────┘
+│   libheif    │  │              │
+└──────────────┘  └──────────────┘
+```
+
+**The placeholder says three things now**: the kind, as an outline — a photograph, a film, a
+sound, a page, a letter, a file; the extension, as before; and, **only where the queue has
+stalled on a reason somebody can act on**, a few words in the warning colour with the whole
+sentence as a tooltip — *Needs libheif*, *No HEVC decoder*, *Needs ffmpeg*, *File is missing*,
+*Could not be drawn*. The sentence is `deriveReason.ts`'s, the same one the file's card (§3.13)
+heads itself with, so the two never describe one file differently.
+
+**A format nothing draws gets no badge.** A `.zip` without a picture is what a library that holds
+anything looks like, not a fault, and a warning on every archive would teach people to read past
+the one on a photograph. `unsupported:` is the one family of reasons the badge ignores.
+
+**The reason is on the card**, as `undrawn`: the stalled job's reason in the queue's own words,
+or `null` — drawn, or not reached yet. It is read **after** a page rather than joined into it,
+one lookup per card on the job table's `(kind, asset_id)` key, because the random order has no
+index and sorts every match (ADR-0039): a column computed in the page query would be computed for
+all of them. It is raw rather than a sentence, so a backend that rewords an error changes the
+window and not the engine.
+
+**It arrives as the queue decides**, not at the next re-page. `assets:derived` carried only the
+assets a derive *drew*; it now carries the ones it parked and failed too, each with its reason,
+and with `derivedAt: null` where nothing about the file was written — which the card reads as
+"keep the key you have", not "forget it". A successful derive carries `undrawn: null`, which is
+what clears a badge a retry has just made obsolete.
+
+**It is drawn under the thumbnail like the rest of the placeholder.** So an asset whose re-derive
+failed after an edit keeps the picture it had, and the badge beneath it is never seen — which is
+right: there is still a picture.
+
+**A short cell drops the shape first.** The placeholder is a size container — its size is its
+cell's and never its content's, so containing it costs the layout nothing — and below 104px tall
+the outline goes, and below 56px the extension too, where there is a badge to keep. A wide video
+at a small zoom is the cell this is for. **A row's thumbnail** in Compact and Details has room for
+neither: it shows the extension alone, in the warning colour where there is a badge.
 
 ## 7. Preview
 
@@ -1903,8 +1963,14 @@ the asset's detail is what the pane switches on, and the engine decides it from 
 rather than the pane guessing from an extension (ADR-0040 §7).
 
 Where the rendition cannot be made — a machine with no libheif, a RAW with no embedded preview —
-the route answers 404 and the pane shows what it always shows for a file it cannot draw: the
-thumbnail, the metadata, and **Open externally**. Never a broken-image glyph.
+the route answers 404 and the pane steps down to the thumbnail, at `@512` and then `@256`. Where
+there is no thumbnail either, which on a machine with no libheif is every HEIC, it says why
+(§7.3). Never a broken-image glyph, and never an empty pane.
+
+**The step down matched only version 1's hashes** until 2026-09-24. It read the id back out of
+`roost://render/<id>` with a pattern for sixty-four hex digits, which a version 2 id — twelve
+characters of Crockford base32 (RL-13) — never is, so every failed rendition went straight to
+hidden and the pane opened empty. The tests carried 64-hex ids and passed throughout.
 
 **`browserDrawable` decides this for an `<img>` and for nothing else.** It is false for every video
 and audio format there is — they are not things an `<img>` draws — so a pane that consulted it
@@ -1923,7 +1989,7 @@ pane: reported on 2026-09-13 as a grid full of thumbnails and a preview that ope
 
 A picture that fails falls back to its thumbnail; a video has nothing to fall back to, so it says
 what happened instead — one line under the picture, over the transport, **and the element's own
-words under that**: the same two voices, in the same order, as a row in the failures list (§3.13).
+words under that**: the same two voices, in the same order, as the file's card (§3.13).
 The codec is named, because *"this window could not play hevc files"* is something a person can act
 on and *"the video could not be played"* is not.
 
@@ -1935,19 +2001,100 @@ instead, and the request turned out to be asking `roost://render/<hash>` for a v
 sentence for that code names both faults rather than choosing, and the original line stays under it.
 A load that was merely replaced — which happens on every step through the grid — says nothing.
 
+**The commonest case raises no error at all.** Chromium drops a video track it has no decoder for
+and plays the rest, so an HEVC clip with AAC sound — which is what a phone records — loads,
+reports its duration and plays the sound under an empty rectangle, with the timeline moving
+(measured on 2026-09-24 against Electron 43, which has no HEVC decoder whatever the system has
+installed). The one sign is a `videoWidth` of zero at `loadedmetadata`, and it means something
+only where the probe found a picture: an `.mp4` that is only sound is zero wide too, and is simply
+audio. The pane **pauses** it and says so (§7.3). A clip with *no* sound has nothing left to play,
+and that one does raise the error above.
+
+### 7.3 What stands where the asset cannot be shown
+
+Both of the above used to end somewhere blank: a picture with no rendition and no thumbnail hid
+its `<img>`, and a video whose picture could not be decoded played its sound under nothing. An
+empty pane reads as a bug in Roost, and neither was one. Where the pane cannot show the asset it
+now shows this instead, centred in the room the asset would have had:
+
+```
+┌───────────────────────────────────────────────────┐
+│ Fit                              ←   →   Close    │
+├───────────────────────────────────────────────────┤
+│                         ▷                         │
+│                        MP4                        │
+│     This window cannot play HEVC (H.265) video    │
+│      The sound can still be played — only the     │
+│     picture is missing. Chromium, which draws     │
+│        this window, has no decoder for it …       │
+│      1920 × 1080 · 0:06 · HEVC (H.265) / AAC      │
+│                                                   │
+│   ┌ The installed ffmpeg cannot decode HEVC ┐     │
+│   │ • Replace the installed ffmpeg …        │     │
+│   │ sudo dnf swap ffmpeg-free ffmpeg …      │     │
+│   │ [Try again (7 files)] [Open externally] │     │
+│   └ [Show in folder]                        ┘     │
+├───────────────────────────────────────────────────┤
+│ ▶  0:00 / 0:06  ──────────────────────────  🔊     │
+└───────────────────────────────────────────────────┘
+```
+
+**In order: what it is, why it is not here, what is known anyway, and what can be done.** The
+kind's outline and the extension, as the cell draws them (§6.1). One sentence — the card's line
+for the asset's reason where it has one, *"HEIC photographs need libheif"*; the element's
+reading of its error for a video that failed; *"This window cannot play HEVC (H.265) video"* for
+one whose picture was dropped. The line under it. The facts the probe found without drawing
+anything, which are derived (RL-22) and so may each be missing, and a missing one is left out.
+The element's own words, in monospace, where an element said any. Then the buttons.
+
+**Where the file's derive is stalled, what can be done is the file's card** (§3.13, ADR-0050), at
+full size: its steps, the command where a tool would help, and **Try again**, **Open externally**
+and **Show in folder**. For a photograph the card leaves out its own line, which is already the
+sentence above it. For a video it keeps its line, because the sentence above is about the window
+and the card is about the thumbnail, and a different decoder draws each. Where nothing is stalled,
+**Open externally** stands alone, as it does for every file the pane cannot draw. There is no card
+for a format nothing draws.
+
+**A video keeps its transport.** The element stays mounted and hidden, paused, and the timeline
+under the panel plays the sound on request: sound from a preview whose picture is missing sounds
+like a bug, and sound somebody asked for does not. **The sentence says which decoder is which**,
+because two are involved and only one is the system's: the pane plays through Chromium's, which
+is fixed when Electron is built, and the thumbnail is drawn by the system's ffmpeg (ADR-0017).
+Installing something fixes the second and never the first, so the card under the sentence is
+headed with the thumbnail's own problem, *"The installed ffmpeg cannot decode HEVC (H.265)"*, and
+the sentence above promises nothing about playing. Playing HEVC in the pane at all is the
+open proposal in `TODO.md`, a rendition streamed from the system's ffmpeg.
+
+**A picture has no zoom bar in this state.** There is nothing to zoom, and a control that does
+nothing reads as one that is broken.
+
+**The list this section once opened is gone** (ADR-0050). It had two lessons that still stand
+wherever a dialog is opened from the pane. A dialog portalled out of the pane is still inside it in
+React's tree, so its keys must stop at its own boundary, or `Escape` closes the preview underneath
+it. And a dialog opened without a `Dialog.Trigger` must give the focus back to what had it, or the
+pane's keys go dead until somebody clicks.
+
 ## 8. States
 
 Every surface owes four states, and the empty one is where most applications get lazy.
 
 **A cell with no thumbnail is a state too.** Four things look identical in a grid — work that
 has not been done yet, a format nothing in this build draws, a video waiting for an ffmpeg nobody
-installed, and a file that was tried and would not decode — so the status bar names which one it
-is: *"Deriving… 42 to go"*, *"3 without a preview"*, the capability's own line with a **Try again**
-beside it, or *"36 could not be drawn"*. The last two are the ones a person can act on, and they
-are the two that are buttons: the capability's retries on the spot, because installing ffmpeg is
-the whole of the fix; the failures **open the list** (§3.13), because a count is not a diagnosis —
-and so does the parked line, which is where a missing decoder names the command that would supply
-it (ADR-0040).
+installed, and a file that was tried and would not decode. **The status bar says only the
+first**: *"Deriving… 42 to go"*, or *"Paused · 42 left"*. The other three are told by the cell
+itself, in its badge, and by the file when it is opened, with what to do about it (§3.13,
+ADR-0050). On 2026-09-25 the bar went from one line (the first that applied) to three side by side,
+and then, the same day, to progress alone. The user asked for the failures not to be counted there
+at all, only told on the file.
+
+**The running count has a × beside it, and a paused queue says what is left** (ADR-0049). The ×
+is its own button, never the count: the count was not a control while work is going, and a
+click that stopped the work would be a pause nobody meant to make. Pressed, the line reads
+*"Paused · 1,240 left"* with **Resume** beside it, and the ☰ gains *"Resume deriving (1,240
+left)"* at its head for as long as anything is left. The pause is the library's and outlives the
+window until Resume. While paused, an opened file (selected or previewed), a new import, what
+*Try again* releases, a pinned poster and a file made here are still derived **by name**, and
+nothing else is.
 
 **Empty.** Heading, one sentence explaining *why it is empty*, at most one action.
 - No library open → the picker, with "Create library" and "Open library".
@@ -1967,7 +2114,22 @@ it (ADR-0040).
 - A parse error → handled at the field (§5), never as an empty grid.
 
 **Loading.** Skeleton cells at the right sizes, not a spinner, and only after 150ms — anything
-faster reads as a flash. The first page target is under 450ms on 100k assets.
+faster reads as a flash. The first page target is under 450ms on 100k assets. Built on
+2026-09-24, when the user asked whether opening a large library could show that it was loading.
+The skeleton is drawn from the time the grid is mounted until the first page arrives, which covers
+the library's preferences as well as the page. Its cells are square, because nothing is known about
+the pictures yet and a square is how the layout already draws an asset with no dimensions. It
+fills one screen and does not scroll. It does not move, because a shimmer is a spinner spread
+across the grid. While it is up the grid is `aria-busy`.
+
+**Opening a library** is the wait before there is a grid. After the same 150ms the picker says
+*Opening <name>…* under the buttons it disabled. An ordinary open has nothing to count, so that is
+all it says. An open that has to fold the journal — a library another implementation wrote, or
+one whose index is gone — reports the bytes it has read (`library:folding`), and the picker draws
+*Reading the journal* and a **real bar with a percentage** (§0.6). When the read is done the bar is
+**replaced** with *Getting it ready* rather than left sitting at 100%, since what follows has no
+count. The name is the recent entry's name when the library is in the list, and otherwise the
+folder's name with `.roost` taken off. A fold measured 2.0s at 100k assets.
 
 **Error.** Inline where the thing failed, with the operation named. A failed import shows which
 files failed and why, in a list that can be copied. Errors carry the `code` from `RoostError`

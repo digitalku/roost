@@ -26,7 +26,7 @@ describe("the preview pane", () => {
     install(engine);
     render(
       <PreviewPane
-        id={HASH}
+        id={over.id ?? HASH}
         generation={0}
         hasPrevious
         hasNext
@@ -179,6 +179,101 @@ describe("the preview pane", () => {
     fail(video, 4);
 
     expect(await screen.findByText(/could not play hevc files/)).toBeDefined();
+  });
+
+  it("says why a photograph is not there, once nothing at all can be drawn", async () => {
+    // Reported 2026-09-24: a HEIC on a machine without libheif opened an empty
+    // pane. The rendition failed, the thumbnail had never been drawn, and the
+    // `<img>` hid itself — and the step between them matched only version 1's
+    // 64-hex hashes, so a real id went straight to hidden (`UI_SPEC.md` §7.3).
+    const user = show(
+      "image",
+      "heic",
+      { id: "ZA23511MJFSW", browserDrawable: false, undrawn: "missing:libheif" },
+      {
+        deriveStatus: {
+          paused: false,
+          ready: 0,
+          running: 0,
+          blocked: 1,
+          failed: 0,
+          reasons: [{ reason: "missing:libheif", count: 1 }],
+          capabilities: [],
+        },
+      },
+    );
+    const image = await screen.findByRole("img");
+    expect(image.getAttribute("src")).toBe("roost://render/ZA23511MJFSW");
+
+    // The rendition, then both sizes of the thumbnail.
+    image.dispatchEvent(new Event("error"));
+    expect(image.getAttribute("src")).toContain("@512");
+    image.dispatchEvent(new Event("error"));
+    expect(image.getAttribute("src")).toContain("@256");
+    image.dispatchEvent(new Event("error"));
+
+    expect(await screen.findByText("HEIC photographs need libheif")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Open externally" })).toBeDefined();
+    // Nothing to zoom, so no zoom bar pretending otherwise.
+    expect(screen.queryByRole("button", { name: "Zoom in" })).toBeNull();
+
+    // What to do, on the file itself (ADR-0050): the steps, and a Try again
+    // that releases every HEIC waiting for the same tool.
+    expect(screen.getByText(/Install the decoder with the command below/)).toBeDefined();
+    await user.click(screen.getByRole("button", { name: /^Try again/ }));
+    await waitFor(() =>
+      expect(engine.seen).toContainEqual({ type: "derive:retry", reason: "missing:libheif" }),
+    );
+  });
+
+  it("says a video's picture cannot be played, rather than playing its sound under nothing", async () => {
+    // Seen 2026-09-24: Chromium drops an HEVC track and plays the AAC beside
+    // it, with no error at all — so the pane was black and the timeline moved.
+    show("video", "mp4", {
+      width: 1920,
+      height: 1080,
+      durationMs: 6_000,
+      props: { "video.codec": "hevc", "audio.codec": "aac" },
+      undrawn: "missing:decoder:hevc",
+    });
+    const video = await waitFor(() => {
+      const found = document.querySelector("video");
+      if (found === null) throw new Error("no video yet");
+      return found;
+    });
+    let paused = 0;
+    video.pause = () => {
+      paused += 1;
+    };
+
+    // No picture decoded: the width stays at zero, which is all the sign there is.
+    video.dispatchEvent(new Event("loadedmetadata"));
+
+    expect(await screen.findByText("This window cannot play HEVC (H.265) video")).toBeDefined();
+    expect(screen.getByText(/sound can still be played/)).toBeDefined();
+    // The thumbnail's problem is a different decoder's, said by the card under
+    // the window's own sentence (ADR-0050).
+    expect(screen.getByText("The installed ffmpeg cannot decode HEVC (H.265)")).toBeDefined();
+    expect(screen.getByText("1920 × 1080 · 0:06 · HEVC (H.265) / AAC")).toBeDefined();
+    expect(paused).toBe(1);
+    // Kept, hidden: the transport under the panel still plays the sound.
+    expect(video.hidden).toBe(true);
+    expect(screen.getByRole("slider", { name: "Timeline" })).toBeDefined();
+  });
+
+  it("leaves an mp4 that is only sound alone", async () => {
+    // Zero wide as well, and simply audio: the probe found no picture there.
+    show("video", "mp4", { width: null, height: null, props: { "audio.codec": "aac" } });
+    const video = await waitFor(() => {
+      const found = document.querySelector("video");
+      if (found === null) throw new Error("no video yet");
+      return found;
+    });
+
+    video.dispatchEvent(new Event("loadedmetadata"));
+
+    expect(screen.queryByText(/cannot play/)).toBeNull();
+    expect(video.hidden).toBe(false);
   });
 
   it("says nothing when a load is replaced, which happens on every step", async () => {

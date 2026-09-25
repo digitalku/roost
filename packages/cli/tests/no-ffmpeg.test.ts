@@ -95,7 +95,9 @@ describe.runIf(built && hasFfmpeg)("a library imported on a machine with no ffmp
     const stats = await withoutFfmpeg("stats", "-L", library);
     expect(stats).toContain("assets      2");
     expect(stats).toContain("parked");
-  });
+    // Four spawned processes: 1.5 s alone, and past vitest's 5 s default when
+    // the rest of the suite is running beside it (`TODO.md`, *Flakes*).
+  }, 30_000);
 });
 
 describe.runIf(!built || !hasFfmpeg)("the no-ffmpeg check", () => {

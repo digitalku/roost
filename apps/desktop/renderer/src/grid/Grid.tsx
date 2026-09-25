@@ -9,10 +9,12 @@ import {
   useSyncExternalStore,
 } from "react";
 import { benchTarget } from "../bench/bench.js";
+import { useShownAfter } from "../delay.js";
 import { ASSET_DRAG_TYPE, carriesAssets, draggedAssets } from "../dnd.js";
 import { FolderContextMenu } from "../FolderContextMenu.js";
 import { AssetCell, cellId } from "./AssetCell.js";
 import { FolderCell } from "./FolderCell.js";
+import { useFolderCovers } from "./folderCovers.js";
 import { folderTileId, isFolderTile } from "./folderTiles.js";
 import {
   type Direction,
@@ -20,6 +22,7 @@ import {
   layout,
   moveFocus,
   type Rect,
+  type Shaped,
   tilesIn,
   visibleTiles,
 } from "./layout.js";
@@ -101,7 +104,30 @@ export interface GridProps {
   readonly onOpen?: (id: string) => void;
   /** The subfolders of the folder on screen, where there is one (ADR-0043). */
   readonly folders?: FolderTiles;
+  /**
+   * No page has arrived yet, and one is coming.
+   *
+   * Not the same as an empty `assets`: an empty result is an answer and the
+   * window draws a sentence for it instead of this grid. This is the time
+   * before any answer — the library's preferences, then the first page — which
+   * on a large library is long enough to look like nothing is there.
+   */
+  readonly loading?: boolean;
 }
+
+/**
+ * Enough cells to fill a tall window at the smallest zoom, laid out square.
+ *
+ * Square because nothing is known about the pictures yet, which is what the
+ * layout already does with an asset that has no dimensions — so a skeleton is
+ * exactly where a grid of unmeasured assets would draw, and the first page
+ * lands on top of it rather than beside it.
+ */
+const SKELETON: readonly Shaped[] = Array.from({ length: 160 }, (_, index) => ({
+  id: `skeleton-${index}`,
+  width: null,
+  height: null,
+}));
 
 export function Grid({
   assets,
@@ -112,6 +138,7 @@ export function Grid({
   onMore,
   onOpen,
   folders,
+  loading = false,
 }: GridProps): React.JSX.Element {
   const frame = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -151,6 +178,25 @@ export function Grid({
       }),
     [items, view, proportional, width, target],
   );
+
+  // After the same 150ms the picker waits (`UI_SPEC.md` §8): a first page that
+  // arrives sooner than that should replace nothing with the grid, not a
+  // skeleton with it a frame later.
+  const waiting = useShownAfter(loading && items.length === 0);
+  const skeleton = useMemo(() => {
+    if (!waiting || width === 0) return [];
+    const shape = layout(SKELETON, {
+      view,
+      proportional: false,
+      containerWidth: width,
+      target,
+      gap: view === "details" ? 0 : 8,
+      caption: CAPTION,
+    });
+    // Only what is on screen: a skeleton that scrolls promises rows that are
+    // not there yet.
+    return shape.order.filter((tile) => tile.y < height);
+  }, [waiting, view, width, height, target]);
 
   // The order is what Shift-click and the arrow keys move through, so it
   // follows the layout rather than being computed twice.
@@ -294,6 +340,8 @@ export function Grid({
     for (const row of folders?.rows ?? []) map.set(folderTileId(row.folder), row);
     return map;
   }, [folders]);
+
+  const covers = useFolderCovers(folders?.rows);
 
   /** The folder a pointer event landed in, if it landed in a tile. */
   const folderAt = useCallback(
@@ -722,6 +770,7 @@ export function Grid({
         role="listbox"
         aria-multiselectable
         aria-label="Assets"
+        aria-busy={waiting || undefined}
         tabIndex={0}
       >
         <div className="grid-canvas" style={{ height: grid.height }} ref={canvas}>
@@ -736,6 +785,25 @@ export function Grid({
               }}
             />
           )}
+          {skeleton.map((tile) => (
+            <div
+              key={tile.id}
+              className="cell-skeleton"
+              data-view={view}
+              aria-hidden="true"
+              style={{
+                transform: `translate(${tile.x}px, ${tile.y}px)`,
+                width: tile.width,
+                height: tile.height,
+              }}
+            >
+              <div
+                className="cell-skeleton-thumb"
+                style={view === "icons" ? { height: tile.height - CAPTION } : undefined}
+              />
+              <div className="cell-skeleton-line" />
+            </div>
+          ))}
           {tiles.map((tile) => {
             const row = byFolder.get(tile.id);
             if (row !== undefined && folders !== undefined) {
@@ -750,6 +818,7 @@ export function Grid({
                 >
                   <ConnectedFolderCell
                     row={row}
+                    covers={covers.get(row.folder) ?? NO_COVERS}
                     view={view}
                     x={tile.x}
                     y={tile.y}
@@ -856,6 +925,8 @@ function ConnectedCell({
       id={asset.id}
       name={asset.name}
       ext={asset.ext}
+      kind={asset.kind}
+      undrawn={asset.undrawn}
       posterMs={asset.posterMs}
       derivedAt={asset.derivedAt}
       x={x}
@@ -886,6 +957,7 @@ const ConnectedFolderCell = forwardRef<
   HTMLDivElement,
   {
     readonly row: SidebarFolderRow;
+    readonly covers: readonly string[];
     readonly view: GridView;
     readonly x: number;
     readonly y: number;
@@ -893,7 +965,10 @@ const ConnectedFolderCell = forwardRef<
     readonly height: number;
     readonly selection: SelectionStore;
   } & React.ComponentPropsWithoutRef<"div">
->(function ConnectedFolderCell({ row, view, x, y, width, height, selection, ...rest }, ref) {
+>(function ConnectedFolderCell(
+  { row, covers, view, x, y, width, height, selection, ...rest },
+  ref,
+) {
   const id = folderTileId(row.folder);
   const subscribe = useMemo(() => selection.subscribe(id), [selection, id]);
   const snapshot = useCallback(() => selection.stateOf(id), [selection, id]);
@@ -913,9 +988,13 @@ const ConnectedFolderCell = forwardRef<
       caption={CAPTION}
       isFocused={(state & FOCUSED) !== 0}
       view={view}
+      covers={covers}
     />
   );
 });
+
+/** A folder with no pictures to show, shared so an empty tile is one array. */
+const NO_COVERS: readonly string[] = [];
 
 /** Keeps a right-click on a folder tile out of the asset menu's trigger. */
 function stopBubble(event: React.MouseEvent): void {

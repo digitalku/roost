@@ -1,5 +1,5 @@
 import type { DerivedMetadata } from "@roost/core";
-import { capability, capabilityFor } from "./capability.js";
+import { capability, capabilityFor, mediaDecoders } from "./capability.js";
 import { readDimensions, renderThumbnails, type Thumbnail } from "./decoder.js";
 import { PAGE_RENDER_WIDTH, renderPage } from "./document.js";
 import {
@@ -46,7 +46,16 @@ export interface Derived {
  */
 export type DeriveOutcome =
   | ({ readonly ok: true } & Derived)
-  | { readonly ok: false; readonly reason: string };
+  | {
+      readonly ok: false;
+      readonly reason: string;
+      /**
+       * What was learned before the block, where anything was. A video parked
+       * on a decoder has already been probed, and its duration, size and codec
+       * are true whether or not a frame can be taken from it.
+       */
+      readonly metadata?: DerivedMetadata;
+    };
 
 /**
  * Derives everything Roost knows how to derive from one file.
@@ -247,6 +256,17 @@ async function deriveMedia(
   // `.mp4` holding only audio is ordinary, and grabbing a frame from it would
   // fail rather than produce the waveform it deserves.
   const hasVideo = probe.width !== undefined && probe.height !== undefined;
+
+  // Checked rather than tried: ffprobe demuxes and never decodes, so it names a
+  // codec this ffmpeg has no decoder for without complaint — and the frame grab
+  // would then fail with `Invalid argument`, as a fault in a file that has none
+  // (ADR-0017, amended 2026-09-24). Parked, so installing a fuller ffmpeg and
+  // pressing Try again releases exactly these.
+  const codec = hasVideo ? probe.props["video.codec"] : probe.props["audio.codec"];
+  const decoders = await mediaDecoders();
+  if (codec !== undefined && decoders !== null && !decoders.has(codec)) {
+    return { ok: false, reason: `missing:decoder:${codec}`, metadata };
+  }
 
   if (hasVideo) {
     const frame = await grabFrame(path, probe.durationMs, posterMs);

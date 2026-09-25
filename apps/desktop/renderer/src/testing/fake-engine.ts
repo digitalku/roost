@@ -20,6 +20,7 @@ import type {
   WireEagleSurvey,
   WireExportReport,
   WireFiled,
+  WireFolderCover,
   WireFolderRef,
   WireImportReport,
   WireInstallOutcome,
@@ -30,6 +31,7 @@ import type {
   WireReclaimable,
   WireSelectionSummary,
   WireSettings,
+  WireSharedText,
   WireSidebar,
   WireSort,
   WireStars,
@@ -156,6 +158,8 @@ export interface FakeEngineOptions {
   readonly eagleReport?: Partial<WireEagleReport>;
   /** What `capability:install` answers with, for a test about the button. */
   readonly installOutcome?: WireInstallOutcome;
+  /** What `folder:covers` answers with, per folder; none where absent. */
+  readonly folderCovers?: readonly WireFolderCover[];
   /** What `derive:status` and `derive:retry` answer with. */
   readonly deriveStatus?: WireDeriveStatus;
   /** What `derive:failures` answers with for `failed`, over an empty list. */
@@ -250,6 +254,7 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     height: card.height,
     contentHash: null,
     derivedAt: null,
+    undrawn: null,
     createdAt: null,
     importedAt: card.importedAt,
     trashedAt: null,
@@ -290,6 +295,7 @@ export function fakeAsset(index: number, over: Partial<AssetCard> = {}): AssetCa
     kind: "image",
     posterMs: null,
     derivedAt: 1_700_000_000,
+    undrawn: null,
     size: 1024 + index,
     width: 800,
     height: 600,
@@ -314,6 +320,23 @@ const EMPTY_STATS: LibraryStats = {
 };
 
 export class FakeEngine {
+  /** Whether a test has paused the queue (ADR-0049). */
+  #derivePaused = false;
+
+  #deriveStatus(): WireDeriveStatus {
+    return (
+      this.#options.deriveStatus ?? {
+        paused: this.#derivePaused,
+        ready: 0,
+        running: 0,
+        blocked: 0,
+        failed: 0,
+        reasons: [],
+        capabilities: [],
+      }
+    );
+  }
+
   /** Every request the component made, in order. */
   readonly seen: Request[] = [];
 
@@ -539,6 +562,8 @@ export class FakeEngine {
       sharedFolders: folders.filter((f) => f.carrying === found.length).map((f) => f.ref),
       partialFolders: folders.filter((f) => f.carrying !== found.length).map((f) => f.ref),
       kinds,
+      note: sharedText(found.map((detail) => detail.note)),
+      source: sharedText(found.map((detail) => detail.sourceUrl)),
     };
   }
 
@@ -671,7 +696,7 @@ export class FakeEngine {
         // component test that relied on the difference would be testing a fake
         // that is kinder than the thing it stands for.
         const trimmed = request.note === null ? null : request.note.trim();
-        return this.#mutate([request.id], (detail) => ({
+        return this.#mutate(request.ids, (detail) => ({
           ...detail,
           note: trimmed === "" ? null : trimmed,
         }));
@@ -681,7 +706,7 @@ export class FakeEngine {
         // Trimmed, and empty means absent — the rule the engine follows for the
         // note and for this.
         const trimmed = request.url === null ? null : request.url.trim();
-        return this.#mutate([request.id], (detail) => ({
+        return this.#mutate(request.ids, (detail) => ({
           ...detail,
           sourceUrl: trimmed === "" ? null : trimmed,
         }));
@@ -1012,20 +1037,29 @@ export class FakeEngine {
         return ok(this.#options.filed ?? { filed: 0, expired: false });
       }
 
+      case "folder:covers":
+        return ok(
+          request.folders.map((folder) => ({
+            folder,
+            assets: this.#options.folderCovers?.find((c) => c.folder === folder)?.assets ?? [],
+          })),
+        );
+
+      case "derive:retryAsset":
+        // Recorded in `seen` like every request; the answer is whether it had a
+        // stalled job, which a test that cares about sets through `undrawn`.
+        return ok(true);
+
+      case "derive:pause":
+      case "derive:resume":
+        this.#derivePaused = request.type === "derive:pause";
+        return ok({ ...this.#deriveStatus(), paused: this.#derivePaused });
+
       case "derive:status":
       case "derive:retry":
         // A fake queue with nothing in it, unless a test taught it otherwise:
         // most of them are about the grid and never look at this.
-        return ok(
-          this.#options.deriveStatus ?? {
-            ready: 0,
-            running: 0,
-            blocked: 0,
-            failed: 0,
-            reasons: [],
-            capabilities: [],
-          },
-        );
+        return ok(this.#deriveStatus());
 
       case "derive:wanted":
         // Main sends this, never the window; answered so the switch stays
@@ -1344,4 +1378,17 @@ function unquote(value: string): string {
 /** `quoteValue`'s rule, small enough to restate and only ever used by the fake. */
 function quote(value: string): string {
   return value !== "" && !/[\s"():]/.test(value) ? value : `"${value.replaceAll('"', '""')}"`;
+}
+
+/** The engine's `sharedText`, over values the fake holds rather than a column. */
+function sharedText(values: readonly (string | null)[]): WireSharedText {
+  const held = values.filter((value): value is string => value !== null);
+  const distinct = new Set(held).size;
+  const agreed = held.length === 0 || (held.length === values.length && distinct === 1);
+  return {
+    value: agreed ? (held[0] ?? null) : null,
+    mixed: !agreed,
+    distinct,
+    holding: held.length,
+  };
 }

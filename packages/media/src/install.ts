@@ -14,8 +14,15 @@ import { readFileSync } from "node:fs";
  * person to read and run themselves, in a terminal Roost does not have.
  */
 
-/** A backend that can be missing, and what installing it is called. */
-export type Installable = "media" | "heif";
+/**
+ * A backend that can be missing, and what installing it is called.
+ *
+ * `decoders` is the one that is not a backend: ffmpeg is present and runs, and
+ * lacks the decoders a phone's video needs (ADR-0017, amended 2026-09-24). The
+ * answer is to replace it, which is a different command from installing one
+ * where there was none.
+ */
+export type Installable = "media" | "heif" | "decoders";
 
 /**
  * Commands per distribution family.
@@ -27,13 +34,18 @@ export type Installable = "media" | "heif";
  * fallback below is what an unrecognised system gets, and it names the thing
  * rather than a command.
  */
-const COMMANDS: Readonly<Record<string, Readonly<Record<Installable, string>>>> = {
+const COMMANDS: Readonly<Record<string, Readonly<Partial<Record<Installable, string>>>>> = {
   fedora: {
     // `libheif-freeworld` is RPM Fusion's: Fedora ships libheif itself but no
     // HEVC decoder for it, which is a patent policy rather than an oversight —
     // the same reason `ffmpeg-free` cannot open these files either.
     heif: "sudo dnf install libheif-tools libheif-freeworld",
     media: "sudo dnf swap ffmpeg-free ffmpeg --allowerasing",
+    // The same line, because the ffmpeg Fedora installs is the one that lacks
+    // them. The other families are absent on purpose: their own ffmpeg decodes
+    // all of these, so one that does not is somebody's build, and a command to
+    // install the distribution's would be a command to install what they have.
+    decoders: "sudo dnf swap ffmpeg-free ffmpeg --allowerasing",
   },
   debian: {
     heif: "sudo apt install libheif-examples libheif-plugin-libde265",
@@ -49,10 +61,25 @@ const COMMANDS: Readonly<Record<string, Readonly<Record<Installable, string>>>> 
   },
 };
 
+/**
+ * The line that switches RPM Fusion's free repository on, as RPM Fusion's own
+ * instructions give it.
+ *
+ * Both of Fedora's answers above live there and nowhere else, and a Fedora
+ * that has only the nonfree NVIDIA and Steam repositories — which is what
+ * GNOME Software's *third-party repositories* switch gives — answers the bare
+ * line with "No match for argument". So the line is prefixed wherever the
+ * repository is not already on, and left alone where it is: Nobara ships with
+ * it, and telling somebody to install what they have is noise.
+ */
+const RPM_FUSION_FREE =
+  "sudo dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm";
+
 /** What to say when the system is not one of the four above. */
 const FALLBACK: Readonly<Record<Installable, string>> = {
   heif: "install libheif's tools and its HEVC decoder plugin",
   media: "install ffmpeg",
+  decoders: "install an ffmpeg build with the decoders this one lacks",
 };
 
 /**
@@ -72,6 +99,8 @@ const FALLBACK: Readonly<Record<Installable, string>> = {
 const WINDOWS: Readonly<Record<Installable, string>> = {
   heif: FALLBACK.heif,
   media: "winget install --id Gyan.FFmpeg",
+  // winget's would land on the PATH behind the ffmpeg already there.
+  decoders: FALLBACK.decoders,
 };
 
 /**
@@ -125,9 +154,10 @@ export function installOffer(
   what: Installable,
   release?: Record<string, string>,
   platform: NodeJS.Platform = process.platform,
+  rpmFusion: () => boolean = rpmFusionFreeEnabled,
 ): InstallOffer {
   return {
-    command: installCommand(what, release, platform),
+    command: installCommand(what, release, platform, rpmFusion),
     argv: platform === "win32" ? (ARGV[what] ?? null) : null,
   };
 }
@@ -143,6 +173,7 @@ export function installCommand(
   what: Installable,
   release?: Record<string, string>,
   platform: NodeJS.Platform = process.platform,
+  rpmFusion: () => boolean = rpmFusionFreeEnabled,
 ): string {
   // Ahead of `osRelease()` rather than after it, so Windows never reads for a
   // file it cannot have.
@@ -151,10 +182,63 @@ export function installCommand(
   const found = release ?? osRelease();
   const ids = [found["ID"], ...(found["ID_LIKE"]?.split(/\s+/) ?? [])];
   for (const id of ids) {
-    const family = id === undefined ? undefined : COMMANDS[id.toLowerCase()];
-    if (family !== undefined) return family[what];
+    const key = id?.toLowerCase();
+    const family = key === undefined ? undefined : COMMANDS[key];
+    if (family === undefined) continue;
+    // Asked only here, so no other system reads a file it cannot have.
+    const command = family[what];
+    if (command === undefined) return FALLBACK[what];
+    if (key === "fedora" && !rpmFusion()) return `${RPM_FUSION_FREE} && ${command}`;
+    return command;
   }
   return FALLBACK[what];
+}
+
+/**
+ * Whether RPM Fusion's free repository is switched on, read from the file its
+ * release package installs.
+ *
+ * A file that is present with the repository disabled counts as off. The
+ * prefix is then a no-op — the release package is already installed — and the
+ * second command fails the way it would have without the prefix: a known gap,
+ * left because switching a repository back on is a decision somebody made, not
+ * one to reverse from a copied line.
+ */
+export function rpmFusionFreeEnabled(): boolean {
+  try {
+    return repositoryEnabled(
+      readFileSync("/etc/yum.repos.d/rpmfusion-free.repo", "utf8"),
+      "rpmfusion-free",
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a `.repo` file's `[name]` section is enabled.
+ *
+ * dnf reads a section with no `enabled=` line as enabled, so only an explicit
+ * `0`, `false` or `no` turns it off.
+ */
+export function repositoryEnabled(text: string, name: string): boolean {
+  let inside = false;
+  let enabled = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    const section = /^\[(.+)\]$/.exec(line);
+    if (section !== null) {
+      if (inside) break;
+      inside = section[1] === name;
+      enabled = inside;
+      continue;
+    }
+    const setting = /^enabled\s*=\s*(\S+)$/i.exec(line);
+    if (inside && setting?.[1] !== undefined) {
+      enabled = !["0", "false", "no"].includes(setting[1].toLowerCase());
+    }
+  }
+  return enabled;
 }
 
 /**

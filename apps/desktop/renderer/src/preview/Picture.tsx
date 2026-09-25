@@ -8,7 +8,9 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { explainFailure } from "../deriveReason.js";
 import { fallbackFromRendition } from "../thumbnail.js";
+import { Unshowable } from "./Unshowable.js";
 
 /**
  * A picture, at whatever size somebody wants to look at it (`UI_SPEC.md` §7).
@@ -146,6 +148,8 @@ export function Picture({
   const [scale, setScale] = useState<number | null>(null);
   const [wanted, setWanted] = useState<Point>({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
+  /** Every source failed: the rendition, and both sizes of the thumbnail. */
+  const [lost, setLost] = useState(false);
 
   const fit = natural === null ? 1 : fitScale(natural, box);
   const current = scale ?? fit;
@@ -300,6 +304,26 @@ export function Picture({
     </div>
   );
 
+  if (lost) {
+    // No zoom bar either: there is nothing to zoom, and a control that does
+    // nothing reads as one that is broken.
+    // Where the derive is stalled, the card below says the hint and the steps;
+    // saying the hint here as well would be saying it twice.
+    const explained = detail.undrawn === null ? undefined : explainFailure(detail.undrawn);
+    return (
+      <Unshowable
+        detail={detail}
+        line={explained?.line ?? `Roost cannot show this ${detail.ext.toUpperCase()} here`}
+        hint={
+          explained === undefined
+            ? "It is in the library, safe as it is, and opens in the application that owns it."
+            : undefined
+        }
+        cardHeading={false}
+      />
+    );
+  }
+
   return (
     <>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the picture is drawn for the pointer; the same two actions are a button and a key below and on the pane */}
@@ -352,8 +376,10 @@ export function Picture({
           draggable={false}
           // A rendition that could not be made steps down to the thumbnail
           // Roost already has, rather than to Chromium's broken-image glyph
-          // (ADR-0040 §7).
-          onError={fallbackFromRendition}
+          // (ADR-0040 §7) — and past the last step, to saying why (§7.3).
+          onError={(event) => {
+            if (!fallbackFromRendition(event)) setLost(true);
+          }}
           onLoad={(event) =>
             setNatural({
               width: event.currentTarget.naturalWidth,

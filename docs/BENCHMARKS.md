@@ -55,6 +55,104 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-09-25 — the four pictures on a folder's tile (ADR-0043 §7)
+
+Machine: Fedora 44 host. An index built from `0001_initial.sql` with **1,000,000 assets**, every one
+with a 256 thumbnail, then `ANALYZE`. `Repo.folderCovers([folder], 256, 4)`, ten runs each.
+
+| Folder | p50 | max |
+| --- | --- | --- |
+| 100,000 members, spread across the library | 1.59 ms | 2.28 ms |
+| 20 members | 0.06 ms | 0.40 ms |
+| no members, one subfolder of 10 | 0.11 ms | 0.40 ms |
+| 5,000 members, all old | 4.40 ms | 5.43 ms |
+| 30,000 members, all old (the walk finds nothing, falls back) | 56.8 ms | 63.4 ms |
+
+**What it revealed** is that one statement could not serve both ends. The first draft did the
+whole subtree in a recursive CTE with a `GROUP BY`, and took **~390 ms for every folder, small or
+large**. SQLite drove it from `assets` in primary-key order and visited the whole library. Per
+folder, driven from `idx_asset_folders_folder` with `CROSS JOIN` pinning the order, a small folder
+fell to 0.04 ms, but sorting a large one's members still cost 80 ms at 100,000. Walking
+`idx_assets_imported` newest-first and stopping at four matches does that one in 3 ms, and costs
+140 ms for 5,000 members that are all old. So a member count, which takes 1.5 ms at 100,000,
+chooses the plan: up to 20,000 are sorted, and more than that are walked, with the walk bounded to
+the newest 50,000. The last row is that bound doing its job. A large folder with nothing recent
+pays the walk and then the sort, and it is the one case above 5 ms.
+
+### 2026-09-24 — why a cell has no picture, read beside every page (`UI_SPEC.md` §6.1)
+
+Machine: Fedora 44 host, the same as above. An in-memory index built from `0001_initial.sql` with
+**1,000,000 assets**, a tenth of them holding a stalled derive job (half `blocked`, half `failed`),
+then `ANALYZE`. The statement is `Repo.stalledReasons`, asked for 200 consecutive ids from a random
+point — a page of the grid — 500 times.
+
+| | p50 | p95 |
+| --- | --- | --- |
+| 200 ids, `json_each` joined to `jobs` | 0.221 ms | 0.522 ms |
+
+The plan is `SCAN e VIRTUAL TABLE INDEX 1 | SEARCH j USING INDEX sqlite_autoindex_jobs_1 (kind=?
+AND asset_id=?)`: one seek per card on the table's own `UNIQUE (kind, asset_id)`, and no index
+added for it.
+
+**What it revealed** is mostly why it is a second statement rather than a column. Joined into the
+page query it would cost the same for the indexed orders, which read only the rows they return —
+and for `random`, which has no index and sorts every match before `LIMIT` (ADR-0039, 18.4 ms a
+page), it would be evaluated for all of them first. Read after the page, it is a fixed 200 seeks
+whatever the order, and half a millisecond against a p95 search budget of 100 ms.
+
+### 2026-09-24 — what opening a library costs, and the watcher that was most of it
+
+Machine: Fedora 44 host, the same as 2026-09-23. The library has 100,000 files from `roost
+fixture --count 100000 --size 2048` (95,001 after deduplication). None of them can be thumbnailed,
+so every asset stays in the derive queue, which is the worst case for the backfill sweep. The
+timings come from probes that drive `Library.open`, `EngineHost.handle` and a real window, and
+each was run two to three times.
+
+**The engine's reply to an ordinary `library:open`: 1,568–1,671 ms before, 248–314 ms after.**
+
+| Step | ms | Notes |
+| --- | --- | --- |
+| `Library.open`, index matches the journal | 15–18 | |
+| `Library.open`, journal folded | 2,298–2,375 | only after 100% is reached: 13 ms |
+| `enqueueMissing` | 172–216 | runs before the reply, on every open |
+| `watchFiles`, recursive `fs.watch` | 1,330–1,428 | **the event loop ran 0 ticks** |
+| `watchFiles`, one watch per shard | 41 | |
+| `catchUp` | 7,086–7,660 | not awaited; worst loop gap 7 ms |
+| `library:stats` | 24–29 | |
+
+Recursive `fs.watch` over the same `files/` directory on its own took 1,334 ms on Node 22.23.1
+and **1,116 ms on Electron's Node 24.18.1**, blocking the loop for all of it.
+
+**In the window**, from a click on a recent row to the first cells:
+
+| | before | after |
+| --- | --- | --- |
+| index matches the journal | the engine alone was ~1.6 s | 0.76 s |
+| journal folded | bar at 100% held for 1.2 s | 2.57 s, with 0.2 s of *Getting it ready* |
+
+#### What it revealed
+
+**The watcher added in ADR-0047 was most of the cost of opening a library.** Node's recursive
+`fs.watch` on Linux does not simply ask the kernel. It walks every file under the directory, in
+JavaScript and synchronously, before the call returns. The inotify count ADR-0047 worked out was
+right, but it never measured what placing those watches costs. The call is fire-and-forget, so
+nothing ever waited on it on purpose. Because it holds the event loop, though, `library:open`'s
+reply and every request the window sends after it waited behind it. Watching each shard
+directory is the same set of inotify watches without the walk (ADR-0047 §10).
+
+**The first probe was misleading, and in a way worth remembering.** It timed `Library.open` and
+`enqueueMissing`, came to about 0.2 s, and that figure was given to the user as the time an
+ordinary open takes. Timing `EngineHost` from end to end gave 1.6 s. Anything the open starts
+and does not await still counts toward the open if it runs synchronously.
+
+**What remains before the reply is `enqueueMissing`,** about 200 ms here, and the fixture is its
+worst case: every row is a candidate, and every candidate reaches the `ON CONFLICT` of a job that
+is already queued. In a library whose pictures are drawn, the `NOT EXISTS` probes answer from
+the index. It is in `TODO.md` rather than fixed.
+
+**`catchUp` took 7 s at 100,000 files**, which is about a minute at a million. It does not block
+anything, but it runs alongside the first pages the window asks for.
+
 ### 2026-09-23 — what a running derive queue costs everything else
 
 **Machine:** Fedora 44 on the host, Intel Core Ultra 7 155H, 22 threads, 30 GB RAM, Node 22.23.1,

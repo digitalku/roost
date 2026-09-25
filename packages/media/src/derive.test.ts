@@ -304,6 +304,74 @@ describe("deriving what a file is worth", () => {
     }
   });
 
+  it.runIf(hasFfmpeg && process.platform !== "win32")(
+    "parks a video whose codec this ffmpeg cannot decode, and keeps what ffprobe read",
+    async () => {
+      // Fedora's ffmpeg-free runs and has no `hevc` decoder, and the frame grab
+      // failed with `Invalid argument` — a fault in a file that has none
+      // (ADR-0017, amended 2026-09-24). No machine here lacks a decoder on
+      // demand, so a wrapper lists every decoder but `mpeg4` and runs the real
+      // ffmpeg for everything else. A shell script, hence not on Windows.
+      const clip = join(dir, "clip.mp4");
+      await run("ffmpeg", [
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc=size=320x240:rate=15",
+        "-t",
+        "2",
+        "-c:v",
+        "mpeg4",
+        clip,
+      ]);
+      const wrapper = join(dir, "ffmpeg-without-mpeg4");
+      await writeFile(
+        wrapper,
+        [
+          "#!/bin/sh",
+          'case "$*" in',
+          // Both spellings: a decoder named for its codec, and one that says
+          // `(codec mpeg4)` — Fedora's build has `mpeg4_v4l2m2m` as well.
+          '  *-decoders*) ffmpeg "$@" | grep -vE " mpeg4 |codec mpeg4\\)" ;;',
+          '  *) exec ffmpeg "$@" ;;',
+          "esac",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+
+      vi.resetModules();
+      vi.stubEnv("ROOST_FFMPEG", wrapper);
+      try {
+        const fresh = await import("./derive.js");
+        const capability = await import("./capability.js");
+
+        expect((await capability.mediaDecoders())?.has("mpeg4")).toBe(false);
+        const outcome = await fresh.derive(clip, [GRID_SIZE]);
+
+        // Parked, not failed, and never attempted.
+        expect(outcome).toMatchObject({ ok: false, reason: "missing:decoder:mpeg4" });
+        // What ffprobe read survives the park, so the cell is the right shape
+        // and the inspector can say which codec it is.
+        expect(outcome).toMatchObject({
+          metadata: { width: 320, height: 240, durationMs: 2000 },
+        });
+        if (outcome.ok) return;
+        expect(outcome.metadata?.props?.["video.codec"]).toBe("mpeg4");
+        // And ffmpeg is still available: every other video draws.
+        const media = (await capability.capabilities()).find((entry) => entry.name === "media");
+        expect(media?.available).toBe(true);
+      } finally {
+        vi.unstubAllEnvs();
+        vi.resetModules();
+        await refreshCapabilities();
+      }
+    },
+  );
+
   it("blocks video on a machine with no ffmpeg, and says which tool is missing", async () => {
     // Pointed at a binary that does not exist rather than at a machine without
     // one: the code path is identical, and this is the only way the absent case

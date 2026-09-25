@@ -49,6 +49,9 @@ const HEADERS: [Format, Uint8Array][] = [
   ["woff2", bytes("wOF2")],
   ["zip", bytes("PK", 0x03, 0x04)],
   ["svg", bytes('<?xml version="1.0"?> <svg xmlns="http')],
+  // GIMP 3, and the header GIMP has written since the format began.
+  ["xcf", bytes("gimp xcf v019", 0)],
+  ["xcf", bytes("gimp xcf file", 0)],
 ];
 
 describe("sniffing a header", () => {
@@ -80,6 +83,16 @@ describe("sniffing a header", () => {
     const png = bytes(0x89, "PNG", 0x0d, 0x0a, 0x1a, 0x0a);
     expect(sniff(png)).toBe("png");
     expect(formatFromExtension("jpg")).toBe("jpeg");
+  });
+
+  it("names a GIMP file, which it cannot draw, rather than calling it unknown", () => {
+    // Reported 2026-09-24: an `.xcf` sat in the list as "a kind of file Roost
+    // does not recognise". It is a picture; nothing here draws one.
+    expect(formatFromExtension("xcf")).toBe("xcf");
+    // `other`, like a `.zip`: it opens in GIMP, never in the preview pane.
+    expect(kindOf("xcf")).toBe("other");
+    expect(mediaTypeOf("xcf")).toBe("image/x-xcf");
+    expect(sniff(bytes("gimp xcx v019"))).toBe("unknown");
   });
 
   it("reads a short file as unknown rather than failing", () => {

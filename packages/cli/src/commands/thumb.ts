@@ -66,6 +66,13 @@ export async function thumb(
         const media = (await capabilities()).find((entry) => entry.name === "media");
         if (media?.available === false) out(row("", media.detail, 1, 0));
       }
+      // An ffmpeg that runs and cannot decode what it was given: the detail
+      // names what it lacks, and the command is the one that replaces it.
+      if (status.reasons.some((reason) => reason.reason.startsWith("missing:decoder:"))) {
+        const media = (await capabilities()).find((entry) => entry.name === "media");
+        if (media !== undefined) out(row("", media.detail, 1, 0));
+        if (media?.install) out(row("", media.install, 1, 0));
+      }
       if (status.failed > 0) out(row("", "pass --retry to try the failures again", 1, 0));
       if (status.blocked > 0) {
         out(row("", "pass --retry-blocked after installing a missing tool", 1, 0));

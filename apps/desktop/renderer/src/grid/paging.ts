@@ -71,6 +71,10 @@ export interface Paging {
    * scroll position, and it must patch at all because
    * `roost://thumb/<id>@<size>` is served `immutable` for a year: an `<img>`
    * whose `src` did not change is one Chromium never asks about again.
+   *
+   * It also carries why a card **still** has no picture, so a cell parked on a
+   * missing decoder says so as soon as the queue decides it (`UI_SPEC.md`
+   * §6.1), rather than at the next re-page.
    */
   readonly redraw: (redrawn: readonly WireRedrawn[]) => void;
   /**
@@ -213,14 +217,17 @@ export function useAssetPages(
    * has not reached will carry the new key when it arrives.
    */
   const redraw = useCallback((redrawn: readonly WireRedrawn[]): void => {
-    const moved = new Map(redrawn.map((one) => [one.id, one.derivedAt]));
+    const moved = new Map(redrawn.map((one) => [one.id, one]));
     setAssets((held) => {
       let changed = false;
       const next = held.map((card) => {
-        const derivedAt = moved.get(card.id);
-        if (derivedAt === undefined || derivedAt === card.derivedAt) return card;
+        const one = moved.get(card.id);
+        if (one === undefined) return card;
+        // `null` is "nothing about the file was written", not "forget the key".
+        const derivedAt = one.derivedAt ?? card.derivedAt;
+        if (derivedAt === card.derivedAt && one.undrawn === card.undrawn) return card;
         changed = true;
-        return { ...card, derivedAt };
+        return { ...card, derivedAt, undrawn: one.undrawn };
       });
       // A new array for a batch that touched nothing on screen would re-render
       // the grid on every batch of a hundred-thousand-asset import.
