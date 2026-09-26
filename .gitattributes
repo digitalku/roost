@@ -13,6 +13,12 @@
 packages/core/src/storage/__fixtures__/rust-written-library/originals/** -text
 packages/core/src/journal/__fixtures__/rust-written-journal/*.jsonl -text
 
+# The conformance library (ADR-0052). RL-48 requires LF with no BOM, and the last
+# line of a journal is deliberately truncated with no trailing newline. A checkout
+# that "fixed" either would turn the fixture into a test of Git's settings.
+conformance/library.roost/**        -text
+conformance/made-before-the-rule/** -text
+
 # Assets, and the SQLite databases a test may write beside them.
 *.png binary
 *.jpg binary

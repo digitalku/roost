@@ -15,7 +15,6 @@ Correct it in the same change if M0 lands differently.
 | Node.js | 22 LTS | Both | The system runtime for the CLI and for tests. **Not** Electron's Node, which is 24.18.1 at Electron 43 — `packages/` targets the lower of the two (ADR-0011 §5) |
 | pnpm | 10+ | Both | Workspace manager of record. `corepack enable` is enough |
 | git | any | Both | |
-| The format, checked out beside this one | — | Both | `../roost-library` holds *Roost Library Format 2* and its conformance suite. `pnpm test` runs that suite (RL-52) and **fails loudly** if the checkout is not there — see below |
 | A C++ toolchain | `gcc-c++`, `make`, `python3` | **Linux** | `sharp` is built from source there, always — see below |
 | libvips headers | `vips-devel` **8.18.3+** | **Linux** | What that source build links against (ADR-0013). Not optional, and the version is `sharp` 0.35.3's own minimum — a distribution that packages an older one has to be built from source (see below) |
 | Electron runtime libs | nss, gtk3, libX11, alsa | **Linux** | Needed to open a window, not to run tests |
@@ -33,25 +32,9 @@ SVG, fonts, and PDF need nothing installed: their backends are WebAssembly and s
 
 ### The library format
 
-Roost is one format with an implementation per platform (ADR-0045), and the format is a separate
-repository:
-
-```bash
-git clone <roost-library> ../roost-library
-```
-
-It must sit **beside** this checkout, so that `roost/` and `roost-library/` share a parent.
-`packages/library/tests/format-conformance.test.ts` replays its library and compares the result
-with the state it publishes; `packages/core/tests/spec-conformance.test.ts` checks this build's
-journal vocabulary against its operation registry.
-
-Nothing is copied out of it, ever — a vendored copy drifts the moment somebody fixes one of them.
-And nothing in this repository updates it: `pnpm refresh` pulls *this* checkout, because pulling
-somebody else's repository from inside this one's script is a surprise nobody asked for.
-
-**The suite fails rather than skipping** when the checkout is absent. A suite that quietly reports
-success when it did not run turns "this build conforms" into a claim nobody checks, and the day it
-matters is the day somebody changes the hashing and sees green.
+Nothing to check out. The format is `docs/FORMAT.md` and `docs/OPS.md`, and its conformance suite is
+`conformance/` at the root of this repository (ADR-0052). Until 2026-09-26 it was a separate
+repository, `roost-library`, that had to sit beside this checkout. It no longer needs to be there.
 
 ### On Fedora
 

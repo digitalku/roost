@@ -30,6 +30,10 @@ index.db-shm
 # 2026-09-12 took it with nothing to restore it from.
 !packages/core/src/db/__fixtures__/rust-written-index/index.db
 
+# And the conformance library, which is a fixture rather than a scratch library
+# (ADR-0052). It is committed without a cache, and must stay that way.
+!/conformance/library.roost/
+
 # Screenshots dropped here to show the running app in conversation. They are a
 # few megabytes each and describe one moment of a UI that keeps changing.
 /screenshot/

@@ -3,23 +3,21 @@ import { Db, IndexSink, type ReplayReport, replay, type Stats, withoutDerived } 
 import { describe, expect, it } from "vitest";
 
 /**
- * The journal of the standard's own conformance library (RL-52).
+ * The journal of the conformance library (RL-52), at the repository root.
  *
- * Read from the checkout beside this repository and **never vendored**: a copy
- * drifts the moment somebody fixes one of them. Fifty-two records across two
- * months, written by hand, carrying the cases nobody writes on purpose — an
- * operation from a later revision, one from another platform, a dangling
- * membership, and a final line a crash cut short.
+ * Fifty-two records across two months, written by hand, carrying the cases
+ * nobody writes on purpose — an operation from a later revision, one from
+ * another platform, a dangling membership, and a final line a crash cut short.
  */
 const CONFORMANCE_JOURNAL = fileURLToPath(
-  new URL("../../../../roost-library/conformance/library.roost/journal", import.meta.url),
+  new URL("../../../conformance/library.roost/journal", import.meta.url),
 );
 
 async function fold(db: Db): Promise<ReplayReport> {
   return replay(CONFORMANCE_JOURNAL, new IndexSink(db));
 }
 
-describe("folding the journal the standard publishes", () => {
+describe("folding the conformance journal", () => {
   it("lands the state its operations describe", async () => {
     const db = Db.openInMemory();
     try {

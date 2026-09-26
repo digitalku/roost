@@ -1,0 +1,20 @@
+{"ts":1769904000,"op":"tag_rename","from":"client","to":"clients"}
+{"ts":1769904001,"op":"tag_rename","from":"blue","to":"clients"}
+{"ts":1769904010,"op":"asset_rename","asset":"K7QM4X2AJH9F","name":"laporan tahunan final"}
+{"ts":1769904020,"op":"folder_rename","id":7,"name":"References"}
+{"ts":1769904021,"op":"folder_move","id":8,"parent":null}
+{"ts":1769904022,"op":"folder_remove","asset":"6NPY1QWF0ZKM","folder":8}
+{"ts":1769904023,"op":"folder_delete","id":9}
+{"ts":1769904030,"op":"tag_group_create","id":1,"name":"Material"}
+{"ts":1769904031,"op":"tag_group_set","tag":"clients","group":1}
+{"ts":1769904032,"op":"tag_group_rename","id":1,"name":"Materials"}
+{"ts":1769904040,"op":"comment_set","id":1,"at":91000,"body":"two frames early"}
+{"ts":1769904041,"op":"comment_remove","id":2}
+{"ts":1769904050,"op":"restore","asset":"5TB3JHR8WPCX"}
+{"ts":1769904051,"op":"trash","asset":"H8VKC0S6ZB1P"}
+{"ts":1769904060,"op":"trash","asset":"ZQ2F7YNM4KDW"}
+{"ts":1769904061,"op":"remove","asset":"ZQ2F7YNM4KDW"}
+{"ts":1769904070,"op":"smart_folder_update","id":1,"name":"Recent PNGs","query":"ext:png color:blue"}
+{"ts":1769904080,"op":"watch_remove","id":2}
+{"ts":1769904090,"op":"win.shell_pin","asset":"K7QM4X2AJH9F","pinned":true}
+{"ts":1769904099,"op":"tag_ad

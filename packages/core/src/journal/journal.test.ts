@@ -9,16 +9,9 @@ import { CollectingSink, isClean, replay } from "./replay.js";
 import { Journal, monthKey, monthsIn } from "./writer.js";
 
 const ASSET = parseAssetId("K7QM4X2AJH9F");
-/**
- * The journal of the standard's own conformance library, read from the
- * checkout beside this repository (RL-52).
- *
- * **Never vendored**: a copy drifts the moment somebody fixes one of them, and
- * a suite this repository owned would be this repository marking its own
- * homework.
- */
+/** The journal of the conformance library at the repository root (RL-52). */
 const FIXTURE_DIR = fileURLToPath(
-  new URL("../../../../../roost-library/conformance/library.roost/journal", import.meta.url),
+  new URL("../../../../conformance/library.roost/journal", import.meta.url),
 );
 const FIXTURE = join(FIXTURE_DIR, "2026-01.jsonl");
 
@@ -30,7 +23,7 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-describe("against the journal the standard publishes", () => {
+describe("against the journal the suite publishes", () => {
   const lines = async () =>
     (await readFile(FIXTURE, "utf8")).split("\n").filter((line) => line !== "");
 
@@ -38,7 +31,7 @@ describe("against the journal the standard publishes", () => {
     const sink = new CollectingSink();
     const report = await replay(FIXTURE_DIR, sink);
 
-    // The numbers are the standard's, not ours: three operations from builds
+    // The numbers are the suite's, not ours: three operations from builds
     // this one is not (RL-37), one line a crash cut short (RL-39), and one
     // record naming a folder nobody created (RL-38).
     expect([...report.unknownOps.keys()].sort()).toEqual([
@@ -60,7 +53,7 @@ describe("against the journal the standard publishes", () => {
 
   it("re-serialises every record it recognises, byte for byte", async () => {
     // The strongest form of the format promise: this implementation reads what
-    // the standard publishes *and* writes what the standard would read — field
+    // the suite publishes *and* writes what the suite would read — field
     // order and omitted optionals included. A stray `"created":null` or a
     // reordered key would fail here and nowhere else.
     //

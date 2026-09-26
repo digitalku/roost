@@ -19,33 +19,22 @@ import { readManifest } from "../src/manifest.js";
 import { LIBRARY_SUFFIX, libraryNameFromPath } from "../src/naming.js";
 
 /**
- * The Roost Library Format's own conformance suite, run against this build.
+ * The format's conformance suite, run against this build (RL-52).
  *
- * RL-52 requires it and recommends running it in continuous integration. It is
- * **not vendored**: the standard lives in its own repository beside this one,
- * every implementation checks that out and runs it, and a copy would drift the
- * moment somebody fixed one of them. That is the standard's rule, not a
- * preference here — a suite this repository owned would be this repository
- * marking its own homework.
- *
- * What it checks is what a single implementation cannot check about itself:
- * that a journal nobody here wrote replays to the state the standard
- * publishes. The fixture's journal was written **by hand**, which is the point
- * — a library written by a working implementation contains only what that
- * implementation can write, and the cases that matter are the ones nobody
- * writes on purpose.
+ * It came from the `roost-library` repository and has lived at this
+ * repository's root since ADR-0052. What it checks is what the build's own
+ * tests cannot: that a journal nobody here wrote replays to the published
+ * state. The fixture's journal was written **by hand**, which is the point — a
+ * library written by a working build contains only what that build can write,
+ * and the cases that matter are the ones nobody writes on purpose.
  */
-
-/** Where the standard is checked out. A sibling of this repository by default. */
-const STANDARD = fileURLToPath(new URL("../../../../roost-library/", import.meta.url));
-
-const CONFORMANCE = join(STANDARD, "conformance");
+const CONFORMANCE = fileURLToPath(new URL("../../../conformance/", import.meta.url));
 
 /**
  * What `expected.json` publishes, in its own names.
  *
  * Read rather than restated. A test that copied the numbers out would pass
- * forever after the standard changed one of them, which is the failure this
+ * forever after the suite changed one of them, which is the failure this
  * whole arrangement is built to avoid.
  */
 interface Expected {
@@ -103,13 +92,9 @@ let report: Awaited<ReturnType<typeof replay>>;
 
 beforeAll(async () => {
   // Said plainly, because a bare ENOENT reads as a broken test rather than as a
-  // missing checkout: this suite is another repository's, and its absence means
-  // the standard is not beside this one.
+  // fixture that went missing from the tree.
   if (!existsSync(CONFORMANCE)) {
-    throw new Error(
-      `The Roost Library Format's conformance suite is not at ${CONFORMANCE}. ` +
-        "Check the roost-library repository out beside this one — see docs/SETUP.md.",
-    );
+    throw new Error(`The conformance suite is not at ${CONFORMANCE} — see ADR-0052.`);
   }
 
   expected = JSON.parse(await readFile(join(CONFORMANCE, "expected.json"), "utf8")) as Expected;
@@ -133,7 +118,7 @@ afterAll(async () => {
 });
 
 describe("replaying the conformance library", () => {
-  it("applies exactly the records the standard says are effective", () => {
+  it("applies exactly the records the suite says are effective", () => {
     expect(report.applied).toBe(expected.replay.records_effective);
   });
 
@@ -191,7 +176,7 @@ describe("replaying the conformance library", () => {
 });
 
 describe("the state a correct replay produces", () => {
-  it("lands every asset the standard publishes, field for field", () => {
+  it("lands every asset the suite publishes, field for field", () => {
     expect(db.repo.allIds()).toHaveLength(expected.assets.length);
 
     for (const want of expected.assets) {
@@ -234,7 +219,7 @@ describe("the state a correct replay produces", () => {
     }
   });
 
-  it("holds the comments the standard publishes, on the assets they are about", () => {
+  it("holds the comments the suite publishes, on the assets they are about", () => {
     const got = expected.assets.flatMap((asset) =>
       db.repo.commentsFor(parseAssetId(asset["id"] as string)).map((comment) => ({
         id: comment.id,
@@ -246,7 +231,7 @@ describe("the state a correct replay produces", () => {
     expect(got).toEqual([...expected.comments]);
   });
 
-  it("holds the tags, folders, groups and smart folders the standard publishes", () => {
+  it("holds the tags, folders, groups and smart folders the suite publishes", () => {
     // The tags **in use**: whether a tag with no assets left survives as a row
     // is open (`SPEC.md` §11.4), and this build keeps it — so the comparison is
     // over what is carried rather than over what is listed.
@@ -376,7 +361,7 @@ describe("identifying a library", () => {
   });
 
   it("leaves no cache inside the fixture it was handed", () => {
-    // The standard commits its library without an `index.db` and forbids adding
+    // The suite commits its library without an `index.db` and forbids adding
     // one: a committed cache would bake one implementation's schema into a
     // shared fixture. This suite replays into memory, which is how it keeps
     // that promise even when it is pointed at the checkout itself.

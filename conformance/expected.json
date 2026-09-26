@@ -1,0 +1,168 @@
+{
+  "_": "The state a correct replay of conformance/library.roost produces. Normative; see README.md.",
+  "format_version": 2,
+  "document_revision": "2.0",
+
+  "replay": {
+    "_": "Counts across both month files, in chronological order.",
+    "records_total": 52,
+    "records_torn": 1,
+    "records_unrecognised": 3,
+    "records_dangling": 1,
+    "records_effective": 47,
+
+    "unrecognised": [
+      { "op": "lightbox_create", "kind": "core", "platform": null },
+      { "op": "mac.quicklook_tag", "kind": "platform", "platform": "mac" },
+      { "op": "win.shell_pin", "kind": "platform", "platform": "win" }
+    ],
+
+    "dangling": [
+      { "op": "folder_add", "reason": "folder 99 was never created" }
+    ]
+  },
+
+  "library": {
+    "roost_library_version": 2,
+    "id": "9a2b1f60-7c34-4de5-8a91-2b3c4d5e6f70",
+    "name": "Roost Library Format conformance",
+    "created_at": 1767139200
+  },
+
+  "_assets": "Six. A seventh — draft, ZQ2F7YNM4KDW — was added, filed, trashed and then removed, and a correct replay holds nothing about it. Nothing here asserts a size, a width or a duration: every fact about the bytes is derived in version 2 (RL-22), so the fixture's files are placeholders and their contents are not normative.",
+
+  "assets": [
+    {
+      "id": "K7QM4X2AJH9F",
+      "ext": "docx",
+      "name": "laporan tahunan final",
+      "created": 1767139200,
+      "rating": 4,
+      "note": "client approved",
+      "favorite": false,
+      "source": null,
+      "trashed": false,
+      "tags": ["clients"],
+      "folders": [7]
+    },
+    {
+      "id": "3X9WGD2NR5TY",
+      "ext": "mp4",
+      "name": "rapat mingguan",
+      "created": 1767139200,
+      "rating": null,
+      "note": null,
+      "favorite": false,
+      "source": null,
+      "trashed": false,
+      "tags": [],
+      "folders": [],
+      "poster_at": 91500,
+      "subtitles": [
+        { "track": "M4T0PZ71QJ2B", "lang": "en", "label": "English" }
+      ]
+    },
+    {
+      "id": "M4T0PZ71QJ2B",
+      "ext": "srt",
+      "name": "rapat mingguan captions",
+      "created": null,
+      "rating": null,
+      "note": null,
+      "favorite": false,
+      "source": null,
+      "trashed": false,
+      "tags": [],
+      "folders": []
+    },
+    {
+      "_": "No extension at all. The file is H8VKC0S6ZB1P with no trailing dot — RL-9a.",
+      "id": "H8VKC0S6ZB1P",
+      "ext": "",
+      "name": "LICENSE",
+      "created": 1767139200,
+      "rating": null,
+      "note": null,
+      "favorite": false,
+      "source": null,
+      "trashed": true,
+      "tags": [],
+      "folders": []
+    },
+    {
+      "_": "NFC. The name is c-a-f-é with a single composed é, and m-ö-bel likewise — RL-49.",
+      "id": "6NPY1QWF0ZKM",
+      "ext": "png",
+      "name": "café möbel",
+      "created": 1767139200,
+      "rating": null,
+      "note": null,
+      "favorite": true,
+      "source": "https://example.com/the-post",
+      "trashed": false,
+      "tags": ["clients"],
+      "folders": []
+    },
+    {
+      "_": "Trashed in January, restored in February. Its folder_add named folder 99 and was skipped.",
+      "id": "5TB3JHR8WPCX",
+      "ext": "jpg",
+      "name": "kucing",
+      "created": null,
+      "rating": null,
+      "note": null,
+      "favorite": false,
+      "source": null,
+      "trashed": false,
+      "tags": [],
+      "folders": []
+    }
+  ],
+
+  "_tags": "One tag is in use. `client` became `clients`, then `blue` was renamed onto `clients` and merged into it — so the asset that carried `blue` carries `clients`. `2026` was added and removed; whether a tag with no assets left survives as a row is open (SPEC §11.4), so this suite asserts the tags in use and nothing about empty ones.",
+
+  "tags_in_use": ["clients"],
+
+  "tag_groups": [
+    { "id": 1, "name": "Materials", "tags": ["clients"] }
+  ],
+
+  "_folders": "Folder 9 and its membership are gone with folder_delete; folder 8 was moved to the top level; folder 99 was never created and must not be.",
+
+  "folders": [
+    { "id": 7, "parent": null, "name": "References" },
+    { "id": 8, "parent": null, "name": "Icons" }
+  ],
+
+  "_smart_folders": "The query is stored byte for byte and is presented as unavailable by an implementation that cannot evaluate `color:` — RL-47. It must not be rewritten, repaired or dropped.",
+
+  "smart_folders": [
+    { "id": 1, "parent": null, "name": "Recent PNGs", "query": "ext:png color:blue" }
+  ],
+
+  "comments": [
+    { "id": 1, "asset": "3X9WGD2NR5TY", "at": 91000, "body": "two frames early" }
+  ],
+
+  "_watched_roots": "Root 2 was removed. `take` says what happens to a file the root catches, because nobody is at the screen when one arrives.",
+
+  "watched_roots": [
+    { "id": 1, "path": "D:\\Inbox", "take": "move" }
+  ],
+
+  "_files": "What must be on disk after a replay that writes nothing. The lock file is the case: an implementation must neither adopt it as an asset nor delete it — RL-11.",
+
+  "files": {
+    "present": [
+      "files/K7/K7QM4X2AJH9F.docx",
+      "files/3X/3X9WGD2NR5TY.mp4",
+      "files/M4/M4T0PZ71QJ2B.srt",
+      "files/H8/H8VKC0S6ZB1P",
+      "files/6N/6NPY1QWF0ZKM.png",
+      "files/5T/5TB3JHR8WPCX.jpg",
+      "files/K7/~$QM4X2AJH9F.docx"
+    ],
+    "not_adopted": ["files/K7/~$QM4X2AJH9F.docx"],
+    "_removed_asset": "ZQ2F7YNM4KDW has no file here, and this suite asserts nothing about whether a remove deletes one — SPEC §11.1 is open."
+  }
+}

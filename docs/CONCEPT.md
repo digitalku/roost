@@ -190,11 +190,10 @@ These are the differentiators worth building, not just parity items:
    Scriptable, cron-able, pipe-able.
 6. **Honest performance.** Virtualized everything, thumbnails on a worker pool, incremental
    indexing, no "loading 40k items" spinner.
-7. **Open format, documented, and owned by nobody.** The library layout is a numbered spec in
-   its own repository, `../roost-library`, with an operation registry and a conformance suite —
-   not a reverse engineering project, and not this implementation's to change unilaterally
-   (ADR-0045). The application is proprietary; the format is not, and M6 publishes the spec for
-   other implementers (ADR-0038).
+7. **Open format, documented.** The library layout is a numbered spec, `docs/FORMAT.md`, with an
+   operation registry and a conformance suite, and it is not a reverse engineering project. It is
+   this repository's own and changes with the code (ADR-0052). The application is proprietary;
+   the format is not, and M6 publishes the spec (ADR-0038).
 
 ## 7. Success criteria for v1.0
 
@@ -204,8 +203,8 @@ These are the differentiators worth building, not just parity items:
 - Grid scroll: sustained 60fps with 4k-resolution thumbnails.
 - Search p95: < 100ms on 1M rows.
 - Delete `index.db` → full rebuild from the journal with zero metadata loss (CI-enforced).
-- `../roost-library`'s conformance suite passes (CI-enforced, RL-52) — a library written by
-  hand in another repository replays here to the state that repository publishes. **Reading
+- The conformance suite in `conformance/` passes (CI-enforced, RL-52) — a library written by
+  hand replays here to the state it publishes. **Reading
   `roost-old`'s libraries was dropped on 2026-09-21** along with the format that made it possible
   (ADR-0046): a version 1 library is refused by name. What is still promised is the line above it
   — the journal rebuilds the index — because that, not another implementation, is what makes the
@@ -232,7 +231,7 @@ These are the differentiators worth building, not just parity items:
 
 ## 9. Related documents
 
-- `../roost-library/SPEC.md` — **normative** library format, version 2 (RL-1…RL-56); `docs/STORAGE_SPEC.md` maps it to the code
+- `docs/FORMAT.md` — **normative** library format, version 2 (RL-1…RL-56), with `docs/OPS.md` for the operations; `docs/STORAGE_SPEC.md` maps it to the code
 - `docs/ARCHITECTURE.md` — how it is built
 - `docs/DATA_MODEL.md` — query language and schema growth plan
 - `docs/UI_SPEC.md` — the interface, designed for this stack rather than ported

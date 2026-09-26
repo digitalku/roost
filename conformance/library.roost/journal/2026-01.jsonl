@@ -1,0 +1,32 @@
+{"ts":1767225600,"op":"add","id":"K7QM4X2AJH9F","ext":"docx","name":"laporan tahunan","created":1767139200,"spotlight_id":"kMDItemFSName"}
+{"ts":1767225601,"op":"add","id":"3X9WGD2NR5TY","ext":"mp4","name":"rapat mingguan","created":1767139200}
+{"ts":1767225602,"op":"add","id":"M4T0PZ71QJ2B","ext":"srt","name":"rapat mingguan captions"}
+{"ts":1767225603,"op":"add","id":"H8VKC0S6ZB1P","ext":"","name":"LICENSE","created":1767139200}
+{"ts":1767225604,"op":"add","id":"6NPY1QWF0ZKM","ext":"png","name":"café möbel","created":1767139200}
+{"ts":1767225605,"op":"add","id":"ZQ2F7YNM4KDW","ext":"txt","name":"draft"}
+{"ts":1767225606,"op":"add","id":"5TB3JHR8WPCX","ext":"jpg","name":"kucing"}
+{"ts":1767225610,"op":"tag_add","asset":"K7QM4X2AJH9F","tags":["client","2026"]}
+{"ts":1767225611,"op":"tag_add","asset":"6NPY1QWF0ZKM","tags":["blue"]}
+{"ts":1767225612,"op":"tag_remove","asset":"K7QM4X2AJH9F","tags":["2026"]}
+{"ts":1767225620,"op":"folder_create","id":7,"parent":null,"name":"Moodboards"}
+{"ts":1767225621,"op":"folder_create","id":8,"parent":7,"name":"Icons"}
+{"ts":1767225622,"op":"folder_create","id":9,"parent":null,"name":"Archive"}
+{"ts":1767225630,"op":"folder_add","asset":"K7QM4X2AJH9F","folder":7}
+{"ts":1767225631,"op":"folder_add","asset":"6NPY1QWF0ZKM","folder":8}
+{"ts":1767225632,"op":"folder_add","asset":"ZQ2F7YNM4KDW","folder":9}
+{"ts":1767225633,"op":"folder_add","asset":"5TB3JHR8WPCX","folder":99}
+{"ts":1767225640,"op":"rate","asset":"K7QM4X2AJH9F","rating":4}
+{"ts":1767225641,"op":"rate","asset":"3X9WGD2NR5TY","rating":null}
+{"ts":1767225642,"op":"note_set","asset":"K7QM4X2AJH9F","note":"client approved"}
+{"ts":1767225643,"op":"favorite_set","asset":"6NPY1QWF0ZKM","favorite":true}
+{"ts":1767225644,"op":"source_set","asset":"6NPY1QWF0ZKM","url":"https://example.com/the-post"}
+{"ts":1767225650,"op":"comment_add","id":1,"asset":"3X9WGD2NR5TY","at":91500,"body":"the cut lands early"}
+{"ts":1767225651,"op":"comment_add","id":2,"asset":"K7QM4X2AJH9F","at":null,"body":"kirim ke klien"}
+{"ts":1767225660,"op":"poster_set","asset":"3X9WGD2NR5TY","at":91500}
+{"ts":1767225661,"op":"subtitle_attach","asset":"3X9WGD2NR5TY","track":"M4T0PZ71QJ2B","lang":"en","label":"English"}
+{"ts":1767225670,"op":"smart_folder_create","id":1,"parent":null,"name":"Recent PNGs","query":"ext:png rating:>=4"}
+{"ts":1767225680,"op":"watch_add","id":1,"path":"D:\\Inbox","take":"move"}
+{"ts":1767225681,"op":"watch_add","id":2,"path":"D:\\Kamera","take":"copy"}
+{"ts":1767225690,"op":"lightbox_create","id":1,"name":"Lightbox"}
+{"ts":1767225691,"op":"mac.quicklook_tag","asset":"K7QM4X2AJH9F","tag":"blue"}
+{"ts":1767225699,"op":"trash","asset":"5TB3JHR8WPCX"}
