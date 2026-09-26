@@ -1,5 +1,6 @@
 import BetterSqlite3, { type Database } from "better-sqlite3";
 import { applyMigrations, latestSchemaVersion, readSchemaVersion } from "./migrations.js";
+import { attachPictures } from "./pictures.js";
 import { Repo } from "./repo.js";
 
 /** The file that holds the index, inside the library root. */
@@ -35,8 +36,9 @@ export class Db {
   }
 
   /**
-   * Opens (creating if absent) the index at `path` and migrates it to the
-   * current schema version.
+   * Opens (creating if absent) the index at `path`, attaches the thumbnail
+   * database beside it (ADR-0051), and migrates the index to the current
+   * schema version.
    */
   static open(path: string): Db {
     const db = new BetterSqlite3(path);
@@ -46,7 +48,14 @@ export class Db {
       // no-op on `:memory:`, where SQLite reports `memory` instead.
       db.pragma("journal_mode = WAL");
       configure(db);
+      // Before the migrations, because 0002 copies the pictures into it.
+      attachPictures(db, path);
+      const before = readSchemaVersion(db);
       applyMigrations(db);
+      // 0002 dropped the table that held nearly all of the file, and a drop
+      // frees pages without returning them. Once, on the open that ran it: the
+      // index is small without the pictures, so this rewrites only the rows.
+      if (before === 1) db.exec("VACUUM main");
     } catch (error) {
       // Nothing else can close it: the `Db` that would own the connection is
       // never constructed, so the handle would be held until the process ends.
@@ -136,6 +145,24 @@ export class Db {
    */
   pragma(source: string): unknown {
     return this.#db.pragma(source);
+  }
+
+  /**
+   * Hands the thumbnail database's free pages back to the filesystem, and says
+   * how many bytes that was (ADR-0051 §6).
+   *
+   * Deleting a picture frees its pages inside the file without shrinking it.
+   * The file is created with `auto_vacuum = INCREMENTAL`, so this returns them
+   * without the rewrite a plain `VACUUM` would do. It is what *Reclaim space…*
+   * runs, after the cleaner.
+   */
+  reclaimPictureSpace(): number {
+    // Both casts are what `simple: true` returns for these two pragmas: a
+    // single integer column, which SQLite cannot answer in another shape.
+    const pageSize = this.#db.pragma("pictures.page_size", { simple: true }) as number;
+    const free = this.#db.pragma("pictures.freelist_count", { simple: true }) as number;
+    this.#db.pragma("pictures.incremental_vacuum");
+    return pageSize * free;
   }
 
   close(): void {

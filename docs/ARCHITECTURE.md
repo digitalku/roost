@@ -304,7 +304,7 @@ Registered in main with `protocol.handle`, which takes a `Request` and returns a
 Two routes:
 
 - `roost://thumb/<id>@256` and `@512` — the WebP BLOB, read through the main process's single
-  read-only connection (§3.2). **The bytes behind an id may change** (RL-20), so what version 1
+  read-only connection (§3.2), from `thumbs/roost.db` attached to it (ADR-0051). **The bytes behind an id may change** (RL-20), so what version 1
   got for free — an id fixes the picture — has to be bought: the query string carries the pinned
   frame (`at`, ADR-0024) *and* the derive time (`v`, ADR-0047), and the response is still served
   `immutable` for a year because a re-derive produces a **new address** rather than new bytes at
@@ -410,11 +410,18 @@ inventing a stricter mode would surprise anybody who set one.
 month first, unknown ops skipped with a warning, torn trailing lines skipped with a warning.
 FTS rows are rebuilt as part of replay, since they derive from state the journal carries.
 
-Thumbnails do not come back with them: they derive from bytes, not from records, and
-regenerating a million of them is a long job that should not be hidden inside a command the
-user ran for a different reason. `rebuild` reports how many it discarded and says to run
-`roost thumb`; the desktop app refills them in the background instead, where there is an idle
-loop and a progress bar to do it honestly.
+**The thumbnails are not in `index.db` and a rebuild leaves them where they are** (ADR-0051). They
+live in `thumbs/roost.db`, with a `sources` row per asset recording the file's size, modification
+time and pinned frame when it was drawn, and the metadata that derive learned. What a rebuild
+empties is the derived columns in `assets`. The derive pass that follows (the desktop app's
+background sweep, or `roost thumb`) compares each file with its source. Where they agree it writes
+the stored metadata back and keeps the pictures, which costs a `stat`. Where they disagree it draws
+the file again. Measured on 1,000 photographs: 4.93 s to draw, 0.20 s to keep (`BENCHMARKS.md`).
+After the fold, `prunePictures` removes what belongs to no asset, because `ON DELETE CASCADE`
+cannot reach into another file.
+
+Until ADR-0051 the pictures went with the index, and regenerating a million of them was a long job
+hidden inside a command the user ran for a different reason.
 
 The spec mandates a test that deletes `index.db`, replays, and asserts equivalence with the
 original database. It runs in CI on every commit. The guarantee "the DB is disposable" decays
@@ -538,11 +545,11 @@ reported days later can still be investigated.
 
 Violating any of these is a bug, regardless of what it enables:
 
-0. **`../roost-library/SPEC.md` is normative** and outranks this document. Requirements `RL-1`
-   … `RL-56` and RL-56's forbidden list govern storage, import and rebuild — not the schema,
-   which RL-3 leaves to each implementation. It is **not this repository's document**: a change
-   to it is proposed there, against that repository's `CHANGING.md`, and raises a document
-   revision or a format version (ADR-0045). **This build reads format 2 only**, and refuses a
+0. **`docs/FORMAT.md` is normative** and outranks this document. Requirements `RL-1` … `RL-56`
+   and RL-51's forbidden list govern storage, import and rebuild — not the schema, which RL-2
+   leaves to the implementation. It is this repository's own (ADR-0052): a change to it is argued
+   in an ADR, made in the same commit as the code, and raises a document revision or a format
+   version (§12 of it). **This build reads format 2 only**, and refuses a
    version 1 library by name without reading a byte of it (RL-6a, ADR-0046).
 1. The index is derivable from the journal plus `files/`. Always. Any state that exists
    only in `index.db` is a bug — except the two marks that say how far the index has folded

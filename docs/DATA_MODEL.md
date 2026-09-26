@@ -1,14 +1,14 @@
 # Roost — Data Model
 
-Status: v4 · Last updated: 2026-09-21
+Status: v5 · Last updated: 2026-09-26
 
-> **The normative document is `SPEC.md` in [`../roost-library`](../../roost-library).** Directory
-> layout, identity, the journal format and the forbidden patterns are requirements `RL-1` … `RL-56`
-> there, and no implementation owns them (ADR-0045).
+> **The normative document is [`FORMAT.md`](FORMAT.md).** Directory layout, identity, the journal
+> format and the forbidden patterns are requirements `RL-1` … `RL-56` there, and the document is
+> this repository's own (ADR-0052).
 >
 > This file holds what the format deliberately does **not** cover: the **index schema**, which
 > RL-2 puts outside it as a cache, and the **query language**, which the format calls an opaque
-> string. If anything here contradicts `SPEC.md`, the spec wins and this file is the bug.
+> string. If anything here contradicts `FORMAT.md`, the format wins and this file is the bug.
 >
 > §2.0 is the schema a Format 2 library starts with. [`STORAGE_SPEC.md`](STORAGE_SPEC.md) maps
 > each `RL-n` to the code that meets it.
@@ -48,7 +48,8 @@ For orientation only; normative text is in the spec.
 - **`index.db` is a derived cache.** Deletable at will; rebuilt by replaying the journal.
 - **`files/<2-char>/<id>.<ext>`** — one shard level, at most 1 024 buckets, created lazily, and
   **editable in place**: the bytes may change at any time, by any application (RL-20).
-- **Thumbnails are WebP BLOBs inside `index.db`**, never loose files.
+- **Thumbnails are WebP BLOBs in `thumbs/roost.db`**, a SQLite file of their own beside the
+  index, never loose files (ADR-0051, §2.2).
 - **Folders are collections** joined through `asset_folders`; assets carry no path column.
 - **A content hash is kept as a derived attribute** (RL-18), for duplicate reports and `doctor`.
   It is never identity, never a filename, and never a reason to refuse a file.
@@ -337,6 +338,101 @@ ADR-0039 §5 records why that is the right trade and what the two faster alterna
 **No journal op, no column, no table for the order itself.** It is a *preference*, not library
 data: it lives in `settings.json` (ADR-0019, ADR-0039 §7) with the view, the icon shape and the
 zoom.
+
+### 2.1 Migration 0002 — the thumbnails leave the index (schema v2)
+
+ADR-0051. `thumbs` moves out of `index.db` into `thumbs/roost.db` (§2.2), which the db module
+attaches as `pictures` **before** any migration runs. The pictures are copied rather than dropped,
+so an upgrade does not send a library back to placeholders, and `sources` is filled from each
+asset's own derived columns, so the copied pictures survive a later rebuild too.
+
+```sql
+INSERT INTO pictures.sources (asset_id, file_size, file_mtime, poster_ms, content_hash,
+                              width, height, duration_ms, page_count, props)
+  SELECT a.id, a.size, a.mtime, a.poster_ms, a.content_hash,
+         a.width, a.height, a.duration_ms, a.page_count,
+         (SELECT json_group_object(p.key, p.value) FROM main.asset_props p
+           WHERE p.asset_id = a.id HAVING count(*) > 0)
+    FROM main.assets a
+   WHERE a.size IS NOT NULL AND a.mtime IS NOT NULL
+     AND EXISTS (SELECT 1 FROM main.thumbs t WHERE t.asset_id = a.id)
+  ON CONFLICT (asset_id) DO NOTHING;
+
+INSERT INTO pictures.thumbs (asset_id, size, width, height, data)
+  SELECT asset_id, size, width, height, data FROM main.thumbs WHERE true
+  ON CONFLICT (asset_id, size) DO NOTHING;
+
+DROP TABLE main.thumbs;
+```
+
+**It is idempotent, and has to be.** A transaction over two attached files in WAL mode is atomic in
+each file but not across both, so a crash can commit the copy and not the drop. The migration then
+runs again and the `ON CONFLICT` clauses make the second copy a no-op. The opposite interleaving
+loses the copied pictures, and the backfill sweep draws them again.
+
+**The open that runs it also runs `VACUUM main`, once.** A drop frees pages without returning them,
+and the table that went was nearly all of the file. Without the pictures the index is small, so the
+rewrite is of the rows alone.
+
+### 2.2 The thumbnail database — `thumbs/roost.db`
+
+Not the index and not a numbered migration: a cache of its own (ADR-0051), inside `thumbs/`, which
+the format reserves (RL-56) and leaves to the implementation (RL-2). Named for this build so that
+nothing else writing into `thumbs/` can collide with it. It has one version, in
+`PRAGMA user_version`, and a file at any other version is emptied and made again rather than
+migrated, because every row in it can be drawn again from `files/`.
+
+```sql
+-- What the pictures were drawn from, one row per asset. A thumbnail is reused
+-- only while `file_size`, `file_mtime` and `poster_ms` still match the file and
+-- the asset, and then so is everything else here -- which is what lets a
+-- rebuild restore the derived columns without decoding or hashing anything.
+CREATE TABLE pictures.sources (
+  asset_id     TEXT PRIMARY KEY,
+  file_size    INTEGER NOT NULL,
+  file_mtime   INTEGER NOT NULL,     -- unix seconds, floored, as assets.mtime
+  poster_ms    INTEGER,
+  content_hash TEXT,
+  width        INTEGER,
+  height       INTEGER,
+  duration_ms  INTEGER,
+  page_count   INTEGER,
+  props        TEXT                  -- JSON object, or NULL for none
+) WITHOUT ROWID;
+
+-- A rowid table on purpose: WITHOUT ROWID stores a row inside the B-tree, and a
+-- row the size of a thumbnail is what SQLite's own guidance says not to put
+-- there.
+CREATE TABLE pictures.thumbs (
+  asset_id TEXT NOT NULL,
+  size     INTEGER NOT NULL,          -- longest edge: 256 or 512
+  width    INTEGER NOT NULL,
+  height   INTEGER NOT NULL,
+  data     BLOB NOT NULL,             -- WebP, quality 80
+  PRIMARY KEY (asset_id, size)
+);
+```
+
+**`PRAGMA auto_vacuum = INCREMENTAL` is set before the first table, when the file is empty**, which
+is the only moment it can be. Deleting a picture then frees pages that `incremental_vacuum` can hand
+back. That is what *Reclaim space…* runs, instead of a `VACUUM` that would rewrite gigabytes.
+
+**`sources` is what lets the pictures outlive the index.** A rebuild deletes `index.db` and leaves
+this file alone. The derive pass that follows compares each asset's file with its `sources` row. If
+the size, the modification time and the pinned frame all agree, the pictures are kept and the rest
+of the row (the hash, the dimensions, the duration, the page count and the properties) is written
+back into `assets` without the file being decoded or hashed. That is the same test ADR-0047 uses to
+decide that a file changed, turned round. If anything disagrees, the asset's pictures and its source
+are dropped and drawn again.
+
+**No foreign keys, because they cannot cross files.** `applyRemove` deletes an asset's pictures in
+the same transaction as its row. What a crash between the two files leaves, and what a rebuild
+leaves when the journal no longer holds an asset, is removed by `prunePictures`: one `NOT IN` over
+the primary key, run after every fold and by *Reclaim space…*.
+
+**The backfill sweep asks two questions now.** It queues an asset with no thumbnail, *or* with
+`derived_at IS NULL`. After a rebuild the second is true of every asset and the first of almost
+none, and a sweep that asked only about pictures would leave the derived columns empty for ever.
 
 ## 3. Roost Query Language (RQL)
 

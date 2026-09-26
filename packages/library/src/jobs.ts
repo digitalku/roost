@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import {
   type AssetId,
@@ -75,6 +76,12 @@ export interface DeriveReport {
   derived: number;
   /** Thumbnails written across every size. */
   thumbnails: number;
+  /**
+   * Of {@link derived}, the assets whose pictures were kept rather than drawn,
+   * because the file is the one they were drawn from (ADR-0051 §5). After a
+   * rebuild that is nearly all of them.
+   */
+  kept: number;
   bytes: number;
   /** Parked: no backend on this machine, or a format nothing here draws. */
   blocked: number;
@@ -500,6 +507,7 @@ export async function runDerives(
   const report: DeriveReport = {
     derived: 0,
     thumbnails: 0,
+    kept: 0,
     bytes: 0,
     blocked: 0,
     failed: 0,
@@ -537,7 +545,17 @@ export async function runDerives(
     library.db.transaction(() => {
       for (const outcome of outcomes) {
         const id = parseAssetId(outcome.claim.assetId);
-        if (outcome.kind === "ok") {
+        if (outcome.kind === "kept") {
+          library.db.repo.putDerived(id, outcome.metadata, now);
+          library.db.repo.completeJob(outcome.claim.id);
+          redrawn.push({ id, derivedAt: now, undrawn: null });
+          report.derived += 1;
+          report.kept += 1;
+        } else if (outcome.kind === "ok") {
+          // Whatever this asset had is a picture of the file as it was, and a
+          // preview size this pass does not draw would outlive the bytes it
+          // shows. Dropped with its source, and the new ones written after.
+          library.db.repo.dropThumbnails(id);
           for (const thumbnail of outcome.thumbnails) {
             library.db.repo.putThumbnail(
               id,
@@ -548,6 +566,15 @@ export async function runDerives(
             );
             report.thumbnails += 1;
             report.bytes += thumbnail.data.length;
+          }
+          const { size, mtime } = outcome.metadata;
+          if (size !== undefined && mtime !== undefined) {
+            library.db.repo.putPictureSource(id, {
+              size,
+              mtime,
+              posterMs: outcome.claim.posterMs,
+              metadata: outcome.metadata,
+            });
           }
           library.db.repo.putDerived(id, outcome.metadata, now);
           library.db.repo.completeJob(outcome.claim.id);
@@ -657,6 +684,12 @@ const AMBIGUOUS_FILE = "ambiguous:file";
 /** What one derive produced, before it is committed with the rest of a batch. */
 type DeriveOutcomeRow =
   | {
+      /** The pictures already there still show this file (ADR-0051 §5). */
+      kind: "kept";
+      claim: JobClaim;
+      metadata: DerivedMetadata;
+    }
+  | {
       kind: "ok";
       claim: JobClaim;
       thumbnails: readonly Thumbnail[];
@@ -700,6 +733,9 @@ async function deriveOne(
     const aligned = await alignExtension(library, id, resolved.ext, resolved.path);
     const path = aligned.path;
 
+    const kept = await keptPictures(library, claim, path, sizes);
+    if (kept !== undefined) return { kind: "kept", claim, metadata: kept };
+
     // The moment somebody pinned the thumbnail to, if they did. A rebuild
     // replays `poster_set` into this column and the frame is re-extracted here,
     // which is what makes a poster survive one (ADR-0024 stage 4).
@@ -733,6 +769,36 @@ async function deriveOne(
       reason: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+/**
+ * The metadata recorded with this asset's pictures, if they can be kept as
+ * they are (ADR-0051 §5).
+ *
+ * All three must hold: every size asked for is there, the frame they show is
+ * the one the asset is pinned to now, and the file's size and modification
+ * time are the ones they were drawn from. That last test is the one ADR-0047
+ * already trusts to decide that a file changed, so trusting it the other way
+ * adds no new assumption, and it costs one `stat` rather than a decode and a
+ * hash. It is what turns the derive pass after a rebuild from hours into
+ * seconds.
+ */
+async function keptPictures(
+  library: Library,
+  claim: JobClaim,
+  path: string,
+  sizes: readonly number[],
+): Promise<DerivedMetadata | undefined> {
+  const { repo } = library.db;
+  const source = repo.pictureSource(claim.assetId);
+  if (source === undefined || source.posterMs !== claim.posterMs) return undefined;
+  if (!repo.hasThumbnails(claim.assetId, sizes)) return undefined;
+
+  const stats = await stat(path);
+  // Floored as `hashFile` floors it, or every comparison would miss.
+  const mtime = Math.floor(stats.mtimeMs / 1000);
+  if (stats.size !== source.size || mtime !== source.mtime) return undefined;
+  return source.metadata;
 }
 
 /**

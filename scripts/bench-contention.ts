@@ -5,8 +5,9 @@
  *     [--jobs N] [--concurrency 16,8,4] [--seconds S]
  *
  * The library must have work to do — `roost import` does not derive, so a
- * freshly imported corpus is exactly this, and `roost rebuild` makes it so
- * again, since thumbnails do not survive one. Each configuration works `--jobs`
+ * freshly imported corpus is exactly this. `roost rebuild` no longer makes it
+ * so: the thumbnails survive one (ADR-0051), and the pass after it keeps them
+ * rather than drawing them, which is not the load this measures. Each configuration works `--jobs`
  * of the queue, so they consume different assets from one library and the
  * mix of formats is the same for all of them.
  *

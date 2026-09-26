@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AddRecord } from "../journal/index.js";
 import { parseAssetId } from "../model/index.js";
 import { Db, INDEX_FILE } from "./database.js";
+import { THUMBNAILS_FILE } from "./pictures.js";
 import { READ_ONLY_OPTIONS, ReadOnlyIndex } from "./reader.js";
 import { IndexSink } from "./sink.js";
 
@@ -66,7 +67,7 @@ describe("the protocol handler's read-only view", () => {
     // `readonly` there and this fails.
     const same = new BetterSqlite3(join(root, INDEX_FILE), READ_ONLY_OPTIONS);
     try {
-      expect(() => same.prepare("DELETE FROM thumbs").run()).toThrow(/readonly/i);
+      expect(() => same.prepare("DELETE FROM assets").run()).toThrow(/readonly/i);
     } finally {
       same.close();
     }
@@ -86,6 +87,24 @@ describe("the protocol handler's read-only view", () => {
       writer.close();
     }
     expect(reader.thumbnail(OTHER, 256)?.toString()).toBe("second");
+  });
+
+  it("finds the thumbnail database even when it appears after the reader opened", async () => {
+    // The engine creates thumbs/roost.db (ADR-0051), and main may open its
+    // reader first. A reader that remembered the absence would serve 404s for
+    // the rest of the session.
+    reader.close();
+    await rm(join(root, THUMBNAILS_FILE));
+    reader = ReadOnlyIndex.open(root);
+    expect(reader.thumbnail(ONE, 256)).toBeUndefined();
+
+    const writer = Db.open(join(root, INDEX_FILE));
+    try {
+      writer.repo.putThumbnail(ONE, 256, 256, 160, Buffer.from("drawn-later"));
+    } finally {
+      writer.close();
+    }
+    expect(reader.thumbnail(ONE, 256)?.toString()).toBe("drawn-later");
   });
 
   it("refuses to open a library that has no index", async () => {

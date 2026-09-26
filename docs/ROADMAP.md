@@ -433,6 +433,15 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
+**ADR-0052 — this repository owns its library format** was proposed and **accepted** on
+2026-09-26. The format stops being `../roost-library`'s: `docs/FORMAT.md` and `docs/OPS.md` are
+revision 2.0 copied home, the conformance library is at the repository root, and `roost-net` is no
+longer a compatibility target, as the user said. ADR-0045 is superseded rather than accepted.
+
+**ADR-0051 — thumbnails in a database of their own** was proposed and **accepted** the same day:
+the pictures leave `index.db` for `thumbs/roost.db`, so that they survive a rebuild and the index
+stays small, with a cleaner for the orphans that no longer cascade.
+
 **Three open, as of 2026-09-21.** **ADR-0047 — noticing that a file changed** was proposed and
 **accepted** on 2026-09-21. It is the workspace half of ADR-0046, and the two questions in it were
 the user's: **a watcher plus a catch-up sweep** over the two cheaper shapes, and **edit-in-place

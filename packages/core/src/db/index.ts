@@ -1,5 +1,6 @@
 export { Db, INDEX_FILE } from "./database.js";
 export { allMigrations, latestSchemaVersion } from "./migrations.js";
+export { PICTURES_SCHEMA, picturesPathFor, THUMBNAILS_FILE } from "./pictures.js";
 export {
   type Cursor,
   cursorAfter,
@@ -28,6 +29,7 @@ export {
   type JobCount,
   type JobReason,
   lastCursor,
+  type PictureSource,
   Repo,
   type SelectionSummary,
   type SharedText,

@@ -41,7 +41,9 @@ tables behind each decision.
 | First grid page | **369–435 ms** on 96,666 assets | M3 |
 | Dropped frames, reading speed | **none**, across three consecutive runs | M3, on WebKitGTK |
 | Dropped frames, flinging | **0.25%** through 79,800 assets | M3, on WebKitGTK |
-| Thumbnail storage | **9.4 GB** per 1M assets | Grid size eager, preview size on first use; 34 GB if both were eager |
+| Thumbnail storage | **9.4 GB** per 1M assets | Grid size eager, preview size on first use; 34 GB if both were eager. In `thumbs/roost.db` since ADR-0051 |
+| `index.db` without the pictures | **358 MiB** at 1M assets | ADR-0051 |
+| Derive after a rebuild | **4.93 s → 0.20 s** for 1,000 photographs | ADR-0051: kept, not drawn |
 
 Two of those deserve a note before they are used as targets.
 
@@ -54,6 +56,44 @@ target now under pressure — and it is measured from M3, the first milestone th
 rather than assumed until someone complains.
 
 ## 3. Results
+
+### 2026-09-26 — thumbnails in a database of their own (ADR-0051)
+
+Machine: Fedora 44 host, Intel Core Ultra 7 155H, on the SSD rather than tmpfs.
+`scripts/bench-pictures.ts scratch --assets 1000000 --files 1000`. The first part builds an index of
+1,000,000 assets, each with a 256 thumbnail of **64 bytes** in the attached `thumbs/roost.db`,
+because what is measured there is the plans across two files, not the bytes. It then runs
+`optimize = 0x10002`, which analyses every table. The second part is a real library of 1,000
+JPEG photographs at 1600×1200.
+
+| | Result |
+| --- | --- |
+| Folder covers, 100,000 members spread across the library | 2.41 ms p50, 3.53 ms max |
+| Folder covers, 20 old members | 0.08 ms p50, 0.49 ms max |
+| Backfill sweep with nothing to queue, old predicate (picture missing) | 344 ms |
+| The same, new predicate (`derived_at IS NULL OR` picture missing) | 366 ms |
+| Cleaner, 10,000 strays among 1,000,000 | 357 ms |
+| `index.db` at 1,000,000 assets, without pictures | **358 MiB** |
+| 1,000 photographs: first derive | 4.93 s, 1,000 drawn |
+| The same after `rebuild` (0.09 s) | **0.20 s, 1,000 kept, 0 drawn** |
+
+**What it revealed.** The point of the change is the last two rows. The derive pass after a rebuild
+fell by a factor of 25 on photographs, and it will fall by more on video, where drawing means an
+ffmpeg spawn and keeping still means a `stat`. At a million photographs that is the difference
+between about 80 minutes of placeholders and about three minutes of `stat`s. The index at a million
+assets is 358 MiB, where the pictures alone had been 9.4 GB inside it.
+
+The costs are small and where they were expected. The folder covers cross into the attached file
+for their picture probe, at 2.41 ms against the 1.59 ms measured on 2026-09-25. That run was on a
+different day's build, so the comparison is indicative, and both are far inside a frame. The sweep
+pays 6% for its second question. The cleaner's 357 ms runs after a fold or a rebuild, never on an
+ordinary open.
+
+**One mistake the tests caught rather than the reasoning.** A test helper applied journal records
+through `IndexSink` outside a transaction. The sink batches, so it left one open, and a thumbnail
+written afterwards was visible on the same connection and **absent from the file** once the
+connection closed. The test reading the file back failed, which is what it was for. Every caller
+in the engine already wraps the sink.
 
 ### 2026-09-25 — a picture onto the clipboard (ADR-0034 §5)
 

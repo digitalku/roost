@@ -31,6 +31,14 @@ versions that came with it.
 
 Still open, and none of it blocks M0:
 
+- 🟢 **ADR-0051 was accepted on 2026-09-26**, the day it was proposed: thumbnails move out of
+  `index.db` into `thumbs/roost.db`, a SQLite file of their own, attached to the engine's
+  connection. The work is in §3, under *Thumbnails in a database of their own*.
+- 🟢 **ADR-0052 was accepted on 2026-09-26**, the day it was proposed: this repository owns its
+  format. `docs/FORMAT.md` and `docs/OPS.md` are revision 2.0 copied home, `conformance/` is at
+  the root, and `roost-net` is no longer a compatibility target. Nothing changes on disk until the
+  first incompatible change, which must mark the library (ADR-0052 §4).
+
 - 🟢 **ADR-0046 was accepted on 2026-09-21**, the day it was proposed. The format moved to
   **version 2** in
   `../roost-library` on 2026-09-20 and this build now reads version 2 and nothing else: identity
@@ -39,14 +47,12 @@ Still open, and none of it blocks M0:
   theirs to make — **refuse and strip the v1 code** rather than park it, and **engine first**
   until the conformance suite is green — and both are done.
 
-  One thing is left over, and it is not this repository's to fix: `../roost-library`
-  records this implementation as **discontinued on 2026-09-17** in `SPEC.md`'s lineage appendix.
-  That is that repository's line to change, not this one's, and it is now contradicted by the
-  work — so it wants a revision there.
+  The one thing left over, a lineage appendix that recorded this implementation as
+  **discontinued on 2026-09-17**, is corrected in `docs/FORMAT.md`, now that the document is ours
+  (ADR-0052).
 
-- 🟡 **ADR-0045 is proposed and not accepted.** The library format moved to `../roost-library`
-  and `docs/STORAGE_SPEC.md` became the map from its `RL-n` to the code here. Everything the
-  audit found is fixed and tested; what is outstanding is the user's answer on the ADR itself.
+- 🟢 **ADR-0045 was never accepted, and ADR-0052 superseded it on 2026-09-26.** Everything its
+  audit found stays fixed and tested. The format came back to this repository instead.
 
   It also closes a 🟡 that stood here from M0: *the two path edits in `STORAGE_SPEC.md`*, both of
   which named where **code** lived rather than what a **library** contained. The standard forbids
@@ -81,8 +87,7 @@ Still open, and none of it blocks M0:
   `configDir()` because the picker is drawn before any library is open (ADR-0019).
 
 - 🟢 **What happens to `../roost-old`.** It wrote format 1, which nothing here reads any more
-  (ADR-0046), so it is no longer the source of any fixture — the conformance library in
-  `../roost-library` is. What it still is, is the reference implementation with real measurements
+  (ADR-0046), so it is no longer the source of any fixture — `conformance/` at the root is. What it still is, is the reference implementation with real measurements
   behind it: `../roost-old/docs/BENCHMARKS.md`. Archiving it now costs nothing.
 
 ## 2. Blocked on the environment
@@ -841,7 +846,24 @@ claim and counts made cheap at a million. What is still open:
 - 🟢 **`check-derive-order.mjs` is not in `pnpm verify`**, like every other window check. It is
   also the only one that needs a threadpool of one to be meaningful, and says why.
 
-### Conforming to the library format
+### Thumbnails in a database of their own (ADR-0051, 2026-09-26)
+
+- [x] `thumbs/roost.db`, attached as `pictures` by the engine and by main's read-only reader;
+  migration 0002 copies the pictures across and drops them from `index.db`, then `VACUUM main`
+  once. `sources` records what each asset's pictures were drawn from.
+- [x] A rebuild keeps the pictures, and the derive after it keeps every one whose file is unchanged:
+  `kept` in `DeriveReport`, `roost thumb` and `roost rebuild` say so. 4.93 s → 0.20 s on 1,000
+  photographs (`BENCHMARKS.md`).
+- [x] The cleaner: `applyRemove` takes the pictures, `prunePictures` runs after every fold and from
+  Reclaim space, which then hands the pages back with `incremental_vacuum`.
+- 🟢 **`doctor` does not report orphaned pictures, or the pages Reclaim space would return.** They
+  are pruned after every fold and by `--reclaim`, so nothing accumulates, but the report's
+  *reclaimable* figure counts `files/` alone and undersells what the button will free.
+- 🟢 **No window check covers a rebuild.** None could before either, because the window has no
+  rebuild gesture. What ADR-0051 changes is visible only as a grid that stays drawn after
+  `roost rebuild`, and `import.test.ts` asserts that at the engine.
+
+### The library format
 
 - 🟢 **An open folds the whole journal, not the part it has not seen.** The mark `index.db` keeps
   is the byte length of each month file, so the records past it could be read alone — the journal
@@ -856,20 +878,19 @@ claim and counts made cheap at a million. What is still open:
   does not go looking for a bug. **Moot as of 2026-09-21**: no library that predates ADR-0046
   opens here at all.
 
-- 🟢 **Two findings belong to `../roost-library`, not here.** Its `.gitattributes` guards
-  `conformance/library/**` and the directory is `conformance/library.roost/`, so the fixture's
-  byte-exactness — including the deliberately truncated last line — is protected by nothing. And
-  the reserved-names rule forbids unlisted names in the library root while SQLite in WAL mode
-  always writes `index.db-wal` and `index.db-shm` beside `index.db`; they are plainly part of the
-  cache the format puts outside itself, and the requirement does not say so. Both are raised
-  there, as a revision. **Still true of version 2** (RL-4, RL-56).
+- 🟢 **The reserved-names rule forbids what SQLite always writes.** RL-3 forbids unlisted names in
+  the library root, while SQLite in WAL mode always writes `index.db-wal` and `index.db-shm`
+  beside `index.db`. They are plainly part of the cache the format puts outside itself, and the
+  requirement does not say so. **Ours to fix since ADR-0052**, as a document revision (2.1) in
+  `docs/FORMAT.md`. The other finding that stood here, a `.gitattributes` that protected nothing, is
+  closed: this repository's own now exempts `conformance/`.
 
-- 🟢 **Two questions the standard leaves open, and what this build does about them.**
-  `SPEC.md` §11.1 — *does removing an asset delete its file?* — is open; this build **deletes**,
+- 🟢 **Two questions the format leaves open, and what this build does about them.**
+  `FORMAT.md` §11.1 — *does removing an asset delete its file?* — is open; this build **deletes**,
   as ADR-0031 decided, and version 2 raises the stakes because an orphan in `files/` is now
   something RL-11 and RL-12 both have opinions about. §11.4 — *does a tag with no assets
-  survive?* — is open too; this build **keeps** it. Neither may be settled from here; if the
-  standard answers differently, the behaviour changes and the data does not.
+  survive?* — is open too; this build **keeps** it. Since ADR-0052 both **can** be settled here, as
+  a document revision. That is a choice worth making deliberately, not a chore.
 
 - 🟢 **The portable-`referenced` question went away.** It was open in version 1's §11.1 and this
   implementation was forbidden from inventing source roots while it was. Version 2 has one

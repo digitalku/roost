@@ -1,15 +1,15 @@
 # Storage — how this build meets the library format
 
-**Roost Library Format 2, revision 2.0.** The normative document is `SPEC.md` in the
-[`roost-library`](../../roost-library) repository, checked out beside this one. This file is
-**not** a specification and binds nothing on its own: it is the map from that document's
-numbered requirements to the code here, plus the notes that belong to this implementation
-and to no other.
+**Roost Library Format 2, revision 2.0.** The normative document is [`FORMAT.md`](FORMAT.md),
+beside this file, with [`OPS.md`](OPS.md) for the journal operations and `conformance/` at the
+repository root for the suite. This file is **not** a specification and binds nothing on its own:
+it is the map from that document's numbered requirements to the code here, plus the notes that
+belong to this build.
 
-> **Where the rules are.** `SPEC.md` (requirements `RL-1`…`RL-56`), `ops/REGISTRY.md` (all
-> thirty-three journal operations), `conformance/` (a library and the state replaying it must
-> produce), and `CHANGING.md` (how any of those may change). Nothing from them is copied here.
-> A copy drifts the moment somebody fixes one of them — see ADR-0045.
+> **Whose the rules are.** Until 2026-09-26 the format lived in the `roost-library` repository and
+> this build conformed to it (ADR-0045). Since ADR-0052 it is this repository's own: copied home at
+> revision 2.0, changed here, in the same commit as the code. The map stays separate from the
+> format so that the normative text and this build's notes about it cannot blur into each other.
 
 ## Status (2026-09-21)
 
@@ -20,13 +20,15 @@ journalled. A version 1 library is **refused by name** and never read, repaired 
 (RL-6a).
 
 The numbering starts again with the format: version 1's `RL-1`…`RL-41` are archived under
-`v1/` in that repository and are unrelated to the numbers below.
+`v1/` in the `roost-library` repository and are unrelated to the numbers below.
 
-Two things the standard deliberately leaves to this build:
+Two things the format deliberately leaves to this build:
 
-- **Thumbnails are WebP at quality 80.** They are outside the format (RL-2) because they are
-  derived from bytes the format *does* define, and `thumbs/` is merely a reserved name.
-  `ARCHITECTURE.md` §4.5 owns the encoding.
+- **Thumbnails are WebP at quality 80, in `thumbs/roost.db`.** They are outside the format (RL-2)
+  because they are derived from bytes the format *does* define, and `thumbs/` is a reserved name
+  the format leaves to the implementation. A SQLite file of its own beside the index, so that a
+  rebuild keeps them (ADR-0051). `ARCHITECTURE.md` §3.3 owns the encoding, and `DATA_MODEL.md`
+  §2.2 the schema.
 - **The index schema.** A cache (RL-2), so it lives in `DATA_MODEL.md` §2.0.
 
 ## The map
@@ -39,7 +41,7 @@ construction or by a rule nothing here can break.
 | | | |
 |---|---|---|
 | RL-1 | The normative files are read and written as specified | `packages/core` |
-| RL-2 | `index.db`, `thumbs/`, `settings.json`, `staging/` are ours, not the format's | `db/`, `settings.ts`, `storage/handoff.ts` |
+| RL-2 | `index.db`, `thumbs/`, `settings.json`, `staging/` are ours, not the format's | `db/`, `db/pictures.ts` (`thumbs/roost.db`), `settings.ts`, `storage/handoff.ts` |
 | RL-3 | Nothing unlisted is created in the library root | Only the reserved names are ever joined to the root |
 | RL-4 | A library is a readable `library.json` with an integer version | `library/src/manifest.ts` |
 | RL-5, RL-5b | All four fields required; a bad file is *not a library*, never repaired | `manifest.ts` · `tests/standard.test.ts` |
@@ -121,7 +123,7 @@ construction or by a rule nothing here can break.
 
 | | | |
 |---|---|---|
-| RL-52 | The standard's suite is run, against a checkout beside this one | `packages/library/tests/format-conformance.test.ts` |
+| RL-52 | The suite in `conformance/` is run by `pnpm test` | `packages/library/tests/format-conformance.test.ts` |
 | RL-53 | Delete the cache, replay, assert the same state | `packages/core/tests/journal-replay.test.ts` |
 | RL-54, RL-54a | The suite is layered by revision; this build states **2.0** | It passes `conformance/library.roost`, which is required of everyone |
 | RL-56 | The reserved names are not used for anything else | `versions/` is reserved and stays empty |
@@ -134,7 +136,7 @@ construction or by a rule nothing here can break.
 ## Implementation notes
 
 Ours, not the format's. They record consequences an implementer has to handle, add no
-requirements, and permit no deviation from `SPEC.md`.
+requirements, and permit no deviation from `FORMAT.md`.
 
 ### Two halves of a row, and the line between them
 
@@ -155,7 +157,7 @@ Version 1 named every file by the hash of its contents, so a file that no longer
 name was **provably** damaged. Here the bytes are allowed to change under an unchanged id
 (RL-20) and an edit is journalled nowhere (RL-23), so bit rot, a bad sync and a person editing
 their own file are indistinguishable: **no implementation can promise to detect corruption**
-(`SPEC.md` §5).
+(`FORMAT.md` §5).
 
 `doctor --deep` still reads every file. What it reports is that the bytes **changed** — a reason
 to derive them again, not an accusation — and `hasDamage` deliberately does not count it. A

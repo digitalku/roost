@@ -1,15 +1,17 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { monthKey, shardOf, withoutDerived } from "@roost/core";
+import { monthKey, parseAssetId, shardOf, withoutDerived } from "@roost/core";
 import {
   count,
   createFolder,
+  enqueueMissing,
   generateMissing,
   importInto,
   Library,
   queueStatus,
   retryFailed,
+  runDerives,
   subtitles,
   tagAdd,
   trashAssets,
@@ -372,17 +374,76 @@ describe("rebuilding", () => {
     }
   });
 
-  it("loses thumbnails, because they are derived and not journalled", async () => {
+  /** Queues what the rebuild left unmeasured, and works the queue. */
+  const deriveAfterRebuild = async () => {
+    enqueueMissing(library, [GRID_SIZE]);
+    return runDerives(library, { sizes: [GRID_SIZE] });
+  };
+
+  it("keeps the thumbnails, and draws none of them again (ADR-0051)", async () => {
     await generateMissing(library, [GRID_SIZE]);
     expect(library.stats().thumbnails).toBe(5);
+    const ids = library.db.repo.allIds();
+    const before = ids.map((id) => library.db.repo.assetDetail(id));
 
     await library.rebuild();
 
-    // A correct rebuild comes back without them. `roost thumb` is what restores
-    // them, and it can be run at any time.
-    expect(library.stats().thumbnails).toBe(0);
-    await generateMissing(library, [GRID_SIZE]);
+    // The pictures are in thumbs/roost.db, which a rebuild does not touch. The
+    // derived columns are in index.db, which it does.
     expect(library.stats().thumbnails).toBe(5);
+    expect(library.stats().underived).toBe(5);
+
+    const report = await deriveAfterRebuild();
+
+    // Every asset measured again, and not one picture drawn to do it: the
+    // files are the ones the pictures were drawn from, so the metadata stored
+    // with them is written back as it is.
+    expect(report.derived).toBe(5);
+    expect(report.kept).toBe(5);
+    expect(report.thumbnails).toBe(0);
+    expect(library.stats().underived).toBe(0);
+    for (const [index, id] of ids.entries()) {
+      const now = library.db.repo.assetDetail(id);
+      const then = before[index];
+      expect(now?.size).toBe(then?.size);
+      expect(now?.width).toBe(then?.width);
+      expect(now?.height).toBe(then?.height);
+      expect(now?.contentHash).toBe(then?.contentHash);
+    }
+  });
+
+  it("draws a file again when it changed while the index was gone", async () => {
+    await generateMissing(library, [GRID_SIZE]);
+    const [changed] = library.db.repo.allIds();
+    if (changed === undefined) throw new Error("the import made no assets");
+    const then = library.db.repo.assetDetail(changed);
+
+    // Written behind the library's back, as another application would (RL-20),
+    // and at a different size so that the size alone gives it away.
+    await writeFile(library.storage.locate(changed, "png"), await gradient(160, 90, 9, "png"));
+    await library.rebuild();
+    const report = await deriveAfterRebuild();
+
+    expect(report.kept).toBe(4);
+    expect(report.thumbnails).toBe(1);
+    const now = library.db.repo.assetDetail(changed);
+    expect(now?.width).toBe(160);
+    expect(now?.contentHash).not.toBe(then?.contentHash);
+  });
+
+  it("forgets the pictures of an asset the journal does not hold", async () => {
+    await generateMissing(library, [GRID_SIZE]);
+    // A picture nothing in the journal accounts for: what a removal leaves when
+    // it is cut short between the two database files (ADR-0051 §6).
+    const stray = parseAssetId("ZZZZZZZZZZZZ");
+    library.db.repo.putThumbnail(stray, GRID_SIZE, 1, 1, Buffer.from([0]));
+    library.db.repo.putPictureSource(stray, { size: 1, mtime: 1, posterMs: null, metadata: {} });
+    expect(library.stats().thumbnails).toBe(6);
+
+    await library.rebuild();
+
+    expect(library.stats().thumbnails).toBe(5);
+    expect(library.db.repo.pictureSource(stray)).toBeUndefined();
   });
 });
 

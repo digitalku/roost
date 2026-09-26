@@ -14,12 +14,17 @@ import type { Library } from "./library.js";
  * app's background runner, and it covers every format a backend exists for
  * rather than only the ones `sharp` decodes.
  *
- * Thumbnails are derived data: a rebuild discards them and running this
- * restores them from `files/`.
+ * Thumbnails are derived data, kept outside the index (ADR-0051): a rebuild
+ * leaves them in place, and running this draws only what is missing or stale.
  */
 
 export interface ThumbnailReport {
   generated: number;
+  /**
+   * Assets whose pictures were already there and still show the file, so they
+   * were measured and not drawn (ADR-0051 §5). After a rebuild, most of them.
+   */
+  kept: number;
   /**
    * Assets nothing on this machine can draw: a format with no backend, or a
    * backend that is not installed. Expected, not a fault.
@@ -60,7 +65,8 @@ export async function generateMissing(
 
 function asThumbnailReport(report: DeriveReport): ThumbnailReport {
   return {
-    generated: report.derived,
+    generated: report.derived - report.kept,
+    kept: report.kept,
     unsupported: report.blocked,
     missing: report.missing,
     bytes: report.bytes,
@@ -121,6 +127,10 @@ export async function redrawPoster(library: Library, id: string): Promise<boolea
           thumbnail.data,
         );
       }
+      // The same file, a different frame: the source stands apart from which
+      // moment it shows, or the next derive would draw this all over again
+      // (ADR-0051 §5).
+      library.db.repo.setPictureSourcePoster(asset, target.posterMs);
     });
     return outcome.thumbnails.length > 0;
   } catch {

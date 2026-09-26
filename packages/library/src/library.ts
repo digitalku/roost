@@ -250,8 +250,9 @@ export class Library {
    *
    * This is invariant 1 made executable: everything in `index.db` other than
    * the derived caches comes from the journal, so throwing it away has to be
-   * survivable. Thumbnails do not come back — they derive from bytes, not from
-   * records — and `roost thumb` is what restores them.
+   * survivable. The thumbnails are not in `index.db` and stay where they are
+   * (ADR-0051): the derive pass that follows keeps every picture whose file is
+   * unchanged and writes its metadata back without reading the file.
    *
    * The Rust build consumed the library and returned a new one, so a stale
    * handle was a type error. Here the handles are replaced in place instead:
@@ -320,6 +321,13 @@ export class Library {
       rememberFold(this.#db, fingerprint);
     });
     this.#notice = journalNotice(this.#db);
+
+    // After the replay, never before it: until the journal has been folded, an
+    // asset the pictures belong to may simply not be in the index yet, and a
+    // rebuild starts from an empty one (ADR-0051 §6).
+    const pruned = this.#db.repo.prunePictures();
+    if (pruned > 0)
+      log.info("pictures of assets the journal does not hold were removed", { pruned });
 
     // Every counter on one line: a fold is the operation most worth being able
     // to reconstruct after the fact.

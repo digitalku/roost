@@ -1,7 +1,9 @@
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import BetterSqlite3, { type Database, type Statement } from "better-sqlite3";
 import type { AssetId } from "../model/index.js";
 import { INDEX_FILE } from "./database.js";
+import { PICTURES_SCHEMA, THUMBNAILS_FILE } from "./pictures.js";
 import type { FileRecord } from "./repo.js";
 
 /**
@@ -12,7 +14,9 @@ import type { FileRecord } from "./repo.js";
  * thumbnails are WebP BLOBs inside `index.db`, the protocol handler runs in
  * main, and the alternative is bytes crossing IPC — which invariant 12 forbids.
  * So main opens exactly one connection that **cannot** write, and this class is
- * the whole of what it may ask.
+ * the whole of what it may ask. The thumbnails are in their own file now
+ * (ADR-0051), attached to that same connection rather than opened on a second
+ * one, so the exception stays one connection wide.
  *
  * `readonly: true` is enforced by SQLite, not by convention: a write statement
  * on this connection throws `SQLITE_READONLY` rather than succeeding quietly.
@@ -39,10 +43,13 @@ export const READ_ONLY_OPTIONS = { readonly: true, fileMustExist: true } as cons
 
 export class ReadOnlyIndex {
   readonly #db: Database;
+  readonly #picturesPath: string;
+  #picturesAttached = false;
   readonly #cache = new Map<string, Statement>();
 
-  private constructor(db: Database) {
+  private constructor(db: Database, libraryRoot: string) {
     this.#db = db;
+    this.#picturesPath = join(libraryRoot, THUMBNAILS_FILE);
   }
 
   /**
@@ -57,7 +64,27 @@ export class ReadOnlyIndex {
     const db = new BetterSqlite3(join(libraryRoot, INDEX_FILE), READ_ONLY_OPTIONS);
     // Not `journal_mode`: that is a write. A reader inherits WAL from the file.
     db.pragma("busy_timeout = 5000");
-    return new ReadOnlyIndex(db);
+    return new ReadOnlyIndex(db, libraryRoot);
+  }
+
+  /**
+   * Attaches the thumbnail database, if it is there yet.
+   *
+   * Asked on every thumbnail rather than once at open, and the absence is not
+   * remembered: the engine creates the file, and a reader that decided at open
+   * that there were no pictures would serve 404s for the rest of the session.
+   * An attached database takes the connection's flags, so it is read-only too.
+   */
+  #pictures(): boolean {
+    if (this.#picturesAttached) return true;
+    if (!existsSync(this.#picturesPath)) return false;
+    try {
+      this.#db.prepare(`ATTACH DATABASE ? AS ${PICTURES_SCHEMA}`).run(this.#picturesPath);
+    } catch {
+      return false;
+    }
+    this.#picturesAttached = true;
+    return true;
   }
 
   #s(sql: string): Statement {
@@ -70,9 +97,10 @@ export class ReadOnlyIndex {
 
   /** One thumbnail's WebP bytes, or `undefined` if it has not been generated. */
   thumbnail(id: AssetId, size: number): Buffer | undefined {
-    const row = this.#s("SELECT data FROM thumbs WHERE asset_id = ? AND size = ?").get(id, size) as
-      | { data: Buffer }
-      | undefined;
+    if (!this.#pictures()) return undefined;
+    const row = this.#s(
+      `SELECT data FROM ${PICTURES_SCHEMA}.thumbs WHERE asset_id = ? AND size = ?`,
+    ).get(id, size) as { data: Buffer } | undefined;
     return row?.data;
   }
 

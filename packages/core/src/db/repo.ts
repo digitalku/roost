@@ -166,6 +166,53 @@ export interface DerivedMetadata {
   readonly props?: Readonly<Record<string, string>>;
 }
 
+/**
+ * What an asset's pictures were drawn from (ADR-0051).
+ *
+ * `size` and `mtime` are the file's when it was drawn, in the units the index
+ * stores; `metadata` is everything else the same derive learned.
+ */
+export interface PictureSource {
+  readonly size: number;
+  readonly mtime: number;
+  readonly posterMs: number | null;
+  readonly metadata: DerivedMetadata;
+}
+
+/** A `pictures.sources` row as SQLite returns it. */
+interface PictureSourceRow {
+  readonly size: number;
+  readonly mtime: number;
+  readonly posterMs: number | null;
+  readonly contentHash: ContentHash | null;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly durationMs: number | null;
+  readonly pageCount: number | null;
+  readonly props: string | null;
+}
+
+/**
+ * A stored `props` object, read back.
+ *
+ * Written only by {@link Repo.putPictureSource} from a string-to-string
+ * record, so anything else is a file this build did not write, and it is read
+ * as no properties rather than trusted.
+ */
+function parseProps(text: string): Readonly<Record<string, string>> {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const props: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === "string") props[key] = value;
+    }
+    return props;
+  } catch {
+    return {};
+  }
+}
+
 /** A job claimed by a runner, with the bytes it is about. */
 export interface JobClaim {
   readonly id: number;
@@ -528,11 +575,13 @@ export class Repo {
   /**
    * Deletes an asset and everything hanging off it.
    *
-   * Foreign keys cascade to `thumbs`, `asset_tags`, and `asset_folders`, but
-   * `assets_fts` is a virtual table with no foreign keys, so its row has to go
-   * explicitly or search keeps returning a deleted asset.
+   * Foreign keys cascade to `asset_tags` and `asset_folders`, but not to the
+   * pictures: they are in another database file (ADR-0051), where a foreign key
+   * cannot reach. `assets_fts` is a virtual table with no foreign keys either.
+   * Both have to go explicitly, or search keeps returning a deleted asset and
+   * the thumbnail database keeps its picture.
    *
-   * The file under `files/` is **not** this method's business: `SPEC.md` §11.1
+   * The file under `files/` is **not** this method's business: `FORMAT.md` §11.1
    * leaves that question open, and ADR-0031 is where this build answers it — in
    * the service that owns the bytes.
    */
@@ -544,6 +593,7 @@ export class Repo {
       | undefined;
 
     this.#s("DELETE FROM assets WHERE id = ?").run(id);
+    this.#dropPictures(id);
 
     if (row !== undefined) {
       this.#s("DELETE FROM assets_fts WHERE rowid = ?").run(row.rowid);
@@ -860,7 +910,7 @@ export class Repo {
    * disagrees with its own grid cell is worse than either (ADR-0024).
    */
   dropThumbnail(id: AssetId, size: number): void {
-    this.#s("DELETE FROM thumbs WHERE asset_id = ? AND size = ?").run(id, size);
+    this.#s("DELETE FROM pictures.thumbs WHERE asset_id = ? AND size = ?").run(id, size);
   }
 
   /**
@@ -869,10 +919,16 @@ export class Repo {
    * Version 2's own case: the bytes behind an id may change (RL-20), and when
    * they do, every thumbnail of that asset is a picture of a file that no
    * longer exists. Under version 1 this could not happen — a different file was
-   * a different asset at a different address.
+   * a different asset at a different address. What they were drawn from goes
+   * with them, so nothing can reuse them afterwards.
    */
   dropThumbnails(id: AssetId): void {
-    this.#s("DELETE FROM thumbs WHERE asset_id = ?").run(id);
+    this.#dropPictures(id);
+  }
+
+  #dropPictures(id: AssetId): void {
+    this.#s("DELETE FROM pictures.thumbs WHERE asset_id = ?").run(id);
+    this.#s("DELETE FROM pictures.sources WHERE asset_id = ?").run(id);
   }
 
   /** The moment a thumbnail is pinned to, or `null` for the default frame. */
@@ -1300,7 +1356,7 @@ export class Repo {
       notes: this.#count("SELECT count(*) AS n FROM assets WHERE note IS NOT NULL"),
       comments: this.#count("SELECT count(*) AS n FROM asset_comments"),
       trashed: this.#count("SELECT count(*) AS n FROM assets WHERE trashed_at IS NOT NULL"),
-      thumbnails: this.#count("SELECT count(*) AS n FROM thumbs"),
+      thumbnails: this.#count("SELECT count(*) AS n FROM pictures.thumbs"),
     };
   }
 
@@ -1311,12 +1367,14 @@ export class Repo {
   /**
    * Stores or replaces one thumbnail BLOB.
    *
-   * Thumbnails are derived data and therefore never journalled: a rebuild
-   * discards them, and regenerating from `files/` restores them.
+   * Thumbnails are derived data and therefore never journalled. They live in
+   * the thumbnail database rather than the index (ADR-0051), so a rebuild
+   * keeps them, and {@link Repo.pictureSource} decides whether they still
+   * describe the file.
    */
   putThumbnail(id: AssetId, size: number, width: number, height: number, data: Buffer): void {
     this.#s(
-      `INSERT INTO thumbs (asset_id, size, width, height, data) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO pictures.thumbs (asset_id, size, width, height, data) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(asset_id, size) DO UPDATE SET
            width = excluded.width, height = excluded.height, data = excluded.data`,
     ).run(id, size, width, height, data);
@@ -1324,10 +1382,109 @@ export class Repo {
 
   /** One thumbnail's bytes, or `undefined` if it has not been generated. */
   thumbnail(id: AssetId, size: number): Buffer | undefined {
-    const row = this.#s("SELECT data FROM thumbs WHERE asset_id = ? AND size = ?").get(id, size) as
-      | { data: Buffer }
-      | undefined;
+    const row = this.#s("SELECT data FROM pictures.thumbs WHERE asset_id = ? AND size = ?").get(
+      id,
+      size,
+    ) as { data: Buffer } | undefined;
     return row?.data;
+  }
+
+  /** Whether one asset has a thumbnail at every one of `sizes`. */
+  hasThumbnails(id: AssetId, sizes: readonly number[]): boolean {
+    const probe = this.#s("SELECT 1 FROM pictures.thumbs WHERE asset_id = ? AND size = ?");
+    return sizes.every((size) => probe.get(id, size) !== undefined);
+  }
+
+  /**
+   * Records what an asset's pictures were drawn from (ADR-0051 §4).
+   *
+   * Written with the thumbnails, from the same derive. `size` and `mtime` are
+   * required: without them a later pass could not tell whether the file is
+   * still the one that was drawn, and a source it cannot check is one it must
+   * not reuse.
+   */
+  putPictureSource(id: AssetId, source: PictureSource): void {
+    this.#s(
+      `INSERT INTO pictures.sources (asset_id, file_size, file_mtime, poster_ms, content_hash,
+                                     width, height, duration_ms, page_count, props)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(asset_id) DO UPDATE SET
+           file_size = excluded.file_size, file_mtime = excluded.file_mtime,
+           poster_ms = excluded.poster_ms, content_hash = excluded.content_hash,
+           width = excluded.width, height = excluded.height,
+           duration_ms = excluded.duration_ms, page_count = excluded.page_count,
+           props = excluded.props`,
+    ).run(
+      id,
+      source.size,
+      source.mtime,
+      source.posterMs,
+      source.metadata.contentHash ?? null,
+      source.metadata.width ?? null,
+      source.metadata.height ?? null,
+      source.metadata.durationMs ?? null,
+      source.metadata.pageCount ?? null,
+      source.metadata.props === undefined ? null : JSON.stringify(source.metadata.props),
+    );
+  }
+
+  /**
+   * What an asset's pictures were drawn from, or `undefined` if nothing
+   * recorded it.
+   *
+   * The derive pass compares it with the file and the asset. Where all three
+   * of size, modification time and pinned frame agree, the pictures are kept and
+   * the metadata here is written back into the index, which is what makes a
+   * rebuild cost a `stat` per asset rather than a decode and a hash.
+   */
+  pictureSource(id: AssetId): PictureSource | undefined {
+    const row = this.#s(
+      `SELECT file_size AS size, file_mtime AS mtime, poster_ms AS posterMs,
+              content_hash AS contentHash, width, height, duration_ms AS durationMs,
+              page_count AS pageCount, props
+         FROM pictures.sources WHERE asset_id = ?`,
+    ).get(id) as PictureSourceRow | undefined;
+    if (row === undefined) return undefined;
+    const metadata: DerivedMetadata = {
+      size: row.size,
+      mtime: row.mtime,
+      ...(row.contentHash === null ? {} : { contentHash: row.contentHash }),
+      ...(row.width === null ? {} : { width: row.width }),
+      ...(row.height === null ? {} : { height: row.height }),
+      ...(row.durationMs === null ? {} : { durationMs: row.durationMs }),
+      ...(row.pageCount === null ? {} : { pageCount: row.pageCount }),
+      ...(row.props === null ? {} : { props: parseProps(row.props) }),
+    };
+    return { size: row.size, mtime: row.mtime, posterMs: row.posterMs, metadata };
+  }
+
+  /**
+   * Says that the pictures now show a different frame (ADR-0024 stage 4).
+   *
+   * For a redraw that changed the frame and nothing else: the file is the one
+   * that was measured, so the rest of the source stands.
+   */
+  setPictureSourcePoster(id: AssetId, posterMs: number | null): void {
+    this.#s("UPDATE pictures.sources SET poster_ms = ? WHERE asset_id = ?").run(posterMs, id);
+  }
+
+  /**
+   * Deletes every picture whose asset the index does not hold, and says how
+   * many rows went (ADR-0051 §6).
+   *
+   * `ON DELETE CASCADE` cannot cross into another database file, so this is
+   * what does its job. It runs after a rebuild and after a fold, when the
+   * journal may no longer have an asset the pictures do, and from `doctor`.
+   * `NOT IN` over the primary key is a single anti-join, not a probe per row.
+   */
+  prunePictures(): number {
+    const thumbs = this.#s(
+      "DELETE FROM pictures.thumbs WHERE asset_id NOT IN (SELECT id FROM main.assets)",
+    ).run().changes;
+    const sources = this.#s(
+      "DELETE FROM pictures.sources WHERE asset_id NOT IN (SELECT id FROM main.assets)",
+    ).run().changes;
+    return thumbs + sources;
   }
 
   /** Where one asset's bytes are, for generating a thumbnail on demand. */
@@ -1354,7 +1511,9 @@ export class Repo {
     // Built from `sizes.length`, never from its contents — the values stay
     // bound. Every caller passes a compile-time constant, not user input.
     const probes = sizes
-      .map(() => "NOT EXISTS (SELECT 1 FROM thumbs t WHERE t.asset_id = a.id AND t.size = ?)")
+      .map(
+        () => "NOT EXISTS (SELECT 1 FROM pictures.thumbs t WHERE t.asset_id = a.id AND t.size = ?)",
+      )
       .join(" OR ");
 
     return this.#s(
@@ -1511,14 +1670,20 @@ export class Repo {
     // Built from `sizes.length`, never from its contents, exactly as
     // `assetsMissingThumbnails` does — the values stay bound.
     const probes = sizes
-      .map(() => "NOT EXISTS (SELECT 1 FROM thumbs t WHERE t.asset_id = a.id AND t.size = ?)")
+      .map(
+        () => "NOT EXISTS (SELECT 1 FROM pictures.thumbs t WHERE t.asset_id = a.id AND t.size = ?)",
+      )
       .join(" OR ");
 
+    // `derived_at IS NULL` as well as a missing picture: since the pictures
+    // survive a rebuild (ADR-0051 §5), an asset can hold its thumbnail and have
+    // no derived columns at all, and a sweep that asked only about pictures
+    // would leave it unmeasured for ever.
     const result = this.#s(
       `INSERT INTO jobs (kind, asset_id, priority, state, enqueued_at)
        SELECT ?, a.id, ?, 'ready', ?
          FROM assets a
-        WHERE ${probes}
+        WHERE a.derived_at IS NULL OR ${probes}
         ORDER BY a.imported_at DESC
         LIMIT ?
        ON CONFLICT(kind, asset_id) DO NOTHING`,
@@ -1758,7 +1923,7 @@ export class Repo {
             LIMIT ?) recent
           WHERE EXISTS (SELECT 1 FROM asset_folders af
                          WHERE af.asset_id = recent.id AND af.folder_id = ?)
-            AND EXISTS (SELECT 1 FROM thumbs t WHERE t.asset_id = recent.id AND t.size = ?)
+            AND EXISTS (SELECT 1 FROM pictures.thumbs t WHERE t.asset_id = recent.id AND t.size = ?)
           ORDER BY importedAt DESC, id DESC
           LIMIT ?`,
       ).all(COVER_WALK, folder, size, limit) as CoverAsset[];
@@ -1770,7 +1935,7 @@ export class Repo {
       `SELECT a.id AS id, a.poster_ms AS posterMs, a.derived_at AS derivedAt
          FROM asset_folders af CROSS JOIN assets a ON a.id = af.asset_id
         WHERE af.folder_id = ? AND a.trashed_at IS NULL
-          AND EXISTS (SELECT 1 FROM thumbs t WHERE t.asset_id = a.id AND t.size = ?)
+          AND EXISTS (SELECT 1 FROM pictures.thumbs t WHERE t.asset_id = a.id AND t.size = ?)
         ORDER BY a.imported_at DESC, a.id DESC
         LIMIT ?`,
     ).all(folder, size, limit) as CoverAsset[];

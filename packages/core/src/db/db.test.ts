@@ -4,9 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MigrationFailedError, SchemaTooNewError, UnreadableSchemaVersionError } from "../index.js";
+import {
+  MigrationFailedError,
+  parseAssetId,
+  SchemaTooNewError,
+  UnreadableSchemaVersionError,
+} from "../index.js";
 import { Db } from "./database.js";
-import { applyMigrations, latestSchemaVersion } from "./migrations.js";
+import { applyMigrations, latestSchemaVersion, migrationSql } from "./migrations.js";
+import { THUMBNAILS_FILE } from "./pictures.js";
+import { IndexSink } from "./sink.js";
 
 /** Every table the binding specification's schema v1 defines. */
 const SPEC_TABLES = [
@@ -207,6 +214,169 @@ describe("migrations", () => {
     try {
       const mode = db.pragma("journal_mode") as { journal_mode: string }[];
       expect(mode[0]?.journal_mode).toBe("wal");
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("the thumbnail database (ADR-0051)", () => {
+  const ONE = parseAssetId("AAAAAAAAAAAA");
+  const TWO = parseAssetId("BBBBBBBBBBBB");
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "roost-pictures-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  // Inside a transaction, as every other caller does: the sink batches, and
+  // left to itself it holds one open that nothing here would commit.
+  const addAsset = (db: Db, id: typeof ONE): void => {
+    db.transaction(() => new IndexSink(db).apply({ ts: 1, op: "add", id, ext: "png", name: id }));
+  };
+
+  it("lives in thumbs/roost.db beside the index, not in it", () => {
+    const db = Db.open(join(dir, "index.db"));
+    try {
+      addAsset(db, ONE);
+      db.repo.putThumbnail(ONE, 256, 256, 160, Buffer.from("picture"));
+      const main = (db.pragma("main.table_list") as { name: string }[]).map((t) => t.name);
+      expect(main).not.toContain("thumbs");
+    } finally {
+      db.close();
+    }
+    expect(existsSync(join(dir, THUMBNAILS_FILE))).toBe(true);
+    const raw = new BetterSqlite3(join(dir, THUMBNAILS_FILE), { readonly: true });
+    try {
+      expect(raw.prepare("SELECT count(*) AS n FROM thumbs").get()).toEqual({ n: 1 });
+      // Set before the first table, which is the only moment it can be.
+      expect(raw.pragma("auto_vacuum", { simple: true })).toBe(2);
+    } finally {
+      raw.close();
+    }
+  });
+
+  it("carries a schema v1 index's pictures across, and what they were drawn from", () => {
+    // Built by hand at schema v1, which is what every library this build wrote
+    // before ADR-0051 has on disk.
+    const path = join(dir, "index.db");
+    const raw = new BetterSqlite3(path);
+    raw.exec(migrationSql("0001_initial.sql"));
+    raw.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', '1')").run();
+    raw
+      .prepare(
+        `INSERT INTO assets (id, ext, name, imported_at, poster_ms, size, mtime, content_hash,
+                             width, height, derived_at)
+         VALUES (?, 'png', 'one', 1, 1200, 42, 1700000000, 'abc', 640, 480, 5)`,
+      )
+      .run(ONE);
+    raw
+      .prepare("INSERT INTO asset_props (asset_id, key, value) VALUES (?, 'codec', 'h264')")
+      .run(ONE);
+    raw
+      .prepare(
+        "INSERT INTO thumbs (asset_id, size, width, height, data) VALUES (?, 256, 256, 192, ?)",
+      )
+      .run(ONE, Buffer.from("carried"));
+    raw.close();
+
+    const db = Db.open(path);
+    try {
+      expect(db.schemaVersion()).toBe(2);
+      expect(db.repo.thumbnail(ONE, 256)?.toString()).toBe("carried");
+      expect(db.repo.pictureSource(ONE)).toEqual({
+        size: 42,
+        mtime: 1700000000,
+        posterMs: 1200,
+        metadata: {
+          size: 42,
+          mtime: 1700000000,
+          contentHash: "abc",
+          width: 640,
+          height: 480,
+          props: { codec: "h264" },
+        },
+      });
+      const main = (db.pragma("main.table_list") as { name: string }[]).map((t) => t.name);
+      expect(main).not.toContain("thumbs");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("makes a thumbnail database of an unknown version again rather than trusting it", () => {
+    const path = join(dir, "index.db");
+    Db.open(path).close();
+    const raw = new BetterSqlite3(join(dir, THUMBNAILS_FILE));
+    raw.exec("DROP TABLE thumbs; CREATE TABLE thumbs (mine INTEGER); PRAGMA user_version = 9");
+    raw.close();
+
+    const db = Db.open(path);
+    try {
+      addAsset(db, ONE);
+      db.repo.putThumbnail(ONE, 256, 256, 160, Buffer.from("fresh"));
+      expect(db.repo.thumbnail(ONE, 256)?.toString()).toBe("fresh");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("takes an asset's pictures with it, since no foreign key can reach them", () => {
+    const db = Db.openInMemory();
+    try {
+      addAsset(db, ONE);
+      db.repo.putThumbnail(ONE, 256, 256, 160, Buffer.from("picture"));
+      db.repo.putPictureSource(ONE, { size: 1, mtime: 1, posterMs: null, metadata: {} });
+
+      db.repo.applyRemove(ONE);
+
+      expect(db.repo.thumbnail(ONE, 256)).toBeUndefined();
+      expect(db.repo.pictureSource(ONE)).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("prunes the pictures of assets the index does not hold, and hands the space back", () => {
+    const db = Db.open(join(dir, "index.db"));
+    try {
+      addAsset(db, ONE);
+      db.repo.putThumbnail(ONE, 256, 256, 160, Buffer.from("kept"));
+      // Enough strays to free whole pages, as a rebuild of a library that lost
+      // assets would leave behind.
+      const bytes = Buffer.alloc(8192, 1);
+      db.transaction(() => {
+        for (let n = 0; n < 50; n += 1) {
+          const stray = parseAssetId(`C${String(n).padStart(11, "0")}`);
+          db.repo.putThumbnail(stray, 256, 256, 160, bytes);
+          db.repo.putPictureSource(stray, { size: 1, mtime: 1, posterMs: null, metadata: {} });
+        }
+      });
+
+      expect(db.repo.prunePictures()).toBe(100);
+      expect(db.repo.thumbnail(ONE, 256)?.toString()).toBe("kept");
+      expect(db.repo.stats().thumbnails).toBe(1);
+      expect(db.reclaimPictureSpace()).toBeGreaterThan(50 * 8192 * 0.9);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("queues an asset that holds its picture but was never measured", () => {
+    // What every asset looks like after a rebuild, now that the pictures stay.
+    const db = Db.openInMemory();
+    try {
+      addAsset(db, ONE);
+      addAsset(db, TWO);
+      db.repo.putThumbnail(ONE, 256, 256, 160, Buffer.from("picture"));
+      db.repo.putThumbnail(TWO, 256, 256, 160, Buffer.from("picture"));
+      db.repo.putDerived(TWO, { size: 3 }, 1);
+
+      expect(db.repo.enqueueMissingDerives("derive", [256], 0, 1, 100)).toBe(1);
+      expect(db.repo.claimJob("derive")?.assetId).toBe(ONE);
     } finally {
       db.close();
     }

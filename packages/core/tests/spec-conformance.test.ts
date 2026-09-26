@@ -6,18 +6,11 @@ import { describe, expect, it } from "vitest";
 const docs = (name: string): string =>
   readFileSync(fileURLToPath(new URL(`../../../docs/${name}`, import.meta.url)), "utf8");
 
-/**
- * A file from the Roost Library Format, checked out beside this repository.
- *
- * The journal vocabulary is the standard's (RL-24), so this is what the
- * vocabulary is compared against. It is never vendored — see ADR-0045, and
- * `packages/library/tests/format-conformance.test.ts` for the rest of the suite.
- */
-const standard = (name: string): string =>
-  readFileSync(
-    fileURLToPath(new URL(`../../../../roost-library/${name}`, import.meta.url)),
-    "utf8",
-  );
+/** The schema the db module runs against `thumbs/roost.db` (ADR-0051). */
+const picturesSchema = readFileSync(
+  fileURLToPath(new URL("../migrations/thumbs_schema.sql", import.meta.url)),
+  "utf8",
+);
 
 /** Every fenced ```sql block in a markdown file, in order. */
 function sqlBlocks(markdown: string): string[] {
@@ -70,30 +63,46 @@ describe("the schema on disk against the schema in the documents", () => {
     // are. What the document publishes and what the runner executes still have
     // to be the same text, or one of them is describing a database nobody has.
     const published = sqlBlocks(docs("DATA_MODEL.md"));
-    expect(published).toHaveLength(allMigrations().length + 1);
 
+    // Three kinds of block, told apart by what they say rather than where they
+    // sit: the two PRAGMAs, the thumbnail database (ADR-0051), and the
+    // migrations, which appear in version order.
+    const pragmas = published.filter((block) =>
+      statements(block).every((statement) => statement.startsWith("PRAGMA")),
+    );
+    const pictures = published.filter((block) => block.includes("CREATE TABLE pictures.sources"));
+    const migrations = published.filter(
+      (block) => !pragmas.includes(block) && !pictures.includes(block),
+    );
+
+    expect(migrations).toHaveLength(allMigrations().length);
     for (const [index, migration] of allMigrations().entries()) {
       expect(migration.version).toBe(index + 1);
-      expect(statements(migration.sql)).toEqual(statements(published[index] ?? ""));
+      expect(statements(migration.sql)).toEqual(statements(migrations[index] ?? ""));
     }
 
-    // The last block is the two PRAGMAs, which are deliberately **not** in a
-    // migration: `journal_mode` cannot be set inside a transaction and
-    // `foreign_keys` is per-connection, so both are applied when a connection
-    // is opened.
-    expect(statements(published.at(-1) ?? "")).toEqual([
+    // The PRAGMAs are deliberately **not** in a migration: `journal_mode`
+    // cannot be set inside a transaction and `foreign_keys` is per-connection,
+    // so both are applied when a connection is opened.
+    expect(pragmas).toHaveLength(1);
+    expect(statements(pragmas[0] ?? "")).toEqual([
       "PRAGMA journal_mode = WAL",
       "PRAGMA foreign_keys = ON",
     ]);
+
+    // And the thumbnail database's one schema, the same text the db module runs.
+    expect(pictures).toHaveLength(1);
+    expect(statements(picturesSchema)).toEqual(statements(pictures[0] ?? ""));
   });
 
-  it("starts its numbering again, because version 2 migrates nothing", () => {
+  it("starts its numbering again at version 2 of the format", () => {
     // Version 1's fourteen described a schema keyed on a column that no longer
     // exists, and an implementation of Format 2 refuses a Format 1 library
     // rather than reading it (RL-6a) — so there is no database in the world to
     // migrate forward from, and a baseline costs nothing (ADR-0046 §2.3).
-    expect(allMigrations().map((m) => m.version)).toEqual([1]);
-    expect(latestSchemaVersion()).toBe(1);
+    // 0002 is this build's own, and moves the thumbnails out (ADR-0051).
+    expect(allMigrations().map((m) => m.version)).toEqual([1, 2]);
+    expect(latestSchemaVersion()).toBe(2);
   });
 });
 
@@ -186,7 +195,7 @@ describe("the journal vocabulary against the vocabulary in the documents", () =>
     //
     // Sorted and not deduplicated, so a second example for an operation that
     // already has one fails too: `OP_NAMES` holds each name once.
-    const names = publishedOps(standard("ops/REGISTRY.md")).map(opOf).sort();
+    const names = publishedOps(docs("OPS.md")).map(opOf).sort();
     expect(names).toEqual([...OP_NAMES]);
   });
 
@@ -196,7 +205,7 @@ describe("the journal vocabulary against the vocabulary in the documents", () =>
     // in `OP_NAMES` that `toRecord` has no case for, fails here. The latter is
     // otherwise invisible until a replay reports a real operation as a corrupt
     // line, which reads like data loss rather than like a missing case.
-    const lines = publishedOps(standard("ops/REGISTRY.md"));
+    const lines = publishedOps(docs("OPS.md"));
     expect(lines).toHaveLength(OP_NAMES.length);
 
     for (const line of lines) {

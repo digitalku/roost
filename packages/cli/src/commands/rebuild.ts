@@ -58,7 +58,10 @@ export async function rebuild(
     }
 
     out("");
-    out("Thumbnails are derived and were not journalled. Run `roost thumb` to restore them.");
+    // ADR-0051: the pictures are not in `index.db`, so the rebuild left them,
+    // but the sizes, dimensions and hashes were, and they are empty now.
+    out("Thumbnails were kept. Run `roost thumb` to measure the files again: a file that has");
+    out("not changed keeps its picture and is not read.");
   } finally {
     await library.close();
   }

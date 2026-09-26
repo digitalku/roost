@@ -30,13 +30,18 @@ export async function thumb(
 
     let lastShown = 0;
     const report = await generateMissing(library, args.sizes, args.limit, (running) => {
-      const done = running.generated + running.unsupported + running.missing;
+      const done = running.generated + running.kept + running.unsupported + running.missing;
       if (done - lastShown < 100) return;
       lastShown = done;
       progress(`  generated ${running.generated}`);
     });
 
     out(`Generated ${report.generated} thumbnail(s) at ${args.sizes.join(", ")} px`);
+    if (report.kept > 0) {
+      out(
+        row("", `${report.kept} kept, because the file had not changed since it was drawn`, 1, 0),
+      );
+    }
     if (report.missing > 0) {
       out(
         row("", `${report.missing} referenced original(s) no longer at their recorded path`, 1, 0),

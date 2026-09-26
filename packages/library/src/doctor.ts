@@ -325,5 +325,10 @@ export async function reclaim(
     await storage.remove(orphan.id, orphan.ext);
     freed += orphan.bytes;
   }
+  // The thumbnail database's orphans are the index's to find, not the disk's:
+  // a picture whose asset is gone (ADR-0051 §6). Pruned first, so the pages
+  // they held are among those handed back.
+  library.db.repo.prunePictures();
+  freed += library.db.reclaimPictureSpace();
   return freed;
 }
