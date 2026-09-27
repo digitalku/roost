@@ -228,13 +228,13 @@ try {
   // Eagle gives `a1` four stars and a note. The point is what happens when
   // somebody disagrees with Eagle *after* the first import.
   const page = await cdp.evaluate(
-    request({ type: "assets:page", query: "a1", limit: 1, after: null }),
+    request({ type: "assets:page", query: "a1", limit: 1, after: null, sort: null }),
   );
   const id = page?.value?.assets?.[0]?.id ?? null;
   check("the rated item is findable by name", id !== null, `id=${String(id).slice(0, 12)}`);
 
   await cdp.evaluate(request({ type: "asset:rate", ids: [id], rating: 1 }));
-  await cdp.evaluate(request({ type: "asset:note", id, note: "what I actually think" }));
+  await cdp.evaluate(request({ type: "asset:note", ids: [id], note: "what I actually think" }));
 
   const third = await cdp.evaluate(request({ type: "eagle:import", path: eagle, take: "copy" }));
   const detail = await cdp.evaluate(request({ type: "asset:detail", id }));
