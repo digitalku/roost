@@ -594,6 +594,14 @@ export type Request =
    */
   | { readonly type: "assets:transferCancel" }
   /**
+   * Stop the import that is running, of paths or of an Eagle library
+   * (ADR-0055 §3.3).
+   *
+   * Answers whether there was one. The import answers its own request a moment
+   * later, with `cancelled` set and what had arrived by then.
+   */
+  | { readonly type: "import:cancel" }
+  /**
    * Import files and directories into the open library.
    *
    * Paths, not bytes: the renderer gets a path for a dropped file from the
@@ -860,6 +868,7 @@ export interface Responses {
   "assets:export": WireExportReport;
   "assets:transfer": WireTransferReport;
   "assets:transferCancel": boolean;
+  "import:cancel": boolean;
   "import:paths": WireImportReport;
   "import:fileDuplicates": WireFiled;
   "eagle:survey": WireEagleSurvey;
@@ -1367,6 +1376,8 @@ export const REQUEST_VALIDATORS: {
   },
 
   "assets:transferCancel": () => ok({ type: "assets:transferCancel" }),
+
+  "import:cancel": () => ok({ type: "import:cancel" }),
 
   "import:paths": (source) => {
     const paths = readStringArray(source, "paths");

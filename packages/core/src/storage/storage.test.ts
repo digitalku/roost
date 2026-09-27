@@ -272,6 +272,19 @@ describe.runIf(onLinux)("a counted copy", () => {
     // The source is the caller's, and a stopped copy has no business with it.
     expect((await stat(join(src, "big.bin"))).size).toBe(SIZE);
   });
+
+  it("refuses to start a copy nobody is counting once it has been stopped", async () => {
+    // An import passes a signal alone for a small file (ADR-0055 §3.2): the
+    // kernel's copy is kept, and a stop is honoured before it begins.
+    const controller = new AbortController();
+    controller.abort();
+    const placing = store.put(join(src, "big.bin"), OTHER, "bin", "copy", {
+      signal: controller.signal,
+    });
+
+    await expect(placing).rejects.toMatchObject({ name: "AbortError" });
+    expect(await readdir(join(store.filesDir(), "B7"))).toEqual([]);
+  });
 });
 
 describe("walking the store", () => {

@@ -5,7 +5,7 @@
  * It never imports `electron` — directly or transitively — because the CLI is
  * what proves the layering and the CLI has no Electron in it.
  */
-export { discover } from "./discover.js";
+export { discover, type Measured, measure } from "./discover.js";
 export {
   type Ambiguous,
   type Changed,
@@ -30,6 +30,7 @@ export {
   type EagleFolder,
   type EagleImportOptions,
   type EagleItem,
+  type EagleProgress,
   type EagleReport,
   type EagleRoot,
   type EagleSurvey,
@@ -124,6 +125,7 @@ export {
 export { childrenById, descendants } from "./folder-tree.js";
 export {
   filesPerSecond,
+  type ImportBytes,
   type ImportFailure,
   type ImportOptions,
   type ImportReport,
@@ -170,6 +172,7 @@ export {
   readManifest,
   writeManifest,
 } from "./manifest.js";
+export { ByteMeter, LARGE_FILE, type MeterShare } from "./meter.js";
 export {
   checkLibraryName,
   hasLibrarySuffix,

@@ -209,6 +209,7 @@ const EMPTY_SURVEY: WireEagleSurvey = {
 };
 
 const EMPTY_EAGLE_REPORT: WireEagleReport = {
+  cancelled: false,
   items: 0,
   assets: 0,
   imported: 0,
@@ -231,6 +232,7 @@ const EMPTY_EAGLE_REPORT: WireEagleReport = {
 };
 
 const EMPTY_REPORT: WireImportReport = {
+  cancelled: false,
   scanned: 0,
   imported: 0,
   duplicates: 0,
@@ -1034,6 +1036,10 @@ export class FakeEngine {
       // Answered as though one were running: a test that sends this has a
       // transfer held open with `hold`, which is what a transfer in progress is.
       case "assets:transferCancel":
+        return ok(true);
+
+      // The same for an import held open with `hold` (ADR-0055).
+      case "import:cancel":
         return ok(true);
 
       case "dialog:chooseImport":

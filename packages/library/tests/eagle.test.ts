@@ -293,6 +293,45 @@ describe("importing an Eagle library", () => {
     expect(tags).not.toContain("ghost");
   });
 
+  it("counts items and bytes against the survey", async () => {
+    const survey = await surveyEagle(eagle);
+    const seen: { done: number; total: number; bytesDone: number; bytesTotal: number }[] = [];
+
+    await importEagle(library, eagle, {}, (progress) => seen.push(progress));
+
+    expect(seen.every((progress) => progress.total === survey.items)).toBe(true);
+    expect(seen.every((progress) => progress.bytesTotal === survey.bytes)).toBe(true);
+    expect(seen.at(-1)?.bytesDone).toBe(survey.bytes);
+  });
+
+  it("stops after the chunk in hand, and a second run finishes it", async () => {
+    // ADR-0055 §3.3: what arrived stays, with its metadata, and the tag groups
+    // wait for the run that brings the rest of the tags.
+    const controller = new AbortController();
+    const stopped = await importEagle(library, eagle, { signal: controller.signal }, (progress) => {
+      // After the first item, not the first byte: a stop during the first
+      // file's hash would bring nothing, which is a different test.
+      if (progress.done > 0) controller.abort();
+    });
+
+    expect(stopped.cancelled).toBe(true);
+    expect(stopped.failed).toEqual([]);
+    // Eight files are in flight at once, so how many of these small ones were
+    // already placed when the stop came is not fixed; each of them is kept.
+    // This is also what found an identical file merged onto one whose copy was
+    // abandoned (ADR-0055 §3.5), which ended the run with a dangling tag.
+    expect(stopped.assets).toBeGreaterThan(0);
+    expect(stopped.tagGroups).toBe(0);
+    expect(library.db.repo.findTagGroupByName("Mood")).toBeUndefined();
+    // The folder tree is made before the first item, so a stop leaves it whole.
+    expect(library.db.repo.folders()).toHaveLength(3);
+
+    const finished = await importEagle(library, eagle);
+    expect(finished.cancelled).toBe(false);
+    expect(library.db.repo.findTagGroupByName("Mood")).toBeDefined();
+    expect(library.db.repo.assetDetail(hashOf(library, "photo two.jpg"))?.rating).toBe(4);
+  });
+
   it("can be run twice", async () => {
     await importEagle(library, eagle);
     const before = snapshot(library);

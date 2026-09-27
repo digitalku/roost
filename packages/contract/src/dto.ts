@@ -989,6 +989,8 @@ export interface WireImportFailure {
  * window that showed them would invite reading a single run as a measurement.
  */
 export interface WireImportReport {
+  /** Stopped before it reached every file; what arrived stays arrived (ADR-0055 §3.3). */
+  readonly cancelled: boolean;
   readonly scanned: number;
   readonly imported: number;
   readonly duplicates: number;
@@ -1076,6 +1078,8 @@ export interface WireEagleSurvey {
  * item by id and Roost by content hash, so identical bytes are one asset here.
  */
 export interface WireEagleReport {
+  /** Stopped after the chunk in hand; a second run finishes it (ADR-0055 §3.3). */
+  readonly cancelled: boolean;
   readonly items: number;
   readonly assets: number;
   readonly imported: number;
@@ -1152,15 +1156,24 @@ export interface ImportProgress {
   /** Non-zero once the import is done and the thumbnails are being made. */
   readonly thumbnails: number;
   /**
-   * How many there are in total, when that is known before the run ends.
+   * How many there are in total: files for an import of paths, items for an
+   * Eagle library.
    *
-   * `null` for an import of paths, and not as an oversight: the total is the
-   * walk's own result, so a bar that filled to an estimate would jump back
-   * every time the walk found more. An Eagle import knows it from the survey,
-   * which is the whole difference — there, "3 of 14" is a fact rather than a
-   * guess (ADR-0032).
+   * Known before the first file is read (ADR-0055 §3.1). An import of paths
+   * walks its sources once to count them, and while it does, this is what the
+   * count has found so far and {@link counting} says so. An Eagle import knows
+   * it from the survey (ADR-0032).
    */
-  readonly total: number | null;
+  readonly total: number;
+  /** The first walk is still counting, and nothing has been read (ADR-0055 §3.1). */
+  readonly counting: boolean;
+  /**
+   * Bytes dealt with, from zero to {@link bytesTotal}: each file's bytes are
+   * counted as they are read to be hashed and again as they are written, and
+   * half the sum is reported, as a transfer's are (ADR-0055 §3.2).
+   */
+  readonly bytesDone: number;
+  readonly bytesTotal: number;
 }
 
 /**

@@ -37,7 +37,7 @@ import { type FolderTiles, Grid } from "./grid/Grid.js";
 import { GRID_VIEWS, type GridView, isGridView, ZOOMS, zoomBy, zoomFor } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
-import { TransferStatus, useTransfer } from "./grid/TransferStatus.js";
+import { percentOf, TransferStatus, useTransfer } from "./grid/TransferStatus.js";
 import { assets, type ConfirmRequest, useTrashActions } from "./grid/trash-actions.js";
 import { ViewMenu } from "./grid/ViewMenu.js";
 import { DropZone } from "./import/DropZone.js";
@@ -483,6 +483,87 @@ function Frame({
 }
 
 /**
+ * An import while it runs (ADR-0055): counting, then a bar in bytes with the ×
+ * that stops it, then the thumbnails.
+ *
+ * The × is not drawn for the thumbnails. By then the files are in, and the
+ * pictures are the derive queue's, whose own × pauses it (ADR-0049) — two ×
+ * in one status bar meaning two different things would be one too many.
+ */
+function ImportRunning({ importing }: { readonly importing: Importing }): React.JSX.Element {
+  const { progress, stopping, cancel } = importing;
+  if (progress !== undefined && progress.thumbnails > 0) {
+    return (
+      <span className="status-job">
+        Thumbnails… {counted(progress.thumbnails)} of {counted(progress.imported)}
+      </span>
+    );
+  }
+
+  // What is *finished*, over the total the count found. `scanned` alone was
+  // the walk's own queue — it jumps by a batch of five hundred and then sits
+  // still, which reads as five hundred files done in an instant.
+  const done =
+    progress === undefined ? 0 : progress.imported + progress.duplicates + progress.failed;
+  const percent =
+    progress === undefined
+      ? 0
+      : percentOf({
+          done,
+          total: progress.total,
+          bytesDone: progress.bytesDone,
+          bytesTotal: progress.bytesTotal,
+        });
+  const said = stopping
+    ? "Stopping… what has arrived stays"
+    : progress === undefined
+      ? "Importing…"
+      : progress.counting
+        ? // Nothing has been read yet: the sources are being counted so that
+          // the bar has a total from its first byte (ADR-0055 §3.1).
+          `Counting… ${counted(progress.total)} files · ${bytes(progress.bytesTotal)}`
+        : [
+            `Importing… ${percent}%`,
+            ...(progress.bytesTotal > 0
+              ? [`${bytes(progress.bytesDone)} of ${bytes(progress.bytesTotal)}`]
+              : []),
+            `${counted(done)} of ${counted(progress.total)}`,
+          ].join(" · ");
+  const measured = progress !== undefined && !progress.counting;
+
+  return (
+    <>
+      <span className="status-job status-transfer">
+        {measured && (
+          <span
+            className="status-meter"
+            role="progressbar"
+            aria-label="Importing"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+          >
+            <span className="status-meter-fill" style={{ width: `${percent}%` }} />
+          </span>
+        )}
+        {said}
+      </span>
+      {!stopping && (
+        <button
+          type="button"
+          className="status-job status-job-action"
+          aria-label="Stop importing"
+          title="Stop — what has arrived stays, and importing again brings the rest."
+          onClick={cancel}
+        >
+          ×
+        </button>
+      )}
+    </>
+  );
+}
+
+/**
  * One row for the running job, and one for what it did (`UI_SPEC.md` §3, §8).
  *
  * Progress lives in the status bar rather than in a toast, because a toast is
@@ -490,27 +571,7 @@ function Frame({
  * a notification, it is a state the window is in.
  */
 function ImportStatus({ importing }: { readonly importing: Importing }): React.JSX.Element | null {
-  if (importing.running) {
-    const progress = importing.progress;
-    // No percentage: the total is not known until the walk finishes, and a bar
-    // that fills to an estimate and then jumps back is worse than a count. The
-    // thumbnails are a second phase of the same run and say so.
-    // What is *finished*, over what is known to be there. `scanned` alone was
-    // the walk's own queue — it jumps by a batch of five hundred and then sits
-    // still, which reads as five hundred files done in an instant.
-    const done =
-      progress === undefined ? 0 : progress.imported + progress.duplicates + progress.failed;
-    const said =
-      progress === undefined
-        ? "Importing…"
-        : progress.thumbnails > 0
-          ? `Thumbnails… ${counted(progress.thumbnails)} of ${counted(progress.imported)}`
-          : // The denominator is the total where one is known — an Eagle import
-            // counted its items before it began (ADR-0032) — and otherwise what
-            // the walk has found so far, which is the honest upper bound.
-            `Importing… ${counted(done)} of ${counted(progress.total ?? progress.scanned)}`;
-    return <span className="status-job">{said}</span>;
-  }
+  if (importing.running) return <ImportRunning importing={importing} />;
 
   if (importing.problem !== undefined) {
     return (
@@ -532,6 +593,9 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
 
   const report = outcome.report;
   const parts = [
+    // What arrived stays, and running the import again brings the rest
+    // (ADR-0055 §3.3), so a stop reads as a smaller import, not a failed one.
+    ...(report.cancelled ? ["Import stopped"] : []),
     `${counted(report.imported)} imported`,
     ...(report.duplicates > 0
       ? // Not a failure: re-importing a folder is the ordinary case, and this
@@ -573,6 +637,7 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
  */
 function eagleSaid(report: WireEagleReport): string[] {
   return [
+    ...(report.cancelled ? ["Import stopped"] : []),
     `${counted(report.assets)} from Eagle`,
     ...(report.duplicates > 0 ? [`${counted(report.duplicates)} already here`] : []),
     ...(report.collapsed > 0 ? [`${counted(report.collapsed)} merged by content`] : []),

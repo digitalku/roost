@@ -143,12 +143,12 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 ### Window checks found failing on 2026-09-24
 
 - 🟡 **Two window checks fail on `main`, before and after that day's change.** Found while
-  looking for a tag bug that did not reproduce; not investigated. `check-eagle.mjs` fails 3 of
-  32 under *A judgement made here survives the next import*: the rated item is not found by name
-  (`id=null`), so the rating and note checks after it read nothing. It may be the check rather than
-  the importer: the `preserved=3` report beside them passes. `check-folders.mjs` stops after
-  *Dragging assets onto a folder* with `never settled: document.querySelectorAll('.cell').length`.
-  Both need a first look at whether the script or the window is what changed.
+  looking for a tag bug that did not reproduce. **`check-eagle.mjs` was the check, and is fixed
+  (2026-09-27):** it sent `assets:page` without `sort` (ADR-0039) and `asset:note` with `id`
+  rather than `ids` (ADR-0048), so the validator refused both; it passes 32 of 32.
+  `check-folders.mjs` still stops after *Dragging assets onto a folder* with `never settled:
+  document.querySelectorAll('.cell').length`, and still needs a first look at whether the script
+  or the window is what changed.
 
 ### A zoom per view (ADR-0039 §10) — built 2026-09-25
 
@@ -890,6 +890,24 @@ claim and counts made cheap at a million. What is still open:
 - 🟢 **No window check drives a transfer.** It needs two libraries in the recent list and a
   submenu opened over CDP. The component tests cover the menu against the fake engine, and
   `serve.test.ts` the request against a real one.
+
+### An import that counts bytes and can be stopped (ADR-0055, 2026-09-27)
+
+- [x] **Counted first, then imported**, with progress in bytes: `measure` beside `discover`,
+  `ByteMeter` shared with the transfer, and `onBytes` and a signal through `importInto` and
+  `importEagle`. `import:cancel` in the contract and the engine, the bar and the × in
+  `ImportStatus`, and `Ctrl+C` in `roost import`. What has arrived stays, as the user chose.
+- [x] Three bugs it found (ADR-0055 §3.5): a duplicate of a file whose copy failed or was stopped
+  (in the transfer as well, which ended an Eagle run with a dangling tag), a moved file arriving
+  with no date, and an import that outlived the library it was writing to.
+- [x] `scripts/check-import.mjs`, the first window check through a drop, 11 checks.
+- 🟡 **Large files do not take turns in an import.** Six files of 512 MiB were all in flight at
+  once, so the line read `0 of 6` at 28 %, and a stop at any point before the end kept none of
+  them (ADR-0055 §3.6). The transfer takes files of 64 MiB or more one at a time (ADR-0054 §3.9);
+  the same rule here would make them arrive one by one. A user-visible change to what × keeps, so
+  it wants a yes first.
+- 🟢 **The counting walk is a second listing of the tree.** Measured at 2.3 s for 209,032 files on
+  a warm NVMe cache. On a network share or a cold hard disk it is more, and unmeasured.
 
 ### The library format
 

@@ -3,23 +3,24 @@ import { basename, extname } from "node:path";
 import {
   type AddRecord,
   type AssetId,
-  type ContentHash,
   type DerivedMetadata,
   IndexSink,
   type JournalRecord,
   logger,
-  mintAssetId,
+  type PutOptions,
   type Storage,
   type Take,
   toNfc,
 } from "@roost/core";
-import { hashFile, probe } from "@roost/media";
+import { type HashOptions, hashFile, probe } from "@roost/media";
+import { type Claims, claim } from "./claims.js";
 import { mapWithConcurrency } from "./concurrency.js";
-import { discover } from "./discover.js";
+import { discover, measure } from "./discover.js";
 import { UnknownFolderError } from "./error.js";
 import { enqueueDerives } from "./jobs.js";
 import type { Library } from "./library.js";
 import { nowUnix } from "./library.js";
+import { ByteMeter, LARGE_FILE, type MeterShare } from "./meter.js";
 import { attachSiblings, isSubtitlePath } from "./subtitles.js";
 
 /**
@@ -128,6 +129,43 @@ export interface ImportOptions {
    * Collect here; act after {@link importInto} returns.
    */
   readonly onAsset?: (path: string, id: AssetId) => void;
+  /**
+   * Stops the run (ADR-0055 §3.3). Files not yet started are left where they
+   * are, one half copied is abandoned and its partial copy removed, and **every
+   * file already placed is committed**, so nothing lands in `files/` without a
+   * journal line. What has arrived stays arrived; running the import again
+   * finds it a duplicate and brings the rest.
+   */
+  readonly signal?: AbortSignal;
+  /**
+   * Asks for progress in bytes (ADR-0055 §3.1, §3.2).
+   *
+   * Given this, the sources are walked once to be counted before they are
+   * walked again to be imported, so that the total is known from the start.
+   * The count keeps two numbers and no paths.
+   */
+  readonly onBytes?: (progress: ImportBytes) => void;
+  /**
+   * A meter already sized, in place of the count {@link onBytes} would make.
+   *
+   * The Eagle importer's: its survey summed the sizes before the first item,
+   * and it imports in chunks that each call {@link importInto}, so one meter
+   * has to run across all of them.
+   */
+  readonly meter?: ByteMeter;
+}
+
+/** How far an import has got in bytes (ADR-0055). */
+export interface ImportBytes {
+  /**
+   * The first walk is still counting. `files` and `bytesTotal` are what it
+   * has found so far, and nothing has been read.
+   */
+  readonly counting: boolean;
+  /** The files counted: the total, once counting is over. */
+  readonly files: number;
+  readonly bytesDone: number;
+  readonly bytesTotal: number;
 }
 
 /**
@@ -223,6 +261,8 @@ export interface ImportReport {
    * were already here", and the directory they just chose is not news.
    */
   readonly duplicateNames: string[];
+  /** The run was stopped before it reached every file (ADR-0055 §3.3). */
+  cancelled: boolean;
 }
 
 function emptyReport(): ImportReport {
@@ -249,6 +289,7 @@ function emptyReport(): ImportReport {
     duplicateIds: [],
     importedIds: [],
     duplicateNames: [],
+    cancelled: false,
   };
 }
 
@@ -272,19 +313,30 @@ export async function importInto(
   const started = performance.now();
   const report = emptyReport();
   const storage = library.storage;
+  const { signal, onBytes } = options;
+  const includeHidden = options.includeHidden ?? false;
+
+  // Checked before the first file is hashed, not when its record is written.
+  // A folder deleted between the click and the request would otherwise fail
+  // the run halfway, after some of it had already been journalled.
+  if (options.folder !== undefined && library.db.repo.folder(options.folder) === undefined) {
+    throw new UnknownFolderError(options.folder);
+  }
+
+  const meter =
+    options.meter ??
+    (onBytes === undefined
+      ? undefined
+      : await countFirst(library, sources, includeHidden, signal, onBytes));
+
   const run: Run = {
     take: options.take ?? "copy",
     tags: options.tags ?? [],
     folder: options.folder,
     onAsset: options.onAsset,
+    signal,
+    meter,
   };
-
-  // Checked before the first file is hashed, not when its record is written.
-  // A folder deleted between the click and the request would otherwise fail
-  // the run halfway, after some of it had already been journalled.
-  if (run.folder !== undefined && library.db.repo.folder(run.folder) === undefined) {
-    throw new UnknownFolderError(run.folder);
-  }
 
   let batch: Ingested[] = [];
   /**
@@ -297,14 +349,8 @@ export async function importInto(
    */
   const tracks: { path: string; id: AssetId }[] = [];
 
-  /**
-   * Files hashed in this batch but not yet visible to a reader.
-   *
-   * Without this, two identical files in one batch both look new and the
-   * library gains two assets from one gesture. The id travels with the hash so
-   * that the second copy reports the same duplicate the first one became.
-   */
-  const pending = new Map<ContentHash, AssetId>();
+  /** Files hashed in this batch but not yet visible to a reader (`claims.ts`). */
+  const pending: Claims = new Map();
 
   /**
    * Ids minted in this batch, for RL-15.
@@ -315,8 +361,12 @@ export async function importInto(
    */
   const minted = new Set<AssetId>();
 
-  const walker = discover(sources, library.root, options.includeHidden ?? false);
+  const walker = discover(sources, library.root, includeHidden);
   for (;;) {
+    // Between windows as well as inside them: a stop during the count, or
+    // just after a batch was committed, should not start another.
+    if (signal?.aborted === true) break;
+
     // One window of paths, drained from the walk before any of it is processed.
     // Bounded by the batch size, so a million-file import still never holds
     // more than five hundred paths at once.
@@ -336,6 +386,8 @@ export async function importInto(
       try {
         return await ingest(library, storage, path, run, pending, minted, report);
       } catch (error) {
+        // Asked for, not a failure: the file was left where it was.
+        if (signal?.aborted === true) return undefined;
         // One file that cannot be read must not end an import of ten thousand.
         report.failed.push({
           path,
@@ -355,11 +407,15 @@ export async function importInto(
       if (isSubtitlePath(result.path)) tracks.push({ path: result.path, id: result.id });
     }
 
+    // Whether or not the run was stopped: what was placed is committed, or it
+    // would be a file in `files/` that nothing journalled (ADR-0055 §3.3).
     await commit(library, batch, report.timings);
     batch = [];
     pending.clear();
     minted.clear();
   }
+  await walker.return(undefined);
+  report.cancelled = signal?.aborted === true;
 
   // After every batch is committed, because attaching is itself a journal
   // write and the asset it points at has to be in the index first (ADR-0025).
@@ -370,7 +426,7 @@ export async function importInto(
   }
 
   report.elapsed = performance.now() - started;
-  log.info("import complete", {
+  log.info(report.cancelled ? "import stopped" : "import complete", {
     scanned: report.scanned,
     imported: report.imported,
     moved: report.moved,
@@ -400,6 +456,38 @@ interface Run {
   readonly tags: readonly string[];
   readonly folder: number | undefined;
   readonly onAsset: ((path: string, id: AssetId) => void) | undefined;
+  readonly signal: AbortSignal | undefined;
+  readonly meter: ByteMeter | undefined;
+}
+
+/**
+ * The first of the two walks (ADR-0055 §3.1), and the meter it sizes.
+ *
+ * A stop during the count answers a meter of what was found. The walk that
+ * follows sees the signal before its first window and starts nothing.
+ */
+async function countFirst(
+  library: Library,
+  sources: readonly string[],
+  includeHidden: boolean,
+  signal: AbortSignal | undefined,
+  onBytes: (progress: ImportBytes) => void,
+): Promise<ByteMeter> {
+  const measured = await measure(sources, library.root, includeHidden, {
+    signal,
+    onProgress: (found) =>
+      onBytes({ counting: true, files: found.files, bytesDone: 0, bytesTotal: found.bytes }),
+  });
+  const meter: ByteMeter = new ByteMeter(measured.bytes, () =>
+    onBytes({
+      counting: false,
+      files: measured.files,
+      bytesDone: meter.done,
+      bytesTotal: meter.total,
+    }),
+  );
+  onBytes({ counting: false, files: measured.files, bytesDone: 0, bytesTotal: measured.bytes });
+  return meter;
 }
 
 /**
@@ -426,20 +514,68 @@ async function ingest(
   storage: Storage,
   path: string,
   run: Run,
-  pending: Map<ContentHash, AssetId>,
+  pending: Claims,
   minted: Set<AssetId>,
   report: ImportReport,
 ): Promise<Ingested | undefined> {
-  const { tags, onAsset } = run;
+  if (run.signal?.aborted === true) return undefined;
+
+  // Before the file is read, for two things: its size is its share of the
+  // bar, and its date has to be read while the file is still here — a move
+  // renames it away before the record is written.
+  const source = await stat(path);
+  const share = run.meter?.file(source.size);
+  try {
+    return await ingestMeasured(
+      library,
+      storage,
+      path,
+      source.mtimeMs,
+      share,
+      run,
+      pending,
+      minted,
+      report,
+    );
+  } finally {
+    share?.finish();
+  }
+}
+
+async function ingestMeasured(
+  library: Library,
+  storage: Storage,
+  path: string,
+  sourceMtimeMs: number,
+  share: MeterShare | undefined,
+  run: Run,
+  pending: Claims,
+  minted: Set<AssetId>,
+  report: ImportReport,
+): Promise<Ingested | undefined> {
+  const { tags, onAsset, signal } = run;
   const hashStarted = performance.now();
-  const hashed = await hashFile(path);
+  const hashOptions: HashOptions = {
+    ...(share !== undefined && { onBytes: share.count }),
+    ...(signal !== undefined && { signal }),
+  };
+  const hashed = await hashFile(path, hashOptions);
   report.timings.hashing += performance.now() - hashStarted;
 
+  // Includes waiting for an identical file in this batch to arrive, which is
+  // time a duplicate spends deciding whether it is one.
   const dedupeStarted = performance.now();
-  const existing = pending.get(hashed.hash) ?? library.db.repo.assetsWithHash(hashed.hash)[0];
+  const claimed = await claim(
+    hashed.hash,
+    pending,
+    minted,
+    (hash) => library.db.repo.assetsWithHash(hash)[0],
+    (candidate) => library.db.repo.hasAsset(candidate),
+  );
   report.timings.dedupe += performance.now() - dedupeStarted;
 
-  if (existing !== undefined) {
+  if ("held" in claimed) {
+    const existing = claimed.held;
     report.duplicates += 1;
     report.duplicateIds.push(existing);
     if (report.duplicateNames.length < DUPLICATE_PREVIEW) {
@@ -471,23 +607,32 @@ async function ingest(
     return undefined;
   }
 
-  // RL-15: minted against the library *and* against this batch, because the
-  // rows for it do not exist yet. Claimed synchronously, in the same turn as
-  // the check — JavaScript cannot interleave without an `await`, which is what
-  // makes this the atomic compare-and-set a concurrent walk needs.
-  const id = mintAssetId(
-    (candidate) => minted.has(candidate) || library.db.repo.hasAsset(candidate),
-  );
-  minted.add(id);
-  pending.set(hashed.hash, id);
+  const { id } = claimed;
 
   // `extname` gives the **last** component with its dot; the format stores it
   // lowercased and without one (RL-9). So `b.tar.gz` is `<id>.gz`, and a file
   // with no extension is a bare `<id>` with **no trailing dot** (RL-9a).
   const ext = extname(path).replace(/^\./, "").toLowerCase();
 
+  // Counted as it goes only when it is large (ADR-0055 §3.2): below that the
+  // kernel's copy is faster, and the file is squared off whole when it ends.
+  const putOptions: PutOptions = {
+    ...(share !== undefined && hashed.size >= LARGE_FILE && { onBytes: share.count }),
+    ...(signal !== undefined && { signal }),
+  };
   const placeStarted = performance.now();
-  const placed = await storage.put(path, id, ext, run.take);
+  let placed: Awaited<ReturnType<Storage["put"]>>;
+  try {
+    placed = await storage.put(path, id, ext, run.take, putOptions);
+  } catch (error) {
+    // Released, or an identical file waiting on it would be reported as a
+    // duplicate of an asset no batch adds (ADR-0055 §3.5).
+    claimed.settle(false);
+    throw error;
+  }
+  // Placed, so committed: whatever follows, the batch this file is in is
+  // written, even after a stop (ADR-0055 §3.3).
+  claimed.settle(true);
   report.timings.placing += performance.now() - placeStarted;
   if (placed.take === "move") report.moved += 1;
   else report.copied += 1;
@@ -516,10 +661,9 @@ async function ingest(
 
   // The source file's own date, which nothing can recover once it is here: the
   // stored file's date becomes the date of the last edit the moment anybody
-  // saves it. This is the one fact about a file that the journal carries.
-  const created = await stat(path)
-    .then((info) => Math.floor(info.mtimeMs / 1000))
-    .catch(() => undefined);
+  // saves it. This is the one fact about a file that the journal carries. Read
+  // before the file was placed, because a move takes it away (ADR-0055 §3.5).
+  const created = Math.floor(sourceMtimeMs / 1000);
 
   const add: Record<string, unknown> = {
     id,
@@ -533,7 +677,7 @@ async function ingest(
   // Built field by field rather than by spreading: an object carrying
   // `undefined` serialises differently from one missing the key, and the
   // journal's format turns on exactly that difference (`op.ts`).
-  if (created !== undefined) add["created"] = created;
+  add["created"] = created;
 
   const ts = nowUnix();
   const records: JournalRecord[] = [{ ts, op: "add", ...(add as unknown as AddRecord) }];

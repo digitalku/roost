@@ -132,6 +132,7 @@ describe("validating a request", () => {
       "assets:export",
       "assets:transfer",
       "assets:transferCancel",
+      "import:cancel",
       "import:paths",
       "import:fileDuplicates",
       "eagle:survey",
@@ -629,76 +630,50 @@ describe("validating an envelope", () => {
   });
 
   it("carries an import's progress as counts and nothing else", () => {
-    // A progress event fires per hundred files and a bulk import is hundreds
-    // of thousands of them; a path per event is a string per event crossing two
-    // process boundaries for a status bar nobody reads at that speed.
-    expect(
-      checkEvent({
-        type: "import:progress",
-        scanned: 100,
-        imported: 98,
-        duplicates: 2,
-        failed: 0,
-        thumbnails: 0,
-        total: null,
-      }),
-    ).toEqual({
-      ok: true,
-      value: {
-        type: "import:progress",
-        scanned: 100,
-        imported: 98,
-        duplicates: 2,
-        failed: 0,
-        thumbnails: 0,
-        total: null,
-      },
-    });
-
-    // `null` and a number are both accepted, and they mean different things:
-    // a walk does not know its total until it ends, and an Eagle import counted
-    // its items before it began (ADR-0032).
-    expect(
-      checkEvent({
-        type: "import:progress",
-        scanned: 3,
-        imported: 3,
-        duplicates: 0,
-        failed: 0,
-        thumbnails: 0,
-        total: 14,
-      }),
-    ).toMatchObject({ ok: true, value: { total: 14 } });
-
-    expect(checkEvent({ type: "import:progress", scanned: 1, imported: 1, duplicates: 0 })).toEqual(
-      {
-        ok: false,
-        reason: "import:progress: failed: expected a safe integer",
-      },
-    );
-    // A path smuggled in does not ride along: the value is built here, field
-    // by field, rather than being the caller's object with a type over it.
-    const smuggled = checkEvent({
+    // A progress event fires several times a second and a bulk import is
+    // hundreds of thousands of files; a path per event is a string per event
+    // crossing two process boundaries for a status bar nobody reads at that
+    // speed.
+    const progress = {
       type: "import:progress",
-      scanned: 1,
-      imported: 1,
-      duplicates: 0,
+      scanned: 100,
+      imported: 98,
+      duplicates: 2,
       failed: 0,
       thumbnails: 0,
-      total: null,
-      path: "/home/you/secret",
+      total: 400,
+      counting: false,
+      bytesDone: 1_048_576,
+      bytesTotal: 4_194_304,
+    };
+    expect(checkEvent(progress)).toEqual({ ok: true, value: progress });
+
+    // While the first walk counts, the total is what it has found so far and
+    // nothing has been read (ADR-0055 §3.1).
+    expect(
+      checkEvent({ ...progress, scanned: 0, imported: 0, counting: true, bytesDone: 0 }),
+    ).toMatchObject({ ok: true, value: { counting: true, total: 400 } });
+
+    // The total is a number now: an unknown one is what the count exists to
+    // prevent, so `null` is refused rather than drawn as a bar with no end.
+    expect(checkEvent({ ...progress, total: null })).toEqual({
+      ok: false,
+      reason: "import:progress: total: expected a safe integer",
     });
-    expect(smuggled).toEqual({
+    expect(checkEvent({ ...progress, counting: "yes" })).toMatchObject({ ok: false });
+
+    // A path smuggled in does not ride along: the value is built here, field
+    // by field, rather than being the caller's object with a type over it.
+    expect(checkEvent({ ...progress, path: "/home/you/secret" })).toEqual({
       ok: true,
-      value: {
-        type: "import:progress",
-        scanned: 1,
-        imported: 1,
-        duplicates: 0,
-        failed: 0,
-        thumbnails: 0,
-        total: null,
-      },
+      value: progress,
+    });
+  });
+
+  it("stops an import, and asks nothing else to do it", () => {
+    expect(checkRequest({ type: "import:cancel" })).toEqual({
+      ok: true,
+      value: { type: "import:cancel" },
     });
   });
 

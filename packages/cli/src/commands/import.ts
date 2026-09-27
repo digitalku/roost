@@ -32,26 +32,38 @@ export async function runImport(
 ): Promise<void> {
   const library = await Library.open(root);
   try {
-    let lastShown = 0;
     // Resolved before the walk starts, so a folder that is not there is a
     // usage error rather than a run that dies partway (ADR-0037 §2).
     const folder = args.folder === undefined ? undefined : resolveFolder(library, args.folder);
-    const report = await importInto(
-      library,
-      args.paths.map((path) => resolve(path)),
-      {
-        take: args.take,
-        tags: args.tags,
-        includeHidden: args.includeHidden,
-        ...(folder === undefined ? {} : { folder }),
-      },
-      (_path, running) => {
-        // Every hundred, not every file: a progress line per file costs more
-        // than the import at these rates, and a terminal cannot read it anyway.
-        if (running.scanned - lastShown < 100) return;
-        lastShown = running.scanned;
-        progress(`  scanned ${running.scanned} · imported ${running.imported}`);
-      },
+    let handled = 0;
+    const tell = throttled();
+    const report = await stoppable(warn, (signal) =>
+      importInto(
+        library,
+        args.paths.map((path) => resolve(path)),
+        {
+          take: args.take,
+          tags: args.tags,
+          includeHidden: args.includeHidden,
+          ...(folder === undefined ? {} : { folder }),
+          signal,
+          // The sources are counted first, so the line has a total from the
+          // start (ADR-0055 §3.1).
+          onBytes: (running) =>
+            tell(false, () =>
+              progress(
+                running.counting
+                  ? `  counting… ${running.files} files · ${bytes(running.bytesTotal)}`
+                  : `  ${percent(running.bytesDone, running.bytesTotal)}% · ` +
+                      `${bytes(running.bytesDone)} of ${bytes(running.bytesTotal)} · ` +
+                      `${handled} of ${running.files}`,
+              ),
+            ),
+        },
+        (_path, running) => {
+          handled = running.imported + running.duplicates + running.failed.length;
+        },
+      ),
     );
 
     printReport(report, out, warn);
@@ -60,12 +72,55 @@ export async function runImport(
   }
 }
 
+/**
+ * Runs an import that `Ctrl+C` stops the way the window's × does (ADR-0055
+ * §3.4): the batch in hand is committed and the report printed. Killing the
+ * process instead could leave a placed file that nothing journalled. A second
+ * `Ctrl+C` is Node's own, and exits at once.
+ */
+async function stoppable<T>(
+  warn: (line: string) => void,
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const stop = (): void => {
+    warn("Stopping — what has arrived stays, and running the import again brings the rest.");
+    controller.abort();
+  };
+  process.once("SIGINT", stop);
+  try {
+    return await run(controller.signal);
+  } finally {
+    process.removeListener("SIGINT", stop);
+  }
+}
+
+/**
+ * A few lines a second at most: the hash reports every chunk it reads, and a
+ * terminal redrawing faster than that is only flicker. `now` forces one.
+ */
+function throttled(): (now: boolean, send: () => void) => void {
+  let told = Number.NEGATIVE_INFINITY;
+  return (now, send) => {
+    const at = performance.now();
+    if (!now && at - told < 250) return;
+    told = at;
+    send();
+  };
+}
+
+function percent(done: number, total: number): number {
+  return total > 0 ? Math.floor((done / total) * 100) : 0;
+}
+
 function printReport(
   report: ImportReport,
   out: (line: string) => void,
   warn: (line: string) => void,
 ): void {
-  out(`Imported ${report.imported} of ${report.scanned} files scanned`);
+  out(
+    `${report.cancelled ? "Stopped. " : ""}Imported ${report.imported} of ${report.scanned} files scanned`,
+  );
   if (report.duplicates > 0) out(row("", `${report.duplicates} already in the library`, 1, 0));
   // What happened to the source files, which RL-26 requires be said out loud:
   // a move is not undoable by looking at the library afterwards.
@@ -146,11 +201,17 @@ export async function runEagleImport(
   const source = resolve(args.path);
   const library = await Library.open(root);
   try {
-    const report = await importEagle(
-      library,
-      source,
-      { take: args.take, tags: args.tags },
-      (done, total) => progress(`  ${done} of ${total} items`),
+    const tell = throttled();
+    const report = await stoppable(warn, (signal) =>
+      importEagle(library, source, { take: args.take, tags: args.tags, signal }, (running) =>
+        tell(running.done === running.total, () =>
+          progress(
+            `  ${percent(running.bytesDone, running.bytesTotal)}% · ` +
+              `${bytes(running.bytesDone)} of ${bytes(running.bytesTotal)} · ` +
+              `${running.done} of ${running.total} items`,
+          ),
+        ),
+      ),
     );
     printEagleReport(report, out, warn);
   } finally {
@@ -210,7 +271,9 @@ function printEagleReport(
   warn: (line: string) => void,
 ): void {
   out(
-    `Imported ${plural(report.survey.items, "item")} from an Eagle ${report.survey.version} library`,
+    report.cancelled
+      ? `Stopped after ${plural(report.assets, "asset")} of ${plural(report.survey.items, "item")} from an Eagle ${report.survey.version} library; run it again to bring the rest`
+      : `Imported ${plural(report.survey.items, "item")} from an Eagle ${report.survey.version} library`,
   );
   // Files and assets are different numbers here, and both are worth saying: a
   // subtitle is an asset of its own (ADR-0025), so a library of 14 items with

@@ -3,6 +3,7 @@ import {
   type Checked,
   isRecord,
   ok,
+  readBoolean,
   readInteger,
   readNonEmpty,
   readNullable,
@@ -123,15 +124,22 @@ export const EVENT_VALIDATORS: {
 
   "import:progress": (source) => {
     const counts: Record<string, number> = {};
-    for (const field of ["scanned", "imported", "duplicates", "failed", "thumbnails"] as const) {
+    for (const field of [
+      "scanned",
+      "imported",
+      "duplicates",
+      "failed",
+      "thumbnails",
+      "total",
+      "bytesDone",
+      "bytesTotal",
+    ] as const) {
       const value = readInteger(source, field);
       if (!value.ok) return value;
       counts[field] = value.value;
     }
-    // Nullable rather than one more of the five: an unknown total and a total
-    // of zero are different things, and only one of them is a number.
-    const total = readNullable(source, "total", readInteger);
-    if (!total.ok) return total;
+    const counting = readBoolean(source, "counting");
+    if (!counting.ok) return counting;
 
     return ok({
       type: "import:progress",
@@ -140,7 +148,10 @@ export const EVENT_VALIDATORS: {
       duplicates: counts["duplicates"] ?? 0,
       failed: counts["failed"] ?? 0,
       thumbnails: counts["thumbnails"] ?? 0,
-      total: total.value,
+      total: counts["total"] ?? 0,
+      counting: counting.value,
+      bytesDone: counts["bytesDone"] ?? 0,
+      bytesTotal: counts["bytesTotal"] ?? 0,
     });
   },
 

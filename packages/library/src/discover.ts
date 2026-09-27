@@ -1,5 +1,6 @@
 import { opendir, realpath, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
+import { mapWithConcurrency } from "./concurrency.js";
 
 /**
  * Streams every importable file under `sources`.
@@ -70,6 +71,66 @@ export async function* discover(
       }
     }
   }
+}
+
+/** What a walk found, before anything is read (ADR-0055 §3.1). */
+export interface Measured {
+  readonly files: number;
+  readonly bytes: number;
+}
+
+/** Paths stated per window of a {@link measure}, as the import drains its walk. */
+const MEASURE_WINDOW = 500;
+
+/** `stat`s in flight at once: eight took `/usr` from 4.1 s to 2.3 s (ADR-0055 §3.1). */
+const MEASURE_CONCURRENCY = 8;
+
+/**
+ * Counts what {@link discover} would yield, and adds up its sizes.
+ *
+ * The first of an import's two walks, so that its bar has a total from the
+ * start. It keeps two numbers and no paths, for the reason `discover` streams.
+ * A file that cannot be stated is counted with no size: the import will find
+ * it the same way, and fail it there, where the failure is reported.
+ *
+ * Stops between windows when `signal` is aborted, and answers what it had.
+ */
+export async function measure(
+  sources: readonly string[],
+  libraryRoot: string,
+  includeHidden: boolean,
+  options: {
+    readonly signal?: AbortSignal | undefined;
+    readonly onProgress?: ((measured: Measured) => void) | undefined;
+  } = {},
+): Promise<Measured> {
+  let files = 0;
+  let bytes = 0;
+  const walker = discover(sources, libraryRoot, includeHidden);
+  try {
+    for (;;) {
+      if (options.signal?.aborted === true) break;
+      const window: string[] = [];
+      while (window.length < MEASURE_WINDOW) {
+        const next = await walker.next();
+        if (next.done === true) break;
+        window.push(next.value);
+      }
+      if (window.length === 0) break;
+      const sizes = await mapWithConcurrency(window, MEASURE_CONCURRENCY, (path) =>
+        stat(path).then(
+          (info) => info.size,
+          () => 0,
+        ),
+      );
+      files += window.length;
+      for (const size of sizes) bytes += size;
+      options.onProgress?.({ files, bytes });
+    }
+  } finally {
+    await walker.return(undefined);
+  }
+  return { files, bytes };
 }
 
 function isHidden(name: string): boolean {

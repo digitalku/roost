@@ -133,14 +133,26 @@ describe("importing an Eagle library", () => {
       eagleDialog: EAGLE,
       eagleSurvey: { items: 14 },
       importProgress: [
-        { scanned: 3, imported: 3, duplicates: 0, failed: 0, thumbnails: 0, total: 14 },
+        {
+          scanned: 3,
+          imported: 3,
+          duplicates: 0,
+          failed: 0,
+          thumbnails: 0,
+          total: 14,
+          counting: false,
+          bytesDone: 0,
+          bytesTotal: 0,
+        },
       ],
       eagleReport: { items: 14, assets: 14 },
       hold: { "eagle:import": reply },
     });
 
     await user.click(await screen.findByRole("button", { name: "Import" }));
-    expect(await screen.findByText(/Importing… 3 of 14/)).toBeDefined();
+    // Items against the survey, and the percentage from them where Eagle gave
+    // no sizes to count against.
+    expect(await screen.findByText("Importing… 21% · 3 of 14")).toBeDefined();
 
     finish();
     await screen.findByText(/14 from Eagle/);

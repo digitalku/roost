@@ -311,6 +311,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `AssetContextMenu` | content | — | Right-click on the selection; §3.3. Native menus were considered and rejected; ADR-0021 |
 | `TransferMenu` | `AssetContextMenu` | — | Move to library and Copy to library, two submenus of the recent list; §3.3, ADR-0054 |
 | `TransferStatus` | status bar | — | A running transfer: bar, percentage, bytes, assets, and × to stop it; §3.3, ADR-0054 §3.9 |
+| `ImportStatus` | status bar | — | A running import: counting, then bar, percentage, bytes, files, and × to stop it; the outcome afterwards; §8, ADR-0055 |
 | `NavTree` | sidebar | — | Smart folders and the flat sections; §4.2 |
 | `Folders` | sidebar | — | The one section that is a tree: disclosure arrows, a `+` in its heading, and a right-click menu. Expansion is the window's, so a new subfolder can be revealed; ADR-0033 |
 | `FolderDialog` | overlay | draft | Naming a folder, for both **New folder** and **Rename**. The engine refuses a bad name; the dialog draws its message and stays open |
@@ -787,8 +788,8 @@ library looks like once the engine has refused it. The refusal's own message is 
 **Progress goes to the status bar, not to this dialog**, like every other import (§8): a run of
 ninety thousand items is a state the window is in rather than a notification. The line is *done of
 total* — and this is the one import where the total is a **fact**, because the survey counted the
-items before the run began. A directory walk has no total until it ends, so there the denominator is
-what the walk has found so far, which is the honest upper bound and grows as it goes.
+items before the run began. Since ADR-0055 a directory has one too: it is counted before it is
+read, and the bar fills in bytes (§8).
 
 **The numerator is what has finished, never what has been found.** `scanned` is the walk's own
 queue: it drains five hundred paths before hashing any of them, so a line reading `500 scanned` says
@@ -2137,6 +2138,18 @@ left)"* at its head for as long as anything is left. The pause is the library's 
 window until Resume. While paused, an opened file (selected or previewed), a new import, what
 *Try again* releases, a pinned poster and a file made here are still derived **by name**, and
 nothing else is.
+
+**An import is drawn the way a transfer is** (ADR-0055): counting, then a bar in bytes with a ×.
+A dropped or chosen directory is first walked to be counted, and the line says so with what it has
+found, and no bar yet: *"Counting… 12,400 files · 38.2 GiB"*. Then comes the bar, a percentage,
+the bytes and the files: *"Importing… 34% · 2.1 GiB of 6.2 GiB · 12 of 40"*. The percentage is
+the bytes', because one video of several gigabytes would otherwise read *0 of 1* for as long as it
+took. An Eagle import counts items against its survey instead. **×** stops the run, during the
+count as well. What has arrived stays, a file half copied is abandoned, and the line reads
+*"Stopping… what has arrived stays"* while the batch in hand is committed. The run then ends as
+*"Import stopped · 12 imported · 3 already here"*, and importing the same directory again brings
+the rest. The thumbnails phase that follows, *"Thumbnails… 800 of 1,240"*, has **no ×**, because
+by then the files are in and the pictures are the derive queue's, which has its own.
 
 **Empty.** Heading, one sentence explaining *why it is empty*, at most one action.
 - No library open → the picker, with "Create library" and "Open library".

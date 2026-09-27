@@ -433,6 +433,11 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
+**ADR-0055 — an import that counts bytes and can be stopped** was proposed and **accepted** on
+2026-09-27, both questions answered as recommended: a directory is counted before it is read, and
+a stop keeps what has arrived. No format change. Built: the engine, the window's bar and ×, and
+`Ctrl+C` in the CLI.
+
 **ADR-0054 — moving assets between libraries** was proposed and **accepted** on 2026-09-27, with
 all four of its questions answered as recommended: Move and Copy, folders by path, a duplicate
 merged, and subtitles travelling with their video. No format change. It is built: the engine, the

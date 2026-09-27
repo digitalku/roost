@@ -11,6 +11,7 @@ import {
 import { NotAnEagleLibraryError } from "./error.js";
 import { type ImportFailure, importInto } from "./import.js";
 import type { Library } from "./library.js";
+import { ByteMeter } from "./meter.js";
 import { isSubtitlePath } from "./subtitles.js";
 
 /**
@@ -168,6 +169,26 @@ export interface EagleReport {
   readonly failed: readonly ImportFailure[];
   /** The assets this run added, for a paused derive queue to work (ADR-0049). */
   readonly importedIds: readonly AssetId[];
+  /**
+   * The run was stopped after the chunk in hand (ADR-0055 §3.3). The items
+   * that arrived carry their metadata; the rest, and the tag groups, wait for a
+   * second run.
+   */
+  readonly cancelled: boolean;
+}
+
+/**
+ * How far an Eagle import has got (ADR-0055).
+ *
+ * Items rather than files, as the survey counted them, and bytes against the
+ * survey's total — Eagle's own record of the sizes, which a file edited since
+ * can make wrong, so the meter caps rather than trusting it.
+ */
+export interface EagleProgress {
+  readonly done: number;
+  readonly total: number;
+  readonly bytesDone: number;
+  readonly bytesTotal: number;
 }
 
 export interface EagleImportOptions {
@@ -191,6 +212,11 @@ export interface EagleImportOptions {
    * than marking none.
    */
   readonly tags?: readonly string[];
+  /**
+   * Stops the run after the chunk in hand (ADR-0055 §3.3): what was placed is
+   * committed and given its metadata, and nothing else is started.
+   */
+  readonly signal?: AbortSignal;
 }
 
 // --- Reading -----------------------------------------------------------------
@@ -533,7 +559,7 @@ export async function importEagle(
   library: Library,
   root: string,
   options: EagleImportOptions = {},
-  onProgress?: (done: number, total: number) => void,
+  onProgress?: (progress: EagleProgress) => void,
 ): Promise<EagleReport> {
   const started = performance.now();
   const survey = await surveyEagle(root);
@@ -576,6 +602,10 @@ export async function importEagle(
   // report nothing until it had finished, which is a progress bar that goes
   // from empty to done.
   let done = 0;
+  const tell = (): void =>
+    onProgress?.({ done, total: survey.items, bytesDone: meter.done, bytesTotal: meter.total });
+  const meter: ByteMeter = new ByteMeter(survey.bytes, tell);
+  const { signal } = options;
   let chunk: EagleEntry[] = [];
   const flush = async (): Promise<void> => {
     if (chunk.length === 0) return;
@@ -590,24 +620,30 @@ export async function importEagle(
       counts,
       failed,
       importedIds,
+      { meter, signal },
       () => {
         done += 1;
-        onProgress?.(done, survey.items);
+        tell();
       },
     );
     chunk = [];
   };
 
   for await (const entry of eagleEntries(root)) {
+    if (signal?.aborted === true) break;
     if ("bad" in entry || entry.file === undefined) continue;
     chunk.push(entry);
     if (chunk.length >= CHUNK) await flush();
   }
+  // The chunk in hand is flushed even after a stop: some of it may already be
+  // placed, and it is the import's to commit (ADR-0055 §3.3).
   await flush();
+  const cancelled = signal?.aborted === true;
 
   // Groups last: `tag_group_set` names a tag, and the tags exist once the items
-  // that carry them have been imported.
-  const groups = await applyTagGroups(library, tagGroups);
+  // that carry them have been imported. A stopped run leaves them for the next,
+  // which will have the rest of the tags.
+  const groups = cancelled ? 0 : await applyTagGroups(library, tagGroups);
 
   const report: EagleReport = {
     survey,
@@ -629,8 +665,9 @@ export async function importEagle(
     elapsed: performance.now() - started,
     failed,
     importedIds,
+    cancelled,
   };
-  log.info("Eagle import complete", {
+  log.info(cancelled ? "Eagle import stopped" : "Eagle import complete", {
     assets: report.assets,
     imported: report.imported,
     collapsed: report.collapsed,
@@ -749,6 +786,8 @@ async function importChunk(
   counts: Counts,
   failed: ImportFailure[],
   importedIds: AssetId[],
+  /** The run's meter and its stop, handed on to the pipeline (ADR-0055). */
+  stop: { readonly meter: ByteMeter; readonly signal: AbortSignal | undefined },
   /** Called once per item whose bytes have been placed, for the progress line. */
   onItem: () => void,
 ): Promise<void> {
@@ -766,6 +805,8 @@ async function importChunk(
 
   const report = await importInto(library, sources, {
     take,
+    meter: stop.meter,
+    ...(stop.signal !== undefined && { signal: stop.signal }),
     onAsset: (path, id) => {
       ids.set(path, id);
       // A subtitle is a second file for one item (ADR-0025), so counting files

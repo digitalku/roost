@@ -1,10 +1,17 @@
 import { mkdir, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ReplyEnvelope, Request } from "@roost/contract";
+import type { ImportProgress, ReplyEnvelope, Request } from "@roost/contract";
 import { ASSET_KINDS as WIRE_KINDS, LIBRARY_SUFFIX as WIRE_SUFFIX } from "@roost/contract";
 import { KINDS, latestSchemaVersion } from "@roost/core";
-import { createFolder, importInto, LIBRARY_SUFFIX, Library, runDerives } from "@roost/library";
+import {
+  check,
+  createFolder,
+  importInto,
+  LIBRARY_SUFFIX,
+  Library,
+  runDerives,
+} from "@roost/library";
 import { GRID_SIZE, gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost } from "./host.js";
@@ -354,6 +361,79 @@ describe("the engine's message loop", () => {
 
     expect(await replyTo(2)).toMatchObject({ ok: true });
     expect(await replyTo(3)).toMatchObject({ ok: false, problem: { code: "transfer_running" } });
+  });
+
+  it("says there was nothing to stop when no import is running", async () => {
+    expect(await ask(1, { type: "import:cancel" })).toMatchObject({ ok: true, value: false });
+  });
+
+  it("stops an import, and keeps what arrived", async () => {
+    // ADR-0055 §3.3, through the port: the stop arrives as a second request
+    // while the first is still running, as the window's × sends it.
+    const source = join(dir, "many");
+    await mkdir(source, { recursive: true });
+    for (let i = 0; i < 300; i += 1) await writeFile(join(source, `file-${i}.txt`), `body ${i}`);
+    const root = join(dir, `Stopped${LIBRARY_SUFFIX}`);
+    await (await Library.create(root, "Stopped")).close();
+    await ask(1, { type: "library:open", path: root });
+
+    await Promise.all([
+      ask(2, { type: "import:paths", folder: null, paths: [source], take: "copy", tags: [] }),
+      ask(3, { type: "import:cancel" }),
+    ]);
+    // By id, because `deliver` hands back whichever reply came first.
+    const replyTo = async (id: number): Promise<ReplyEnvelope | undefined> => {
+      for (let tick = 0; tick < 1000; tick += 1) {
+        const found = port.replies().find((reply) => reply.id === id);
+        if (found !== undefined) return found;
+        await new Promise((resolve) => setTimeout(resolve, 2));
+      }
+      return undefined;
+    };
+    const reply = (await replyTo(2)) as { value: { cancelled: boolean; imported: number } };
+
+    expect(await replyTo(3)).toMatchObject({ ok: true, value: true });
+    expect(reply.value.cancelled).toBe(true);
+    expect(reply.value.imported).toBeLessThan(300);
+    const stats = await ask(4, { type: "library:stats" });
+    expect(stats).toMatchObject({ ok: true, value: { assets: reply.value.imported } });
+  });
+
+  it("stops an import when the library closes, and leaves no file unjournalled", async () => {
+    // Regression (ADR-0055 §3.5): closing did not wait for an import, so a run
+    // cut off between placing a file and committing its batch left a file in
+    // `files/` that nothing journalled.
+    const source = join(dir, "closing");
+    await mkdir(source, { recursive: true });
+    for (let i = 0; i < 300; i += 1) await writeFile(join(source, `file-${i}.txt`), `body ${i}`);
+    const root = join(dir, `Closing${LIBRARY_SUFFIX}`);
+    await (await Library.create(root, "Closing")).close();
+    await ask(1, { type: "library:open", path: root });
+
+    await Promise.all([
+      ask(2, { type: "import:paths", folder: null, paths: [source], take: "copy", tags: [] }),
+      ask(3, { type: "library:close" }),
+    ]);
+    const replyTo = async (id: number): Promise<ReplyEnvelope | undefined> => {
+      for (let tick = 0; tick < 1000; tick += 1) {
+        const found = port.replies().find((reply) => reply.id === id);
+        if (found !== undefined) return found;
+        await new Promise((resolve) => setTimeout(resolve, 2));
+      }
+      return undefined;
+    };
+    await replyTo(3);
+
+    // Stopped by the close, not left running against a database that is gone,
+    // where every file after it would have failed.
+    expect(await replyTo(2)).toMatchObject({ ok: true, value: { cancelled: true, failed: [] } });
+    const library = await Library.open(root);
+    try {
+      const report = await check(library);
+      expect(report.orphans).toEqual([]);
+    } finally {
+      await library.close();
+    }
   });
 
   it("says there was nothing to stop when no transfer is running", async () => {
@@ -1119,6 +1199,7 @@ describe("the engine's message loop", () => {
     expect(Object.keys(report).sort()).toEqual(
       [
         "bytes",
+        "cancelled",
         "duplicateNames",
         "duplicates",
         "elapsedMs",
@@ -1240,8 +1321,17 @@ describe("the engine's message loop", () => {
     });
 
     // One final progress event however small the run, so a status bar showing
-    // an import always ends up showing what it ended on.
-    expect(eventsOf("import:progress").length).toBeGreaterThanOrEqual(1);
+    // an import always ends up showing what it ended on — and it ends at the
+    // total the count found, in files and in bytes (ADR-0055).
+    const progress = eventsOf("import:progress").map(
+      (message) => (message as { event: ImportProgress }).event,
+    );
+    expect(progress.length).toBeGreaterThanOrEqual(1);
+    expect(progress[0]?.counting).toBe(true);
+    const imported = progress.filter((event) => event.thumbnails === 0 && !event.counting).at(-1);
+    expect(imported?.bytesTotal).toBeGreaterThan(0);
+    expect(imported?.bytesDone).toBe(imported?.bytesTotal);
+    expect(imported?.imported).toBe(imported?.total);
     // And exactly one `library:changed`, not one per file: the window re-reads
     // the counts, the sidebar and the match count on it, and doing that per
     // file would be an import that spends its time redrawing.

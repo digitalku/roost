@@ -60,6 +60,13 @@ export interface Importing {
   readonly startEagle: (path: string, mode?: Take) => void;
   /** Puts the last outcome away. */
   readonly dismiss: () => void;
+  /**
+   * Stops the run (ADR-0055 §3.3). What has arrived stays; the reply to the
+   * request that started it arrives a moment later with `cancelled` set.
+   */
+  readonly cancel: () => void;
+  /** × was pressed, and the engine is committing the batch in hand. */
+  readonly stopping: boolean;
   /** The duplicates a finished run is waiting for an answer about. */
   readonly duplicates: DuplicateQuestion | undefined;
   /**
@@ -80,6 +87,7 @@ export function useImport(onFinished: () => void, folder: number | null): Import
   const [outcome, setOutcome] = useState<ImportOutcome | undefined>();
   const [problem, setProblem] = useState<WireProblem | undefined>();
   const [duplicates, setDuplicates] = useState<DuplicateQuestion | undefined>();
+  const [stopping, setStopping] = useState(false);
 
   useEffect(
     () =>
@@ -102,6 +110,7 @@ export function useImport(onFinished: () => void, folder: number | null): Import
         setProgress(undefined);
         setOutcome(undefined);
         setProblem(undefined);
+        setStopping(false);
         // The previous run's question goes with the previous run: the list it
         // was about belongs to that run, and the engine has already replaced it.
         setDuplicates(undefined);
@@ -110,6 +119,7 @@ export function useImport(onFinished: () => void, folder: number | null): Import
           const answer = await request();
           setRunning(false);
           setProgress(undefined);
+          setStopping(false);
           if ("kind" in answer) setOutcome(answer);
           else setProblem(answer);
           // Only a path import asks. An Eagle library brings its own folders,
@@ -181,6 +191,11 @@ export function useImport(onFinished: () => void, folder: number | null): Import
 
   const ignoreDuplicates = useCallback(() => setDuplicates(undefined), []);
 
+  const cancel = useCallback(() => {
+    setStopping(true);
+    void invoke({ type: "import:cancel" });
+  }, []);
+
   return {
     running,
     progress,
@@ -189,6 +204,8 @@ export function useImport(onFinished: () => void, folder: number | null): Import
     start,
     startEagle,
     dismiss,
+    cancel,
+    stopping,
     duplicates,
     fileDuplicates,
     ignoreDuplicates,

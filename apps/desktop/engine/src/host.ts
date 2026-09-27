@@ -49,6 +49,7 @@ import {
   deleteFolder,
   deleteSubtitle,
   deriveFailures,
+  type EagleProgress,
   type EagleReport,
   type EagleSurvey,
   emptyTrash,
@@ -58,6 +59,7 @@ import {
   type FileWatcher,
   type FoldProgress,
   forgetLibrary,
+  type ImportBytes,
   type ImportReport,
   importEagle,
   importInto,
@@ -592,6 +594,12 @@ export class EngineHost {
         return running;
       }
 
+      case "import:cancel": {
+        const running = this.#importing.size > 0;
+        for (const run of this.#importing) run.controller.abort();
+        return running;
+      }
+
       case "clipboard:paste":
       case "clipboard:copyText":
       case "link:open":
@@ -660,11 +668,10 @@ export class EngineHost {
   /**
    * Imports paths, reporting progress as it goes.
    *
-   * Progress is throttled to one event per {@link PROGRESS_EVERY} files rather
-   * than one per file. A bulk import runs at hundreds of files a second and
-   * every event is a `structuredClone` across two process boundaries; a status
-   * bar cannot show more than a few a second, and the ones in between would
-   * cost the import measurably.
+   * The sources are counted first, so the progress carries a total and bytes
+   * from the first file (ADR-0055 §3.1). It goes out at most every
+   * {@link IMPORT_PROGRESS_MS}: the hash reports every chunk it reads, and
+   * every event is a `structuredClone` across two process boundaries.
    *
    * `library:changed` is announced once at the end, not per file: it makes the
    * window re-read the counts, the sidebar, and the match count, and doing that
@@ -677,15 +684,32 @@ export class EngineHost {
     folder: number | null,
   ): Promise<WireImportReport> {
     const library = this.#require();
-    let announced = 0;
+    let bytes: ImportBytes = { counting: true, files: 0, bytesDone: 0, bytesTotal: 0 };
+    let files: ImportReport | undefined;
+    const tell = this.#throttled(() => this.onProgress?.(progressOf(files, bytes)));
 
-    const options = { take, tags: [...tags], ...(folder === null ? {} : { folder }) };
-    const report = await importInto(library, paths, options, (_path, running) => {
-      if (handled(running) - announced < PROGRESS_EVERY) return;
-      announced = handled(running);
-      this.onProgress?.(progressOf(running, 0));
-    });
-    this.onProgress?.(progressOf(report, 0));
+    const report = await this.#stoppable((signal) =>
+      importInto(
+        library,
+        paths,
+        {
+          take,
+          tags: [...tags],
+          ...(folder === null ? {} : { folder }),
+          signal,
+          onBytes: (running) => {
+            bytes = running;
+            tell(false);
+          },
+        },
+        (_path, running) => {
+          files = running;
+          tell(false);
+        },
+      ),
+    );
+    files = report;
+    tell(true);
 
     // Derived work is part of the same run here, unlike the CLI, where `import`
     // and `thumb` are separate commands. A headless import into a library
@@ -695,9 +719,10 @@ export class EngineHost {
     // The importer has already queued the jobs, in the transaction that wrote
     // the rows — this only works the queue. A paused queue works these and no
     // others: an import is somebody asking for these files now (ADR-0049).
+    // A stopped import draws what did arrive.
     if (this.#paused) this.#requested.queue(report.importedIds);
     const derived = await this.#runDerives((running) => {
-      this.onProgress?.(progressOf(report, running.derived));
+      this.onProgress?.(progressOf(report, bytes, running.derived));
     });
 
     // Kept only once the run finished. A run that threw has no answer to
@@ -707,6 +732,38 @@ export class EngineHost {
 
     this.onChanged?.();
     return reportOf(report, derived?.derived ?? 0);
+  }
+
+  /**
+   * Runs an import that `import:cancel` can stop, and that closing the library
+   * stops and waits for (ADR-0055 §3.3).
+   */
+  async #stoppable<T>(run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const controller = new AbortController();
+    const running = run(controller.signal);
+    const entry = { controller, done: running.catch(() => undefined) };
+    this.#importing.add(entry);
+    try {
+      return await running;
+    } finally {
+      this.#importing.delete(entry);
+    }
+  }
+
+  /**
+   * At most one call every {@link IMPORT_PROGRESS_MS}, and always the last.
+   *
+   * The first goes at once, so the status bar has something to say before the
+   * first interval has passed.
+   */
+  #throttled(send: () => void): (last: boolean) => void {
+    let told = Number.NEGATIVE_INFINITY;
+    return (last) => {
+      const now = performance.now();
+      if (!last && now - told < IMPORT_PROGRESS_MS) return;
+      told = now;
+      send();
+    };
   }
 
   /**
@@ -748,17 +805,18 @@ export class EngineHost {
    */
   async #importEagle(path: string, take: Take): Promise<WireEagleReport> {
     const library = this.#require();
-
-    const report = await importEagle(library, path, { take }, (done, total) => {
-      this.onProgress?.({
-        scanned: done,
-        imported: done,
-        duplicates: 0,
-        failed: 0,
-        thumbnails: 0,
-        total,
-      });
+    let latest: EagleProgress | undefined;
+    const tell = this.#throttled(() => {
+      if (latest !== undefined) this.onProgress?.(eagleProgressOf(latest));
     });
+
+    const report = await this.#stoppable((signal) =>
+      importEagle(library, path, { take, signal }, (progress) => {
+        latest = progress;
+        tell(false);
+      }),
+    );
+    tell(true);
 
     if (this.#paused) this.#requested.queue(report.importedIds);
     const derived = await this.#runDerives((running) => {
@@ -769,6 +827,9 @@ export class EngineHost {
         failed: report.failed.length,
         thumbnails: running.derived,
         total: report.survey.items,
+        counting: false,
+        bytesDone: latest?.bytesDone ?? 0,
+        bytesTotal: latest?.bytesTotal ?? 0,
       });
     });
 
@@ -869,6 +930,19 @@ export class EngineHost {
   #transferring:
     | { readonly controller: AbortController; readonly done: Promise<unknown> }
     | undefined;
+
+  /**
+   * The imports that are running (ADR-0055 §3.3), for `import:cancel` to stop
+   * and for closing the library to stop and wait for: an import commits the
+   * batch in hand as its last step, which needs the database still open.
+   *
+   * A set, though the window runs one at a time: nothing here depends on that,
+   * and a stop that reached only the latest of two would leave one running.
+   */
+  readonly #importing = new Set<{
+    readonly controller: AbortController;
+    readonly done: Promise<unknown>;
+  }>();
 
   /**
    * Moves or copies into another library, one at a time.
@@ -1034,6 +1108,11 @@ export class EngineHost {
     // as the transfer's last step, which needs the database still open.
     this.#transferring?.controller.abort();
     await this.#transferring?.done;
+
+    // The same for an import: the batch in hand is committed, and then it ends.
+    const importing = [...this.#importing];
+    for (const run of importing) run.controller.abort();
+    await Promise.all(importing.map((run) => run.done));
 
     if (open === undefined) return;
     await open.close();
@@ -1397,13 +1476,12 @@ function commentOf(row: CommentRow): WireComment {
 }
 
 /**
- * How many files pass before another progress event is sent.
+ * The shortest gap between two `import:progress` events.
  *
- * `CONCEPT.md` §7 asks for at least 300 imports a second, so this is roughly
- * three events a second at the target rate — faster than a status bar can be
- * read and slow enough to cost nothing.
+ * The transfer's figure, for its reason: a percentage somebody is watching,
+ * which a second between steps makes read as stuck (ADR-0055 §3.2).
  */
-const PROGRESS_EVERY = 100;
+const IMPORT_PROGRESS_MS = 250;
 
 /** The shortest gap between two `job:progress` events from the derive queue. */
 const PROGRESS_MS = 1000;
@@ -1417,30 +1495,44 @@ const PROGRESS_MS = 1000;
 const TRANSFER_PROGRESS_MS = 250;
 
 /**
- * How many files an import has actually *finished*.
- *
- * Not `scanned`, which is what the walk has **found**: the walk drains a window
- * of five hundred paths before any of them is hashed, so `scanned` jumps by a
- * batch at a time and reads as five hundred files done in an instant, then
- * nothing for a second. Measured on 2026-09-06 against a real window — a
- * 3,000-file import emitted six events during the import phase, every one of
- * them a multiple of five hundred, which is the shape of the *queue* rather
- * than of the work.
+ * An import's progress: the files from the report, the total and the bytes
+ * from the count (ADR-0055 §3.1).
  */
-function handled(report: ImportReport): number {
-  return report.imported + report.duplicates + report.failed.length;
+function progressOf(
+  report: ImportReport | undefined,
+  bytes: ImportBytes,
+  thumbnails = 0,
+): ImportProgress {
+  return {
+    scanned: bytes.counting ? bytes.files : (report?.scanned ?? 0),
+    imported: report?.imported ?? 0,
+    duplicates: report?.duplicates ?? 0,
+    failed: report?.failed.length ?? 0,
+    thumbnails,
+    total: bytes.files,
+    counting: bytes.counting,
+    bytesDone: bytes.bytesDone,
+    bytesTotal: bytes.bytesTotal,
+  };
 }
 
-function progressOf(report: ImportReport, thumbnails: number): ImportProgress {
+/**
+ * An Eagle import's progress, in items as the survey counted them (ADR-0032).
+ *
+ * An Eagle item can be two files — a video and the `.srt` beside it — and the
+ * number somebody watches is the one that matches what the survey showed them.
+ */
+function eagleProgressOf(progress: EagleProgress): ImportProgress {
   return {
-    scanned: report.scanned,
-    imported: report.imported,
-    duplicates: report.duplicates,
-    failed: report.failed.length,
-    thumbnails,
-    // The walk is what produces the total, so there is nothing honest to say
-    // here until it has finished — see {@link ImportProgress.total}.
-    total: null,
+    scanned: progress.done,
+    imported: progress.done,
+    duplicates: 0,
+    failed: 0,
+    thumbnails: 0,
+    total: progress.total,
+    counting: false,
+    bytesDone: progress.bytesDone,
+    bytesTotal: progress.bytesTotal,
   };
 }
 
@@ -1452,6 +1544,7 @@ function progressOf(report: ImportReport, thumbnails: number): ImportProgress {
  */
 function reportOf(report: ImportReport, thumbnails: number): WireImportReport {
   return {
+    cancelled: report.cancelled,
     scanned: report.scanned,
     imported: report.imported,
     duplicates: report.duplicates,
@@ -1525,6 +1618,7 @@ function wireSurvey(survey: EagleSurvey): WireEagleSurvey {
 /** The report, mapped field by field. The timings are dropped, as {@link reportOf} drops them. */
 function wireEagleReport(report: EagleReport, thumbnails: number): WireEagleReport {
   return {
+    cancelled: report.cancelled,
     items: report.survey.items,
     assets: report.assets,
     imported: report.imported,

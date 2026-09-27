@@ -297,7 +297,9 @@ async function copyInto(src: string, dest: string, options?: PutOptions): Promis
     // Ordinary on ext4, on NTFS, and across mounts.
   }
 
-  if (options !== undefined) {
+  // Counted only when somebody is counting. A signal alone is checked above and
+  // keeps the kernel's copy: a small file is done before a stop could matter.
+  if (options?.onBytes !== undefined) {
     await copyCounted(src, dest, options);
     return "copy";
   }

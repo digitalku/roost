@@ -40,16 +40,21 @@ export interface StoredFile {
 /**
  * What a caller watching a long copy can ask of {@link Storage.put}.
  *
- * Given either, a copy that cannot be a reflink is made a chunk at a time
+ * Given `onBytes`, a copy that cannot be a reflink is made a chunk at a time
  * rather than by one `copyFile`, so that it can be counted and stopped. A file
  * of several gigabytes onto another disk takes minutes, and a transfer between
- * libraries says how far it has got (ADR-0054 §3.9). Without them the import
- * path keeps the kernel's own copy, which is the faster of the two.
+ * libraries says how far it has got (ADR-0054 §3.9). Without it the kernel's
+ * own copy is kept, which is the faster of the two, and a `signal` is checked
+ * once before the copy starts: an import counts only its large files
+ * (ADR-0055 §3.2).
  */
 export interface PutOptions {
   /** Called with each chunk's length as it is written. A reflink reports nothing. */
   readonly onBytes?: (count: number) => void;
-  /** Checked between chunks. An abort removes the partial copy and rethrows the reason. */
+  /**
+   * Checked before the copy, and between chunks of a counted one. An abort
+   * removes the partial copy and rethrows the reason.
+   */
   readonly signal?: AbortSignal;
 }
 

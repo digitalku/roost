@@ -3,23 +3,23 @@ import { resolve } from "node:path";
 import {
   type AssetDetail,
   type AssetId,
-  type ContentHash,
   type DerivedMetadata,
   type FolderRow,
   type JournalRecord,
   logger,
-  mintAssetId,
   type Op,
   type Placed,
   type Take,
 } from "@roost/core";
 import { hashFile, probe } from "@roost/media";
+import { type Claims, claim } from "./claims.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import { apply, createFolder, removeAssets } from "./edit.js";
 import { SameLibraryError, UnknownAssetError } from "./error.js";
 import { commit, type Ingested } from "./import.js";
 import { Library, nowUnix } from "./library.js";
 import { resolveFile } from "./locate.js";
+import { ByteMeter, LARGE_FILE, type MeterShare } from "./meter.js";
 
 /**
  * Moving and copying assets from one library into another (ADR-0054).
@@ -49,16 +49,6 @@ const CHUNK = 200;
 
 /** Files hashed and copied at once — the import pipeline's figure, for its reason. */
 const CONCURRENCY = 8;
-
-/**
- * The size past which a file waits for the one before it.
- *
- * Eight small files at once keep a disk busy. Eight videos of several gigabytes
- * at once make a hard disk seek between eight places for the whole transfer,
- * which is slower than taking them in turn. Small files still move eight at a
- * time around the large one.
- */
-const LARGE_FILE = 64 * 1024 * 1024;
 
 export interface TransferOptions {
   /**
@@ -290,17 +280,14 @@ async function locateAll(source: Library, ids: readonly AssetId[]): Promise<Map<
 /**
  * Counts what has been dealt with, and tells the caller.
  *
- * Every byte is counted twice — read to be hashed, then written — and what is
- * reported is half the sum (see {@link TransferProgress}). Each file is squared
- * off when it finishes, so a file skipped, merged, reflinked or failed still
- * brings the count to where it would have been.
+ * The bytes are a {@link ByteMeter}'s; this adds the assets finished beside
+ * them, one per file squared off.
  */
 class Meter {
   readonly #total: number;
-  readonly #bytesTotal: number;
+  readonly #bytes: ByteMeter;
   readonly #onProgress: ((progress: TransferProgress) => void) | undefined;
   #done = 0;
-  #work = 0;
 
   constructor(
     total: number,
@@ -310,29 +297,18 @@ class Meter {
     this.#total = total;
     let bytes = 0;
     for (const file of located.values()) bytes += file.size;
-    this.#bytesTotal = bytes;
+    this.#bytes = new ByteMeter(bytes, () => this.#tell());
     this.#onProgress = onProgress;
   }
 
   /** One file's share: counts as it goes, and squares off at the end. */
-  file(size: number): { readonly count: (bytes: number) => void; readonly finish: () => void } {
-    let counted = 0;
-    const budget = size * 2;
+  file(size: number): MeterShare {
+    const share = this.#bytes.file(size);
     return {
-      count: (bytes) => {
-        // Capped, because a file that grew since it was measured would
-        // otherwise carry the bar past the end.
-        const add = Math.min(bytes, budget - counted);
-        if (add <= 0) return;
-        counted += add;
-        this.#work += add;
-        this.#tell();
-      },
+      count: share.count,
       finish: () => {
-        this.#work += budget - counted;
-        counted = budget;
         this.#done += 1;
-        this.#tell();
+        share.finish();
       },
     };
   }
@@ -341,8 +317,8 @@ class Meter {
     this.#onProgress?.({
       done: this.#done,
       total: this.#total,
-      bytesDone: Math.min(Math.floor(this.#work / 2), this.#bytesTotal),
-      bytesTotal: this.#bytesTotal,
+      bytesDone: this.#bytes.done,
+      bytesTotal: this.#bytes.total,
     });
   }
 }
@@ -526,7 +502,7 @@ type Planned =
 async function transferChunk(run: Run, chunk: readonly AssetId[]): Promise<void> {
   const { source, target, folders, into, written, report } = run;
   /** Hashes placed in this chunk and not yet visible to the target's index. */
-  const pending = new Map<ContentHash, AssetId>();
+  const pending: Claims = new Map();
   /** Ids minted in this chunk, for RL-15 — their rows do not exist yet. */
   const minted = new Set<AssetId>();
 
@@ -683,7 +659,7 @@ async function plan(
   from: AssetId,
   found: Found,
   count: (bytes: number) => void,
-  pending: Map<ContentHash, AssetId>,
+  pending: Claims,
   minted: Set<AssetId>,
 ): Promise<Planned> {
   const { source, target, signal } = run;
@@ -695,18 +671,19 @@ async function plan(
   // since it was last measured (RL-20), and the hash is what decides whether
   // the target already has it.
   const hashed = await hashFile(found.path, { onBytes: count, ...(signal && { signal }) });
-  const existing = pending.get(hashed.hash) ?? target.db.repo.assetsWithHash(hashed.hash)[0];
-  if (existing !== undefined) {
-    return { kind: "merged", from, id: existing, path: found.path, detail };
-  }
-
-  // RL-15 against the target and this chunk, claimed in the same turn as the
-  // check — the import pipeline's compare-and-set, for its reason.
-  const id = mintAssetId(
-    (candidate) => minted.has(candidate) || target.db.repo.hasAsset(candidate),
+  // An identical file in this chunk is waited for rather than trusted: if its
+  // copy fails or is stopped, a merge onto it would name nothing (`claims.ts`).
+  const claimed = await claim(
+    hashed.hash,
+    pending,
+    minted,
+    (hash) => target.db.repo.assetsWithHash(hash)[0],
+    (candidate) => target.db.repo.hasAsset(candidate),
   );
-  minted.add(id);
-  pending.set(hashed.hash, id);
+  if ("held" in claimed) {
+    return { kind: "merged", from, id: claimed.held, path: found.path, detail };
+  }
+  const { id } = claimed;
 
   // Always a copy, whatever the transfer is (ADR-0054 §3.3). The source's file
   // goes only when the source journals its `remove`, after everything else.
@@ -719,9 +696,10 @@ async function plan(
   } catch (error) {
     // Released, or an identical file later in the chunk would merge onto an
     // asset no batch will ever add, and its records would name nothing.
-    pending.delete(hashed.hash);
+    claimed.settle(false);
     throw error;
   }
+  claimed.settle(true);
   const probed = await probe(placed.path).catch(() => undefined);
   const stored = await stat(placed.path).catch(() => undefined);
 

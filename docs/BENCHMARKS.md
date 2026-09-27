@@ -57,6 +57,26 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-09-27 — counting an import before it starts (ADR-0055 §3.1)
+
+Machine: Fedora 44 host, Intel Core Ultra 7 155H, NVMe. A throwaway script, not kept, walked `/usr`
+the way `discover` does, with and without a `stat` per file, twice. The figures are the second
+run, with the cache warm.
+
+| Walk | 209,032 files, 9.1 GiB |
+| --- | --- |
+| Directory entries only | 1.6 s |
+| With a `stat` per file, one at a time | 4.1 s |
+| With a `stat` per file, eight at a time | 2.3 s |
+
+**What it revealed.** Counting costs about 11 µs a file once the `stat`s overlap, which is why
+`measure` runs eight at a time. Beside an import at 2,000 to 5,000 files a second it adds 2 to 5 %,
+and it buys a bar with a total from the first byte. The first run was slower (2.7 s for the entries
+alone), which is the cold-cache case, and a hard disk or a network share would be slower still;
+neither was measured. One mistake is worth recording: a first version summed the sizes with
+`bytes += (await stat(p)).size`, which reads `bytes` before the `await`, and under eight at a time
+it lost three quarters of the total (2.1 GiB of 9.1). `measure` adds after the `stat` returns.
+
 ### 2026-09-27 — a copy that can be counted and stopped (ADR-0054 §3.9)
 
 Machine: Fedora 44 host, Intel Core Ultra 7 155H. A throwaway script, not kept, copied one

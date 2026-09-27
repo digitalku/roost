@@ -1,4 +1,4 @@
-import type { SidebarFolderRow } from "@roost/contract";
+import type { ImportProgress, SidebarFolderRow } from "@roost/contract";
 import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -15,6 +15,22 @@ import { droppedFile, FakeEngine, fakeAsset, fakeDetail, install } from "../test
  */
 
 const HOLIDAY = "/home/you/Holiday Photos.roost";
+
+/** One progress event, over a run of 500 files and 4 MiB that is past counting. */
+function progress(overrides: Partial<ImportProgress> = {}): ImportProgress {
+  return {
+    scanned: 500,
+    imported: 0,
+    duplicates: 0,
+    failed: 0,
+    thumbnails: 0,
+    total: 500,
+    counting: false,
+    bytesDone: 0,
+    bytesTotal: 4_194_304,
+    ...overrides,
+  };
+}
 
 /** A folder in the pane, so an import has somewhere to land (ADR-0037). */
 const DESIGN: SidebarFolderRow = {
@@ -196,8 +212,8 @@ describe("importing", () => {
 
     await open({
       importProgress: [
-        { scanned: 500, imported: 98, duplicates: 2, failed: 0, thumbnails: 0, total: null },
-        { scanned: 500, imported: 396, duplicates: 4, failed: 0, thumbnails: 0, total: null },
+        progress({ scanned: 500, imported: 98, duplicates: 2, bytesDone: 1_048_576 }),
+        progress({ scanned: 500, imported: 396, duplicates: 4, bytesDone: 3_145_728 }),
       ],
       importReport: { scanned: 500, imported: 495, duplicates: 4, copied: 495 },
       hold: { "import:paths": reply },
@@ -207,8 +223,14 @@ describe("importing", () => {
 
     // **Done over found**, not the walk's own queue: `scanned` jumps by a batch
     // of five hundred before any of those files is hashed, so a line reading
-    // "500 scanned" would say five hundred are finished when none are.
-    expect(await screen.findByText(/Importing… 400 of 500/)).toBeDefined();
+    // "500 scanned" would say five hundred are finished when none are. The
+    // percentage is the bytes', which is what moves during one large file.
+    expect(
+      await screen.findByText("Importing… 75% · 3.0 MiB of 4.0 MiB · 400 of 500"),
+    ).toBeDefined();
+    expect(
+      screen.getByRole("progressbar", { name: "Importing" }).getAttribute("aria-valuenow"),
+    ).toBe("75");
 
     finish();
 
@@ -219,6 +241,68 @@ describe("importing", () => {
     // RL-26: what happened to the files themselves is said out loud, because a
     // move is not undoable by looking at the library afterwards.
     expect(screen.getByText(/495 imported/)).toBeDefined();
+  });
+
+  it("says it is counting before anything is read", async () => {
+    // ADR-0055 §3.1: the sources are walked once to be counted, so the bar has
+    // a total from its first byte. There is no bar yet, and × already works.
+    await open({
+      importProgress: [
+        progress({
+          scanned: 1200,
+          counting: true,
+          total: 1200,
+          bytesDone: 0,
+          bytesTotal: 5_242_880,
+        }),
+      ],
+      hold: { "import:paths": new Promise<void>(() => {}) },
+    });
+
+    fire("drop", [droppedFile("/photos")]);
+
+    expect(await screen.findByText("Counting… 1,200 files · 5.0 MiB")).toBeDefined();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop importing" })).toBeDefined();
+  });
+
+  it("stops with ×, and says what arrived", async () => {
+    // ADR-0055 §3.3: what has arrived stays, and the run says it was stopped
+    // rather than reading like one that finished.
+    let finish = (): void => {};
+    const reply = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const user = await open({
+      importProgress: [progress({ imported: 10 })],
+      importReport: { cancelled: true, scanned: 500, imported: 12 },
+      hold: { "import:paths": reply },
+    });
+
+    fire("drop", [droppedFile("/photos")]);
+    await user.click(await screen.findByRole("button", { name: "Stop importing" }));
+
+    expect(engine.seen.filter((request) => request.type === "import:cancel")).toHaveLength(1);
+    expect(screen.getByText("Stopping… what has arrived stays")).toBeDefined();
+    // Pressed once: a second press would ask the engine to stop what it is
+    // already stopping.
+    expect(screen.queryByRole("button", { name: "Stop importing" })).toBeNull();
+
+    finish();
+    expect(await screen.findByText("Import stopped · 12 imported")).toBeDefined();
+  });
+
+  it("offers no × once the files are in and the pictures are being drawn", async () => {
+    // Those are the derive queue's, and its own × pauses them (ADR-0049).
+    await open({
+      importProgress: [progress({ imported: 500, thumbnails: 20 })],
+      hold: { "import:paths": new Promise<void>(() => {}) },
+    });
+
+    fire("drop", [droppedFile("/photos")]);
+
+    expect(await screen.findByText("Thumbnails… 20 of 500")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Stop importing" })).toBeNull();
   });
 
   it("re-reads everything derived once the import finishes", async () => {
