@@ -52,6 +52,11 @@ export function serve(port: Port, host: EngineHost = new EngineHost()): Server {
       event: { type: "install:progress", backend, line },
     } satisfies EventEnvelope);
   };
+  host.onTransferProgress = (progress) => {
+    port.postMessage({
+      event: { type: "transfer:progress", ...progress },
+    } satisfies EventEnvelope);
+  };
   host.onJobProgress = (progress) => {
     port.postMessage({ event: { type: "job:progress", ...progress } } satisfies EventEnvelope);
   };

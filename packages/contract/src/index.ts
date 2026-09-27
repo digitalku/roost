@@ -99,6 +99,8 @@ export {
   type WireSubtitle,
   type WireSubtitlesAdded,
   type WireTagRule,
+  type WireTransferProgress,
+  type WireTransferReport,
 } from "./dto.js";
 export {
   checkEventEnvelope,

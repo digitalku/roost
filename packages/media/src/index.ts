@@ -56,7 +56,7 @@ export {
   SNIFF_BYTES,
   sniff,
 } from "./format.js";
-export { type Hashed, hashBytes, hashFile } from "./hash.js";
+export { type Hashed, type HashOptions, hashBytes, hashFile } from "./hash.js";
 export {
   type Installable,
   type InstallOffer,

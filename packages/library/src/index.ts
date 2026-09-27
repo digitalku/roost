@@ -105,6 +105,8 @@ export {
   NotAnEagleLibraryError,
   NotAVideoError,
   NotEditableError,
+  SameLibraryError,
+  TransferRunningError,
   UnknownAssetError,
   UnknownCommentError,
   UnknownFolderError,
@@ -224,5 +226,13 @@ export {
   redrawPoster,
   type ThumbnailReport,
 } from "./thumbnails.js";
+export {
+  type TransferFailure,
+  type TransferOptions,
+  type TransferProgress,
+  type TransferReport,
+  transferAssets,
+  transferToLibrary,
+} from "./transfer.js";
 export { Requested, Wanted } from "./wanted.js";
 export { type FileWatcher, type WatchOptions, watchFiles } from "./watch.js";

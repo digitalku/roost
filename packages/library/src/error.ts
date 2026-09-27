@@ -78,6 +78,35 @@ export class LibraryBusyError extends RoostError {
   }
 }
 
+/**
+ * A transfer whose target is the library it would leave (ADR-0054 §3.7).
+ *
+ * Compared by canonical path rather than by the manifest's `id`: a library
+ * folder copied to a second place carries the same id, and moving between the
+ * two copies is something a person may mean.
+ */
+export class SameLibraryError extends RoostError {
+  readonly code = "same_library";
+
+  constructor(path: string) {
+    super(`${path} is the library the assets are already in`, { path });
+  }
+}
+
+/**
+ * A second transfer asked for while one is running (ADR-0054 §3.9).
+ *
+ * Refused rather than queued. Two at once into one target would open it twice
+ * in this process, and the lock cannot see that: it is this process's own.
+ */
+export class TransferRunningError extends RoostError {
+  readonly code = "transfer_running";
+
+  constructor() {
+    super("A move or copy into another library is already running");
+  }
+}
+
 export class LibraryTooNewError extends RoostError {
   readonly code = "library_too_new";
 

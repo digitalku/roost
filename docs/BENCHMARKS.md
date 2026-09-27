@@ -1,6 +1,6 @@
 # Roost — Benchmarks
 
-Status: **first results in** · Last updated: 2026-09-23
+Status: **first results in** · Last updated: 2026-09-27
 
 Nothing has been measured in this implementation, because nothing has been built. What this
 file holds today is the **baseline**: the numbers the Rust implementation at `../roost-old`
@@ -56,6 +56,30 @@ target now under pressure — and it is measured from M3, the first milestone th
 rather than assumed until someone complains.
 
 ## 3. Results
+
+### 2026-09-27 — a copy that can be counted and stopped (ADR-0054 §3.9)
+
+Machine: Fedora 44 host, Intel Core Ultra 7 155H. A throwaway script, not kept, copied one
+512 MiB file of random bytes from the repository's Btrfs to `/dev/shm`, three rounds, first with
+`fs/promises.copyFile` and then through `FileStore.put` with `onBytes`, which takes the counted
+path (4 MiB chunks, read and write in turn). The reflink rung refuses across a device, so both are
+full copies. The source was in the page cache after the first round.
+
+| Round | `copyFile` | Counted |
+| --- | --- | --- |
+| 1 | 135 ms | 173 ms |
+| 2 | 135 ms | 162 ms |
+| 3 | 133 ms | 172 ms |
+
+**What it revealed.** The counted copy costs about a quarter more where nothing but memory is the
+limit: 3.0 GB/s against 3.8 GB/s. That case is the least likely one for a transfer. The case the
+counted copy exists for is a file of several gigabytes going onto a hard disk that writes about
+0.15 GB/s, where the copy waits on the disk and the difference cannot be seen. The import path
+passes no options and keeps `copyFile`, so an import costs what it did.
+
+Not measured, and worth knowing: **a transfer reads each file twice**, once to hash it and once to
+copy it. On a spinning source disk that is the larger cost, and doing both in one pass is in
+`TODO.md`.
 
 ### 2026-09-26 — thumbnails in a database of their own (ADR-0051)
 

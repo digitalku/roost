@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { copyFile, mkdir, opendir, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, open, opendir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pid } from "node:process";
 import {
@@ -10,7 +10,14 @@ import {
   shardOf,
   type Take,
 } from "../model/index.js";
-import { FILES_DIR, normalizeExt, type Placed, type Storage, type StoredFile } from "./types.js";
+import {
+  FILES_DIR,
+  normalizeExt,
+  type Placed,
+  type PutOptions,
+  type Storage,
+  type StoredFile,
+} from "./types.js";
 
 let tempCounter = 0;
 
@@ -74,7 +81,13 @@ export class FileStore implements Storage {
     return join(this.filesDir(), shardOf(id), fileName);
   }
 
-  async put(src: string, id: AssetId, ext: string, take: Take): Promise<Placed> {
+  async put(
+    src: string,
+    id: AssetId,
+    ext: string,
+    take: Take,
+    options?: PutOptions,
+  ): Promise<Placed> {
     const dest = this.locate(id, ext);
     await this.#ensureShard(dest);
 
@@ -96,7 +109,7 @@ export class FileStore implements Storage {
     const temp = tempPathFor(dest);
     let placement: Placement;
     try {
-      placement = await copyInto(src, temp);
+      placement = await copyInto(src, temp, options);
     } catch (error) {
       await rm(temp, { force: true });
       throw error;
@@ -275,7 +288,8 @@ export class FileStore implements Storage {
  * edits the user's file outside it, which is precisely what a workspace must
  * not do.
  */
-async function copyInto(src: string, dest: string): Promise<Placement> {
+async function copyInto(src: string, dest: string, options?: PutOptions): Promise<Placement> {
+  options?.signal?.throwIfAborted();
   try {
     await copyFile(src, dest, constants.COPYFILE_FICLONE_FORCE);
     return "reflink";
@@ -283,10 +297,57 @@ async function copyInto(src: string, dest: string): Promise<Placement> {
     // Ordinary on ext4, on NTFS, and across mounts.
   }
 
+  if (options !== undefined) {
+    await copyCounted(src, dest, options);
+    return "copy";
+  }
   try {
     await copyFile(src, dest);
   } catch (cause) {
     throw new IoError("copy", src, cause);
   }
   return "copy";
+}
+
+/** One chunk of a counted copy: large enough that a hard disk streams rather than seeks. */
+const COPY_CHUNK = 4 * 1024 * 1024;
+
+/**
+ * A full copy a chunk at a time, reporting each and stopping when asked.
+ *
+ * `copyFile` cannot do either: it is one call into the kernel, and it returns
+ * when the last byte is written. The mode is carried over as `copyFile` would,
+ * so the two rungs make the same file. An abort is rethrown as itself rather
+ * than wrapped, because the caller asked for it and must be able to tell it
+ * from a disk that failed.
+ */
+async function copyCounted(src: string, dest: string, options: PutOptions): Promise<void> {
+  const { onBytes, signal } = options;
+  try {
+    const input = await open(src, "r");
+    try {
+      const output = await open(dest, "w");
+      try {
+        await output.chmod((await input.stat()).mode);
+        const buffer = Buffer.allocUnsafe(COPY_CHUNK);
+        for (;;) {
+          signal?.throwIfAborted();
+          const { bytesRead } = await input.read(buffer, 0, buffer.length, null);
+          if (bytesRead === 0) break;
+          let written = 0;
+          while (written < bytesRead) {
+            written += (await output.write(buffer, written, bytesRead - written)).bytesWritten;
+          }
+          onBytes?.(bytesRead);
+        }
+      } finally {
+        await output.close();
+      }
+    } finally {
+      await input.close();
+    }
+  } catch (cause) {
+    if (signal?.aborted === true) throw signal.reason;
+    throw new IoError("copy", src, cause);
+  }
 }

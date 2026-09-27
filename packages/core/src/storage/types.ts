@@ -37,6 +37,22 @@ export interface StoredFile {
  * hold a handle open in a way that stops another application writing, renaming
  * or deleting it (RL-21).
  */
+/**
+ * What a caller watching a long copy can ask of {@link Storage.put}.
+ *
+ * Given either, a copy that cannot be a reflink is made a chunk at a time
+ * rather than by one `copyFile`, so that it can be counted and stopped. A file
+ * of several gigabytes onto another disk takes minutes, and a transfer between
+ * libraries says how far it has got (ADR-0054 §3.9). Without them the import
+ * path keeps the kernel's own copy, which is the faster of the two.
+ */
+export interface PutOptions {
+  /** Called with each chunk's length as it is written. A reflink reports nothing. */
+  readonly onBytes?: (count: number) => void;
+  /** Checked between chunks. An abort removes the partial copy and rethrows the reason. */
+  readonly signal?: AbortSignal;
+}
+
 export interface Storage {
   /**
    * The path an asset's bytes occupy. **The only way an id becomes a path** —
@@ -50,7 +66,7 @@ export interface Storage {
    * (RL-26). The result is an **independent** file: a reflink is permitted
    * because it is one, a hardlink is not.
    */
-  put(src: string, id: AssetId, ext: string, take: Take): Promise<Placed>;
+  put(src: string, id: AssetId, ext: string, take: Take, options?: PutOptions): Promise<Placed>;
 
   /**
    * Writes bytes over an asset's file, or creates it.

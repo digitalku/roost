@@ -36,6 +36,7 @@ import { stats } from "./commands/stats.js";
 import { subtitle } from "./commands/subtitle.js";
 import { tag } from "./commands/tag.js";
 import { thumb } from "./commands/thumb.js";
+import { transfer } from "./commands/transfer.js";
 import { type Command, helpFor, isCommand, VERSION } from "./help.js";
 import { EXIT, flag, list, type Streams, text, usage, type Values } from "./io.js";
 import { setNoticeSink } from "./open.js";
@@ -112,6 +113,8 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   rename: {},
   trash: { restore: { type: "boolean" }, empty: { type: "boolean" } },
   remove: {},
+  move: { to: { type: "string" } },
+  copy: { to: { type: "string" } },
   doctor: {
     deep: { type: "boolean" },
     reclaim: { type: "boolean" },
@@ -480,6 +483,16 @@ async function dispatch(
         return usage(streams, command, "remove needs at least one asset");
       }
       return remove(await library(), positionals, streams);
+    }
+
+    case "move":
+    case "copy": {
+      const target = text(values, "to");
+      if (target === undefined) return usage(streams, command, `${command} needs --to <LIBRARY>`);
+      if (positionals.length === 0) {
+        return usage(streams, command, `${command} needs at least one asset`);
+      }
+      return transfer(await library(), target, positionals, command, streams);
     }
 
     case "doctor": {

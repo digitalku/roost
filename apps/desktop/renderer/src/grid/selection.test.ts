@@ -27,6 +27,24 @@ describe("selecting in the grid", () => {
     expect(store.selected()).toEqual(["d"]);
   });
 
+  it("lets go of assets that left, and keeps what else is selected", () => {
+    // A move answers minutes after it started (ADR-0054 §3.9), and the
+    // selection by then may be mostly something else.
+    const store = stored();
+    store.toggle("a");
+    store.toggle("c");
+    store.toggle("e");
+    const woken = watch(store);
+
+    store.deselect(["a", "c", "z"]);
+
+    expect(store.selected()).toEqual(["e"]);
+    expect(woken()).toBe(2);
+    const revision = store.revision();
+    store.deselect(["b"]);
+    expect(store.revision()).toBe(revision);
+  });
+
   it("adds and removes on a toggle", () => {
     const store = stored();
     store.toggle("b");

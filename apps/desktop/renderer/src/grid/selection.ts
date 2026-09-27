@@ -157,6 +157,21 @@ export class SelectionStore {
     });
   }
 
+  /**
+   * Takes these out of the selection, and leaves the rest of it alone.
+   *
+   * For assets that left the library while something else may have been
+   * selected since: a move into another library answers minutes after the
+   * gesture that started it (ADR-0054 §3.9).
+   */
+  deselect(ids: readonly string[]): void {
+    if (!ids.some((id) => this.#selected.has(id))) return;
+    this.#change(() => {
+      const gone = new Set(ids);
+      this.#selected = new Set([...this.#selected].filter((id) => !gone.has(id)));
+    });
+  }
+
   clear(): void {
     this.#change(() => {
       this.#selected = new Set();

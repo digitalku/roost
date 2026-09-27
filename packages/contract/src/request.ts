@@ -47,6 +47,7 @@ import type {
   WireStars,
   WireSubtitlesAdded,
   WireTagRule,
+  WireTransferReport,
 } from "./dto.js";
 import {
   type HandoffCost,
@@ -572,6 +573,27 @@ export type Request =
       readonly destination: string;
     }
   /**
+   * Move or copy the selection into another library (ADR-0054).
+   *
+   * `target` is a library's root, as the recent list names it. The engine
+   * opens it for the length of the transfer and shows it nowhere, so this is
+   * not a second open library (ADR-0020). `take` says what happens to the
+   * source's assets once the target holds them; the file is copied either way.
+   */
+  | {
+      readonly type: "assets:transfer";
+      readonly ids: readonly string[];
+      readonly target: string;
+      readonly take: Take;
+    }
+  /**
+   * Stop the transfer that is running (ADR-0054 §3.9).
+   *
+   * Answers whether there was one. The transfer itself answers its own request
+   * a moment later, with `cancelled` set and what had arrived by then.
+   */
+  | { readonly type: "assets:transferCancel" }
+  /**
    * Import files and directories into the open library.
    *
    * Paths, not bytes: the renderer gets a path for a dropped file from the
@@ -836,6 +858,8 @@ export interface Responses {
   /** What was actually deleted; `blocked` is always `null` here. */
   "library:reclaim": WireReclaimable;
   "assets:export": WireExportReport;
+  "assets:transfer": WireTransferReport;
+  "assets:transferCancel": boolean;
   "import:paths": WireImportReport;
   "import:fileDuplicates": WireFiled;
   "eagle:survey": WireEagleSurvey;
@@ -1330,6 +1354,19 @@ export const REQUEST_VALIDATORS: {
     if (!destination.ok) return destination;
     return ok({ type: "assets:export", ids: ids.value, destination: destination.value });
   },
+
+  "assets:transfer": (source) => {
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
+    if (ids.value.length === 0) return bad("ids: expected at least one");
+    const target = readNonEmpty(source, "target");
+    if (!target.ok) return target;
+    const take = readOneOf(source, "take", TAKES);
+    if (!take.ok) return take;
+    return ok({ type: "assets:transfer", ids: ids.value, target: target.value, take: take.value });
+  },
+
+  "assets:transferCancel": () => ok({ type: "assets:transferCancel" }),
 
   "import:paths": (source) => {
     const paths = readStringArray(source, "paths");

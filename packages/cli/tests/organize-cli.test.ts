@@ -207,6 +207,33 @@ describe("the organize commands", () => {
     expect((await ok("doctor")).join("\n")).not.toContain("Files nothing references");
   });
 
+  it("moves assets into another library, and copies them without leaving (ADR-0054)", async () => {
+    const other = join(dir, "other.roost");
+    await run(["init", other], capture().streams);
+    await ok("tag", "add", "--tag", "travels", hashes[0] as string);
+
+    const moved = await ok("move", "--to", other, hashes[0] as string);
+    expect(moved[0]).toMatch(/^Moved 1 asset/);
+    expect(moved.join("\n")).toContain("1 asset removed from this library");
+    expect(await ok("query", "", "--count")).toEqual(["2"]);
+
+    const copied = await ok("copy", "--to", other, hashes[1] as string);
+    expect(copied[0]).toMatch(/^Copied 1 asset/);
+    expect(await ok("query", "", "--count")).toEqual(["2"]);
+
+    const there = capture();
+    expect(await run(["query", "tag:travels", "--count", "-L", other], there.streams)).toBe(
+      EXIT.ok,
+    );
+    expect(there.out).toEqual(["1"]);
+  });
+
+  it("asks where a move is going before it moves anything", async () => {
+    const { streams, warn } = capture();
+    expect(await run(["move", hashes[0] as string, "-L", root], streams)).toBe(EXIT.usage);
+    expect(warn.join("\n")).toContain("--to");
+  });
+
   it("separates a wrong command line from a command that failed", async () => {
     // Exit 2 is "you typed something I cannot act on"; exit 1 is "I tried".
     const missingTag = capture();

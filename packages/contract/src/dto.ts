@@ -1213,6 +1213,41 @@ export interface WireExportReport {
 }
 
 /**
+ * What moving or copying into another library did (ADR-0054).
+ *
+ * `failed` is a count: the names are in the engine's log, and the status bar
+ * has room for a number. `missing` and `failed` both stayed in the source.
+ */
+export interface WireTransferReport {
+  readonly added: number;
+  /** Already in the target by their bytes; what they carried was merged on. */
+  readonly merged: number;
+  readonly preserved: number;
+  /** Taken out of this library. Zero for a copy. */
+  readonly removed: number;
+  readonly folders: number;
+  readonly subtitles: number;
+  readonly bytes: number;
+  readonly missing: number;
+  readonly failed: number;
+  /** Stopped before it reached every asset; what arrived stays arrived (ADR-0054 §3.9). */
+  readonly cancelled: boolean;
+}
+
+/**
+ * How far a transfer has got (ADR-0054 §3.9).
+ *
+ * `bytesDone` runs from zero to `bytesTotal`: each file's bytes are counted
+ * as they are read to be hashed and again as they are written, and halved.
+ */
+export interface WireTransferProgress {
+  readonly done: number;
+  readonly total: number;
+  readonly bytesDone: number;
+  readonly bytesTotal: number;
+}
+
+/**
  * What the About dialog says about the build it is running in (ADR-0038 §5.1).
  *
  * Answered by **main**, because everything here is the shell's own knowledge:

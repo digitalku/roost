@@ -409,7 +409,7 @@ interface Run {
  * one transaction: the journal line says an asset exists, and what the file
  * measured is a fact about the bytes that nothing journals (RL-23).
  */
-interface Ingested {
+export interface Ingested {
   readonly id: AssetId;
   readonly path: string;
   readonly records: readonly JournalRecord[];
@@ -570,11 +570,16 @@ function nameOf(path: string, ext: string): string {
   return base.toLowerCase().endsWith(suffix) ? base.slice(0, base.length - suffix.length) : base;
 }
 
-/** Journal first, then index. Never the other way around. */
-async function commit(
+/**
+ * Journal first, then index. Never the other way around.
+ *
+ * Exported for the transfer between libraries (ADR-0054), which places files
+ * the way an import does and owes the target the same commit.
+ */
+export async function commit(
   library: Library,
   batch: readonly Ingested[],
-  timings: ImportTimings,
+  timings?: ImportTimings,
 ): Promise<void> {
   if (batch.length === 0) return;
 
@@ -582,7 +587,7 @@ async function commit(
 
   const journalStarted = performance.now();
   await library.journal.appendAll(records);
-  timings.journaling += performance.now() - journalStarted;
+  if (timings !== undefined) timings.journaling += performance.now() - journalStarted;
 
   const now = nowUnix();
   const indexStarted = performance.now();
@@ -610,7 +615,7 @@ async function commit(
       records.filter((record) => record.op === "add").map((record) => record.id),
     );
   });
-  timings.indexing += performance.now() - indexStarted;
+  if (timings !== undefined) timings.indexing += performance.now() - indexStarted;
 
   // After the fold, never before: the mark says how far the index has been
   // brought, and a crash between the two would otherwise leave it claiming

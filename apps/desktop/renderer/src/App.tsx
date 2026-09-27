@@ -37,6 +37,7 @@ import { type FolderTiles, Grid } from "./grid/Grid.js";
 import { GRID_VIEWS, type GridView, isGridView, ZOOMS, zoomBy, zoomFor } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
+import { TransferStatus, useTransfer } from "./grid/TransferStatus.js";
 import { assets, type ConfirmRequest, useTrashActions } from "./grid/trash-actions.js";
 import { ViewMenu } from "./grid/ViewMenu.js";
 import { DropZone } from "./import/DropZone.js";
@@ -1332,6 +1333,15 @@ function LibraryView({
    * is in the trash, and the roving ring has nowhere to return to.
    */
   const clearSelection = useCallback(() => selection.clear(), [selection]);
+  const deselectLeft = useCallback(
+    (ids: readonly string[]) => selection.deselect(ids),
+    [selection],
+  );
+  const transferring = useTransfer({
+    onNote: noteResult,
+    onProblem: setActed,
+    onLeft: deselectLeft,
+  });
 
   const trashing = useTrashActions({
     ids: selected,
@@ -2185,6 +2195,9 @@ function LibraryView({
               }}
               drawable={selected.length === 1 && drawable(paging.assets, selected[0] ?? "")}
               picture={selected.length === 1 && isPicture(paging.assets, selected[0])}
+              {...(root === undefined ? {} : { libraryRoot: root })}
+              onTransfer={transferring.start}
+              transferring={transferring.running !== undefined}
             >
               <Grid
                 assets={paging.assets}
@@ -2279,6 +2292,7 @@ function LibraryView({
           </span>
         )}
         <ImportStatus importing={importing} />
+        <TransferStatus transferring={transferring} />
         <DeriveStatus
           status={derives.status}
           onPause={() => void derives.pause()}

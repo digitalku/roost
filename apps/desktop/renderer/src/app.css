@@ -611,6 +611,30 @@ button:disabled {
   font-size: var(--text-sm);
 }
 
+/* A transfer into another library (ADR-0054 §3.9): the chip carries a bar,
+   because a percentage that moves by one every few seconds is easy to miss. */
+.status-transfer {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.status-meter {
+  flex: none;
+  width: 64px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--border);
+}
+
+.status-meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--dur-base) linear;
+}
+
 /* The × and Resume beside the derive count (ADR-0049): the same chip, told
    apart from the count by being the one that reacts to the pointer. */
 .status-job-action {

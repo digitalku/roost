@@ -1,9 +1,10 @@
-import type { WireExportReport, WireProblem } from "@roost/contract";
+import type { Take, WireExportReport, WireProblem, WireRecentLibrary } from "@roost/contract";
 import { ContextMenu } from "radix-ui";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { playhead, usePlayer } from "../preview/playhead.js";
 import { timecode } from "../timecode.js";
+import { destinations, TransferMenu } from "./TransferMenu.js";
 import { assets, type ConfirmRequest, useTrashActions } from "./trash-actions.js";
 
 /**
@@ -84,6 +85,22 @@ export interface AssetContextMenuProps {
    * paste, and over several there is no one picture.
    */
   readonly picture?: boolean;
+  /**
+   * The open library's root, which with {@link onTransfer} offers **Move to
+   * library** and **Copy to library** (ADR-0054), and is what they leave out
+   * of the list.
+   *
+   * Absent over the preview: moving the asset on screen out of the library
+   * would leave the pane showing something that is no longer here.
+   */
+  readonly libraryRoot?: string;
+  /**
+   * Starts a move or copy of the selection. The window holds the run, because
+   * it outlives this menu by as long as the files take to copy.
+   */
+  readonly onTransfer?: (ids: readonly string[], target: WireRecentLibrary, take: Take) => void;
+  /** A transfer is running, so another cannot start. */
+  readonly transferring?: boolean;
   readonly children: React.ReactNode;
 }
 
@@ -100,6 +117,9 @@ export function AssetContextMenu({
   onOpenHere,
   drawable,
   picture,
+  libraryRoot,
+  onTransfer,
+  transferring,
   children,
 }: AssetContextMenuProps): React.JSX.Element {
   const count = ids.length;
@@ -109,6 +129,7 @@ export function AssetContextMenu({
   // with, so the rows keep their natural order.
   const externalFirst = only !== undefined && drawable === false;
   const restoreTo = useRef<HTMLElement | null>(null);
+  const [libraries, setLibraries] = useState<readonly WireRecentLibrary[] | undefined>();
   // Subscribed rather than read once: the menu is mounted around the content
   // region, and what is in that region changes under it.
   usePlayer();
@@ -230,6 +251,14 @@ export function AssetContextMenu({
         if (open) {
           restoreTo.current =
             document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          if (libraryRoot !== undefined && onTransfer !== undefined && count > 0) {
+            setLibraries(undefined);
+            void invoke({ type: "recent:list" }).then((outcome) => {
+              // A list that cannot be read offers nothing, which the submenu
+              // says in its own words; it is not worth a problem of its own.
+              setLibraries(outcome.ok ? destinations(outcome.value, libraryRoot) : []);
+            });
+          }
         }
       }}
     >
@@ -366,6 +395,17 @@ export function AssetContextMenu({
                   {count === 1 ? "Export…" : `Export ${count} assets…`}
                 </span>
               </ContextMenu.Item>
+
+              {libraryRoot !== undefined && onTransfer !== undefined && (
+                <>
+                  <ContextMenu.Separator className="menu-separator" />
+                  <TransferMenu
+                    libraries={libraries}
+                    busy={transferring === true}
+                    onPick={(target, take) => onTransfer(ids, target, take)}
+                  />
+                </>
+              )}
 
               <ContextMenu.Separator className="menu-separator" />
 

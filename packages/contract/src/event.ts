@@ -10,7 +10,13 @@ import {
   readString,
   within,
 } from "./checked.js";
-import type { DeriveProgress, ImportProgress, InstallableBackend, WireRedrawn } from "./dto.js";
+import type {
+  DeriveProgress,
+  ImportProgress,
+  InstallableBackend,
+  WireRedrawn,
+  WireTransferProgress,
+} from "./dto.js";
 import { INSTALLABLE_BACKENDS } from "./dto.js";
 
 /**
@@ -55,6 +61,14 @@ export type Event =
    * finish while its thumbnails are still being made, and the window says so.
    */
   | ({ readonly type: "job:progress" } & DeriveProgress)
+  /**
+   * How far a move or copy into another library has got (ADR-0054 §3.9).
+   *
+   * Numbers, like `import:progress`, because they exist only while the run is
+   * happening. Bytes as well as assets: one video of several gigabytes onto a
+   * hard disk is minutes of "0 of 1".
+   */
+  | ({ readonly type: "transfer:progress" } & WireTransferProgress)
   /**
    * Assets whose derived data was just replaced, and when.
    *
@@ -143,6 +157,22 @@ export const EVENT_VALIDATORS: {
       remaining: counts["remaining"] ?? 0,
       blocked: counts["blocked"] ?? 0,
       failed: counts["failed"] ?? 0,
+    });
+  },
+
+  "transfer:progress": (source) => {
+    const counts: Record<string, number> = {};
+    for (const field of ["done", "total", "bytesDone", "bytesTotal"] as const) {
+      const value = readInteger(source, field);
+      if (!value.ok) return value;
+      counts[field] = value.value;
+    }
+    return ok({
+      type: "transfer:progress",
+      done: counts["done"] ?? 0,
+      total: counts["total"] ?? 0,
+      bytesDone: counts["bytesDone"] ?? 0,
+      bytesTotal: counts["bytesTotal"] ?? 0,
     });
   },
 

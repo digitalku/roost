@@ -887,6 +887,20 @@ export class Repo {
   }
 
   /**
+   * The assets one track captions — the other direction from {@link subtitlesFor}.
+   *
+   * Usually one, and the plural is the point: a track may caption two cuts of
+   * the same video, and moving one of them must not take the track away from
+   * the other (ADR-0054 §3.6).
+   */
+  captionedBy(track: AssetId): AssetId[] {
+    const rows = this.#s(
+      "SELECT asset_id AS id FROM asset_subtitles WHERE track_id = ? ORDER BY asset_id",
+    ).all(track) as { id: AssetId }[];
+    return rows.map((row) => row.id);
+  }
+
+  /**
    * The folder ids one asset belongs to.
    *
    * Ids rather than names, because this answers "file this one where that one

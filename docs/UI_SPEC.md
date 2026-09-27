@@ -309,6 +309,8 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, and a Sort By submenu of six orders. ADR-0018, ADR-0039 |
 | `AddMenu` | toolbar | — | One button, one menu: the four ways an asset comes into being. §1 |
 | `AssetContextMenu` | content | — | Right-click on the selection; §3.3. Native menus were considered and rejected; ADR-0021 |
+| `TransferMenu` | `AssetContextMenu` | — | Move to library and Copy to library, two submenus of the recent list; §3.3, ADR-0054 |
+| `TransferStatus` | status bar | — | A running transfer: bar, percentage, bytes, assets, and × to stop it; §3.3, ADR-0054 §3.9 |
 | `NavTree` | sidebar | — | Smart folders and the flat sections; §4.2 |
 | `Folders` | sidebar | — | The one section that is a tree: disclosure arrows, a `+` in its heading, and a right-click menu. Expansion is the window's, so a new subfolder can be revealed; ADR-0033 |
 | `FolderDialog` | overlay | draft | Naming a folder, for both **New folder** and **Rename**. The engine refuses a bad name; the dialog draws its message and stays open |
@@ -445,7 +447,29 @@ the grid's roving ring and the preview's stepping both dead until something is c
 | **Copy image** | the picture, as a full-size PNG, for pasting into a chat, an editor or a slide. Disabled over anything but a picture (ADR-0034 §5) | disabled — a clipboard holds one picture |
 | **Copy path** | one path | `Copy N paths`, one per line |
 | **Export…** | a directory chooser, then a copy out | `Export N assets…` |
+| **Move to library ›** | a submenu of the recent libraries; the asset goes there with everything written about it, and leaves this one (ADR-0054) | the same, for the whole selection |
+| **Copy to library ›** | the same submenu; the asset arrives there and stays here too | the same |
 | **Move to trash** | reversible, so it asks nothing | `Move N assets to trash` |
+
+**Move to library and Copy to library are over the grid only**, below a separator of their own.
+Over the preview, moving the asset on screen out of the library would leave the pane showing
+something no longer here. Each submenu is the picker's recent list (§3.1), read when the menu opens:
+the libraries that are still there, pinned first and then most recent first, never the one that is
+open. With none to offer, it holds one disabled row, *No other library in the recent list*, which
+says where the list comes from and so how to fill it. While a transfer runs, both submenus are
+disabled, because the engine takes one at a time.
+
+**The transfer is drawn in the status bar while it runs** (ADR-0054 §3.9), because onto a hard disk
+it can take minutes. There is a bar, then a percentage, the bytes and the assets:
+`Moving to Photos… 28% · 2.1 GiB of 7.4 GiB · 1 of 3`. **×** beside it stops the transfer. What has
+arrived stays arrived and, for a move, leaves this library. The rest stays here, and the chip says
+`Stopping…` while the file in hand is abandoned. When the transfer ends, the chip gives way to a
+note of what arrived, what was merged onto a file the target already held, and what stayed here
+and why: `Moved 12 assets to Photos · 2 already there, merged · 1 not on this machine, left here`,
+or `Stopped · Moved 4 assets to Photos · the rest are still here`. **Neither gesture asks first.** A
+move is undone by moving back, and it loses nothing but the ids. The assets that left are taken out
+of the selection, and only those: minutes may have passed, and what is selected may be something
+else by then.
 
 **Two more rows over a video that is playing** (ADR-0024 stage 4): **Set this frame as the
 thumbnail** takes the moment the transport is at, and **Use the default frame** puts it back. They

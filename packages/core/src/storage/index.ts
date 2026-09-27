@@ -4,6 +4,7 @@ export {
   FILES_DIR,
   normalizeExt,
   type Placed,
+  type PutOptions,
   type Storage,
   type StoredFile,
 } from "./types.js";

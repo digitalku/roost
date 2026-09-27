@@ -30,6 +30,8 @@ export const COMMANDS = [
   "rename",
   "trash",
   "remove",
+  "move",
+  "copy",
   "doctor",
 ] as const;
 
@@ -72,6 +74,8 @@ Commands:
   rename    Change an asset's display name. The file on disk is untouched
   trash     Move assets to the trash, restore them, or empty it
   remove    Remove assets from the library. Originals are not deleted
+  move      Move assets into another library, with everything written about them
+  copy      Copy assets into another library, leaving this one as it was
   doctor    Check a library against itself, and reclaim what nothing references
 
 Options:
@@ -463,6 +467,39 @@ The row goes, and so does its file under files/ (ADR-0031). \`roost doctor
 Usage: roost remove <ASSET>... [OPTIONS]
 
 Options:
+${LIBRARY_FLAG}
+${GLOBAL}`,
+
+  move: `Move assets into another library (ADR-0054).
+
+Everything written about an asset goes with it: its name, tags, folders (by
+path, reusing the target's where the names match), rating, note, source,
+comments, poster frame and trash state. A video's subtitle tracks come along.
+The target gives each asset an id of its own.
+
+The file is copied into the target first — free on Btrfs and XFS — and only
+once every asset has arrived is it removed from this library. An interrupted
+move is finished by running it again. A file the target already holds is not
+added twice: what it carries is merged onto the target's asset, and a rating,
+note or source already written there is kept.
+
+The target must not be open anywhere else.
+
+Usage: roost move --to <LIBRARY> <ASSET>... [OPTIONS]
+
+Options:
+      --to <LIBRARY>     The library to move into
+${LIBRARY_FLAG}
+${GLOBAL}`,
+
+  copy: `Copy assets into another library (ADR-0054).
+
+What \`roost move\` does, without removing anything from this library.
+
+Usage: roost copy --to <LIBRARY> <ASSET>... [OPTIONS]
+
+Options:
+      --to <LIBRARY>     The library to copy into
 ${LIBRARY_FLAG}
 ${GLOBAL}`,
   doctor: `Check a library against itself.

@@ -866,6 +866,31 @@ claim and counts made cheap at a million. What is still open:
   rebuild gesture. What ADR-0051 changes is visible only as a grid that stays drawn after
   `roost rebuild`, and `import.test.ts` asserts that at the engine.
 
+### Moving assets between libraries (ADR-0054, 2026-09-27)
+
+- [x] `transfer.ts` in `@roost/library`: copy into the target, journal there, attach subtitles, then
+  remove from the source for a move. Folders by path, duplicates merged by ADR-0032 §8's rule,
+  tracks that also caption a video staying behind are copied. 15 tests in
+  `tests/transfer.test.ts`, including a re-run after an interrupted move and a rebuild of the
+  target.
+- [x] `assets:transfer` in the contract and the engine, **Move to library ›** and **Copy to
+  library ›** in the grid's context menu (`UI_SPEC.md` §3.3), `roost move` and `roost copy`.
+- [x] **A long transfer has a progress bar, and × stops it** (ADR-0054 §3.9, asked for and built
+  2026-09-27). Bytes, not assets: a counted copy in `FileStore.put` and `onBytes` in `hashFile`.
+  The user chose that a stop keeps what arrived. `Ctrl+C` does the same in the CLI.
+- 🟢 **A transfer reads each file twice**, once to hash it and once to copy it. On a spinning
+  source disk that is most of the time a large move takes. Hashing while copying would halve it,
+  at the price of a wasted write when the target turns out to have the file already. That trade
+  wants measuring on a hard disk first (`BENCHMARKS.md`, 2026-09-27).
+- 🟢 **The large-file turn (64 MiB) is a guess.** It is reasoned from how a hard disk seeks rather
+  than measured. Worth a run with a few multi-gigabyte files onto a real hard disk.
+- 🟢 **The target draws its thumbnails again.** They are in the source's `thumbs/roost.db`, keyed
+  by the old id, and a transfer could copy them across with their `sources` row. Today the target's
+  derive queue redraws them the next time it is opened.
+- 🟢 **No window check drives a transfer.** It needs two libraries in the recent list and a
+  submenu opened over CDP. The component tests cover the menu against the fake engine, and
+  `serve.test.ts` the request against a real one.
+
 ### The library format
 
 - 🟢 **An open folds the whole journal, not the part it has not seen.** The mark `index.db` keeps

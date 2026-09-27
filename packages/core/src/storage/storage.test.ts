@@ -223,6 +223,57 @@ describe("FileStore, on a real filesystem", () => {
   });
 });
 
+// A copy that can be counted and stopped (ADR-0054 §3.9). Across a device, so
+// that the reflink rung refuses and the counted copy is the one that runs.
+describe.runIf(onLinux)("a counted copy", () => {
+  let lib: string;
+  let src: string;
+  let store: FileStore;
+  const SIZE = 10 * 1024 * 1024 + 17;
+
+  beforeAll(async () => {
+    await mkdir(REPO_FS_ROOT, { recursive: true });
+    src = await mkdtemp(join(REPO_FS_ROOT, "counted-src-"));
+    lib = await tmpfsDir("roost-counted-");
+    store = new FileStore(lib);
+    await writeFile(join(src, "big.bin"), Buffer.alloc(SIZE, 7));
+  });
+
+  afterAll(async () => {
+    await rm(lib, { recursive: true, force: true });
+    await rm(src, { recursive: true, force: true });
+  });
+
+  it("reports every byte it writes, and makes the same file", async () => {
+    let counted = 0;
+    const placed = await store.put(join(src, "big.bin"), ID, "bin", "copy", {
+      onBytes: (count) => {
+        counted += count;
+      },
+    });
+
+    expect(placed.placement).toBe("copy");
+    expect(counted).toBe(SIZE);
+    // `equals` rather than `toEqual`, which walks ten megabytes an element at a
+    // time and took forty seconds to say yes.
+    expect((await readFile(placed.path)).equals(await readFile(join(src, "big.bin")))).toBe(true);
+  });
+
+  it("stops when asked, and leaves nothing behind", async () => {
+    const controller = new AbortController();
+    const placing = store.put(join(src, "big.bin"), OTHER, "bin", "copy", {
+      // After the first chunk, so the copy is genuinely half made.
+      onBytes: () => controller.abort(),
+      signal: controller.signal,
+    });
+
+    await expect(placing).rejects.toMatchObject({ name: "AbortError" });
+    expect(await readdir(join(store.filesDir(), "B7"))).toEqual([]);
+    // The source is the caller's, and a stopped copy has no business with it.
+    expect((await stat(join(src, "big.bin"))).size).toBe(SIZE);
+  });
+});
+
 describe("walking the store", () => {
   let lib: string;
   let store: FileStore;

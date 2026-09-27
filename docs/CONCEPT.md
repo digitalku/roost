@@ -153,7 +153,8 @@ Legend: **M** = must have (v1.0) · **S** = should have · **C** = could have ·
 - M — Full DB rebuild by replaying the journal
 - M — ~~Opens a library written by the Rust implementation~~ — retired with format 1 (ADR-0046)
 - S — Export/backup a folder or selection with metadata
-- C — Merge two libraries
+- S — Move or copy assets into another library, with everything written about them (ADR-0054)
+- C — Merge two libraries (a move of everything, plus smart folders and tag groups; ADR-0054 §4)
 
 ### 5.2 Explicit non-goals
 

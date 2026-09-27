@@ -22,6 +22,7 @@ import type {
   WireImportReport,
   WireSidebar,
   WireSort,
+  WireTransferReport,
 } from "@roost/contract";
 import {
   type AssetDetail,
@@ -91,8 +92,12 @@ import {
   setPoster,
   setSource,
   surveyEagle,
+  type TransferProgress,
+  type TransferReport,
+  TransferRunningError,
   tagAdd,
   tagRemove,
+  transferToLibrary,
   trashAssets,
   unsoundForReclaim,
   Wanted,
@@ -570,6 +575,23 @@ export class EngineHost {
         // not a mutation.
         return exportAssets(this.#require(), ids(request.ids), request.destination);
 
+      case "assets:transfer":
+        // Reporting, because what arrived, what merged and what stayed behind
+        // are different outcomes of one gesture, and the status bar says which.
+        // The target is opened and closed inside the call and never becomes
+        // this host's library (ADR-0054 §3.7).
+        return this.#editReporting(async () =>
+          wireTransfer(
+            await this.#transfer(resolve(request.target), ids(request.ids), request.take),
+          ),
+        );
+
+      case "assets:transferCancel": {
+        const running = this.#transferring !== undefined;
+        this.#transferring?.controller.abort();
+        return running;
+      }
+
       case "clipboard:paste":
       case "clipboard:copyText":
       case "link:open":
@@ -836,6 +858,53 @@ export class EngineHost {
   readonly #wanted = new Wanted();
   /** Whether the queue is paused, as the library remembers it (ADR-0049). */
   #paused = false;
+
+  /**
+   * The transfer that is running, if one is (ADR-0054 §3.9).
+   *
+   * Held so that it can be stopped from a second request, and so that closing
+   * the library waits for it: the transfer removes from the source as its last
+   * step, and a database closed under it would throw half way through that.
+   */
+  #transferring:
+    | { readonly controller: AbortController; readonly done: Promise<unknown> }
+    | undefined;
+
+  /**
+   * Moves or copies into another library, one at a time.
+   *
+   * Progress goes out at most every {@link TRANSFER_PROGRESS_MS}: a counted copy
+   * reports every four megabytes, which is hundreds of times a second from a
+   * fast disk, and each is a message across two process boundaries.
+   */
+  async #transfer(target: string, assets: AssetId[], take: Take): Promise<TransferReport> {
+    if (this.#transferring !== undefined) throw new TransferRunningError();
+    const library = this.#require();
+    const controller = new AbortController();
+    let told = 0;
+    const running = transferToLibrary(
+      library,
+      target,
+      assets,
+      { take, signal: controller.signal },
+      (progress) => {
+        const now = performance.now();
+        const last = progress.done === progress.total;
+        if (!last && now - told < TRANSFER_PROGRESS_MS) return;
+        told = now;
+        this.onTransferProgress?.(progress);
+      },
+    );
+    this.#transferring = { controller, done: running.catch(() => undefined) };
+    try {
+      return await running;
+    } finally {
+      this.#transferring = undefined;
+    }
+  }
+
+  /** Set by `serve`, like {@link onProgress}. */
+  onTransferProgress: ((progress: TransferProgress) => void) | undefined;
   /** What a paused queue still works: opened files and new imports. */
   readonly #requested = new Requested();
 
@@ -960,6 +1029,11 @@ export class EngineHost {
     // batch that lands after the database is closed would throw instead.
     this.#stopDeriving?.abort();
     await this.#deriving?.catch(() => undefined);
+
+    // Stopped, and waited for: what has arrived is removed from this library
+    // as the transfer's last step, which needs the database still open.
+    this.#transferring?.controller.abort();
+    await this.#transferring?.done;
 
     if (open === undefined) return;
     await open.close();
@@ -1335,6 +1409,14 @@ const PROGRESS_EVERY = 100;
 const PROGRESS_MS = 1000;
 
 /**
+ * The shortest gap between two `transfer:progress` events.
+ *
+ * Shorter than the derive queue's, because this one draws a percentage a
+ * person is watching, and a second between steps reads as stuck.
+ */
+const TRANSFER_PROGRESS_MS = 250;
+
+/**
  * How many files an import has actually *finished*.
  *
  * Not `scanned`, which is what the walk has **found**: the walk drains a window
@@ -1403,6 +1485,21 @@ async function wireCapabilities(): Promise<WireDeriveStatus["capabilities"]> {
     install: capability.install,
     installable: capability.installable,
   }));
+}
+
+function wireTransfer(report: TransferReport): WireTransferReport {
+  return {
+    cancelled: report.cancelled,
+    added: report.added,
+    merged: report.merged,
+    preserved: report.preserved,
+    removed: report.removed,
+    folders: report.folders,
+    subtitles: report.subtitles,
+    bytes: report.bytes,
+    missing: report.missing,
+    failed: report.failed.length,
+  };
 }
 
 function wireSurvey(survey: EagleSurvey): WireEagleSurvey {

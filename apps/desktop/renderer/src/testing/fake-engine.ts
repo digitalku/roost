@@ -37,6 +37,7 @@ import type {
   WireSort,
   WireStars,
   WireTagRule,
+  WireTransferReport,
 } from "@roost/contract";
 import type { WindowBridge } from "../bridge.js";
 
@@ -138,6 +139,8 @@ export interface FakeEngineOptions {
   readonly desktopAnswers?: boolean;
   /** What an export reports. */
   readonly exportReport?: Partial<WireExportReport>;
+  /** What `assets:transfer` reports, over every asset arriving (ADR-0054). */
+  readonly transferReport?: Partial<WireTransferReport>;
   /** How many assets `assets:emptyTrash` reports having removed. */
   readonly trashSize?: number;
   /** Bytes a removal reports having freed from `files/` (ADR-0031). */
@@ -1003,6 +1006,35 @@ export class FakeEngine {
           failed: 0,
           ...this.#options.exportReport,
         });
+
+      // A move takes the assets out of this library, as the engine's does once
+      // the target holds them; a copy leaves it as it was.
+      case "assets:transfer": {
+        const moved = request.take === "move";
+        if (moved) {
+          const gone = new Set(request.ids);
+          this.assets = this.assets.filter((asset) => !gone.has(asset.id));
+        }
+        this.emit({ type: "library:changed" });
+        return ok({
+          added: request.ids.length,
+          merged: 0,
+          preserved: 0,
+          removed: moved ? request.ids.length : 0,
+          folders: 0,
+          subtitles: 0,
+          bytes: 0,
+          missing: 0,
+          failed: 0,
+          cancelled: false,
+          ...this.#options.transferReport,
+        });
+      }
+
+      // Answered as though one were running: a test that sends this has a
+      // transfer held open with `hold`, which is what a transfer in progress is.
+      case "assets:transferCancel":
+        return ok(true);
 
       case "dialog:chooseImport":
         return ok(this.#options.importDialog ?? null);

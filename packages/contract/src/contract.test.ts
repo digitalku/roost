@@ -130,6 +130,8 @@ describe("validating a request", () => {
       "library:reclaimable",
       "library:reclaim",
       "assets:export",
+      "assets:transfer",
+      "assets:transferCancel",
       "import:paths",
       "import:fileDuplicates",
       "eagle:survey",

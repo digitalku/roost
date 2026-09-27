@@ -285,6 +285,84 @@ describe("the engine's message loop", () => {
     await ask(100, { type: "library:open", path: root });
   };
 
+  it("moves assets into another library and keeps its own open (ADR-0054)", async () => {
+    await libraryOf(3);
+    const target = join(dir, `Target${LIBRARY_SUFFIX}`);
+    await (await Library.create(target, "Target")).close();
+    const page = (await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 10,
+      after: null,
+      sort: null,
+    })) as { value: { assets: { id: string }[] } };
+    const moving = page.value.assets.slice(0, 2).map((asset) => asset.id);
+
+    const reply = await ask(2, { type: "assets:transfer", ids: moving, target, take: "move" });
+
+    expect(reply).toMatchObject({
+      ok: true,
+      value: { added: 2, removed: 2, failed: 0, cancelled: false },
+    });
+    // The last word on progress is never throttled away, so a bar reaches the end.
+    const events = port.sent
+      .map((message) => (message as { event?: { type: string } }).event)
+      .filter((event) => event?.type === "transfer:progress");
+    expect(events.at(-1)).toMatchObject({ done: 2, total: 2 });
+    expect(await ask(3, { type: "assets:count", query: "" })).toMatchObject({ value: 1 });
+    // The target was opened for the call and closed after it: this process
+    // still has the library it had, and the target opens anywhere.
+    expect(await ask(4, { type: "library:current" })).toMatchObject({
+      value: { name: "Paged" },
+    });
+    const opened = await Library.open(target, { exclusive: true });
+    try {
+      expect(opened.db.repo.allIds()).toHaveLength(2);
+    } finally {
+      await opened.close();
+    }
+  });
+
+  it("takes one transfer at a time", async () => {
+    await libraryOf(4);
+    const target = join(dir, `Target${LIBRARY_SUFFIX}`);
+    await (await Library.create(target, "Target")).close();
+    const page = (await ask(1, {
+      type: "assets:page",
+      query: "",
+      limit: 10,
+      after: null,
+      sort: null,
+    })) as { value: { assets: { id: string }[] } };
+    const [first, second] = page.value.assets.map((asset) => asset.id);
+
+    // Both sent before either is answered: the second arrives while the first
+    // holds the target open in this process, where its lock cannot see it.
+    await Promise.all([
+      ask(2, { type: "assets:transfer", ids: [first ?? ""], target, take: "copy" }),
+      ask(3, { type: "assets:transfer", ids: [second ?? ""], target, take: "copy" }),
+    ]);
+    // By id, because `deliver` hands back whichever reply came first.
+    const replyTo = async (id: number): Promise<ReplyEnvelope | undefined> => {
+      for (let tick = 0; tick < 1000; tick += 1) {
+        const found = port.replies().find((reply) => reply.id === id);
+        if (found !== undefined) return found;
+        await new Promise((resolve) => setTimeout(resolve, 2));
+      }
+      return undefined;
+    };
+
+    expect(await replyTo(2)).toMatchObject({ ok: true });
+    expect(await replyTo(3)).toMatchObject({ ok: false, problem: { code: "transfer_running" } });
+  });
+
+  it("says there was nothing to stop when no transfer is running", async () => {
+    expect(await ask(1, { type: "assets:transferCancel" })).toMatchObject({
+      ok: true,
+      value: false,
+    });
+  });
+
   it("pauses the queue, remembers it, and still draws a file somebody opens", async () => {
     // ADR-0049: × stops the queue until Resume, the library remembers it, and
     // a file opened meanwhile gets its thumbnail on the spot.

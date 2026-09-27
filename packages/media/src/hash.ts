@@ -31,6 +31,20 @@ export interface Hashed {
 }
 
 /**
+ * What a caller watching a long read can ask of {@link hashFile}.
+ *
+ * Both exist for a file of several gigabytes on a spinning disk, which takes
+ * minutes to read: a transfer between libraries says how far it has got, and
+ * stops when asked (ADR-0054 §3.9).
+ */
+export interface HashOptions {
+  /** Called with each chunk's length as it is read. */
+  readonly onBytes?: (count: number) => void;
+  /** Checked between chunks; an abort ends the read with the signal's reason. */
+  readonly signal?: AbortSignal;
+}
+
+/**
  * BLAKE3 over the whole file, streamed, lowercase hex (RL-18).
  *
  * Streamed because assets are routinely gigabytes and must never be read into
@@ -42,7 +56,9 @@ export interface Hashed {
  * application must be able to write to it, rename it or delete it while Roost
  * is looking.
  */
-export async function hashFile(path: string): Promise<Hashed> {
+export async function hashFile(path: string, options: HashOptions = {}): Promise<Hashed> {
+  const { onBytes, signal } = options;
+  signal?.throwIfAborted();
   const handle = await open(path, "r");
   try {
     const stats = await handle.stat();
@@ -51,10 +67,12 @@ export async function hashFile(path: string): Promise<Hashed> {
     const buffer = Buffer.allocUnsafe(READ_BUFFER_BYTES);
     let position = 0;
     for (;;) {
+      signal?.throwIfAborted();
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, position);
       if (bytesRead === 0) break;
       hasher.update(buffer.subarray(0, bytesRead));
       position += bytesRead;
+      onBytes?.(bytesRead);
     }
 
     return {
