@@ -206,7 +206,7 @@ These are the differentiators worth building, not just parity items:
 - The conformance suite in `conformance/` passes (CI-enforced, RL-52) — a library written by
   hand replays here to the state it publishes. **Reading
   `roost-old`'s libraries was dropped on 2026-09-21** along with the format that made it possible
-  (ADR-0046): a version 1 library is refused by name. What is still promised is the line above it
+  (ADR-0046), and format 1 is no longer named at all (ADR-0053). What is still promised is the line above it
   — the journal rebuilds the index — because that, not another implementation, is what makes the
   format durable.
 - A file edited in place by the application that owns it stays the same asset, with its tags,

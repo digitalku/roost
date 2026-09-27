@@ -17,9 +17,8 @@ Status: v5 · Last updated: 2026-09-26
 
 **The numbering starts again here** (ADR-0046). Version 1's fourteen migrations described a schema
 keyed on the BLAKE3 hash of an asset's bytes, and version 2 identifies an asset by an id minted at
-random (RL-13). Nothing migrates forward: an implementation of Format 2 refuses a Format 1 library
-rather than reading it (RL-6a), so there is no database in the world at the old schema that this
-build will ever open.
+random (RL-13). Nothing migrates forward: no index at the old schema can reach this build, so there
+was nothing to migrate from.
 
 What that buys is a schema that can be read in one sitting — one baseline rather than a v1 plus
 thirteen amendments, and no column that exists only because something else used to.

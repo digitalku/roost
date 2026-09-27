@@ -14,7 +14,7 @@ import {
   replay,
 } from "@roost/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { LibraryIsFormat1Error } from "../src/error.js";
+import { NotALibraryError } from "../src/error.js";
 import { readManifest } from "../src/manifest.js";
 import { LIBRARY_SUFFIX, libraryNameFromPath } from "../src/naming.js";
 
@@ -341,11 +341,9 @@ describe("identifying a library", () => {
     expect(existsSync(noSuffix)).toBe(true);
   });
 
-  it("refuses a Format 1 library by name, and touches nothing (RL-6a)", async () => {
-    // Version 1 is a different layout with a different notion of identity.
-    // Everything this build could do with one is a guess, so it says which
-    // format the directory is in and stops — no reading, no repair, no
-    // conversion, and nothing written.
+  it("refuses a version below 2 as not a library, and touches nothing (RL-6a)", async () => {
+    // A lower version is not a layout this build reads, so anything it did
+    // with one would be a guess (ADR-0053).
     const old = join(work, "version-one.roost");
     await cp(library, old, { recursive: true });
 
@@ -354,7 +352,7 @@ describe("identifying a library", () => {
     const before = JSON.stringify({ ...manifest, roost_library_version: 1 });
     await writeFile(manifestPath, before, "utf8");
 
-    await expect(readManifest(old)).rejects.toBeInstanceOf(LibraryIsFormat1Error);
+    await expect(readManifest(old)).rejects.toBeInstanceOf(NotALibraryError);
     // Unchanged, byte for byte: RL-6 forbids modifying anything in a library
     // this build has refused, a cache it cannot read included.
     expect(await readFile(manifestPath, "utf8")).toBe(before);

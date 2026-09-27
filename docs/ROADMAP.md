@@ -433,6 +433,10 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
+**ADR-0053 — format 1 is not named any more** was proposed and **accepted** on 2026-09-26, the
+user having no such library: the error that named it is gone, and a lower version is simply not a
+library (`FORMAT.md` revision 2.1).
+
 **ADR-0052 — this repository owns its library format** was proposed and **accepted** on
 2026-09-26. The format stops being `../roost-library`'s: `docs/FORMAT.md` and `docs/OPS.md` are
 revision 2.0 copied home, the conformance library is at the repository root, and `roost-net` is no

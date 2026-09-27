@@ -428,10 +428,9 @@ original database. It runs in CI on every commit. The guarantee "the DB is dispo
 into a lie unless it is tested continuously, and invariant 1 is the easiest one to leak as the
 project grows.
 
-**The second conformance test is the standard's own** (RL-52): `conformance/library.roost`, a
-journal written by hand in another repository, replayed here and compared against the state
-`expected.json` publishes. Version 1 also carried a fixture written by `roost-old`; that
-obligation is retired with the format (RL-6a), and the fixture went with it.
+**The second conformance test is the format's own** (RL-52): `conformance/library.roost`, a
+journal written by hand, replayed here and compared against the state
+`expected.json` publishes. It lives in `conformance/` at the repository root (ADR-0052).
 
 ### 4.6 Performance strategy
 - Grid virtualization: render only visible cells plus a small overscan.
@@ -549,8 +548,8 @@ Violating any of these is a bug, regardless of what it enables:
    and RL-51's forbidden list govern storage, import and rebuild — not the schema, which RL-2
    leaves to the implementation. It is this repository's own (ADR-0052): a change to it is argued
    in an ADR, made in the same commit as the code, and raises a document revision or a format
-   version (§12 of it). **This build reads format 2 only**, and refuses a
-   version 1 library by name without reading a byte of it (RL-6a, ADR-0046).
+   version (§12 of it). **This build reads format 2 only**: a manifest at any
+   other version is refused before anything else is read (RL-6, RL-6a, ADR-0053).
 1. The index is derivable from the journal plus `files/`. Always. Any state that exists
    only in `index.db` is a bug — except the two marks that say how far the index has folded
    each journal month, which are a **cache of the fold** and are discarded, never trusted, when

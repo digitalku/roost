@@ -10,8 +10,8 @@ import { InvalidLibraryNameError } from "./error.js";
  * with the same effect — the folder reads as one object, a double-click can be
  * associated with the app, and a file picker can filter for it (ADR-0014).
  *
- * **It is now a format rule, and a two-sided one.** RL-6a requires the suffix
- * on the directory an implementation *creates*; RL-6b forbids requiring it in
+ * **It is now a format rule, and a two-sided one.** RL-7 requires the suffix
+ * on the directory an implementation *creates*; RL-7a forbids requiring it in
  * order to *open* one, forbids refusing one that lacks it, and forbids renaming
  * one that is found. Strict on write, lenient on read — what KeePass does with
  * `.kdbx`, where the extension is how a person and a file manager recognise a

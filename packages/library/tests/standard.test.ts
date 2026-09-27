@@ -87,20 +87,21 @@ describe("validating library.json (RL-5, RL-5b)", () => {
     await expect(readFile(join(root, "index.db"))).rejects.toThrow();
   });
 
-  it("refuses a Format 1 library by name, and before anything else (RL-6a)", async () => {
+  it("refuses a version below 2 as not a library, and before anything else (RL-6a)", async () => {
     // **Before the other three fields**, deliberately, and that is why a
-    // version 1 manifest missing an `id` reports the format rather than the
-    // missing field: a different format version may spell those fields
+    // manifest at version 1 missing an `id` reports the version rather than
+    // the missing field: another format version may spell those fields
     // differently, so reading them first would be answering a question about a
     // document this build cannot read.
+    const version = /roost_library_version 1 is not a version this build reads/;
     const root = await manifestFile("version-one", { ...GOOD, roost_library_version: 1 });
-    await expect(readManifest(root)).rejects.toMatchObject({ code: "library_format_1" });
+    await expect(readManifest(root)).rejects.toMatchObject({ code: "not_a_library" });
+    await expect(readManifest(root)).rejects.toThrow(version);
 
     const bare = await manifestFile("version-one-bare", { roost_library_version: 1 });
-    await expect(readManifest(bare)).rejects.toMatchObject({ code: "library_format_1" });
+    await expect(readManifest(bare)).rejects.toThrow(version);
 
-    // Nothing is read, repaired or converted: converting is a separate tool's
-    // job, run deliberately, writing a new library beside the old one.
+    // Nothing is read, repaired or written beside it.
     expect((await readdir(root)).sort()).toEqual(["library.json"]);
   });
 });

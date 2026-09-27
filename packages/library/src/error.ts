@@ -89,24 +89,6 @@ export class LibraryTooNewError extends RoostError {
   }
 }
 
-/**
- * A library in Roost Library Format 1 (RL-6a).
- *
- * Named rather than refused as "unsupported", because the two send a person in
- * different directions: a version *higher* than this build's means install a
- * newer Roost, and version 1 means this library was written by a build whose
- * notion of identity was the hash of the bytes. Nothing here reads it, repairs
- * it, or converts it — converting is a separate tool's job, run deliberately,
- * writing a new library beside the old one.
- */
-export class LibraryIsFormat1Error extends RoostError {
-  readonly code = "library_format_1";
-
-  constructor(root: string) {
-    super(`${root} is a Roost Library Format 1 library, which this build does not read`, { root });
-  }
-}
-
 export class UnknownAssetError extends RoostError {
   readonly code = "unknown_asset";
 

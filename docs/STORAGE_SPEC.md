@@ -1,6 +1,6 @@
 # Storage — how this build meets the library format
 
-**Roost Library Format 2, revision 2.0.** The normative document is [`FORMAT.md`](FORMAT.md),
+**Roost Library Format 2, revision 2.1.** The normative document is [`FORMAT.md`](FORMAT.md),
 beside this file, with [`OPS.md`](OPS.md) for the journal operations and `conformance/` at the
 repository root for the suite. This file is **not** a specification and binds nothing on its own:
 it is the map from that document's numbered requirements to the code here, plus the notes that
@@ -16,8 +16,8 @@ belong to this build.
 **This build reads and writes Format 2, and nothing else** (ADR-0046). Version 2 is not a
 revision of version 1: an asset's identity is an id minted at random rather than the hash of its
 bytes, `files/` is editable in place, and every fact about the bytes is derived rather than
-journalled. A version 1 library is **refused by name** and never read, repaired or converted
-(RL-6a).
+journalled. A manifest at a lower version is not a library (RL-6a), and format 1 is not named
+(ADR-0053).
 
 The numbering starts again with the format: version 1's `RL-1`…`RL-41` are archived under
 `v1/` in the `roost-library` repository and are unrelated to the numbers below.
@@ -47,7 +47,7 @@ construction or by a rule nothing here can break.
 | RL-5, RL-5b | All four fields required; a bad file is *not a library*, never repaired | `manifest.ts` · `tests/standard.test.ts` |
 | RL-5a | Unrecognised fields ignored on read and **kept on write** | `Manifest.unrecognised` |
 | RL-6 | A higher version refuses to open and touches nothing | `LibraryTooNewError`, thrown before any handle is taken |
-| RL-6a | A **version 1** library is refused *as one*, and nothing is read or repaired | `LibraryIsFormat1Error`, checked before the other three fields |
+| RL-6a | A **lower** version is *not a library*, and nothing is read or repaired | `NotALibraryError`, checked before the other three fields |
 | RL-7, RL-7a | `<name>.roost` on write; never required on read, never renamed | `library/src/naming.ts` (ADR-0014) |
 
 ### Layout

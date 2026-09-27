@@ -20,11 +20,10 @@ interface Migration {
  * ran, so editing an entry that has shipped leaves already-migrated libraries
  * silently unlike new ones.
  *
- * **The numbering starts again at Format 2** (ADR-0046 §2.3). Version 1's
- * fourteen described a schema keyed on a column that no longer exists, and
- * nothing will ever present one to this build: an implementation of Format 2
- * refuses a Format 1 library rather than reading it (RL-6a), so there is no
- * database in the world to migrate forward from.
+ * **The numbering starts again at Format 2** (ADR-0046 §2.3). The fourteen
+ * before it described a schema keyed on a column that no longer exists, and no
+ * index at that schema can reach this build, so there was nothing to migrate
+ * forward from.
  */
 const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: "initial", file: "0001_initial.sql" },

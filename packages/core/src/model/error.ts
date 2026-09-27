@@ -23,7 +23,6 @@ export const ERROR_CODES = [
   "invalid_timestamp",
   "io",
   "library_busy",
-  "library_format_1",
   "library_not_found",
   "library_too_new",
   "malformed_record",

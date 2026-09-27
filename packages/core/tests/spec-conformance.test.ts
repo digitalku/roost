@@ -96,10 +96,9 @@ describe("the schema on disk against the schema in the documents", () => {
   });
 
   it("starts its numbering again at version 2 of the format", () => {
-    // Version 1's fourteen described a schema keyed on a column that no longer
-    // exists, and an implementation of Format 2 refuses a Format 1 library
-    // rather than reading it (RL-6a) — so there is no database in the world to
-    // migrate forward from, and a baseline costs nothing (ADR-0046 §2.3).
+    // The fourteen before it described a schema keyed on a column that no
+    // longer exists, and no index at that schema can reach this build — so
+    // there was nothing to migrate forward from (ADR-0046 §2.3).
     // 0002 is this build's own, and moves the thumbnails out (ADR-0051).
     expect(allMigrations().map((m) => m.version)).toEqual([1, 2]);
     expect(latestSchemaVersion()).toBe(2);

@@ -34,6 +34,9 @@ Still open, and none of it blocks M0:
 - 🟢 **ADR-0051 was accepted on 2026-09-26**, the day it was proposed: thumbnails move out of
   `index.db` into `thumbs/roost.db`, a SQLite file of their own, attached to the engine's
   connection. The work is in §3, under *Thumbnails in a database of their own*.
+- 🟢 **ADR-0053 was accepted on 2026-09-26**: format 1 is not named any more. The user has no such
+  library. `LibraryIsFormat1Error` is removed, a version below 2 is `not_a_library`, and
+  `FORMAT.md` is revision 2.1.
 - 🟢 **ADR-0052 was accepted on 2026-09-26**, the day it was proposed: this repository owns its
   format. `docs/FORMAT.md` and `docs/OPS.md` are revision 2.0 copied home, `conformance/` is at
   the root, and `roost-net` is no longer a compatibility target. Nothing changes on disk until the

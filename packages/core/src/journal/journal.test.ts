@@ -290,8 +290,8 @@ describe("toRecord, on the fields that carry meaning in a null", () => {
   });
 
   it("refuses a name that is not an id, rather than storing it", () => {
-    // A version 1 hash arriving where an id belongs is the shape of a library
-    // this build must not half-read (RL-6a).
+    // A sixty-four-character hash where a twelve-character id belongs is a
+    // record this build must not half-read (RL-14).
     expect(() => toRecord({ ts: 1, op: "add", id: "a".repeat(64), ext: "jpg", name: "d" })).toThrow(
       MalformedRecordError,
     );

@@ -1,11 +1,12 @@
 # Roost Library Format
 
-**Format version 2 · Document revision 2.0 · Status: DRAFT**
+**Format version 2 · Document revision 2.1 · Status: DRAFT**
 
 **This document belongs to this repository** (ADR-0052). It was written in the `roost-library`
 repository and copied here unchanged at revision 2.0 on 2026-09-26. From then on it is kept here, it
 is not synchronised with that repository, and it changes in the same commit as the code that
-implements the change (§12). `docs/STORAGE_SPEC.md` maps each requirement to the code that meets it,
+implements the change (§12). **Revision 2.1** (2026-09-26, ADR-0053) rewrote RL-6a: a lower version
+is not a library, and version 1 is no longer named. `docs/STORAGE_SPEC.md` maps each requirement to the code that meets it,
 `OPS.md` beside this file is the operation registry, and `conformance/` at the repository root is
 the suite.
 
@@ -14,14 +15,8 @@ the suite.
 produced a new asset. Version 2 describes a **workspace**: a file is opened by whatever application
 owns its type, edited in place, and saved — and it is still the same asset afterwards.
 
-That one change moves everything resting on it, so the numbers move the way §0 requires: the format
-version rises, and an implementation written against version 1 refuses a version 2 library rather
-than misreading it.
-
-**Version 1 is not migrated and not read.** It is kept, FINAL, under `v1/` in the `roost-library` repository, because it is the
-record of how this format was reasoned about and because libraries written by the Rust and
-TypeScript builds still exist as fixtures. Reading one is a converter's job, not an
-implementation's.
+That one change moves everything resting on it, so the format version rose to 2. Nothing written
+under version 1 is read, migrated or named (RL-6a).
 
 This document defines the Roost library format, and it is binding on this build. A build that does
 not meet a requirement here does not read or write Roost libraries, whatever else it does. Where the
@@ -30,7 +25,7 @@ It still describes what a library written by any other program must be for this 
 
 Requirements are numbered `RL-n` and use **MUST**, **MUST NOT**, **SHOULD** and **MAY** in the usual
 sense. Text outside a numbered requirement is explanation and binds nothing. The numbering starts
-again at version 2; version 1's are in `roost-library`'s `v1/SPEC.md`, and the two sets are unrelated.
+again at version 2.
 
 ---
 
@@ -126,13 +121,13 @@ damaged one is an implementation that can write into somebody's work by accident
 refuse to open the library, MUST say so in terms the person can act on, and MUST NOT modify anything
 in the directory — including deleting or rebuilding a cache it cannot read.
 
-**RL-6a.** An implementation meeting `roost_library_version` **1** MUST refuse it as a *version 1
-library*, naming it, and MUST NOT attempt to read, repair or convert it.
+**RL-6a.** An implementation meeting a `roost_library_version` **lower than 2** MUST report the
+directory as not a Roost library (RL-5b), MUST check the version before any other field, and MUST
+NOT read, repair, convert or modify anything in it.
 
-Version 1 is a different layout with a different notion of identity. Everything an implementation of
-this version could do with one is a guess, and the only correct action is to say which format the
-directory is in. Converting is a separate tool's job, run deliberately, writing a new library beside
-the old one.
+A lower version is a different layout, and anything done with one would be a guess. Until
+revision 2.1 this requirement named version 1 and asked for it to be refused as such. No such
+library is expected any more, so the rule is the general one.
 
 ### 2.1 The folder is named `<name>.roost`
 
@@ -556,7 +551,7 @@ applies (ADR-0052).
 Version 1 was defined by the Rust implementation (`roost-old`, discontinued 2026-08-29), carried
 unchanged into the TypeScript implementation (`roost`, this repository), and carried
 unchanged again into the C# implementation (`roost-net`). It never changed version, it is FINAL, and
-it is kept under [`v1/`](v1/).
+it is kept in the `roost-library` repository.
 
 Version 2 was written on 2026-09-20, after the user stated that Roost is a **workspace** rather than
 an archive: files are opened in the applications that own them, edited in place, and saved. What

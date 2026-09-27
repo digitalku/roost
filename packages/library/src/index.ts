@@ -99,7 +99,6 @@ export {
   InvalidMomentError,
   InvalidRatingError,
   LibraryBusyError,
-  LibraryIsFormat1Error,
   LibraryNotFoundError,
   LibraryTooNewError,
   NotALibraryError,
