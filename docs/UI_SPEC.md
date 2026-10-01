@@ -101,7 +101,7 @@ changed it for these reasons.
 Window — and it carried a Reload that throws away the query and the selection, a devtools toggle,
 and a Paste meaning something other than Roost's (§3.3). It is removed on Linux and Windows, and
 the commands that belong to the application live in the toolbar's `☰` instead: **Show sidebar**,
-**Show inspector**, **Reclaim space…**,
+**Show inspector**, **Reclaim space…**, **Rename library…** (§3.15),
 **Close library**, **About Roost…** and **Quit**, and nothing that already has a home. The two
 checkboxes are first, and they are the only items in here used more than once: they say **what the
 window is made of**, which is why they are not in the view control — that menu says how the
@@ -304,6 +304,8 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `AppShell` | — | panel sizes, theme | Grid template, resize handles, keyboard scope root |
 | `LibraryPicker` | full screen | — | First run and library switching. Recent list, create, open |
 | `RecentList` | picker | — | The libraries this machine has opened. Pin, forget; §3.1 |
+| `LostNotice` | picker | — | Why the picker is up when nobody closed the library: its folder left its path. §3.15, ADR-0056 |
+| `RenameLibraryDialog` | overlay | the draft name | Rename library…, which renames the folder. §3.15, ADR-0056 |
 | `Toolbar` | toolbar | — | Composes the four below |
 | `SearchField` | toolbar | draft text | RQL input; §5 |
 | `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, and a Sort By submenu of six orders. ADR-0018, ADR-0039 |
@@ -374,6 +376,11 @@ gives: this list is what *finds* a library, so it cannot live inside one.
   what it was before this existed.
 - Relative times are coarse on purpose: "Yesterday", "3 days ago", and a date past a week. The
   question is which library, not how many hours.
+- **A row is named by its folder** (ADR-0056), read when the list is drawn, so a library renamed in
+  a file manager is listed under its new name. Opened again from its new path, it **takes the
+  place of the row it left**, pin and all, recognised by its `library.json` id. That id is trusted
+  only where the old path no longer holds a library: a library and a copy of it carry one id, and
+  both keep their rows.
 
 ### 3.2 The inspector over several assets
 
@@ -1101,6 +1108,33 @@ safe to edit, because the journal only grows.
 ordinary result of one library edited from two of them; the format counts it and logs it and calls
 it a diagnostic rather than news (RL-26a). A status bar that announced it would be a status bar
 announcing that somebody had used two builds.
+
+### 3.15 The name, and the folder it comes from
+
+**A library is called by its folder** (ADR-0056, `FORMAT.md` RL-7b). `traveling.roost` is
+*traveling*, everywhere a name is drawn: the head of the window, the recent list, the transfer
+submenus. Renaming the folder in a file manager while Roost has it closed is a complete rename.
+
+**Rename library…** in the `☰` opens a dialog with one field, holding the current name selected,
+and a sentence naming the folder it will become, *"The folder becomes `trip.roost`, in the same
+place"*, updated as the name is typed. The sentence also says that renaming the folder in a file
+manager does the same, because the dialog is where somebody learns that it does. The engine refuses
+a name, not the dialog (a separator, a leading dot, a neighbour of that name), and the dialog stays
+open and draws its message. The library closes and opens again under the new name. Every window
+holding it redraws its head, and the grid keeps its pages and its scroll, because nothing in it
+changed. The status bar says *Renamed the library to trip*.
+
+**A folder renamed while it is open** is noticed within a second. The engine closes the library,
+and every window goes back to the picker with a notice above the recent list. It is a warning, not
+a problem, because nothing failed and nothing was lost:
+
+> *traveling was renamed to trip while it was open. Roost closed it so that nothing would be written
+> to the wrong place.*  **[Open trip]**
+
+The button is there when the folder was found beside the old one, which is what a rename does. A
+folder moved to another directory, or a drive unplugged, cannot be found, and the notice says so
+instead: *"The folder of traveling was moved, or its drive removed, while it was open."* *Open
+library…* above it is then the way back. Opening anything clears the notice.
 
 ## 4. Navigation
 

@@ -471,6 +471,30 @@ export class FakeEngine {
     for (const listener of this.#listeners) listener(event);
   }
 
+  /**
+   * The open library's folder renamed behind the engine's back, as a file
+   * manager would (ADR-0056 §3.4): closed, moved, and every window told.
+   * `to` absent is a folder moved somewhere the engine could not find.
+   */
+  loseLibrary(to?: string): void {
+    const open = this.#open;
+    if (open === undefined) return;
+    this.#open = undefined;
+    const library = this.#libraries.get(open.root);
+    this.#libraries.delete(open.root);
+    const movedName = to === undefined ? null : (to.split("/").pop() ?? to).replace(/\.roost$/, "");
+    if (to !== undefined && library !== undefined && movedName !== null) {
+      this.#libraries.set(to, { ...library, root: to, name: movedName });
+    }
+    this.emit({
+      type: "library:lost",
+      root: open.root,
+      name: open.name,
+      movedTo: to ?? null,
+      movedName,
+    });
+  }
+
   /** Whether a library exists at `root` in this fake filesystem. */
   has(root: string): boolean {
     return this.#libraries.has(root);
@@ -657,6 +681,29 @@ export class FakeEngine {
       case "library:close":
         this.#open = undefined;
         return ok(null);
+
+      // The folder is the name (ADR-0056). Moved in this fake's filesystem, the
+      // recent entry carried with it, and every window told, as the engine does.
+      case "library:rename": {
+        const open = this.#open;
+        if (open === undefined) return problem("remote", "No library is open", {});
+        const parent = open.root.slice(0, open.root.lastIndexOf("/"));
+        const root = `${parent}/${request.name.trim()}.roost`;
+        if (root === open.root) return ok(open);
+        if (this.#libraries.has(root)) {
+          return problem("library_name_taken", `${root} already exists`, { path: root });
+        }
+        const library = this.#libraries.get(open.root);
+        this.#libraries.delete(open.root);
+        const moved = { ...library, root, name: request.name.trim() };
+        this.#libraries.set(root, moved);
+        this.#recent = this.#recent.map((entry) =>
+          entry.root === open.root ? { ...entry, root, name: moved.name } : entry,
+        );
+        this.#open = summarize(moved);
+        this.emit({ type: "library:renamed", root, name: moved.name });
+        return ok(this.#open);
+      }
 
       // Recorded in `seen` like every other request and otherwise a no-op: a
       // test asserts that the menu asked to quit, not that a process ended.

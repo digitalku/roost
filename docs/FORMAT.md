@@ -1,12 +1,13 @@
 # Roost Library Format
 
-**Format version 2 · Document revision 2.1 · Status: DRAFT**
+**Format version 2 · Document revision 2.2 · Status: DRAFT**
 
 **This document belongs to this repository** (ADR-0052). It was written in the `roost-library`
 repository and copied here unchanged at revision 2.0 on 2026-09-26. From then on it is kept here, it
 is not synchronised with that repository, and it changes in the same commit as the code that
 implements the change (§12). **Revision 2.1** (2026-09-26, ADR-0053) rewrote RL-6a: a lower version
-is not a library, and version 1 is no longer named. `docs/STORAGE_SPEC.md` maps each requirement to the code that meets it,
+is not a library, and version 1 is no longer named. **Revision 2.2** (2026-10-01, ADR-0056) made
+the folder the library's name: RL-5 rewords `name`, and RL-7b is new. `docs/STORAGE_SPEC.md` maps each requirement to the code that meets it,
 `OPS.md` beside this file is the operation registry, and `conformance/` at the repository root is
 the suite.
 
@@ -105,7 +106,7 @@ library if any is absent or of the wrong type:
 |---|---|---|
 | `roost_library_version` | integer | The format version. `2` |
 | `id` | string | A UUID, stable for the life of the library |
-| `name` | string | What the library is called. Not derived from the folder name |
+| `name` | string | What the library was called when an implementation created or last renamed it. Informative: a library is **called** by its folder's name (RL-7b) |
 | `created_at` | integer | Unix seconds |
 
 **RL-5a.** An implementation MUST ignore fields it does not recognise in `library.json`, and MUST
@@ -138,6 +139,20 @@ suffix, and MUST NOT append a second one to a name that already ends in `.roost`
 a library that lacks it, and MUST NOT rename one it finds. Identification is RL-4 and only RL-4.
 
 Strict on write, lenient on read — the rule every durable format follows.
+
+**RL-7b.** A library's name is the name of its directory, with a trailing `.roost` removed. An
+implementation MUST show a library by that name, not by `name` in `library.json`. An implementation
+renaming a library at a person's request MUST rename the directory under RL-7, and SHOULD then set
+`name` to match. A `name` that disagrees with the directory is not damage: an implementation MUST
+NOT refuse, report or repair a library on that account, and MUST NOT write `library.json` in order to
+bring the two into line.
+
+Renaming the folder in a file manager is therefore a complete rename, which is what a person who
+has used Eagle expects. `name` stays because RL-5 requires it, and a manifest without it is refused
+by every reader written before this revision; it is kept up to date where that costs nothing, and
+otherwise left alone. RL-7a forbids renaming a library an implementation finds; a rename the person
+asked for is not that. Until revision 2.2, `name` was what the library was called and the folder
+was not consulted.
 
 ---
 

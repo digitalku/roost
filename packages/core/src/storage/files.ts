@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { copyFile, mkdir, open, opendir, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, open, opendir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { pid } from "node:process";
 import {
@@ -10,6 +10,7 @@ import {
   shardOf,
   type Take,
 } from "../model/index.js";
+import { makeDirectoryInside } from "./inside.js";
 import {
   FILES_DIR,
   normalizeExt,
@@ -234,7 +235,7 @@ export class FileStore implements Storage {
   async *#walk(): AsyncIterable<string> {
     const files = this.filesDir();
     // A library with nothing imported yet has no files/ directory.
-    await mkdir(files, { recursive: true }).catch(() => {});
+    await makeDirectoryInside(this.#root, files).catch(() => {});
 
     let shards: Awaited<ReturnType<typeof opendir>>;
     try {
@@ -263,12 +264,7 @@ export class FileStore implements Storage {
 
   /** Shard directories are created as files arrive, never all 1 024 (RL-10). */
   async #ensureShard(dest: string): Promise<void> {
-    const shard = dirname(dest);
-    try {
-      await mkdir(shard, { recursive: true });
-    } catch (cause) {
-      throw new IoError("mkdir", shard, cause);
-    }
+    await makeDirectoryInside(this.#root, dirname(dest));
   }
 }
 

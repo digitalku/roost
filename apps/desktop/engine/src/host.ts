@@ -74,6 +74,7 @@ import {
   queueStatus,
   type Redrawn,
   Requested,
+  type RootWatcher,
   rate,
   readSidebar,
   reclaim,
@@ -85,6 +86,8 @@ import {
   removeFromFolder,
   renameAsset,
   renameFolder,
+  renameLibrary,
+  renameTarget,
   restoreAssets,
   retryBlocked,
   retryFailed,
@@ -104,6 +107,7 @@ import {
   unsoundForReclaim,
   Wanted,
   watchFiles,
+  watchRoot,
 } from "@roost/library";
 import { capabilities, GRID_SIZE, installBackend, refreshCapabilities } from "@roost/media";
 import {
@@ -181,6 +185,9 @@ export class EngineHost {
       case "library:close":
         await this.close();
         return null;
+
+      case "library:rename":
+        return this.#rename(request.name);
 
       case "library:stats":
         return statsOf(this.#require());
@@ -911,6 +918,7 @@ export class EngineHost {
   }
 
   #watcher: FileWatcher | undefined;
+  #rootWatcher: RootWatcher | undefined;
   #stopWatching: AbortController | undefined;
   #catchingUp: Promise<void> | undefined;
   #deriving: Promise<DeriveReport> | undefined;
@@ -979,6 +987,75 @@ export class EngineHost {
 
   /** Set by `serve`, like {@link onProgress}. */
   onTransferProgress: ((progress: TransferProgress) => void) | undefined;
+
+  /** The open library has a new folder and name. Set by `serve`. */
+  onRenamed: ((summary: LibrarySummary) => void) | undefined;
+
+  /**
+   * The open library's folder left its path, and the library has been closed.
+   * Set by `serve`.
+   */
+  onLost:
+    | ((lost: {
+        root: string;
+        name: string;
+        movedTo: string | null;
+        movedName: string | null;
+      }) => void)
+    | undefined;
+
+  /**
+   * Renames the open library, which is renaming its folder (ADR-0056 §3.2).
+   *
+   * Refused before anything is closed when the name is unusable or taken.
+   * Otherwise the library is closed completely, so that nothing holds a path
+   * into the folder while it moves, renamed, and opened again where it now is.
+   * A rename that fails opens it again where it was, and the failure is the
+   * answer.
+   */
+  async #rename(name: string): Promise<LibrarySummary> {
+    const library = this.#require();
+    const from = library.root;
+    if ((await renameTarget(from, name)) === undefined) return summarize(library);
+
+    await this.close();
+    let root: string;
+    try {
+      root = await renameLibrary(from, name);
+    } catch (error) {
+      await this.#reopen(from);
+      throw error;
+    }
+    const summary = await this.#reopen(root);
+    this.onRenamed?.(summary);
+    return summary;
+  }
+
+  async #reopen(root: string): Promise<LibrarySummary> {
+    return this.#open(await Library.open(root, { exclusive: true, onFold: this.#foldAnnouncer() }));
+  }
+
+  /**
+   * The open library's folder is no longer at its path (ADR-0056 §3.4).
+   *
+   * Closed in the usual order. The journal and both databases still hold
+   * descriptors into the folder wherever it now is, so what was buffered goes
+   * to the right place, and nothing reached by path can recreate the old one
+   * (`makeDirectoryInside`).
+   */
+  async #lost(library: Library, movedTo: string | undefined): Promise<void> {
+    if (this.#library !== library) return;
+    log.warn("the library's folder left its path while it was open", { root: library.root });
+    await this.close().catch((error: unknown) => {
+      log.warn("could not close a library whose folder had gone", { error: String(error) });
+    });
+    this.onLost?.({
+      root: library.root,
+      name: library.name,
+      movedTo: movedTo ?? null,
+      movedName: movedTo === undefined ? null : libraryNameFromPath(movedTo),
+    });
+  }
   /** What a paused queue still works: opened files and new imports. */
   readonly #requested = new Requested();
 
@@ -1093,6 +1170,8 @@ export class EngineHost {
     // database is closed would throw, and its whole subject is leaving anyway.
     this.#watcher?.close();
     this.#watcher = undefined;
+    this.#rootWatcher?.close();
+    this.#rootWatcher = undefined;
     this.#stopWatching?.abort();
     this.#stopWatching = undefined;
     await this.#catchingUp?.catch(() => undefined);
@@ -1124,7 +1203,7 @@ export class EngineHost {
     // failed open must not leave the window holding nothing.
     await this.close();
     this.#library = library;
-    log.info("library opened", { root: library.root, name: library.manifest.name });
+    log.info("library opened", { root: library.root, name: library.name });
 
     // Work parked on a format this build has since learned to draw. First,
     // because it decides what the sweep below finds still missing — and because
@@ -1166,6 +1245,20 @@ export class EngineHost {
         log.warn("could not watch the library's files", { error: String(error) });
       });
 
+    // The folder itself, which a file manager may rename while it is open
+    // (ADR-0056 §3.4).
+    void watchRoot(library.root, {
+      id: library.manifest.id,
+      onLost: (movedTo) => void this.#lost(library, movedTo),
+    })
+      .then((watcher) => {
+        if (this.#library === library) this.#rootWatcher = watcher;
+        else watcher.close();
+      })
+      .catch((error: unknown) => {
+        log.warn("could not watch the library's folder", { error: String(error) });
+      });
+
     this.#catchingUp = catchUp(library, { signal: stopping })
       .then((report) => {
         if (report.changed > 0) {
@@ -1180,11 +1273,7 @@ export class EngineHost {
     // After the library is open, and never in its way: the picker's list is a
     // convenience, and a state file that cannot be written must not cost
     // somebody the library they just opened (`recent.ts`).
-    await rememberLibrary({
-      root: library.root,
-      name: library.manifest.name,
-      id: library.manifest.id,
-    });
+    await rememberLibrary({ root: library.root, id: library.manifest.id });
 
     return summarize(library);
   }
@@ -1213,7 +1302,7 @@ export class NoLibraryOpenError extends Error {
 function summarize(library: Library): LibrarySummary {
   return {
     root: library.root,
-    name: library.manifest.name,
+    name: library.name,
     id: library.manifest.id,
     formatVersion: library.manifest.roost_library_version,
     schemaVersion: library.db.schemaVersion(),

@@ -31,6 +31,9 @@ versions that came with it.
 
 Still open, and none of it blocks M0:
 
+- 🟢 **ADR-0056 was accepted on 2026-10-01**, the day it was proposed: the folder is the library's
+  name (`FORMAT.md` revision 2.2, RL-7b), with *Rename library…* in the `☰`. The work is in §3,
+  under *The folder is the library's name*.
 - 🟢 **ADR-0051 was accepted on 2026-09-26**, the day it was proposed: thumbnails move out of
   `index.db` into `thumbs/roost.db`, a SQLite file of their own, attached to the engine's
   connection. The work is in §3, under *Thumbnails in a database of their own*.
@@ -908,6 +911,30 @@ claim and counts made cheap at a million. What is still open:
   it wants a yes first.
 - 🟢 **The counting walk is a second listing of the tree.** Measured at 2.3 s for 209,032 files on
   a warm NVMe cache. On a network share or a cold hard disk it is more, and unmeasured.
+
+### The folder is the library's name (ADR-0056, 2026-10-01)
+
+- [x] `Library.name` from the path, `name` in `library.json` informative (RL-7b, revision 2.2), and
+  every place that drew `manifest.name` moved to it: the window's head, the recent list, the
+  transfer menu, `roost stats`. `roost init --name` is gone, since it set a name nothing shows.
+- [x] `renameLibrary` and *Rename library…* in the `☰`: validated first, then closed, renamed and
+  opened again, with main letting go of its connection before the folder moves. The recent row
+  follows by id where its old path has gone.
+- [x] **The bug the question found**: `mkdir -p` recreated a renamed library's old path, so an
+  import put its file outside the library. `makeDirectoryInside` in core, at every `mkdir` under a
+  root, with a regression test that fails without it.
+- [x] `watchRoot`: a library whose folder leaves its path while open is closed, and the window
+  offers the folder it found beside the old one. `scripts/check-rename.mjs`, 11 checks.
+- 🟢 **A rename stops a running import or transfer without asking**, because it closes the library
+  the way *Close library* does, and that keeps what has arrived (ADR-0055 §3.3). Nobody has asked
+  for a warning. If one is wanted, the dialog can say so before the button is pressed.
+- 🟢 **A folder renamed outside Roost leaves its recent row marked missing** until it is opened
+  again from its new path. The id would let the picker look beside the old path for it, as the
+  engine does for an open library, but a `readdir` of the parent of every missing row on every
+  draw is not free on a network share.
+- 🟢 **The root is polled once a second**, never measured on a network share. One `stat` that
+  stalls does not pile up, because a poll waits for the last one, but nothing bounds how long it
+  takes.
 
 ### The library format
 

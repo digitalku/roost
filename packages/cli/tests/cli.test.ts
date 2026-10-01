@@ -114,15 +114,15 @@ describe("the command line", () => {
     expect(fixture.out.join("\n")).toContain("Generated 12 files");
 
     const init = capture();
-    expect(await run(["init", asked, "--name", "Demo"], init.streams)).toBe(EXIT.ok);
-    expect(init.out.join("\n")).toContain('Created library "Demo"');
+    expect(await run(["init", asked], init.streams)).toBe(EXIT.ok);
+    expect(init.out.join("\n")).toContain('Created library "library"');
     // The suffix is added, and the path actually used is printed — a command
     // that creates something other than what was typed has to say so (ADR-0014).
     expect(init.out.join("\n")).toContain(root);
     // The manifest is what makes a directory a library, and the format version
     // is part of it.
     const manifest: unknown = JSON.parse(await readFile(join(root, "library.json"), "utf8"));
-    expect(manifest).toMatchObject({ roost_library_version: 2, name: "Demo" });
+    expect(manifest).toMatchObject({ roost_library_version: 2, name: "library" });
 
     const imported = capture();
     expect(await run(["import", corpus, "-L", root, "--tag", "demo"], imported.streams)).toBe(

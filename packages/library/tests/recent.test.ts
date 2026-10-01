@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { stateDir } from "@roost/core";
@@ -39,7 +39,7 @@ describe("the recent-libraries list", () => {
   };
 
   const remember = (path: string, name: string) =>
-    rememberLibrary({ root: path, name, id: name.toLowerCase() });
+    rememberLibrary({ root: path, id: name.toLowerCase() });
 
   /**
    * The variable that moves {@link stateDir}, which is the platform's own:
@@ -102,6 +102,53 @@ describe("the recent-libraries list", () => {
     const [entry] = await listRecent();
     expect(entry?.name).toBe("Vanishing");
     expect(entry?.available).toBe(false);
+  });
+
+  // ADR-0056 §3.1: the folder is the name, so what an older build stored as
+  // the name is not what the picker shows.
+  it("names an entry by its folder, not by what was stored", async () => {
+    const path = await makeLibrary("traveling");
+    await mkdir(dirname(recentPath()), { recursive: true });
+    await writeFile(
+      recentPath(),
+      JSON.stringify({
+        version: 1,
+        libraries: [{ root: path, name: "Old name", id: "t", openedAt: 1, pinned: false }],
+      }),
+      "utf8",
+    );
+
+    expect((await listRecent()).map((entry) => entry.name)).toEqual(["traveling"]);
+  });
+
+  // ADR-0056 §3.3: opened again from its new path, a renamed library takes the
+  // place of the row it left behind, pin and all, rather than standing beside
+  // it marked missing.
+  it("recognises a renamed library by its id, and keeps its pin", async () => {
+    const before = await makeLibrary("traveling");
+    await remember(before, "Traveling");
+    await pinLibrary(before, true);
+    await remember(await makeLibrary("Other"), "Other");
+
+    const after = join(root, "trip.roost");
+    await rename(before, after);
+    await remember(after, "Traveling");
+
+    const entries = await listRecent();
+    expect(entries.map((entry) => [entry.name, entry.pinned, entry.available])).toEqual([
+      ["trip", true, true],
+      ["Other", false, true],
+    ]);
+  });
+
+  it("keeps a library and its copy apart, although they carry one id", async () => {
+    const original = await makeLibrary("Studio");
+    await remember(original, "Studio");
+    const copy = join(root, "Studio copy.roost");
+    await cp(original, copy, { recursive: true });
+    await remember(copy, "Studio");
+
+    expect((await listRecent()).map((entry) => entry.name)).toEqual(["Studio copy", "Studio"]);
   });
 
   it("keeps a pin through the limit and through being opened again", async () => {

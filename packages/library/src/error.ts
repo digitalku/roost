@@ -67,6 +67,21 @@ export class AlreadyALibraryError extends RoostError {
 }
 
 /**
+ * A library renamed to a name its folder's neighbour already has (ADR-0056 §3.2).
+ *
+ * Its own code rather than `already_a_library`, because what is in the way may
+ * be any directory or file at all, and on Linux a `rename` onto an empty
+ * directory would quietly replace it.
+ */
+export class LibraryNameTakenError extends RoostError {
+  readonly code = "library_name_taken";
+
+  constructor(path: string) {
+    super(`${path} already exists`, { path });
+  }
+}
+
+/**
  * Only an exclusive open can produce this; a shared open never consults the
  * lock.
  */

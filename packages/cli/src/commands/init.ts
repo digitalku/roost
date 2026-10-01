@@ -4,7 +4,6 @@ import { row } from "../format.js";
 
 export interface InitArgs {
   readonly path: string;
-  readonly name?: string;
 }
 
 /**
@@ -16,12 +15,16 @@ export interface InitArgs {
  * `roost init ~/Photos` land on one directory — and the path actually used is
  * printed, because a command that silently creates something other than what
  * was typed has to say so.
+ *
+ * There is no `--name`. The folder is the library's name (ADR-0056), so a name
+ * given apart from the path would be written into `library.json` and shown by
+ * nothing.
  */
 export async function init(args: InitArgs, out: (line: string) => void): Promise<void> {
   const root = withLibrarySuffix(resolve(args.path));
-  const library = await Library.create(root, args.name ?? libraryNameFromPath(root));
+  const library = await Library.create(root, libraryNameFromPath(root));
   try {
-    out(`Created library "${library.manifest.name}"`);
+    out(`Created library "${library.name}"`);
     out(row("path", root));
     out(row("id", library.manifest.id));
   } finally {

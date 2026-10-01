@@ -100,6 +100,14 @@ export type Request =
   /** Release the library, its journal, and its lock. */
   | { readonly type: "library:close" }
   /**
+   * Rename the open library: its folder, which is its name (ADR-0056).
+   *
+   * The name alone, like `library:create`: the engine keeps the folder where it
+   * is and composes `<name>.roost` beside it. It closes the library, renames
+   * the folder, and opens it again, and every window hears `library:renamed`.
+   */
+  | { readonly type: "library:rename"; readonly name: string }
+  /**
    * End the application (ADR-0028).
    *
    * Here because the window has no menu bar on Linux or Windows and Quit has to
@@ -796,6 +804,7 @@ export interface Responses {
   "recent:forget": readonly WireRecentLibrary[];
   "recent:pin": readonly WireRecentLibrary[];
   "library:close": null;
+  "library:rename": LibrarySummary;
   "app:quit": null;
   "app:about": WireAbout;
   "library:stats": LibraryStats;
@@ -936,6 +945,14 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "recent:pin", root: root.value, pinned: pinned.value });
   },
   "library:close": () => ok({ type: "library:close" }),
+
+  "library:rename": (source) => {
+    // Non-empty, as for `library:create`: what a filesystem accepts is the
+    // engine's question.
+    const name = readNonEmpty(source, "name");
+    if (!name.ok) return name;
+    return ok({ type: "library:rename", name: name.value });
+  },
   "app:quit": () => ok({ type: "app:quit" }),
   "app:about": () => ok({ type: "app:about" }),
   "library:stats": () => ok({ type: "library:stats" }),

@@ -1,7 +1,7 @@
 import { type FSWatcher, watch } from "node:fs";
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { type AssetId, FILES_DIR, logger } from "@roost/core";
+import { type AssetId, FILES_DIR, logger, makeDirectoryInside } from "@roost/core";
 import type { Library } from "./library.js";
 import { idFromPath } from "./locate.js";
 import { refreshAsset } from "./refresh.js";
@@ -73,7 +73,7 @@ export async function watchFiles(
   const dir = join(library.root, FILES_DIR);
   // A library with nothing imported yet has no files/ to watch, and watching
   // the root instead would wake on every journal append and every index write.
-  await mkdir(dir, { recursive: true }).catch(() => {});
+  await makeDirectoryInside(library.root, dir).catch(() => {});
 
   const quiet = options.quietMs ?? QUIET_MS;
   const timers = new Map<AssetId, NodeJS.Timeout>();

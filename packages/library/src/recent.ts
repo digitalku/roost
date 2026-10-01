@@ -2,6 +2,7 @@ import { mkdir, readFile, realpath, rename, stat, unlink, writeFile } from "node
 import { join } from "node:path";
 import { logger, stateDir } from "@roost/core";
 import { MANIFEST_FILE } from "./manifest.js";
+import { libraryNameFromPath } from "./naming.js";
 
 /**
  * The libraries this machine has opened, most recent first.
@@ -72,7 +73,14 @@ export function recentPath(): string {
 export async function listRecent(): Promise<RecentEntry[]> {
   const remembered = await readRecent();
   const checked = await Promise.all(
-    remembered.map(async (entry) => ({ ...entry, available: await isLibrary(entry.root) })),
+    remembered.map(async (entry) => ({
+      ...entry,
+      // From the path rather than from what was stored, because the folder is
+      // the name (RL-7b) and a folder renamed while Roost was closed has
+      // renamed the library.
+      name: libraryNameFromPath(entry.root),
+      available: await isLibrary(entry.root),
+    })),
   );
   return checked;
 }
@@ -83,31 +91,49 @@ export async function listRecent(): Promise<RecentEntry[]> {
  * Called from the one place a library becomes the open one, so that opening by
  * dialog, by recent entry, and by creation all record identically.
  *
+ * **A library renamed or moved is one entry, not two** (ADR-0056 §3.3). An
+ * entry carrying the same `library.json` id whose path no longer holds a
+ * library is the same library at its old address, so it is replaced, and its
+ * pin comes along. The id is trusted only that far: two paths that both still
+ * hold a library with one id are a library and a copy of it, and they are
+ * separate libraries from the moment the copy was made (`lock.ts`).
+ *
  * Swallows every failure: this is bookkeeping that runs *after* a library is
  * open, and a window that refused to show a library because a state file could
  * not be written would be trading the thing for the note about the thing.
  */
 export async function rememberLibrary(library: {
   readonly root: string;
-  readonly name: string;
   readonly id: string;
 }): Promise<void> {
   try {
     const root = await canonical(library.root);
     const existing = await readRecent();
-    const previous = existing.find((entry) => entry.root === root);
+    const left = new Set<string>();
+    for (const entry of existing) {
+      if (entry.root !== root && entry.id === library.id && !(await isLibrary(entry.root))) {
+        left.add(entry.root);
+      }
+    }
+    const previous =
+      existing.find((entry) => entry.root === root) ??
+      existing.find((entry) => left.has(entry.root));
 
     const entry: RecentLibrary = {
       root,
-      name: library.name,
+      // Kept in the file for a build that still reads it; nothing here does.
+      name: libraryNameFromPath(root),
       id: library.id,
       openedAt: Math.floor(Date.now() / 1000),
-      // Pinning survives being opened again. It is the user's mark, not a
-      // property of this visit.
+      // Pinning survives being opened again, and being renamed. It is the
+      // user's mark, not a property of this visit or this path.
       pinned: previous?.pinned ?? false,
     };
 
-    await write([entry, ...existing.filter((other) => other.root !== root)]);
+    await write([
+      entry,
+      ...existing.filter((other) => other.root !== root && !left.has(other.root)),
+    ]);
   } catch (cause) {
     log.warn("could not record a recently opened library", { reason: String(cause) });
   }

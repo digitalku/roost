@@ -48,6 +48,28 @@ export type Event =
    */
   | { readonly type: "library:folding"; readonly done: number; readonly total: number }
   /**
+   * The open library was renamed from a window (ADR-0056 §3.2).
+   *
+   * Every window hears it, because two can hold one library (ADR-0020) and the
+   * one that did not ask still draws the old name in its head. The root and
+   * the name are all that changed; the rest of the summary is the same.
+   */
+  | { readonly type: "library:renamed"; readonly root: string; readonly name: string }
+  /**
+   * The open library's folder left its path while it was open: renamed or
+   * moved from outside, or its drive taken away (ADR-0056 §3.4).
+   *
+   * The engine has already closed it. `movedTo` is the folder found beside the
+   * old one, with its name, or both `null` when it was not there to find.
+   */
+  | {
+      readonly type: "library:lost";
+      readonly root: string;
+      readonly name: string;
+      readonly movedTo: string | null;
+      readonly movedName: string | null;
+    }
+  /**
    * How far an import has got.
    *
    * The one event that carries a payload, because there is nothing to re-read:
@@ -120,6 +142,35 @@ export const EVENT_VALIDATORS: {
     const total = readInteger(source, "total");
     if (!total.ok) return total;
     return ok({ type: "library:folding", done: done.value, total: total.value });
+  },
+
+  "library:renamed": (source) => {
+    const root = readNonEmpty(source, "root");
+    if (!root.ok) return root;
+    const name = readNonEmpty(source, "name");
+    if (!name.ok) return name;
+    return ok({ type: "library:renamed", root: root.value, name: name.value });
+  },
+
+  "library:lost": (source) => {
+    const root = readNonEmpty(source, "root");
+    if (!root.ok) return root;
+    const name = readNonEmpty(source, "name");
+    if (!name.ok) return name;
+    const movedTo = readNullable(source, "movedTo", readNonEmpty);
+    if (!movedTo.ok) return movedTo;
+    const movedName = readNullable(source, "movedName", readNonEmpty);
+    if (!movedName.ok) return movedName;
+    if ((movedTo.value === null) !== (movedName.value === null)) {
+      return bad("movedTo and movedName: both or neither");
+    }
+    return ok({
+      type: "library:lost",
+      root: root.value,
+      name: name.value,
+      movedTo: movedTo.value,
+      movedName: movedName.value,
+    });
   },
 
   "import:progress": (source) => {

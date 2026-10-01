@@ -263,6 +263,15 @@ M5 and M6 are deferred at the user's request (below), so a feature they ask for 
 ask for it rather than waiting for a milestone nobody has planned yet. What has arrived that way
 is listed here, so the order stays visible instead of becoming folklore.
 
+- ☑ **The folder is the library's name** — 2026-10-01, ADR-0056 (**accepted** the same day), from
+  the user asking whether a library could be named by its folder, as Eagle's are, so that renaming
+  the folder renames the library. It can, as `FORMAT.md` **revision 2.2**: RL-7b, and `name` in
+  `library.json` becomes informative. **Rename library…** is in the `☰` as well, and asked whether a
+  rename from outside stays possible, the answer is yes, with the library closed. Asked what happens
+  if it is open, the answer found a real bug: `mkdir -p` recreated the old path, so an import after
+  the rename put its file in a folder that was not the library. Nothing makes a directory above a
+  root any more, and the engine polls its root and closes a library whose folder has left.
+  `scripts/check-rename.mjs`, 11 checks.
 - ☑ **Noticing that a file changed** — 2026-09-21, ADR-0047 (**accepted** the same day), from the
   user asking
   to go on to the workspace features. Opening a file in the application that owns it had worked
@@ -432,6 +441,10 @@ support · library merge · on-image annotation.
 ---
 
 ## Decision status
+
+**ADR-0056 — the folder is the library's name** was proposed and **accepted** on 2026-10-01: the
+user asked for Eagle's rule, then for *Rename library…* in the window as well, and then what a
+rename from outside does to an open library. A format revision (2.2), not a version.
 
 **ADR-0055 — an import that counts bytes and can be stopped** was proposed and **accepted** on
 2026-09-27, both questions answered as recommended: a directory is counted before it is read, and

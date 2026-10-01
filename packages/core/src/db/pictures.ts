@@ -1,6 +1,6 @@
-import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Database } from "better-sqlite3";
+import { makeDirectoryInsideSync } from "../storage/inside.js";
 import { migrationSql } from "./migrations.js";
 
 /**
@@ -41,7 +41,7 @@ export function picturesPathFor(indexPath: string): string {
  */
 export function attachPictures(db: Database, indexPath: string): void {
   const path = picturesPathFor(indexPath);
-  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+  if (path !== ":memory:") makeDirectoryInsideSync(dirname(indexPath), dirname(path));
 
   db.prepare(`ATTACH DATABASE ? AS ${PICTURES_SCHEMA}`).run(path);
 

@@ -100,6 +100,7 @@ export {
   InvalidMomentError,
   InvalidRatingError,
   LibraryBusyError,
+  LibraryNameTakenError,
   LibraryNotFoundError,
   LibraryTooNewError,
   NotALibraryError,
@@ -199,6 +200,15 @@ export {
   type RefreshOutcome,
   refreshAsset,
 } from "./refresh.js";
+export {
+  findMovedLibrary,
+  ROOT_POLL_MS,
+  type RootWatcher,
+  type RootWatchOptions,
+  renameLibrary,
+  renameTarget,
+  watchRoot,
+} from "./rename.js";
 export {
   compileFor,
   count,

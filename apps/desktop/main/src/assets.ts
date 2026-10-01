@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import type { HandoffCost } from "@roost/contract";
@@ -8,6 +8,7 @@ import {
   FileStore,
   fileNameFor,
   logger,
+  makeDirectoryInside,
   ReadOnlyIndex,
   reflinkSupported,
   STAGING_DIR,
@@ -106,7 +107,7 @@ export class AssetServer {
     this.#handoff ??= this.#swept
       .then(async () => {
         const directory = join(root, STAGING_DIR);
-        await mkdir(directory, { recursive: true });
+        await makeDirectoryInside(root, directory);
         return (await reflinkSupported(directory)) === "yes" ? "free" : "copies";
       })
       .catch(() => "copies" as const);

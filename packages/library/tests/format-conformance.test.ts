@@ -15,6 +15,7 @@ import {
 } from "@roost/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { NotALibraryError } from "../src/error.js";
+import { Library } from "../src/library.js";
 import { readManifest } from "../src/manifest.js";
 import { LIBRARY_SUFFIX, libraryNameFromPath } from "../src/naming.js";
 
@@ -329,12 +330,20 @@ describe("identifying a library", () => {
     expect(manifest.created_at).toBe(expected.library.created_at);
   });
 
-  it("opens a library whose folder has no suffix, and names it from its manifest", async () => {
+  it("opens a library whose folder has no suffix, and names it from its folder", async () => {
     // RL-7a, and the case that matters: requiring the suffix on write is a
     // change somebody notices the same day, and requiring it on read is one
     // nobody notices until a library made before the rule has stopped opening.
-    const manifest = await readManifest(noSuffix);
-    expect(manifest.name).toBe("Made before the rule");
+    //
+    // RL-7b: the folder is the name, and `name` disagreeing with it is not
+    // damage. Opening it shows the folder's and writes nothing back.
+    const opened = await Library.open(noSuffix);
+    try {
+      expect(opened.name).toBe("made-before-the-rule");
+    } finally {
+      await opened.close();
+    }
+    expect((await readManifest(noSuffix)).name).toBe("Made before the rule");
     expect(libraryNameFromPath(noSuffix)).toBe("made-before-the-rule");
 
     // …and it is still where it was. RL-7a forbids renaming one that is found.

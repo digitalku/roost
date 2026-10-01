@@ -57,6 +57,12 @@ export function serve(port: Port, host: EngineHost = new EngineHost()): Server {
       event: { type: "transfer:progress", ...progress },
     } satisfies EventEnvelope);
   };
+  host.onRenamed = ({ root, name }) => {
+    port.postMessage({ event: { type: "library:renamed", root, name } } satisfies EventEnvelope);
+  };
+  host.onLost = (lost) => {
+    port.postMessage({ event: { type: "library:lost", ...lost } } satisfies EventEnvelope);
+  };
   host.onJobProgress = (progress) => {
     port.postMessage({ event: { type: "job:progress", ...progress } } satisfies EventEnvelope);
   };

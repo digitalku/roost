@@ -35,6 +35,13 @@ export interface AppMenuProps {
   readonly onInspector: (on: boolean) => void;
   readonly onCloseLibrary: () => void;
   /**
+   * Rename the library, which is renaming its folder (ADR-0056 §3.2).
+   *
+   * Beside *Close library* because both are about the library as a whole, and
+   * because a rename closes it for a moment and opens it again.
+   */
+  readonly onRenameLibrary: () => void;
+  /**
    * Delete the objects nothing references (ADR-0031).
    *
    * Here because it is the application acting on the whole library rather than
@@ -68,6 +75,7 @@ export function AppMenu({
   onSidebar,
   onInspector,
   onCloseLibrary,
+  onRenameLibrary,
   onReclaim,
   resumeDeriving,
   onAbout,
@@ -135,6 +143,11 @@ export function AppMenu({
           </DropdownMenu.Item>
 
           <DropdownMenu.Separator className="menu-separator" />
+
+          <DropdownMenu.Item className="menu-item" onSelect={onRenameLibrary}>
+            <span className="menu-mark" />
+            <span className="menu-label">Rename library…</span>
+          </DropdownMenu.Item>
 
           <DropdownMenu.Item className="menu-item" onSelect={onCloseLibrary}>
             <span className="menu-mark" />

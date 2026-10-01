@@ -80,6 +80,7 @@ describe("validating a request", () => {
       "recent:forget",
       "recent:pin",
       "library:close",
+      "library:rename",
       "app:quit",
       "app:about",
       "library:stats",
@@ -698,6 +699,28 @@ describe("validating an envelope", () => {
     });
     expect(checkEvent({ type: "library:folding", done: 0.5, total: 1 }).ok).toBe(false);
     expect(checkEvent({ type: "library:folding", done: 1 }).ok).toBe(false);
+  });
+
+  it("carries a rename and a library lost, with a found folder or none (ADR-0056)", () => {
+    expect(checkRequest({ type: "library:rename", name: "trip" })).toEqual({
+      ok: true,
+      value: { type: "library:rename", name: "trip" },
+    });
+    expect(checkRequest({ type: "library:rename", name: "" }).ok).toBe(false);
+
+    const renamed = { type: "library:renamed", root: "/p/trip.roost", name: "trip" };
+    expect(checkEvent(renamed)).toEqual({ ok: true, value: renamed });
+
+    const found = {
+      type: "library:lost",
+      root: "/p/traveling.roost",
+      name: "traveling",
+      movedTo: "/p/trip.roost",
+      movedName: "trip",
+    };
+    expect(checkEvent(found)).toEqual({ ok: true, value: found });
+    expect(checkEvent({ ...found, movedTo: null, movedName: null }).ok).toBe(true);
+    expect(checkEvent({ ...found, movedName: null }).ok).toBe(false);
   });
 
   it("validates an event the same way", () => {

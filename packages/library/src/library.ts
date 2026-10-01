@@ -32,6 +32,7 @@ import {
   refuseExistingLibrary,
   writeManifest,
 } from "./manifest.js";
+import { libraryNameFromPath } from "./naming.js";
 import { readSettings, type Settings, writeSettings } from "./settings.js";
 
 const log = logger("library");
@@ -166,6 +167,17 @@ export class Library {
       await lock?.release();
       throw error;
     }
+  }
+
+  /**
+   * What the library is called: its folder's name, without `.roost` (RL-7b).
+   *
+   * Not `manifest.name`, which records what Roost last called it and goes
+   * stale the moment somebody renames the folder in a file manager, which is
+   * a complete rename (ADR-0056).
+   */
+  get name(): string {
+    return libraryNameFromPath(this.root);
   }
 
   get db(): Db {

@@ -1,6 +1,6 @@
 # Storage — how this build meets the library format
 
-**Roost Library Format 2, revision 2.1.** The normative document is [`FORMAT.md`](FORMAT.md),
+**Roost Library Format 2, revision 2.2.** The normative document is [`FORMAT.md`](FORMAT.md),
 beside this file, with [`OPS.md`](OPS.md) for the journal operations and `conformance/` at the
 repository root for the suite. This file is **not** a specification and binds nothing on its own:
 it is the map from that document's numbered requirements to the code here, plus the notes that
@@ -49,6 +49,7 @@ construction or by a rule nothing here can break.
 | RL-6 | A higher version refuses to open and touches nothing | `LibraryTooNewError`, thrown before any handle is taken |
 | RL-6a | A **lower** version is *not a library*, and nothing is read or repaired | `NotALibraryError`, checked before the other three fields |
 | RL-7, RL-7a | `<name>.roost` on write; never required on read, never renamed | `library/src/naming.ts` (ADR-0014) |
+| RL-7b | The folder is the name; `name` is written on a rename and never repaired | `Library.name`, `library/src/rename.ts` — `renameLibrary`; `recent.ts` names entries from the path (ADR-0056) |
 
 ### Layout
 

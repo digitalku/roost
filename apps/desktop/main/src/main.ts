@@ -101,7 +101,13 @@ protocol.registerSchemesAsPrivileged([
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  const engine = new Engine(broadcast);
+  const engine = new Engine((event) => {
+    // The engine has closed a library whose folder left its path, so the
+    // connection here points at a directory that is not where it was
+    // (ADR-0056 §3.4).
+    if (event.type === "library:lost") assets.detach();
+    broadcast(event);
+  });
   // A hint, so a failure is nobody's problem: the queue works everything in
   // its own order regardless, and this only changes what comes first.
   assets.onThumbnailsMissing = (ids) => {
@@ -173,10 +179,15 @@ async function route(engine: Engine, payload: unknown, sender: WebContents): Pro
     if (ANSWERED_HERE.has(request.type)) {
       return { ok: true, value: await answerHere(engine, request, sender) };
     }
+    // Let go before the folder moves, not after: a rename under an open
+    // descriptor is refused on Windows (ADR-0056 §3.2).
+    if (request.type === "library:rename") assets.detach();
     const value = await engine.request(request);
     followLibrary(request, value);
     return { ok: true, value };
   } catch (error) {
+    // A rename that failed has opened the library again where it was.
+    if (request.type === "library:rename") void reattach(engine);
     if (error instanceof EngineProblem || error instanceof EngineGoneError) {
       return { ok: false, problem: error.problem };
     }
@@ -198,7 +209,13 @@ function followLibrary(request: Request, value: unknown): void {
     assets.detach();
     return;
   }
-  if (request.type !== "library:open" && request.type !== "library:create") return;
+  if (
+    request.type !== "library:open" &&
+    request.type !== "library:create" &&
+    request.type !== "library:rename"
+  ) {
+    return;
+  }
 
   const root = isSummary(value) ? value.root : undefined;
   if (root === undefined) return;
@@ -211,6 +228,12 @@ function followLibrary(request: Request, value: unknown): void {
       message: error instanceof Error ? error.message : "unknown",
     });
   }
+}
+
+/** Points the byte server at whatever the engine holds now, if anything. */
+async function reattach(engine: Engine): Promise<void> {
+  const current = await engine.request({ type: "library:current" }).catch(() => null);
+  if (isSummary(current)) followLibrary({ type: "library:open", path: current.root }, current);
 }
 
 function isSummary(value: unknown): value is { root: string } {

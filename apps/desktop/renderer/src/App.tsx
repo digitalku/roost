@@ -1,5 +1,6 @@
 import type {
   AssetCard,
+  EventOf,
   HandoffCost,
   ImportSubject,
   LibraryStats,
@@ -49,6 +50,7 @@ import { JournalNotice } from "./JournalNotice.js";
 import { isTyping } from "./keyboard.js";
 import { type Opening, OpeningStatus, openingName } from "./library/OpeningStatus.js";
 import { RecentList } from "./library/RecentList.js";
+import { RenameLibraryDialog } from "./library/RenameLibraryDialog.js";
 import { NavButtons } from "./NavButtons.js";
 import { NewFileDialog } from "./NewFileDialog.js";
 import { INSPECTOR, PaneResizer, SIDEBAR } from "./PaneResizer.js";
@@ -187,6 +189,8 @@ export function App(): React.JSX.Element {
   const [generation, setGeneration] = useState(0);
   const [revision, setRevision] = useState(0);
   const [recent, setRecent] = useState<readonly WireRecentLibrary[]>([]);
+  /** The library whose folder left its path while it was open, if that is why the picker is up. */
+  const [lost, setLost] = useState<EventOf<"library:lost"> | undefined>();
 
   // Focus moved deliberately, in the frame after the form appears, rather than
   // with `autoFocus`: this form opens in response to a click, so putting the
@@ -257,6 +261,17 @@ export function App(): React.JSX.Element {
         if (event.type === "library:changed" && opened !== undefined) {
           void readStats(opened.summary, true);
         }
+        // From whichever window asked, this one included (ADR-0056 §3.2). The
+        // folder and its name are all that changed, so the grid keeps its pages.
+        if (event.type === "library:renamed" && opened !== undefined) {
+          void readStats({ ...opened.summary, root: event.root, name: event.name }, true);
+        }
+        // The engine has already closed it (ADR-0056 §3.4).
+        if (event.type === "library:lost") {
+          setOpened(undefined);
+          setProblem(undefined);
+          setLost(event);
+        }
       }),
     [opened, readStats],
   );
@@ -281,6 +296,7 @@ export function App(): React.JSX.Element {
    * for them to diverge about what opening means.
    */
   const openPath = async (path: string) => {
+    setLost(undefined);
     setBusy(true);
     const known = recent.find((entry) => entry.root === path);
     setOpening({ name: known?.name ?? openingName(path, LIBRARY_SUFFIX), fraction: undefined });
@@ -335,6 +351,7 @@ export function App(): React.JSX.Element {
     setCreating(false);
     setName("");
     setLocation(undefined);
+    setLost(undefined);
     await readStats(outcome.value);
   };
 
@@ -449,6 +466,9 @@ export function App(): React.JSX.Element {
           </button>
         </div>
         <OpeningStatus opening={opening} />
+        {lost !== undefined && (
+          <LostNotice lost={lost} busy={busy} onOpen={(root) => void openPath(root)} />
+        )}
         {problem !== undefined && <Problem problem={problem} />}
         <RecentList
           entries={recent}
@@ -710,6 +730,44 @@ function summaryLine(assets: number | undefined, selected: number): string {
 function fileName(name: string): string {
   const trimmed = name.trim();
   return trimmed === "" ? `Name${LIBRARY_SUFFIX}` : `${trimmed}${LIBRARY_SUFFIX}`;
+}
+
+/**
+ * Why the picker is up when nobody closed the library (ADR-0056 §3.4).
+ *
+ * The engine closed it because its folder left its path, so that nothing would
+ * be written to the wrong place. Where the folder was found beside the old one,
+ * the way back is one button; where it was not, *Open library…* above is.
+ */
+function LostNotice({
+  lost,
+  busy,
+  onOpen,
+}: {
+  readonly lost: EventOf<"library:lost">;
+  readonly busy: boolean;
+  readonly onOpen: (root: string) => void;
+}): React.JSX.Element {
+  const { movedTo, movedName } = lost;
+  return (
+    <div className="lost-notice" role="status">
+      <p>
+        {movedTo === null || movedName === null
+          ? `The folder of ${lost.name} was moved, or its drive removed, while it was open. Roost closed it so that nothing would be written to the wrong place.`
+          : `${lost.name} was renamed to ${movedName} while it was open. Roost closed it so that nothing would be written to the wrong place.`}
+      </p>
+      {movedTo !== null && movedName !== null && (
+        <button
+          type="button"
+          data-variant="primary"
+          disabled={busy}
+          onClick={() => onOpen(movedTo)}
+        >
+          Open {movedName}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function Problem({ problem }: { readonly problem: WireProblem }): React.JSX.Element {
@@ -1494,6 +1552,7 @@ function LibraryView({
 
   /** Whether About is on screen (ADR-0038 §5.1). */
   const [about, setAbout] = useState(false);
+  const [renamingLibrary, setRenamingLibrary] = useState(false);
 
   const newFolder = useCallback((parent: SidebarFolderRow | null) => {
     setNaming({
@@ -2008,6 +2067,7 @@ function LibraryView({
       onSidebar={(on) => applyView({ showSidebar: on })}
       onInspector={(on) => applyView({ showInspector: on })}
       onCloseLibrary={onClose}
+      onRenameLibrary={() => setRenamingLibrary(true)}
       onReclaim={reclaim}
       {...(derives.status?.paused === true && derivesLeft(derives.status) > 0
         ? {
@@ -2418,6 +2478,18 @@ function LibraryView({
           that question is worth asking again rather than caching for a window
           that may outlive an update. */}
       {about && <AboutDialog onClose={() => setAbout(false)} />}
+      {/* Every window redraws its head from `library:renamed`, this one too, so
+          all the answer has to do here is say so. */}
+      {renamingLibrary && (
+        <RenameLibraryDialog
+          current={opened.summary.name}
+          onClose={() => setRenamingLibrary(false)}
+          onRenamed={(summary) => {
+            setRenamingLibrary(false);
+            noteResult(`Renamed the library to ${summary.name}`);
+          }}
+        />
+      )}
       {/*
         The question a finished import raises (ADR-0037 §3). It names the folder
         the window is showing *now* rather than the one the run was given: the

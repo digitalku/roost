@@ -376,6 +376,88 @@ describe("a library that is already open", () => {
     expect(await screen.findByRole("button", { name: "Open library…" })).toBeDefined();
     expect(screen.getByText("No library open")).toBeDefined();
   });
+
+  /** Holiday Photos, opened, and a user to drive it. */
+  const openHoliday = async (others: readonly string[] = []) => {
+    const engine = new FakeEngine({
+      openLibraryDialog: "/home/you/Holiday Photos.roost",
+      existing: [
+        { root: "/home/you/Holiday Photos.roost", name: "Holiday Photos" },
+        ...others.map((root) => ({ root, name: root })),
+      ],
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+    return { engine, user };
+  };
+
+  const renameTo = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+    await user.click(await screen.findByRole("button", { name: "Menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Rename library…" }));
+    const field = await screen.findByRole("textbox", { name: "Name" });
+    expect((field as HTMLInputElement).value).toBe("Holiday Photos");
+    await user.clear(field);
+    await user.type(field, name);
+  };
+
+  // ADR-0056 §3.2: the folder is the name, and the dialog says which folder.
+  it("renames the library from the menu, folder and all", async () => {
+    const { engine, user } = await openHoliday();
+
+    await renameTo(user, "Trip");
+    expect(screen.getByText("Trip.roost")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+
+    expect(await screen.findByRole("heading", { name: "Trip" })).toBeDefined();
+    expect(screen.getByText("/home/you/Trip.roost")).toBeDefined();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(engine.seen).toContainEqual({ type: "library:rename", name: "Trip" });
+  });
+
+  it("keeps the dialog open on a name that is taken, with the engine's words", async () => {
+    const { user } = await openHoliday(["/home/you/Trip.roost"]);
+
+    await renameTo(user, "Trip");
+    await user.click(screen.getByRole("button", { name: "Rename" }));
+
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "/home/you/Trip.roost already exists",
+    );
+    // Behind the dialog, which hides the rest of the window from the tree.
+    expect(screen.getByRole("heading", { name: "Holiday Photos", hidden: true })).toBeDefined();
+  });
+
+  // ADR-0056 §3.4: the engine closed it, and the picker says why and offers
+  // the folder it found.
+  it("goes back to the picker when the folder is renamed under it, and offers the new one", async () => {
+    const { engine, user } = await openHoliday();
+
+    act(() => engine.loseLibrary("/home/you/Trip.roost"));
+
+    expect(
+      await screen.findByText(
+        "Holiday Photos was renamed to Trip while it was open. Roost closed it so that nothing would be written to the wrong place.",
+      ),
+    ).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "Open Trip" }));
+    expect(await screen.findByRole("heading", { name: "Trip" })).toBeDefined();
+  });
+
+  it("says so when the folder went somewhere it could not be found", async () => {
+    const { engine } = await openHoliday();
+
+    act(() => engine.loseLibrary());
+
+    expect(
+      await screen.findByText(/The folder of Holiday Photos was moved, or its drive removed/),
+    ).toBeDefined();
+    expect(screen.queryByRole("button", { name: /^Open Holiday/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open library…" })).toBeDefined();
+  });
 });
 
 describe("the library view", () => {

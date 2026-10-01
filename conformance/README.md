@@ -27,8 +27,9 @@ Everything else in this repository is prose that the build can quietly disagree 
 3. Compare the result with `expected.json`.
 4. Check that nothing under `library.roost/files/` was created, deleted or renamed by the replay —
    including the lock file, which is the point of RL-11.
-5. Open `made-before-the-rule/` and check that it opens, is reported as a library named *Made before
-   the rule*, and is **not renamed**.
+5. Open `made-before-the-rule/` and check that it opens, is reported as a library named
+   *made-before-the-rule*, the folder's name, while its `library.json` still says *Made before the
+   rule* (RL-7b, from revision 2.2), and is **not renamed**.
 
 **The library is committed with no cache, and an implementation must not add one to it.** A
 committed `index.db` would bake one implementation's schema into a shared fixture, and every other

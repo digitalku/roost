@@ -6,7 +6,7 @@ export async function stats(root: string, out: (line: string) => void): Promise<
   const library = await Library.open(root);
   try {
     const counts = library.stats();
-    out(library.manifest.name);
+    out(library.name);
     out(row("path", library.root));
     out(row("assets", counts.assets));
     // Only when there are any: an asset nothing has read is an ordinary state

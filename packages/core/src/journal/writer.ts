@@ -1,7 +1,8 @@
 import type { FileHandle } from "node:fs/promises";
-import { open as fsOpen, mkdir, readdir } from "node:fs/promises";
+import { open as fsOpen, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { InvalidTimestampError, IoError } from "../model/index.js";
+import { makeDirectoryInside } from "../storage/inside.js";
 import { type JournalRecord, toLine } from "./op.js";
 
 /** Directory name for the journal inside a library. */
@@ -112,11 +113,7 @@ export class Journal {
   /** Opens the journal for a library, creating the directory if needed. */
   static async open(libraryRoot: string): Promise<Journal> {
     const dir = join(libraryRoot, JOURNAL_DIR);
-    try {
-      await mkdir(dir, { recursive: true });
-    } catch (cause) {
-      throw new IoError("mkdir", dir, cause);
-    }
+    await makeDirectoryInside(libraryRoot, dir);
     return new Journal(dir);
   }
 

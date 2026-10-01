@@ -62,7 +62,7 @@ const GLOBAL_OPTIONS: OptionTable = {
  * other command's documented flag an error.
  */
 const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
-  init: { name: { type: "string" } },
+  init: {},
   import: {
     take: { type: "string" },
     tag: { type: "string", multiple: true },
@@ -194,8 +194,7 @@ async function dispatch(
     case "init": {
       const path = positionals[0];
       if (path === undefined) return usage(streams, command, "init needs a path");
-      const name = text(values, "name");
-      await init(name === undefined ? { path } : { path, name }, streams.out);
+      await init({ path }, streams.out);
       return EXIT.ok;
     }
 

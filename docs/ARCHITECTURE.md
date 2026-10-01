@@ -137,6 +137,15 @@ proposed the name `ThumbnailReader`, and it answers where an asset's file is as 
 exception. It exposes three lookups and no way to write, and SQLite refuses a write on it
 regardless, which is what a test asserts rather than the flag that asks for it.
 
+**Nothing makes a directory above a library's root.** Every directory made inside a library goes
+through `makeDirectoryInside` in `@roost/core`, one level at a time from a root that must already
+exist; creating a library is the one place a root is made. `mkdir -p` would build the root too, and
+for a library renamed while it is open that recreated the old path, so an import's file landed
+there while its journal line went to the renamed library (ADR-0056 §2). With this rule, anything
+reached by path fails instead, and what is already open carries on: the journal's open month and
+both databases follow the directory through their descriptors. The engine also polls its root
+once a second and closes a library whose folder has left its path (ADR-0056 §3.4).
+
 ### 3.3 `@roost/media` (`packages/media`)
 Everything that touches file bytes:
 - format detection (magic bytes first, extension as hint only)
@@ -283,6 +292,7 @@ why the Rust project's generated-bindings rule does not translate.
 
 Events (engine → renderer): `import:progress`, `job:progress`, `library:changed`,
 `library:folding` (bytes of the journal an open has folded, ten times a second at most),
+`library:renamed` and `library:lost` (ADR-0056: main also detaches its byte server on the second),
 `asset:updated`, `thumbnail:ready`. They travel the same port and are re-emitted by main to the
 window; the renderer subscribes through the same typed surface.
 

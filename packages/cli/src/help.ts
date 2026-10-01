@@ -92,11 +92,12 @@ suffix is added if it is missing, so \`roost init ~/Photos\` and
 \`roost init ~/Photos.roost\` create the same thing. The path actually used is
 printed.
 
+The folder's name is the library's name: ~/Photos.roost is called Photos.
+To rename a library, rename its folder while Roost has it closed.
+
 Usage: roost init <PATH> [OPTIONS]
 
 Options:
-      --name <NAME>      Display name. Defaults to the folder's own name,
-                         without the suffix
 ${GLOBAL}`,
 
   import: `Import files and directories into a library.

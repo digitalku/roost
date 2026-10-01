@@ -1,4 +1,13 @@
-import { mkdir, mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ImportProgress, ReplyEnvelope, Request } from "@roost/contract";
@@ -268,6 +277,66 @@ describe("the engine's message loop", () => {
     await ask(1, { type: "library:create", parent: dir, name: "Closed" });
     expect(await ask(2, { type: "library:close" })).toEqual({ id: 2, ok: true, value: null });
     expect(await ask(3, { type: "library:current" })).toEqual({ id: 3, ok: true, value: null });
+  });
+
+  /** The events sent so far of one type. */
+  const eventsOf = (type: string): Record<string, unknown>[] =>
+    port.sent
+      .filter((message): message is { event: Record<string, unknown> } => {
+        return isRecord(message) && isRecord(message["event"]);
+      })
+      .map((message) => message.event)
+      .filter((event) => event["type"] === type);
+
+  it("renames the open library by renaming its folder, and tells every window (ADR-0056)", async () => {
+    await ask(1, { type: "library:create", parent: dir, name: "traveling" });
+    const before = join(dir, "traveling.roost");
+    const after = join(dir, "trip.roost");
+
+    const reply = await ask(2, { type: "library:rename", name: "trip" });
+
+    expect(reply).toMatchObject({ ok: true, value: { root: after, name: "trip" } });
+    expect(eventsOf("library:renamed")).toEqual([
+      { type: "library:renamed", root: after, name: "trip" },
+    ]);
+    expect(await ask(3, { type: "library:current" })).toMatchObject({
+      value: { root: after, name: "trip" },
+    });
+    expect(await openFilesUnder(before)).toEqual([]);
+    const manifest = JSON.parse(await readFile(join(after, "library.json"), "utf8")) as unknown;
+    expect(manifest).toMatchObject({ name: "trip" });
+  });
+
+  it("refuses a name that is taken, and keeps the library open where it was", async () => {
+    await ask(1, { type: "library:create", parent: dir, name: "traveling" });
+    await mkdir(join(dir, "trip.roost"));
+
+    expect(await ask(2, { type: "library:rename", name: "trip" })).toMatchObject({
+      ok: false,
+      problem: { code: "library_name_taken" },
+    });
+    expect(await ask(3, { type: "library:current" })).toMatchObject({
+      value: { root: join(dir, "traveling.roost"), name: "traveling" },
+    });
+    expect(eventsOf("library:renamed")).toEqual([]);
+  });
+
+  it("closes a library whose folder is renamed under it, and says where it went", async () => {
+    await ask(1, { type: "library:create", parent: dir, name: "traveling" });
+    const before = join(dir, "traveling.roost");
+    const after = join(dir, "trip.roost");
+    await rename(before, after);
+
+    // One poll of the root is a second (`ROOT_POLL_MS`).
+    for (let tick = 0; tick < 300 && eventsOf("library:lost").length === 0; tick += 1) {
+      await new Promise((settle) => setTimeout(settle, 10));
+    }
+
+    expect(eventsOf("library:lost")).toEqual([
+      { type: "library:lost", root: before, name: "traveling", movedTo: after, movedName: "trip" },
+    ]);
+    expect(await ask(2, { type: "library:current" })).toMatchObject({ value: null });
+    expect(await openFilesUnder(after)).toEqual([]);
   });
 
   /**

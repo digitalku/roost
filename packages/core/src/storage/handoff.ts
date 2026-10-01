@@ -1,7 +1,8 @@
 import { constants } from "node:fs";
-import { copyFile, mkdir, readdir, rm } from "node:fs/promises";
+import { copyFile, readdir, rm } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { logger } from "../log/index.js";
+import { makeDirectoryInside } from "./inside.js";
 
 const log = logger("handoff");
 
@@ -71,7 +72,7 @@ export async function stageFile(
   name: string,
 ): Promise<{ path: string; copied: boolean }> {
   const directory = join(root, STAGING_DIR);
-  await mkdir(directory, { recursive: true });
+  await makeDirectoryInside(root, directory);
 
   const ext = extname(name);
   const stem = name.slice(0, name.length - ext.length);
