@@ -242,8 +242,6 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟢 **A native drag shows no count.** The HTML5 drag's ghost says *3*; `startDrag` takes one
   picture. A picture with the count drawn on it would need composing in main.
 
-- 🟢 **Dragging out of the preview pane.** One asset, and no internal drop to compete with.
-
 - 🟢 **Copy image over a video copies nothing.** A frame of a paused video is a picture too, and
   the preview knows which one is on screen. It would want the frame drawn in the renderer and
   handed over as bytes, which invariant 12 forbids, or the engine to ask ffmpeg for the frame at

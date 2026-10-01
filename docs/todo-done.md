@@ -509,6 +509,10 @@ monthly archive under [`sessions/`](sessions/), and what shipped is in
   assumption holds on KDE Wayland. The grid drags out as files, up to 200 MB where a copy is not
   free, and the folder rows take the drag by the ids the window remembers.
 
+- ☑ ~~**Dragging out of the preview pane.**~~ One asset, and no internal drop to compete with.
+  **Built 2026-10-01** (ADR-0034 §7): a thumbnail handle in the pane's head, chosen over dragging
+  the picture itself, which already pans and seeks.
+
 - ☑ ~~**`reflinkSupported()` finally matters.**~~ It has existed since M1 with no caller. It is what
   decides whether a correct filename is free (btrfs, XFS) or costs the whole file (ext4, NTFS).
 

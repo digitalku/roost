@@ -3,9 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../bridge.js";
 import { codecName } from "../deriveReason.js";
+import { ASSET_DRAG_TYPE } from "../dnd.js";
 import { counted } from "../format.js";
-import { Placeholder } from "../Placeholder.js";
-import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
+import { KindGlyph, Placeholder } from "../Placeholder.js";
+import { fallbackToGrid, gridSrc, previewSrc, showLoaded } from "../thumbnail.js";
 import { Picture, type PictureHandle } from "./Picture.js";
 import { playhead, SKIP_MS } from "./playhead.js";
 import { sound } from "./sound.js";
@@ -72,6 +73,68 @@ export interface PreviewPaneProps {
    * is: a preview is not a place to repeat a control already on screen.
    */
   readonly menu?: React.ReactNode;
+  /**
+   * Starts a drag of the file on screen out of the window, and answers whether
+   * it did (ADR-0034 §7).
+   *
+   * The grid's own, handed in: whether a drag may go out is decided by what a
+   * copy costs in this library and by the asset's size, and the caller is
+   * where both are held. Absent, the handle still drags inside the window.
+   */
+  readonly onDragOut?: (ids: readonly string[]) => boolean;
+}
+
+/**
+ * The file on screen, as something a hand can pick up (ADR-0034 §7).
+ *
+ * The picture itself cannot be the thing dragged: a press on it zooms to 1:1
+ * and a drag across it pans, and under a video the timeline is dragged to seek.
+ * Making one gesture mean two things depending on the zoom is what this avoids,
+ * so the drag has a place of its own, the same for every kind there is.
+ *
+ * It behaves as a cell in the grid does. It goes out as a file where
+ * `onDragOut` allows, in which case this drag is cancelled and main starts a
+ * native one in its place, and otherwise it stays inside the window carrying
+ * the id, so a folder in the sidebar can still take it.
+ *
+ * Pointer-only on purpose. `Ctrl+C` is the keyboard's way to hand the same
+ * file over (ADR-0034 §5.1), and the pane already has it.
+ */
+function FileHandle({
+  id,
+  detail,
+  onDragOut,
+}: {
+  readonly id: string;
+  readonly detail: WireAssetDetail | undefined;
+  readonly onDragOut: ((ids: readonly string[]) => boolean) | undefined;
+}): React.JSX.Element {
+  const [broken, setBroken] = useState(false);
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: a drag source only; the keyboard hands the same file over with Ctrl+C
+    <div
+      className="preview-handle"
+      draggable
+      title="Drag the file to another application"
+      onDragStart={(event) => {
+        if (onDragOut?.([id]) === true) return event.preventDefault();
+        event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify([id]));
+        event.dataTransfer.effectAllowed = "copyMove";
+      }}
+    >
+      {/* The kind's outline underneath, which the thumbnail covers when there
+          is one, as a cell's placeholder is covered (`UI_SPEC.md` §6.1). */}
+      <KindGlyph kind={detail?.kind ?? "other"} />
+      {detail === undefined || broken ? null : (
+        <img
+          src={gridSrc(id, detail.posterMs, detail.derivedAt)}
+          alt=""
+          draggable={false}
+          onError={() => setBroken(true)}
+        />
+      )}
+    </div>
+  );
 }
 
 /**
@@ -120,6 +183,7 @@ export function PreviewPane({
   fitVideo,
   onFitVideo,
   menu,
+  onDragOut,
 }: PreviewPaneProps): React.JSX.Element {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [page, setPage] = useState(0);
@@ -258,6 +322,9 @@ export function PreviewPane({
         {/* First in the row and first in the tab order; empty for a kind with
             nothing to put here, and then it takes no room at all. */}
         <div className="preview-bar-tools" ref={setTools} />
+        {/* Keyed on the id, so a thumbnail that failed for one asset is not
+            taken as failed for the next one stepped to. */}
+        <FileHandle key={id} id={id} detail={detail} onDragOut={onDragOut} />
         <button
           type="button"
           className="preview-step"

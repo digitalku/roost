@@ -65,6 +65,43 @@
   color: var(--text-subtle);
 }
 
+/*
+ * The file itself, to drag out (ADR-0034 §7). A thumbnail the size of the
+ * controls beside it, standing at the start of the group that is about which
+ * file is on screen. The grab cursor is what says it can be picked up.
+ */
+.preview-handle {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--bar-control-height);
+  height: var(--bar-control-height);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-subtle);
+  cursor: grab;
+}
+
+.preview-handle > * {
+  grid-area: 1 / 1;
+}
+
+.preview-handle .placeholder-glyph {
+  width: var(--space-5);
+  height: var(--space-5);
+}
+
+/* Positioned so it paints over the outline: the outline's opacity gives it a
+   stacking context, which would otherwise draw it above an unpositioned image. */
+.preview-handle img {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .preview-arrow {
   width: var(--space-5);
   height: var(--space-5);

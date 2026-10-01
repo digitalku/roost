@@ -1,7 +1,8 @@
 import type { AssetKind, WireAssetDetail, WireComment } from "@roost/contract";
-import { render, screen, waitFor } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ASSET_DRAG_TYPE } from "../dnd.js";
 import { FakeEngine, fakeDetail, install } from "../testing/fake-engine.js";
 import { PreviewPane } from "./PreviewPane.js";
 import { sound } from "./sound.js";
@@ -346,6 +347,67 @@ describe("the preview pane", () => {
 
     await user.click(screen.getByRole("button", { name: "Close" }));
     expect(closed).toBe(2);
+  });
+
+  /** A preview with a drag-out handler, answering `goes` to every ask. */
+  const draggable = (goes: boolean) => {
+    engine = new FakeEngine({ details: [fakeDetail(1, { kind: "video", ext: "mp4" })] });
+    install(engine);
+    const asked: (readonly string[])[] = [];
+    const { container } = render(
+      <PreviewPane
+        id={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
+        onDragOut={(ids) => {
+          asked.push(ids);
+          return goes;
+        }}
+      />,
+    );
+    const handle = container.querySelector(".preview-handle") as HTMLElement;
+    const set = new Map<string, string>();
+    const dataTransfer = {
+      types: [],
+      setData: (type: string, value: string) => set.set(type, value),
+      getData: (type: string) => set.get(type) ?? "",
+      setDragImage: () => {},
+      effectAllowed: "none",
+    } as unknown as DataTransfer;
+    const event = createEvent.dragStart(handle, { dataTransfer });
+    fireEvent(handle, event);
+    return { asked, set, event, handle };
+  };
+
+  it("drags the file on screen out from the handle in its head", () => {
+    // ADR-0034 §7: the same native drag the grid starts, for the one asset
+    // being looked at, and the window's own drag cancelled in its place.
+    const { asked, set, event, handle } = draggable(true);
+    expect(handle.getAttribute("draggable")).toBe("true");
+    expect(asked).toEqual([[HASH]]);
+    expect(event.defaultPrevented).toBe(true);
+    expect(set.size).toBe(0);
+  });
+
+  it("drags inside the window from the handle when the drag cannot go out", () => {
+    // So a folder in the sidebar still takes it, as it takes a cell's.
+    const { set, event } = draggable(false);
+    expect(event.defaultPrevented).toBe(false);
+    expect(JSON.parse(set.get(ASSET_DRAG_TYPE) ?? "[]")).toEqual([HASH]);
+  });
+
+  it("draws the file's thumbnail on the handle once the detail arrives", async () => {
+    const { handle } = draggable(true);
+    await waitFor(() =>
+      expect(handle.querySelector("img")?.getAttribute("src")).toMatch(
+        new RegExp(`^roost://thumb/${HASH}@256`),
+      ),
+    );
   });
 
   it("takes focus when it opens, so the arrow keys work without a click", async () => {

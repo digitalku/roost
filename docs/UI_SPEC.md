@@ -1849,6 +1849,13 @@ it moves the button away mid-gesture, so **the pane takes focus back** whenever 
 or leaves; without that, focus lands on `<body>` and `Escape`, the arrows and the media keys are
 dead until something is clicked.
 
+**The file itself can be picked up from the head** (ADR-0034 §7). A thumbnail the size of the
+controls beside it stands before the arrows, and dragging it is dragging the file: out of the window
+as a file where a drag from the grid would go out, and onto a folder in the sidebar otherwise. It
+has a place of its own because the picture cannot be the handle. A drag across a photograph pans
+it and a drag along a timeline seeks, and the handle is the same for every kind. It is
+pointer-only, since `Ctrl+C` hands over the same file from the keyboard.
+
 **The head carries no filename.** It did until 2026-09-06, while the inspector three inches to the
 right carried the same name in an editable field — and the pane cannot be open with nothing
 selected, so the second copy was a title bar the window already has. The arrows are what the arrow
