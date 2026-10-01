@@ -323,7 +323,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `AssetList` | content | scroll, pages | Details view; same paging hook |
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
 | `Transport` | content | position, loop | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, the comment marks, and what the native bar withholds — frame stepping, playback rate, an A-B loop; §7. ADR-0024 |
-| `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state |
+| `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state. With one asset selected, **its picture is the file**: dragging it drags the file out of the window, as a cell does (ADR-0034 §7) |
 | `FilterBar` | content | menu open, search draft | Tags, rating and file type over the grid, then **Show subfolder contents**. A **view of the query**: read with `query:split`, written with `query:join` and `query:subfolders`. Tags carry an Any/All rule the window remembers where the query cannot hold it; the depth falls back to the library's setting the same way. §4.4. ADR-0035, ADR-0036 |
 | `NameField` | inspector | draft | The panel's heading, and the only editable name. Holds the **stem**: the extension is not editable and is not shown here. **Wraps over as many lines as the name takes**; `Enter` commits and a name never holds one. §3.10 |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
@@ -1849,12 +1849,13 @@ it moves the button away mid-gesture, so **the pane takes focus back** whenever 
 or leaves; without that, focus lands on `<body>` and `Escape`, the arrows and the media keys are
 dead until something is clicked.
 
-**The file itself can be picked up from the head** (ADR-0034 §7). A thumbnail the size of the
-controls beside it stands before the arrows, and dragging it is dragging the file: out of the window
-as a file where a drag from the grid would go out, and onto a folder in the sidebar otherwise. It
-has a place of its own because the picture cannot be the handle. A drag across a photograph pans
-it and a drag along a timeline seeks, and the handle is the same for every kind. It is
-pointer-only, since `Ctrl+C` hands over the same file from the keyboard.
+**The file itself is picked up from the inspector's picture** (ADR-0034 §7), which a drag from is a
+drag of the file: out of the window as a file where a drag from the grid would go out, and onto a
+folder in the sidebar otherwise. The preview's own picture cannot be the handle, because a drag
+across a photograph pans it and a drag along a timeline seeks. **While the inspector is hidden**,
+a thumbnail the size of the controls beside it stands in the head before the arrows and does the
+same job. There is one handle at a time, wherever there is room for it, as there is one `☰`. Both
+are pointer-only, since `Ctrl+C` hands over the same file from the keyboard.
 
 **The head carries no filename.** It did until 2026-09-06, while the inspector three inches to the
 right carried the same name in an editable field — and the pane cannot be open with nothing

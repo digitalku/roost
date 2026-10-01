@@ -2274,7 +2274,9 @@ function LibraryView({
                 onStep={step}
                 fitVideo={settings.fitVideoToWindow}
                 onFitVideo={applyFitVideo}
-                onDragOut={dragOut}
+                // The head's handle, while the inspector that is otherwise the
+                // handle is hidden (ADR-0034 §7).
+                {...(settings.showInspector ? {} : { onDragOut: dragOut })}
                 // The third head the `☰` can be drawn in, and the reason it is
                 // a prop: with the sidebar hidden the preview's bar is the
                 // only one on screen, so without this the menu — and the way
@@ -2370,6 +2372,7 @@ function LibraryView({
               onRenamed={paging.rename}
               onPick={pickQuery}
               onConfirm={setConfirming}
+              onDragOut={dragOut}
             />
           </>
         )}

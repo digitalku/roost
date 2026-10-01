@@ -7,9 +7,18 @@ import type {
   WireAssetDetail,
   WireSidebar,
 } from "@roost/contract";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ASSET_DRAG_TYPE } from "../dnd.js";
 import type { ConfirmRequest } from "../grid/trash-actions.js";
 import { FakeEngine, fakeDetail, install } from "../testing/fake-engine.js";
 import { Inspector } from "./Inspector.js";
@@ -253,6 +262,63 @@ describe("the inspector", () => {
     const image = document.querySelector<HTMLImageElement>(".inspector-preview .cell-image");
     expect(image?.getAttribute("src")).toBe(`roost://thumb/${HASH}@512`);
     expect(document.querySelector(".inspector-preview .cell-kind")?.textContent).toBe("png");
+  });
+
+  /** A drag started from the picture, with `onDragOut` answering `goes`. */
+  const dragPicture = async (goes: boolean | undefined) => {
+    engine = new FakeEngine({ details: [fakeDetail(1)], sidebar: SIDEBAR });
+    install(engine);
+    const asked: (readonly string[])[] = [];
+    render(
+      <Inspector
+        ids={[HASH]}
+        generation={0}
+        vocabulary={VOCABULARY}
+        folders={FOLDERS}
+        onPick={remember}
+        {...(goes === undefined
+          ? {}
+          : {
+              onDragOut: (ids: readonly string[]) => {
+                asked.push(ids);
+                return goes;
+              },
+            })}
+      />,
+    );
+    await waitFor(() => expect(document.querySelector(".inspector-preview")).not.toBeNull());
+    const picture = document.querySelector(".inspector-preview") as HTMLElement;
+    const set = new Map<string, string>();
+    const dataTransfer = {
+      types: [],
+      setData: (type: string, value: string) => set.set(type, value),
+      getData: (type: string) => set.get(type) ?? "",
+      setDragImage: () => {},
+      effectAllowed: "none",
+    } as unknown as DataTransfer;
+    const event = createEvent.dragStart(picture, { dataTransfer });
+    fireEvent(picture, event);
+    return { asked, set, event, picture };
+  };
+
+  it("drags the asset out of the window from its picture", async () => {
+    // ADR-0034 §7: the same native drag a cell starts, and the window's own
+    // drag cancelled in its place.
+    const { asked, set, event, picture } = await dragPicture(true);
+    expect(picture.getAttribute("draggable")).toBe("true");
+    expect(asked).toEqual([[HASH]]);
+    expect(event.defaultPrevented).toBe(true);
+    expect(set.size).toBe(0);
+  });
+
+  it("drags inside the window from its picture when the drag cannot go out", async () => {
+    // So a folder in the sidebar still takes it, as it takes a cell's.
+    for (const goes of [false, undefined]) {
+      const { set, event } = await dragPicture(goes);
+      expect(event.defaultPrevented).toBe(false);
+      expect(JSON.parse(set.get(ASSET_DRAG_TYPE) ?? "[]")).toEqual([HASH]);
+      document.body.innerHTML = "";
+    }
   });
 
   it("says why a selected file has no preview, and what to do, the moment it is selected", async () => {

@@ -40,6 +40,8 @@
   overflow: hidden;
   border-radius: var(--radius-md);
   background: var(--surface-raised);
+  /* It is the file, to drag out (ADR-0034 §7). */
+  cursor: grab;
 }
 
 /* `contain`, not `cover`: the panel shows the whole picture, and the grid

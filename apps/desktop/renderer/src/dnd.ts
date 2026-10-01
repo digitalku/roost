@@ -104,6 +104,27 @@ export function dragGoesOut(
   return bytes <= DRAG_OUT_BUDGET ? { out: true } : { out: false, bytes };
 }
 
+/**
+ * Starts the drag of one asset from a picture of it, as a cell's drag does
+ * (ADR-0034 §7).
+ *
+ * Out of the window as a file where `out` allows, in which case this drag is
+ * cancelled and main starts a native one in its place. Otherwise it stays
+ * inside the window carrying the id, so a folder in the sidebar takes it.
+ */
+export function dragOneAsset(
+  event: React.DragEvent,
+  id: string,
+  out: ((ids: readonly string[]) => boolean) | undefined,
+): void {
+  if (out?.([id]) === true) {
+    event.preventDefault();
+    return;
+  }
+  event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify([id]));
+  event.dataTransfer.effectAllowed = "copyMove";
+}
+
 export function carriesFolder(transfer: DataTransfer | null): boolean {
   return transfer !== null && [...transfer.types].includes(FOLDER_DRAG_TYPE);
 }

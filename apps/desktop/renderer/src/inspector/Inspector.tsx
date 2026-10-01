@@ -7,6 +7,7 @@ import type {
 } from "@roost/contract";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../bridge.js";
+import { dragOneAsset } from "../dnd.js";
 import { FileProblem } from "../FileProblem.js";
 import { bytes, counted } from "../format.js";
 import type { ConfirmRequest } from "../grid/trash-actions.js";
@@ -112,6 +113,14 @@ export interface InspectorProps {
    * is written.
    */
   readonly onConfirm?: (request: ConfirmRequest) => void;
+  /**
+   * Starts a drag of the asset out of the window from its picture, and answers
+   * whether it did (ADR-0034 §7).
+   *
+   * The grid's own function, for the grid's reasons. Without it the picture
+   * still drags inside the window, onto a folder in the sidebar.
+   */
+  readonly onDragOut?: (ids: readonly string[]) => boolean;
 }
 
 export function Inspector({
@@ -122,6 +131,7 @@ export function Inspector({
   onRenamed,
   onPick,
   onConfirm,
+  onDragOut,
 }: InspectorProps): React.JSX.Element | null {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [summary, setSummary] = useState<WireSelectionSummary | undefined>();
@@ -212,8 +222,19 @@ export function Inspector({
         (`ARCHITECTURE.md` §4.5) — so an asset nobody has looked at yet has none, and
         the placeholder shows through underneath exactly as it does in the grid.
         Bytes come over `roost://`, never through a message (invariant 12).
+
+        It is also the file, to pick up (ADR-0034 §7): a drag from it is a drag
+        of this asset, as a cell's is. It has no other gesture to compete with,
+        which the preview's picture does, so it is the handle wherever the
+        inspector is shown, beside the grid and beside the preview alike.
       */}
-      <div className="inspector-preview">
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: a drag source only; the keyboard hands the same file over with Ctrl+C */}
+      <div
+        className="inspector-preview"
+        draggable
+        title="Drag the file to another application"
+        onDragStart={(event) => dragOneAsset(event, detail.id, onDragOut)}
+      >
         <Placeholder kind={detail.kind} ext={detail.ext} undrawn={detail.undrawn} />
         <img
           className="cell-image"

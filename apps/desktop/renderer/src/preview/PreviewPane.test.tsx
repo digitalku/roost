@@ -401,6 +401,29 @@ describe("the preview pane", () => {
     expect(JSON.parse(set.get(ASSET_DRAG_TYPE) ?? "[]")).toEqual([HASH]);
   });
 
+  it("draws no handle in its head while the inspector is the handle", async () => {
+    // ADR-0034 §7: the caller gives `onDragOut` only while the inspector is
+    // hidden. Two handles on screen for one file would be one too many.
+    install(new FakeEngine({ details: [fakeDetail(1)] }));
+    const { container } = render(
+      <PreviewPane
+        id={HASH}
+        generation={0}
+        hasPrevious
+        hasNext
+        onClose={vi.fn()}
+        onStep={vi.fn()}
+        fitVideo={false}
+        onFitVideo={vi.fn()}
+      />,
+    );
+    // Once the detail has arrived, which is when the stage is drawn.
+    await waitFor(() =>
+      expect(container.querySelector(".preview-stage")?.childElementCount).toBeGreaterThan(0),
+    );
+    expect(container.querySelector(".preview-handle")).toBeNull();
+  });
+
   it("draws the file's thumbnail on the handle once the detail arrives", async () => {
     const { handle } = draggable(true);
     await waitFor(() =>

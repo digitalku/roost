@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "../bridge.js";
 import { codecName } from "../deriveReason.js";
-import { ASSET_DRAG_TYPE } from "../dnd.js";
+import { dragOneAsset } from "../dnd.js";
 import { counted } from "../format.js";
 import { KindGlyph, Placeholder } from "../Placeholder.js";
 import { fallbackToGrid, gridSrc, previewSrc, showLoaded } from "../thumbnail.js";
@@ -77,25 +77,26 @@ export interface PreviewPaneProps {
    * Starts a drag of the file on screen out of the window, and answers whether
    * it did (ADR-0034 §7).
    *
-   * The grid's own, handed in: whether a drag may go out is decided by what a
-   * copy costs in this library and by the asset's size, and the caller is
-   * where both are held. Absent, the handle still drags inside the window.
+   * **Given only while the inspector is hidden**, and the head draws its handle
+   * only then. With the inspector showing, its picture is the handle, and the
+   * file is picked up there: one place for it, wherever that is on screen, as
+   * the `☰` has one (ADR-0028 §6).
+   *
+   * The grid's own function: whether a drag may go out is decided by what a
+   * copy costs in this library and by the asset's size, and the caller is where
+   * both are held.
    */
   readonly onDragOut?: (ids: readonly string[]) => boolean;
 }
 
 /**
- * The file on screen, as something a hand can pick up (ADR-0034 §7).
+ * The file on screen, as something a hand can pick up, while the inspector is
+ * hidden (ADR-0034 §7).
  *
  * The picture itself cannot be the thing dragged: a press on it zooms to 1:1
  * and a drag across it pans, and under a video the timeline is dragged to seek.
- * Making one gesture mean two things depending on the zoom is what this avoids,
- * so the drag has a place of its own, the same for every kind there is.
- *
- * It behaves as a cell in the grid does. It goes out as a file where
- * `onDragOut` allows, in which case this drag is cancelled and main starts a
- * native one in its place, and otherwise it stays inside the window carrying
- * the id, so a folder in the sidebar can still take it.
+ * The inspector's picture has no such job, so it is the handle while it is
+ * shown, and this stands in for it while it is not.
  *
  * Pointer-only on purpose. `Ctrl+C` is the keyboard's way to hand the same
  * file over (ADR-0034 §5.1), and the pane already has it.
@@ -107,7 +108,7 @@ function FileHandle({
 }: {
   readonly id: string;
   readonly detail: WireAssetDetail | undefined;
-  readonly onDragOut: ((ids: readonly string[]) => boolean) | undefined;
+  readonly onDragOut: (ids: readonly string[]) => boolean;
 }): React.JSX.Element {
   const [broken, setBroken] = useState(false);
   return (
@@ -116,11 +117,7 @@ function FileHandle({
       className="preview-handle"
       draggable
       title="Drag the file to another application"
-      onDragStart={(event) => {
-        if (onDragOut?.([id]) === true) return event.preventDefault();
-        event.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify([id]));
-        event.dataTransfer.effectAllowed = "copyMove";
-      }}
+      onDragStart={(event) => dragOneAsset(event, id, onDragOut)}
     >
       {/* The kind's outline underneath, which the thumbnail covers when there
           is one, as a cell's placeholder is covered (`UI_SPEC.md` §6.1). */}
@@ -324,7 +321,9 @@ export function PreviewPane({
         <div className="preview-bar-tools" ref={setTools} />
         {/* Keyed on the id, so a thumbnail that failed for one asset is not
             taken as failed for the next one stepped to. */}
-        <FileHandle key={id} id={id} detail={detail} onDragOut={onDragOut} />
+        {onDragOut !== undefined && (
+          <FileHandle key={id} id={id} detail={detail} onDragOut={onDragOut} />
+        )}
         <button
           type="button"
           className="preview-step"
