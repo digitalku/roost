@@ -46,6 +46,11 @@ export interface DuplicateQuestion {
   readonly total: number;
   /** The first few by name. The rest are counted, never listed. */
   readonly names: readonly string[];
+  /**
+   * Whether they came from directories brought across as folders, and so each
+   * has a folder of its own to go to (ADR-0058 §3.4).
+   */
+  readonly placed: boolean;
 }
 
 export interface Importing {
@@ -70,13 +75,13 @@ export interface Importing {
   /** The duplicates a finished run is waiting for an answer about. */
   readonly duplicates: DuplicateQuestion | undefined;
   /**
-   * Puts the last run's duplicates in `folder` as well, and answers the
-   * question.
+   * Puts the last run's duplicates in `folder` as well, or each in the folder
+   * its directory became for `null`, and answers the question.
    *
    * An add, never a move: an asset belongs to as many folders as it was put in,
    * so nothing is taken out of anywhere it already was.
    */
-  readonly fileDuplicates: (folder: number) => Promise<WireFiled | undefined>;
+  readonly fileDuplicates: (folder: number | null) => Promise<WireFiled | undefined>;
   /** Answers the question by leaving them alone, which is what the run did. */
   readonly ignoreDuplicates: () => void;
 }
@@ -129,6 +134,7 @@ export function useImport(onFinished: () => void, folder: number | null): Import
             setDuplicates({
               total: answer.report.duplicates,
               names: answer.report.duplicateNames,
+              placed: answer.report.duplicatesPlaced,
             });
           }
           // The counts, the sidebar, and the grid are all wrong now.
@@ -179,7 +185,7 @@ export function useImport(onFinished: () => void, folder: number | null): Import
     setProblem(undefined);
   }, []);
 
-  const fileDuplicates = useCallback(async (into: number) => {
+  const fileDuplicates = useCallback(async (into: number | null) => {
     // Put away first: the answer has been given, and the engine's reply is
     // about how it went rather than whether to ask again.
     setDuplicates(undefined);

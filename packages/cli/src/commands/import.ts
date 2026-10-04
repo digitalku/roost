@@ -21,6 +21,8 @@ export interface ImportArgs {
   readonly includeHidden: boolean;
   /** A folder path — `Design/Icons` — for everything newly imported (ADR-0037). */
   readonly folder?: string;
+  /** Each directory comes across as a folder, its subdirectories as its subfolders (ADR-0058). */
+  readonly structure: boolean;
 }
 
 export async function runImport(
@@ -45,6 +47,7 @@ export async function runImport(
           take: args.take,
           tags: args.tags,
           includeHidden: args.includeHidden,
+          structure: args.structure,
           ...(folder === undefined ? {} : { folder }),
           signal,
           // The sources are counted first, so the line has a total from the
@@ -121,6 +124,7 @@ function printReport(
   out(
     `${report.cancelled ? "Stopped. " : ""}Imported ${report.imported} of ${report.scanned} files scanned`,
   );
+  if (report.folders > 0) out(row("", `${plural(report.folders, "folder")} made`, 1, 0));
   if (report.duplicates > 0) out(row("", `${report.duplicates} already in the library`, 1, 0));
   // What happened to the source files, which RL-26 requires be said out loud:
   // a move is not undoable by looking at the library afterwards.

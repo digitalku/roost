@@ -1,6 +1,6 @@
 # Roost — Benchmarks
 
-Status: **first results in** · Last updated: 2026-09-27
+Status: **first results in** · Last updated: 2026-10-01
 
 Nothing has been measured in this implementation, because nothing has been built. What this
 file holds today is the **baseline**: the numbers the Rust implementation at `../roost-old`
@@ -56,6 +56,34 @@ target now under pressure — and it is measured from M3, the first milestone th
 rather than assumed until someone complains.
 
 ## 3. Results
+
+### 2026-10-01 — a folder's count, its subtree's, each asset once (ADR-0036 §6)
+
+Machine: Fedora 44 host, Intel Core Ultra 7 155H, NVMe. A throwaway script, not kept, against a
+synthetic index on the real schema: **1,000,000 assets**, 2 % in the trash, **3,330 folders** three
+deep (30 × 10 × 10), and 1.1 million memberships — 70 % of assets in one folder, 20 % in two, 10 %
+in none. That is far more filing than an ordinary library, on purpose. Each figure is the mean of
+five warm runs, and the two correct ones agreed with a recursive-CTE reference on all 3,330 folders.
+
+| What the sidebar reads | Time |
+| --- | --- |
+| Each folder's own live count, one join from every membership to its asset (before) | 3.7 s |
+| The same with the planner left to choose the order of the trash join | 7.4 s |
+| A recursive CTE and `count(DISTINCT)` per ancestor, the obvious correct one | 12.3 s |
+| Every membership, `GROUP BY folder_id` | 27 ms |
+| The trashed memberships, through `idx_assets_trashed`, `CROSS JOIN` | 18 ms |
+| The assets in two folders or more, one `group_concat` over the membership key | 0.25 s |
+
+**What it revealed.** The sidebar had been paying **3.7 s** at this size for a number it got wrong.
+The join looked up the asset behind every membership to leave out the trash, where the trash is two
+per cent and has a partial index of its own: counting everything and subtracting the trash is
+**45 ms**. Without statistics the planner walked the trash join from the wrong end (7.4 s), so the
+order is fixed with `CROSS JOIN`. Counting an asset once costs only the assets held more than once,
+which is a fifth of them here and few in a real library; one ordered pass over the membership key
+with `group_concat` hands them over in 0.25 s, against 0.74 s for a window function over the same
+rows and 0.6 s just to stream every membership to JavaScript. In total the sidebar's folder counts
+went from 3.7 s and wrong to about 0.3 s and right. **`tags()` has the same join** and was not
+measured; it is on `TODO.md`.
 
 ### 2026-09-27 — counting an import before it starts (ADR-0055 §3.1)
 

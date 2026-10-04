@@ -19,7 +19,6 @@ function folderRow(
     ...row({ ...over, query: over.query ?? `folder:"${over.path}"` }),
     folder: over.folder,
     path: over.path,
-    descendants: over.descendants ?? 0,
   };
 }
 

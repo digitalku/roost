@@ -590,14 +590,13 @@ describe("folders in the grid", () => {
       stars: null,
       folder,
       path: `Design/${name}`,
-      descendants: 3,
     };
   }
 
   const ICONS = folderRow(7, "Icons");
   const LOGOS = folderRow(8, "Logos");
 
-  const show = (count: number, view: GridView = "icons") => {
+  const show = (count: number, view: GridView = "icons", located = false) => {
     const assets = Array.from({ length: count }, (_, i) => fakeAsset(i));
     render(
       <Grid
@@ -610,6 +609,7 @@ describe("folders in the grid", () => {
         onOpen={onOpen}
         folders={{
           rows: [ICONS, LOGOS],
+          located,
           onOpen: opened,
           onNewFolder: () => {},
           onRename: () => {},
@@ -649,6 +649,13 @@ describe("folders in the grid", () => {
     expect(cells[0]?.getAttribute("aria-label")).toBe("Icons, folder, 3 assets");
     // Two tiles and twelve assets: the tiles are laid out, not overlaid.
     expect(cells.length).toBe(14);
+  });
+
+  it("says where a search's folder is, before its name (ADR-0057)", () => {
+    show(0, "icons", true);
+    expect(tile(7).getAttribute("aria-label")).toBe("Design/Icons, folder, 3 assets");
+    expect(tile(7).querySelector(".cell-where")?.textContent).toBe("Design/");
+    expect(tile(7).querySelector(".cell-name-own")?.textContent).toBe("Icons");
   });
 
   it("draws a folder as a sleeve with its newest pictures in it", async () => {
@@ -786,6 +793,7 @@ describe("folders in the grid", () => {
         onMore={() => {}}
         folders={{
           rows: [ICONS],
+          located: false,
           onOpen: opened,
           onNewFolder: () => {},
           onRename: () => {},

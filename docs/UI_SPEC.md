@@ -101,11 +101,16 @@ changed it for these reasons.
 Window — and it carried a Reload that throws away the query and the selection, a devtools toggle,
 and a Paste meaning something other than Roost's (§3.3). It is removed on Linux and Windows, and
 the commands that belong to the application live in the toolbar's `☰` instead: **Show sidebar**,
-**Show inspector**, **Reclaim space…**, **Rename library…** (§3.15),
+**Show inspector**, **Copy and drag by name**, **Reclaim space…**, **Rename library…** (§3.15),
 **Close library**, **About Roost…** and **Quit**, and nothing that already has a home. The two
-checkboxes are first, and they are the only items in here used more than once: they say **what the
+pane checkboxes are first, and they are the only items in here used more than once: they say **what the
 window is made of**, which is why they are not in the view control — that menu says how the
-*results* are drawn, and every other item in it changes a cell (ADR-0028 §6). Reclaiming is there because it
+*results* are drawn, and every other item in it changes a cell (ADR-0028 §6). **Copy and drag by
+name** is a checkbox of its own between separators, ticked by default and remembered by the library
+(ADR-0034 §8). Ticked, **Copy file** and a drag out of the window hand over a copy under the name
+the library shows, staged in `staging/`. Unticked, they hand over the library's own file under its
+id, and nothing is copied. It is here rather than in the context menu because it is answered once
+for a library rather than at every copy. Reclaiming is there because it
 acts on the whole library rather than on anything selected (ADR-0031); it is not in the Trash
 place, because a permanent delete takes its own bytes with it and the trash is therefore not where
 an orphaned object comes from. It shows three different things: nothing to reclaim, a refusal with
@@ -451,7 +456,7 @@ the grid's roving ring and the preview's stepping both dead until something is c
 | **Open** | opens it here, in the preview. Disabled for a file Roost cannot draw — there is nothing to open | disabled — a preview shows one asset |
 | **Open externally** | hands the file to the desktop's own handler | disabled — three files is three applications opening |
 | **Show in file manager** | reveals it, selected | disabled, same reason |
-| **Copy file** `Ctrl+C` | the file itself, for pasting into a file manager — a copy under the name the library shows, staged in the library (ADR-0034) | `Copy N files` |
+| **Copy file** `Ctrl+C` | the file itself, for pasting into a file manager — a copy under the name the library shows, staged in the library (ADR-0034); the library's own file under its id where **Copy and drag by name** is off (§1, ADR-0034 §8) | `Copy N files` |
 | **Copy image** | the picture, as a full-size PNG, for pasting into a chat, an editor or a slide. Disabled over anything but a picture (ADR-0034 §5) | disabled — a clipboard holds one picture |
 | **Copy path** | one path | `Copy N paths`, one per line |
 | **Export…** | a directory chooser, then a copy out | `Export N assets…` |
@@ -909,6 +914,15 @@ nothing; the library's root is a destination rather than a missing answer.
 navigating elsewhere while it runs must not scatter its last batch into somewhere the user was only
 passing through.
 
+**A directory comes across as a folder** (ADR-0058). Dropping `Trip 2024/`, which holds `Bali/` and
+`Lombok/`, makes `Trip 2024` with `Bali` and `Lombok` inside it — under the folder on screen, or at
+the top level — and each file joins the folder its own directory became. A folder already there by
+that name is used rather than made again, so dropping the same directory twice fills one tree. A
+folder is made as its first file arrives, so an empty directory, or one of nothing but duplicates,
+makes none. Always, from the window: there is no checkbox, and a file dropped on its own lands as
+it did before. The status line says how many folders the run made, because the sidebar has grown by
+them without anybody making one.
+
 **Importing from Eagle is the exception**, and not by a special case: an Eagle library brings its own
 folders (ADR-0032), so its importer never names one. Pasting files is the other (ADR-0026) — half of
 what a paste can carry is not a file.
@@ -937,6 +951,10 @@ filing these into the folder on screen takes them out of nowhere — which is wh
 the folder's name rather than the word *Move*. Where no folder is open the dialog is one button
 wide, and still worth drawing: a grid that did not grow reads as an import that failed until
 something says otherwise.
+
+**Duplicates from a directory have folders of their own.** When the run brought directories across,
+the second button reads **Add to their folders**, with or without a folder on screen: each duplicate
+joins the folder its directory became, made then if the run did not need it (ADR-0058 §3.4).
 
 **The list is a preview and the count is not.** At most two hundred names, scrolling inside the
 dialog, with the rest counted — re-importing a large directory is the ordinary way to produce a
@@ -1207,9 +1225,9 @@ the collapsing correct, and it is why no row needs to carry a parent: a closed b
 rows that follow it at a greater depth.
 
 **Every branch starts closed** (ADR-0033). A hundred folders drawn flat is the pane that prompted
-this. Closing a branch cost no information while every count was a subtree count; since ADR-0036 it
-can, because with *Show subfolder contents* off a folder's count is its own — and that is the right
-trade, since the count beside a query has to be the count of that query. Expansion
+this. Closing a branch costs no information, because **every folder's count is its subtree's**,
+whatever *Show subfolder contents* says (ADR-0036 §3.3, amended 2026-10-01): a closed branch still
+says how much is under it. Expansion
 lives in the window and **does not survive it**: where it belongs is `settings.json` in the library
 (ADR-0019), which is not built yet.
 
@@ -1273,9 +1291,13 @@ journal batch — reversible, like every other `Delete` in Roost, so restoring b
 every other folder they were in. The number in both the checkbox and the sentence is the row's own
 count, so the dialog and the sidebar cannot disagree.
 
-**A count beside a query is the count *of* that query.** Folder and tag counts therefore exclude
-trashed assets, exactly as `folder:` and `tag:` do (ADR-0022) — a sidebar saying 3 while the grid
-shows 2 is the shape this goes wrong in. A tag every one of whose assets is in the trash stays
+**A count beside a query is the count *of* that query**, with one exception: a folder's row counts
+**what the folder holds**, its subfolders included, whatever *Show subfolder contents* says — so
+with the box unticked the row can say 12 over a grid of 2. That is how a file manager counts a
+folder, and the user asked for it on 2026-10-01 (ADR-0036 §3.3, amended). It is still the count of
+`folder:` on that folder, **each asset once** however many of the subtree's folders hold it. Folder
+and tag counts exclude trashed assets, exactly as `folder:` and `tag:` do (ADR-0022) — a sidebar
+saying 3 while the grid shows 2 is the shape this goes wrong in. A tag every one of whose assets is in the trash stays
 listed at zero: the tag has not been deleted, and a row vanishing says something different from a
 count falling.
 
@@ -1336,7 +1358,9 @@ cursor over a folder shows *copy* even where the drop will move, because *copy* 
 allows. **On a filesystem without reflink a drag past 200 MB stays inside the window**, and the
 status bar says so: *Dragging within Roost only — 1.2 GB would be copied before the drag could
 start. Copy file (Ctrl+C) hands them over instead.* The first drag of a session carries Roost's
-icon, and later ones carry the thumbnail.
+icon, and later ones carry the thumbnail. **Where Copy and drag by name is off** (ADR-0034 §8),
+the drag carries the library's own files under their ids, nothing is copied, and the 200 MB rule
+does not apply.
 
 **Since 2026-09-13 a folder row is not the only target**: the grid draws the subfolders of the
 folder on screen (§6, ADR-0043), and a drop onto one of those tiles is this same gesture with this
@@ -1689,14 +1713,31 @@ negotiable:
   build prefers — and with the first click navigating, the second lands on a grid that has
   changed.
 - **They are drawn only where the query is a place and nothing more.** A filter over the folder
-  takes them away, which is right: a subfolder does not have five stars. So does *Show subfolder
-  contents*, because everything beneath is then already on screen.
+  takes them away, which is right: a subfolder does not have five stars. *Show subfolder contents*
+  does **not** (ADR-0043 §3, amended 2026-10-01): a tile is a way in, so it offers no asset twice
+  when the subtree's assets are around it. An asset moved onto a subfolder's tile from there stays
+  drawn, because it is still beneath the folder on screen.
+- **A typed search draws the folders it finds by name** (ADR-0057), ahead of the assets it finds,
+  while the query is words and at most one folder. Every word must be a **whole word** of the
+  folder's name, split as the full-text index splits an asset's, so a word finds a folder exactly
+  when it would find a file of the same name. Typed inside a folder, the words look through the
+  whole subtree beneath it. Each such tile says **where it is**: the parent's path, quieted, before
+  the name, giving way first when the caption is short, because names repeat. Any other term — a
+  tag, a rating, a type — draws none. A drop of assets onto one adds, since a search is not a
+  folder to move out of, and opening one is a change of place that Back returns from.
 - **Always first, and by name**, whatever the order is. Five of the six sort keys mean nothing to
   a shelf; `random` shuffles the assets and leaves the folders where they are.
 
-**Show folders** is the view menu's fifth setting, on by default and remembered by the library —
-and **disabled while *Show subfolder contents* is on**, rather than lying about having nothing to
-draw. Going back up is `Alt+↑` (§9): the tiles only descend, and the tree that used to be the
+**With *Show subfolder contents* on, a folder's own assets come first** (ADR-0059): the tiles, then
+what is directly in the folder, then a band across the grid — **In subfolders · 412**, in the voice
+of a sidebar heading — and then everything beneath it, each part in the order the view menu chose.
+The rows above the band end ragged, so the two parts never share a row. The band is not a tile and
+cannot be selected. An asset in the folder and in a subfolder of it is in the first part only. A
+filter keeps the grouping, because the grouping says *where* and the filter *what*.
+
+**Show folders** is the view menu's fifth setting, on by default and remembered by the library, and
+it turns off both kinds of tile. It was disabled while *Show subfolder contents* was on, until the
+tiles were drawn there too. Going back up is `Alt+↑` (§9): the tiles only descend, and the tree that used to be the
 only way out of a folder can now be hidden.
 
 **One highlight per selected thing, in every view.** What changes is its shape, because the eye

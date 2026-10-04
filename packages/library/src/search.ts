@@ -11,7 +11,7 @@ import {
   type SearchHit,
   type Sort,
 } from "@roost/core";
-import { buildQuery, type Folders } from "@roost/search";
+import { buildQuery, type Folders, folderSearch, subfolderSections } from "@roost/search";
 import { childrenById, descendants } from "./folder-tree.js";
 import type { Library } from "./library.js";
 
@@ -88,6 +88,73 @@ class LibraryFolders implements Folders {
  */
 function foldAscii(value: string): string {
   return value.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+}
+
+/**
+ * The folders a typed search finds by name, or `null` when the query is not a
+ * search a folder can answer (ADR-0057).
+ *
+ * A folder is found when **every word is a whole word of its name**, as an
+ * asset's name is matched: `highl` finds neither the folder *highlights* nor
+ * the file. Words typed inside a folder look through everything beneath it,
+ * and not at the folder itself, which is the place rather than a result.
+ *
+ * Ids, in no promised order: the window draws them in its own tree's order.
+ */
+export function findFolders(library: Library, query: string): number[] | null {
+  const wanted = folderSearch(query);
+  if (wanted === undefined) return null;
+
+  const phrases = wanted.words.map(wordsOf);
+  // A word with nothing in it to match, `--` say, finds no asset either.
+  if (phrases.some((phrase) => phrase.length === 0)) return [];
+
+  const rows = library.db.repo.folders();
+  let candidates: readonly FolderRow[] = rows;
+  if (wanted.within !== null) {
+    const roots = new LibraryFolders(library).only(wanted.within);
+    const beneath = new Set(descendants(childrenById(rows), roots));
+    for (const root of roots) beneath.delete(root);
+    candidates = rows.filter((row) => beneath.has(row.id));
+  }
+
+  return candidates
+    .filter((row) => {
+      const name = wordsOf(row.name);
+      return phrases.every((phrase) => holds(name, phrase));
+    })
+    .map((row) => row.id);
+}
+
+/**
+ * Text split into words the way the full-text index splits an asset's name.
+ *
+ * `assets_fts` uses FTS5's `unicode61` tokenizer: a word is a run of letters
+ * and digits, case is folded, and diacritics are removed, so `Café` and `cafe`
+ * are one word and `IMG_2024` is two. A folder's name is not in that index —
+ * it is a handful of rows in memory — so this is the same rule written again,
+ * and the rule is what has to agree, or a word would find the file and not the
+ * folder beside it.
+ */
+function wordsOf(text: string): string[] {
+  return (
+    text
+      .normalize("NFC")
+      // Only a Latin letter loses its marks, as `remove_diacritics` does. A mark
+      // anywhere else is left in place, where it parts two words as it does in
+      // the index.
+      .replace(/\p{Script=Latin}/gu, (letter) => letter.normalize("NFD").replace(/\p{M}/gu, ""))
+      .toLowerCase()
+      .match(/[\p{L}\p{N}\p{Co}]+/gu) ?? []
+  );
+}
+
+/** Whether `phrase` appears in `words` as a run, which is what a phrase match is. */
+function holds(words: readonly string[], phrase: readonly string[]): boolean {
+  for (let start = 0; start + phrase.length <= words.length; start += 1) {
+    if (phrase.every((word, offset) => words[start + offset] === word)) return true;
+  }
+  return false;
 }
 
 /** Compiles `query` against this library's folder tree. */
@@ -171,4 +238,57 @@ export function* pages(
     if (hits.length < pageSize) return;
     after = lastCursor(hits);
   }
+}
+
+/** Which part of a sectioned listing a page resumes in (ADR-0059). */
+export type Section = "own" | "beneath";
+
+/** One page of a listing that may be drawn in two parts (ADR-0059). */
+export interface SectionedPage {
+  readonly hits: SearchHit[];
+  /** The part the page's last row belongs to, which is where the next one resumes. */
+  readonly section: Section;
+  /**
+   * Where the assets beneath the folder begin on this page, and how many of
+   * them there are in all — on the one page where they begin, and `null` on
+   * every other.
+   */
+  readonly beneath: { readonly at: number; readonly count: number } | null;
+}
+
+/**
+ * One page of the grid, a folder's own assets before its subfolders' (ADR-0059).
+ *
+ * A query that shows a folder with its subfolders is listed as two ordinary
+ * queries in turn: the folder's own assets, then the rest of the subtree. Each
+ * is paged by the index its order already has (ADR-0039), and a cursor names
+ * which of the two it belongs to. Where the first runs out, the same page goes
+ * on into the second, so a short page still means the last one. Any other query
+ * is one part, and this is {@link pageOf}.
+ */
+export function sectionedPage(
+  library: Library,
+  query: string,
+  page: Page,
+  section: Section = "own",
+): SectionedPage {
+  const parts = subfolderSections(query);
+  if (parts === undefined) return { hits: pageOf(library, query, page), section, beneath: null };
+  if (section === "beneath") {
+    return { hits: search(library, parts.beneath, page), section, beneath: null };
+  }
+
+  const own = search(library, parts.own, page);
+  if (own.length === page.limit) return { hits: own, section: "own", beneath: null };
+
+  // The folder's own have run out on this page, so the rest begin here — from
+  // their own first row, which is why the cursor is left behind.
+  const { after: _done, ...fresh } = page;
+  const rest = search(library, parts.beneath, { ...fresh, limit: page.limit - own.length });
+  const total = rest.length === 0 ? 0 : count(library, parts.beneath);
+  return {
+    hits: [...own, ...rest],
+    section: rest.length > 0 ? "beneath" : "own",
+    beneath: total === 0 ? null : { at: own.length, count: total },
+  };
 }

@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { basename, extname } from "node:path";
+import { basename, dirname, extname, relative, resolve, sep } from "node:path";
 import {
   type AddRecord,
   type AssetId,
@@ -16,7 +16,9 @@ import { type HashOptions, hashFile, probe } from "@roost/media";
 import { type Claims, claim } from "./claims.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import { discover, measure } from "./discover.js";
+import { addToFolder } from "./edit.js";
 import { UnknownFolderError } from "./error.js";
+import { FolderMaker } from "./folder-maker.js";
 import { enqueueDerives } from "./jobs.js";
 import type { Library } from "./library.js";
 import { nowUnix } from "./library.js";
@@ -116,6 +118,25 @@ export interface ImportOptions {
    * item twice.
    */
   readonly folder?: number;
+  /**
+   * Brings each directory in `sources` across as a folder, with its
+   * subdirectories as its subfolders (ADR-0058).
+   *
+   * The directory itself becomes a folder under {@link folder}, or at the top
+   * level where there is none, and every file joins the folder its own
+   * directory became. A folder that is already there by that name is used
+   * rather than made again, so a second import of one directory fills the
+   * folders the first made. A file named directly in `sources` is filed as it
+   * would be without this.
+   *
+   * **Only a directory something was imported from becomes a folder.** They are
+   * made as their first file arrives, so a directory that holds nothing, or
+   * only duplicates, makes none.
+   *
+   * Off unless asked for: the window and the CLI ask, and the Eagle importer,
+   * which maps Eagle's own folders, does not.
+   */
+  readonly structure?: boolean;
   /**
    * Called with the id of the asset each file resolved to, new or already
    * present.
@@ -255,6 +276,18 @@ export interface ImportReport {
    */
   readonly importedIds: AssetId[];
   /**
+   * Where each duplicate would have been filed, beside {@link duplicateIds}
+   * (ADR-0058 §3.4): the names of the folders below the run's own folder, or
+   * none for a file filed in that folder itself.
+   *
+   * Names rather than ids, because nothing is made for a duplicate unless it
+   * is asked for afterwards — a directory of nothing but duplicates would
+   * otherwise leave an empty folder behind.
+   */
+  readonly duplicatePlaces: (readonly string[])[];
+  /** Folders this run made, its directories brought across (ADR-0058). */
+  folders: number;
+  /**
    * The first {@link DUPLICATE_PREVIEW} of them by name, for a dialog to draw.
    *
    * Names and not paths: the question a person answers is "which of my files
@@ -287,6 +320,8 @@ function emptyReport(): ImportReport {
     subtitlesUnattached: 0,
     failed: [],
     duplicateIds: [],
+    duplicatePlaces: [],
+    folders: 0,
     importedIds: [],
     duplicateNames: [],
     cancelled: false,
@@ -333,6 +368,10 @@ export async function importInto(
     take: options.take ?? "copy",
     tags: options.tags ?? [],
     folder: options.folder,
+    places:
+      options.structure === true
+        ? new Places(library, await directoriesIn(sources), options.folder ?? null)
+        : undefined,
     onAsset: options.onAsset,
     signal,
     meter,
@@ -416,6 +455,7 @@ export async function importInto(
   }
   await walker.return(undefined);
   report.cancelled = signal?.aborted === true;
+  report.folders = run.places?.created ?? 0;
 
   // After every batch is committed, because attaching is itself a journal
   // write and the asset it points at has to be in the index first (ADR-0025).
@@ -455,9 +495,119 @@ interface Run {
   readonly take: Take;
   readonly tags: readonly string[];
   readonly folder: number | undefined;
+  /** Where each file is filed, when the run brings its directories across. */
+  readonly places: Places | undefined;
   readonly onAsset: ((path: string, id: AssetId) => void) | undefined;
   readonly signal: AbortSignal | undefined;
   readonly meter: ByteMeter | undefined;
+}
+
+/**
+ * The sources that are directories, as `discover` spells their paths.
+ *
+ * Read once, before the walk: the walk yields files and not the source each
+ * came from, and a file's place is its directory's path below that source.
+ */
+async function directoriesIn(sources: readonly string[]): Promise<string[]> {
+  const found: string[] = [];
+  for (const source of sources) {
+    const path = resolve(source);
+    const entry = await stat(path).catch(() => undefined);
+    if (entry?.isDirectory() === true) found.push(path);
+  }
+  return found;
+}
+
+/**
+ * A run's directories as folders (ADR-0058).
+ *
+ * A file's **place** is the chain of folder names from the run's own folder
+ * down to it: `Trip 2024/Bali` for `Trip 2024/Bali/a.jpg` imported from
+ * `Trip 2024`. Its folder is that chain, found or made.
+ */
+class Places {
+  readonly #roots: readonly string[];
+  readonly #base: number | null;
+  readonly #maker: FolderMaker;
+
+  constructor(library: Library, roots: readonly string[], base: number | null) {
+    // Longest first, so a directory imported beside its own parent is the
+    // place its files are counted from.
+    this.#roots = [...roots].sort((a, b) => b.length - a.length);
+    this.#base = base;
+    this.#maker = new FolderMaker(library);
+  }
+
+  get created(): number {
+    return this.#maker.created;
+  }
+
+  /** The names below the run's folder, or none for a file named on its own. */
+  of(path: string): readonly string[] {
+    const root = this.#roots.find((candidate) => path.startsWith(candidate + sep));
+    if (root === undefined) return [];
+    const below = relative(root, dirname(path));
+    return [basename(root), ...(below === "" ? [] : below.split(sep))];
+  }
+
+  /**
+   * The folder a newly imported file joins.
+   *
+   * **Never throws**: the file is already placed by the time this is asked, so
+   * it is committed whatever this answers. A directory whose name cannot be a
+   * folder's — nothing but spaces, say — files it one level up instead.
+   */
+  async folderFor(path: string): Promise<number | undefined> {
+    return this.within(this.of(path));
+  }
+
+  /** The folder at the end of `names`, below the run's folder, made as needed. */
+  async within(names: readonly string[]): Promise<number | undefined> {
+    let at = this.#base;
+    for (const name of names) {
+      try {
+        at = await this.#maker.child(at, name);
+      } catch (error) {
+        log.warn("directory not made a folder", {
+          name,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        break;
+      }
+    }
+    return at ?? undefined;
+  }
+}
+
+/**
+ * Files each asset into the folder its place names, below `base`, making the
+ * folders that are not there yet (ADR-0058 §3.4).
+ *
+ * For a run's duplicates, once somebody has said they should join the folders
+ * their directories became: an add, never a move, because an asset belongs to
+ * as many folders as it was put in. An asset whose place is empty joins `base`
+ * itself, and none at all where `base` is `null`. Answers how many were filed.
+ */
+export async function fileInPlaces(
+  library: Library,
+  base: number | null,
+  items: readonly { readonly id: AssetId; readonly place: readonly string[] }[],
+): Promise<number> {
+  const places = new Places(library, [], base);
+  const byFolder = new Map<number, Set<AssetId>>();
+  for (const { id, place } of items) {
+    const folder = await places.within(place);
+    if (folder === undefined) continue;
+    const held = byFolder.get(folder);
+    if (held === undefined) byFolder.set(folder, new Set([id]));
+    else held.add(id);
+  }
+  let filed = 0;
+  for (const [folder, ids] of byFolder) {
+    await addToFolder(library, [...ids], folder);
+    filed += ids.size;
+  }
+  return filed;
 }
 
 /**
@@ -578,6 +728,7 @@ async function ingestMeasured(
     const existing = claimed.held;
     report.duplicates += 1;
     report.duplicateIds.push(existing);
+    report.duplicatePlaces.push(run.places?.of(path) ?? []);
     if (report.duplicateNames.length < DUPLICATE_PREVIEW) {
       report.duplicateNames.push(basename(path));
     }
@@ -683,9 +834,12 @@ async function ingestMeasured(
   const records: JournalRecord[] = [{ ts, op: "add", ...(add as unknown as AddRecord) }];
   if (tags.length > 0) records.push({ ts, op: "tag_add", asset: id, tags: [...tags] });
   // In the same batch as the `add`, so a crash between them is not a file in
-  // the library that nobody put anywhere (invariant 9).
-  if (run.folder !== undefined) {
-    records.push({ ts, op: "folder_add", asset: id, folder: run.folder });
+  // the library that nobody put anywhere (invariant 9). A folder its directory
+  // became is already journalled by now: `createFolder` writes its own line
+  // before this batch is committed.
+  const folder = run.places === undefined ? run.folder : await run.places.folderFor(path);
+  if (folder !== undefined) {
+    records.push({ ts, op: "folder_add", asset: id, folder });
   }
 
   report.imported += 1;

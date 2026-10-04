@@ -55,6 +55,7 @@ import {
   type ImportSubject,
   INSTALLABLE_BACKENDS,
   type InstallableBackend,
+  SECTIONS,
   SORT_KEYS,
   type SortKey,
   STARS,
@@ -223,6 +224,7 @@ export type Request =
       readonly showInspector?: boolean;
       readonly sidebarWidth?: number;
       readonly inspectorWidth?: number;
+      readonly handOutByName?: boolean;
     }
   /**
    * Everything the inspector shows about one asset.
@@ -406,6 +408,12 @@ export type Request =
   | { readonly type: "folder:move"; readonly folder: number; readonly parent: number | null }
   /** The pictures each of these folders' tiles draws (ADR-0043 §7). */
   | { readonly type: "folder:covers"; readonly folders: readonly number[] }
+  /**
+   * The folders a typed search finds by name (ADR-0057), so the grid can draw
+   * them ahead of the assets. The engine reads the query, because the renderer
+   * reads no RQL (`UI_SPEC.md` §4.1).
+   */
+  | { readonly type: "folder:find"; readonly query: string }
   | {
       readonly type: "folder:delete";
       readonly folder: number;
@@ -649,8 +657,12 @@ export type Request =
    * The ids are not sent. The engine kept the list from the run that
    * reported them, because a large re-import produces more of them than a
    * window should be handed and then handed back.
+   *
+   * `null` files each one in the folder its own directory became, made where
+   * the run did not need to make it (ADR-0058 §3.4) — the offer a report with
+   * `duplicatesPlaced` makes.
    */
-  | { readonly type: "import:fileDuplicates"; readonly folder: number }
+  | { readonly type: "import:fileDuplicates"; readonly folder: number | null }
   /**
    * What an Eagle library holds, without importing any of it (ADR-0032 §6).
    *
@@ -848,6 +860,11 @@ export interface Responses {
   "folder:rename": null;
   "folder:move": null;
   "folder:covers": readonly WireFolderCover[];
+  /**
+   * Folder ids, or `null` when the query is not one a folder can answer: words
+   * and at most one folder, nothing else.
+   */
+  "folder:find": readonly number[] | null;
   "folder:delete": WireFolderDeleted;
   "comment:add": null;
   "comment:set": null;
@@ -1043,6 +1060,7 @@ export const REQUEST_VALIDATORS: {
       showInspector?: boolean;
       sidebarWidth?: number;
       inspectorWidth?: number;
+      handOutByName?: boolean;
     } = {};
 
     for (const key of [
@@ -1054,6 +1072,7 @@ export const REQUEST_VALIDATORS: {
       "showFolders",
       "showSidebar",
       "showInspector",
+      "handOutByName",
     ] as const) {
       if (source[key] === undefined) continue;
       const on = readBoolean(source, key);
@@ -1283,6 +1302,11 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "folder:covers", folders });
   },
 
+  "folder:find": (source) => {
+    const query = readString(source, "query");
+    return query.ok ? ok({ type: "folder:find", query: query.value }) : query;
+  },
+
   "folder:delete": (source) => {
     const folder = readFolder(source);
     if (!folder.ok) return folder;
@@ -1421,7 +1445,7 @@ export const REQUEST_VALIDATORS: {
   },
 
   "import:fileDuplicates": (source) => {
-    const folder = readFolder(source);
+    const folder = readNullable(source, "folder", readFolderIn);
     return folder.ok ? ok({ type: "import:fileDuplicates", folder: folder.value }) : folder;
   },
 
@@ -1590,7 +1614,9 @@ function readCursor(value: unknown): Checked<WireCursor | null> {
   if (typeof key === "number" && !Number.isFinite(key)) return bad("key: expected a finite number");
   const id = readAssetId(value, "id");
   if (!id.ok) return id;
-  return ok({ key, id: id.value });
+  const section = readOneOf(value, "section", SECTIONS);
+  if (!section.ok) return section;
+  return ok({ key, id: id.value, section: section.value });
 }
 
 /** The order a page is asked for, or `null` for the default (ADR-0039). */

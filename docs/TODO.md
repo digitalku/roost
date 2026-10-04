@@ -143,6 +143,18 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
+### Folder counts, tiles and a search for folders (ADR-0036 §6, ADR-0043 §12, ADR-0057) — built 2026-10-01
+
+- 🟡 **The tag counts have the join the folder counts lost.** `repo.tags()` reaches every live
+  asset of every tag through `assets` to leave out the trash, which for folders was 3.7 s at a
+  million (`BENCHMARKS.md`, 2026-10-01) and is now 45 ms by subtracting the trash instead. Not
+  measured for tags; a library tagged as heavily as that one was filed would pay the same, on every
+  re-read of the sidebar.
+- 🟢 **A move under *Show subfolder contents* still takes the asset out of the open folder only.**
+  An asset on screen may be in a subfolder rather than in the open folder itself, and a move then
+  adds it to the target and takes it out of nothing. ADR-0043 §12 left it, unasked; it was already so
+  for a drop on the sidebar.
+
 ### Window checks found failing on 2026-09-24
 
 - 🟡 **Two window checks fail on `main`, before and after that day's change.** Found while
@@ -238,6 +250,15 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 - 🟡 **Dragging out has been tried by hand on KDE Wayland only.** There it works: in the spike, and
   in the real window on 2026-09-25, where the user confirmed it. X11 and a GNOME session are the
   next two to try (ADR-0034 §6.4).
+
+- 🟡 **A drag with *Copy and drag by name* off has not been tried by hand** (ADR-0034 §8). The
+  clipboard half is covered by `check-clipboard.mjs`. Dragging the library's own file into Dolphin
+  should copy it, and *Link here* should make a link to it.
+
+- 🟢 **Re-read `startDrag`'s operations at every Electron bump.** §8 rests on Electron 43.4.1
+  offering `DRAG_COPY | DRAG_LINK` and not `DRAG_MOVE` (`shell/browser/ui/drag_util_views.cc`). If a
+  later version offers move, a drag into Nautilus on one filesystem would take the file out of the
+  library while staging is off.
 
 - 🟢 **A native drag shows no count.** The HTML5 drag's ghost says *3*; `startDrag` takes one
   picture. A picture with the count drawn on it would need composing in main.

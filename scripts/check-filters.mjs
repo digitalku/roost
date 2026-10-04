@@ -95,7 +95,7 @@ const itemAt = (text) => cdp.evaluate(itemExpression(text));
 const state = () =>
   cdp.evaluate(`(() => ({
     query: document.querySelector(".search-input")?.value ?? null,
-    cells: document.querySelectorAll(".cell").length,
+    cells: document.querySelectorAll(".cell:not(.cell-folder)").length,
     chips: [...document.querySelectorAll(".filter-trigger")].map((b) => b.textContent.trim()),
     on: [...document.querySelectorAll(".filter-trigger[data-on]")].length,
     note: document.querySelector(".filter-note")?.textContent ?? null,
@@ -377,8 +377,9 @@ try {
   // The pane has to be re-read, and nothing in the library changed — which is
   // why this was missed by every unit test and found in a screenshot. The
   // setting decides the term every folder row carries, so a stale pane keeps
-  // rows asking the other depth: the count stays wrong and the row for the
-  // folder on screen stops matching the query, so it stops being marked.
+  // rows asking the other depth: the row for the folder on screen stops
+  // matching the query, so it stops being marked. The count does not move: it
+  // is the subtree's whatever the setting says (ADR-0036 §3.3, amended).
   const pane = await cdp.settle(
     `(() => {
       const found = [...document.querySelectorAll(".sidebar-branch")].find(
@@ -394,7 +395,7 @@ try {
     { attempts: 40 },
   );
   check(
-    "the pane follows: the row counts what its own query now matches",
+    "the row counts its subtree, as it did before the box was ticked",
     pane.count === String(NESTED),
     `Design=${pane.count}`,
   );

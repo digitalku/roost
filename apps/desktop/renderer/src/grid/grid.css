@@ -716,6 +716,27 @@
   text-overflow: ellipsis;
 }
 
+/* A search's tile, which says where its folder is (ADR-0057 §3.4). */
+.cell-name-located {
+  display: flex;
+  min-width: 0;
+}
+
+.cell-where {
+  flex: 0 100 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-subtle);
+  text-overflow: ellipsis;
+}
+
+.cell-name-own {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .cell-count {
   flex: none;
   color: var(--text-subtle);
@@ -743,4 +764,27 @@
 .cell-folder[data-over] {
   outline-color: var(--accent);
   background: var(--select-bg);
+}
+
+/*
+ * Where a folder's own assets end and its subfolders' begin (ADR-0059). Across
+ * the whole width, above the first row of the second part, in the voice of a
+ * section heading in the sidebar rather than a rule: it names what follows.
+ */
+.grid-divider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  padding: 0 var(--space-1) var(--space-1);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
 }

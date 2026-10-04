@@ -124,6 +124,10 @@ ${LIBRARY_FLAG}
       --folder <PATH>    Put everything newly imported in this folder, by path
                          (Design/Icons). The folder must already exist, and
                          files already in the library do not join it
+      --flat             Do not bring a directory's structure across. Without
+                         it, each directory becomes a folder and each
+                         subdirectory a folder inside it, under --folder or at
+                         the top level; one already there by name is reused
       --from-eagle <DIR> Import an Eagle library, translating its metadata
       --dry-run          With --from-eagle: report what would be imported and
                          write nothing

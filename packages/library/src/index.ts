@@ -125,6 +125,7 @@ export {
 } from "./fixture.js";
 export { childrenById, descendants } from "./folder-tree.js";
 export {
+  fileInPlaces,
   filesPerSecond,
   type ImportBytes,
   type ImportFailure,
@@ -212,11 +213,15 @@ export {
 export {
   compileFor,
   count,
+  findFolders,
   list,
   matches,
   pageOf,
   pages,
+  type Section,
+  type SectionedPage,
   search,
+  sectionedPage,
 } from "./search.js";
 export {
   type FolderEntry,

@@ -34,7 +34,6 @@ function row(folder: number, name: string, path: string, depth: number): Sidebar
     name,
     query: `folder:"${path}"`,
     count: null,
-    descendants: 0,
     depth,
     group: null,
     stars: null,

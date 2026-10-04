@@ -46,6 +46,11 @@ export interface Layout {
   readonly height: number;
   /** Every tile in result order, for the keyboard and for `Ctrl+A`. */
   readonly order: readonly Tile[];
+  /**
+   * The band across the whole width where {@link LayoutOptions.breakBefore}
+   * put it, or `null`. Not a tile: nothing selects it, sweeps it or moves to it.
+   */
+  readonly divider: { readonly y: number; readonly height: number } | null;
 }
 
 /**
@@ -151,6 +156,13 @@ export interface LayoutOptions {
   readonly gap: number;
   /** The band under the thumbnail. Reserved, never an overlay (`UI_SPEC.md` §6). */
   readonly caption: number;
+  /**
+   * Starts a fresh row at the item with this id, below a band of `height`
+   * across every column (ADR-0059): where a folder's own assets end and its
+   * subfolders' begin. The rows above end ragged, as the last row of a grid
+   * does, so the two parts never share a row.
+   */
+  readonly breakBefore?: { readonly id: string; readonly height: number } | undefined;
 }
 
 /**
@@ -203,12 +215,21 @@ export function layout(items: readonly Shaped[], options: LayoutOptions): Layout
   const columns: Tile[][] = Array.from({ length: count }, () => []);
   const bottoms = new Array<number>(count).fill(0);
   const order: Tile[] = [];
+  let divider: Layout["divider"] = null;
+  /** Where the current run of rows began, so the row after a break starts at column 0. */
+  let runStart = 0;
 
   items.forEach((item, index) => {
+    if (item.id === options.breakBefore?.id) {
+      const y = Math.max(0, ...bottoms);
+      divider = { y, height: options.breakBefore.height };
+      bottoms.fill(y + options.breakBefore.height + gap);
+      runStart = index;
+    }
     // Proportional icons pack into whichever column ends highest up; everything
     // else keeps result order, which is what makes it a *grid* rather than a
     // second masonry.
-    const column = packed ? shortest(bottoms) : index % count;
+    const column = packed ? shortest(bottoms) : (index - runStart) % count;
     const body = bodyHeight(view, packed, columnWidth, target, item);
     const tile: Tile = {
       id: item.id,
@@ -225,7 +246,7 @@ export function layout(items: readonly Shaped[], options: LayoutOptions): Layout
 
   // The trailing gap is not part of the content, so it is taken back off.
   const height = Math.max(0, Math.max(0, ...bottoms) - gap);
-  return { columns, columnWidth, height, order };
+  return { columns, columnWidth, height, order, divider };
 }
 
 /** How tall the picture-or-row part of a cell is, before any caption band. */

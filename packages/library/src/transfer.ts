@@ -14,8 +14,9 @@ import {
 import { hashFile, probe } from "@roost/media";
 import { type Claims, claim } from "./claims.js";
 import { mapWithConcurrency } from "./concurrency.js";
-import { apply, createFolder, removeAssets } from "./edit.js";
+import { apply, removeAssets } from "./edit.js";
 import { SameLibraryError, UnknownAssetError } from "./error.js";
+import { FolderMaker } from "./folder-maker.js";
 import { commit, type Ingested } from "./import.js";
 import { Library, nowUnix } from "./library.js";
 import { resolveFile } from "./locate.js";
@@ -419,26 +420,24 @@ function gather(source: Library, ids: readonly AssetId[]): Selection {
  * The source's folders, found or made in the target by path (ADR-0054 §3.4).
  *
  * Each level is reused where the target has a folder of that name under that
- * parent, compared without regard to case — the Eagle importer's rule, for its
- * reason: sibling names are unique only by convention, so creating
- * unconditionally would give a second transfer a second `Icons` beside the
- * first and nothing would complain.
+ * parent, which is {@link FolderMaker}'s rule and the Eagle importer's before
+ * it: sibling names are unique only by convention, so creating unconditionally
+ * would give a second transfer a second `Icons` beside the first.
  */
 class FolderMap {
   readonly #source: ReadonlyMap<number, FolderRow>;
-  readonly #target: Library;
-  /** The target's folders by parent and name, including the ones made here. */
-  readonly #existing = new Map<string, number>();
+  readonly #maker: FolderMaker;
   /** Source folder id to target folder id, filled as they are asked for. */
   readonly #mapped = new Map<number, number>();
-  created = 0;
 
   constructor(source: Library, target: Library) {
     this.#source = new Map(source.db.repo.folders().map((folder) => [folder.id, folder]));
-    this.#target = target;
-    for (const folder of target.db.repo.folders()) {
-      this.#existing.set(folderKey(folder.parentId, folder.name), folder.id);
-    }
+    this.#maker = new FolderMaker(target);
+  }
+
+  /** Folders the target did not have and was given. */
+  get created(): number {
+    return this.#maker.created;
   }
 
   /** The target's folder for a source folder, made along with its ancestors if need be. */
@@ -451,20 +450,10 @@ class FolderMap {
     const parent = folder.parentId === null ? null : await this.resolve(folder.parentId);
     if (parent === undefined) return undefined;
 
-    const key = folderKey(parent, folder.name);
-    let id = this.#existing.get(key);
-    if (id === undefined) {
-      id = await createFolder(this.#target, folder.name, parent);
-      this.#existing.set(key, id);
-      this.created += 1;
-    }
+    const id = await this.#maker.child(parent, folder.name);
     this.#mapped.set(sourceId, id);
     return id;
   }
-}
-
-function folderKey(parent: number | null, name: string): string {
-  return `${parent ?? "-"}/${name.toLowerCase()}`;
 }
 
 /**

@@ -115,6 +115,13 @@ export interface FakeEngineOptions {
    * entry here fails, which is what a query the engine cannot parse does too.
    */
   readonly byQuery?: Readonly<Record<string, readonly AssetCard[]>>;
+  /**
+   * How many of a query's rows are the folder's own, the rest being beneath it
+   * (ADR-0059). A query not listed is one part, as the engine's are unless they
+   * show a folder with its subfolders. Not sorted across the boundary: a test
+   * lists the rows in the order the two parts would come in.
+   */
+  readonly ownRows?: Readonly<Record<string, number>>;
   /** The navigation pane. Absent means an empty one. */
   readonly sidebar?: WireSidebar;
   /** How many files a copy put on the clipboard; defaults to the whole selection. */
@@ -168,6 +175,11 @@ export interface FakeEngineOptions {
   readonly installOutcome?: WireInstallOutcome;
   /** What `folder:covers` answers with, per folder; none where absent. */
   readonly folderCovers?: readonly WireFolderCover[];
+  /**
+   * What `folder:find` answers with, by query. A query not listed is not a
+   * search a folder can answer, which is what the engine says of most of them.
+   */
+  readonly foundFolders?: Readonly<Record<string, readonly number[]>>;
   /** What `derive:status` and `derive:retry` answer with. */
   readonly deriveStatus?: WireDeriveStatus;
   /** What `derive:failures` answers with for `failed`, over an empty list. */
@@ -245,6 +257,8 @@ const EMPTY_REPORT: WireImportReport = {
   elapsedMs: 0,
   failed: [],
   duplicateNames: [],
+  duplicatesPlaced: false,
+  folders: 0,
 };
 
 /** A detail with everything filled in, so a test spells out only what it means. */
@@ -384,6 +398,8 @@ export class FakeEngine {
   folders: readonly SidebarFolderRow[];
   /** This library's preferences, as the engine would hold them (ADR-0019). */
   settings: WireSettings;
+  /** What `folder:find` answers with, by query; a test may change it midway. */
+  foundFolders: Readonly<Record<string, readonly number[]>>;
   #nextFolderId: number;
   #open: LibrarySummary | undefined;
   #recent: readonly WireRecentLibrary[];
@@ -392,6 +408,7 @@ export class FakeEngine {
   constructor(options: FakeEngineOptions = {}) {
     this.#options = options;
     this.folders = options.sidebar?.folders ?? [];
+    this.foundFolders = options.foundFolders ?? {};
     this.settings = options.settings ?? {
       showSubfolderContents: false,
       fitVideoToWindow: false,
@@ -408,6 +425,7 @@ export class FakeEngine {
       showInspector: true,
       sidebarWidth: 240,
       inspectorWidth: 280,
+      handOutByName: true,
     };
     this.#nextFolderId = Math.max(0, ...this.folders.map((row) => row.folder)) + 1;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);
@@ -902,7 +920,6 @@ export class FakeEngine {
             stars: null,
             folder,
             path,
-            descendants: 0,
           },
         ];
         this.emit({ type: "library:changed" });
@@ -944,8 +961,8 @@ export class FakeEngine {
         const inside = (row: SidebarFolderRow): boolean =>
           target !== undefined &&
           (row.folder === target.folder || row.path.startsWith(`${target.path}/`));
-        // The row's own count is already a subtree count, so it *is* what the
-        // engine would trash. Summing the descendants would count them twice.
+        // The row's count is a subtree count, so it *is* what the engine would
+        // trash. Summing the descendants would count them twice.
         const trashed = request.trashContents ? (target?.count ?? 0) : 0;
         this.folders = this.folders.filter((row) => !inside(row));
         this.emit({ type: "library:changed" });
@@ -1138,6 +1155,9 @@ export class FakeEngine {
         return ok(this.#options.filed ?? { filed: 0, expired: false });
       }
 
+      case "folder:find":
+        return ok(this.foundFolders[request.query] ?? null);
+
       case "folder:covers":
         return ok(
           request.folders.map((folder) => ({
@@ -1280,7 +1300,7 @@ export class FakeEngine {
           // changes, and the window re-reads the pane because of it.
           this.folders = this.folders.map((row) => ({
             ...row,
-            query: `${showSubfolderContents ? "folder" : "infolder"}:"${row.path}"`,
+            query: `${showSubfolderContents ? "folder" : "infolder"}:${quote(row.path)}`,
           }));
           this.emit({ type: "library:changed" });
         }
@@ -1331,7 +1351,12 @@ export class FakeEngine {
             query: request.query,
           });
         }
-        return ok(pageOf(sorted(rows, request.sort), request.limit, request.after));
+        const own = this.#options.ownRows?.[request.query];
+        return ok(
+          own === undefined
+            ? pageOf(sorted(rows, request.sort), request.limit, request.after)
+            : pageOf(rows, request.limit, request.after, own),
+        );
       }
     }
   }
@@ -1388,15 +1413,32 @@ function sorted(assets: readonly AssetCard[], sort: WireSort | null): readonly A
   });
 }
 
-/** Keyset paging over a plain array, the way the engine does it over SQLite. */
-function pageOf(assets: readonly AssetCard[], limit: number, after: WireCursor | null): AssetPage {
+/**
+ * Keyset paging over a plain array, the way the engine does it over SQLite,
+ * and in two parts where `own` says where the first one ends (ADR-0059).
+ */
+function pageOf(
+  assets: readonly AssetCard[],
+  limit: number,
+  after: WireCursor | null,
+  own?: number,
+): AssetPage {
   const start = after === null ? 0 : assets.findIndex((asset) => asset.id === after.id) + 1;
   const slice = assets.slice(start, start + limit);
   const last = slice[slice.length - 1];
+  const begins = own !== undefined && own >= start && own < start + slice.length;
   return {
     assets: slice,
     // A short page is the last page, which is the rule the grid stops on.
-    next: slice.length < limit || last === undefined ? null : { key: last.importedAt, id: last.id },
+    next:
+      slice.length < limit || last === undefined
+        ? null
+        : {
+            key: last.importedAt,
+            id: last.id,
+            section: own !== undefined && start + slice.length > own ? "beneath" : "own",
+          },
+    beneath: begins ? { at: own - start, count: assets.length - own } : null,
   };
 }
 

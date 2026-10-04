@@ -22,7 +22,6 @@ function row(folder: number, name: string, depth: number): SidebarFolderRow {
     stars: null,
     folder,
     path: name,
-    descendants: 0,
   };
 }
 

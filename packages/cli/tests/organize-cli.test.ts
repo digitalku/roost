@@ -123,12 +123,34 @@ describe("the organize commands", () => {
     await mkdir(more, { recursive: true });
     await writeFile(join(more, "delta.png"), "roost test payload 3");
 
-    await ok("import", more, "--folder", "Design/Icons");
+    // `--flat`, so the directory itself does not become a folder in between
+    // (ADR-0058); the next test is that half.
+    await ok("import", more, "--folder", "Design/Icons", "--flat");
     expect(await ok("query", "infolder:Design/Icons", "--count")).toEqual(["1"]);
 
     // The same file again: still one, and nothing new was filed.
-    await ok("import", more, "--folder", "Design");
+    await ok("import", more, "--folder", "Design", "--flat");
     expect(await ok("query", "infolder:Design", "--count")).toEqual(["0"]);
+  });
+
+  it("brings a directory across as folders, unless told --flat (ADR-0058)", async () => {
+    await ok("folder", "create", "Design");
+    const trip = join(dir, "Trip");
+    await mkdir(join(trip, "Bali"), { recursive: true });
+    await writeFile(join(trip, "Bali", "beach.png"), "roost test payload 4");
+    await writeFile(join(trip, "cover.png"), "roost test payload 5");
+
+    const said = await ok("import", trip, "--folder", "Design");
+    expect(said.join("\n")).toContain("2 folders made");
+    expect(await ok("query", "infolder:Design/Trip", "--count")).toEqual(["1"]);
+    expect(await ok("query", "infolder:Design/Trip/Bali", "--count")).toEqual(["1"]);
+
+    const flat = join(dir, "Flat");
+    await mkdir(join(flat, "Inner"), { recursive: true });
+    await writeFile(join(flat, "Inner", "one.png"), "roost test payload 6");
+    await ok("import", flat, "--folder", "Design", "--flat");
+    expect(await ok("query", "infolder:Design", "--count")).toEqual(["1"]);
+    expect((await ok("folder", "list")).join("\n")).not.toMatch(/Flat|Inner/);
   });
 
   it("refuses a folder that is not there, before it imports anything", async () => {

@@ -6,6 +6,7 @@ import {
   count,
   createFolder,
   enqueueMissing,
+  fileInPlaces,
   generateMissing,
   importInto,
   Library,
@@ -250,6 +251,116 @@ describe("importing", () => {
     expect(count(library, "folder:Design")).toBe(0);
     expect(again.duplicateNames).toEqual(["already.png"]);
     expect(again.duplicateIds).toEqual(library.db.repo.allIds());
+  });
+
+  describe("with its directories as folders (ADR-0058)", () => {
+    /** Every folder's path, sorted, as the sidebar would spell it. */
+    const paths = (): string[] => {
+      const rows = library.db.repo.folders();
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      const pathOf = (id: number): string => {
+        const row = byId.get(id);
+        if (row === undefined) return "?";
+        return row.parentId === null ? row.name : `${pathOf(row.parentId)}/${row.name}`;
+      };
+      return rows.map((row) => pathOf(row.id)).sort();
+    };
+
+    const tree = async () => {
+      await picture("Trip 2024/Bali/beach.png", 1);
+      await picture("Trip 2024/Bali/Night/stars.png", 2);
+      await picture("Trip 2024/Lombok/hill.png", 3);
+      await picture("Trip 2024/cover.png", 4);
+      await picture("Trip 2024/.cache/hidden.png", 5);
+      await mkdir(join(source, "Trip 2024", "Empty"), { recursive: true });
+      return join(source, "Trip 2024");
+    };
+
+    it("makes the directory a folder, and each subdirectory a folder in it", async () => {
+      const report = await importInto(library, [await tree()], { structure: true });
+
+      expect(report.imported).toBe(4);
+      // An empty directory, and one the walk does not enter, make none.
+      expect(paths()).toEqual([
+        "Trip 2024",
+        "Trip 2024/Bali",
+        "Trip 2024/Bali/Night",
+        "Trip 2024/Lombok",
+      ]);
+      expect(report.folders).toBe(4);
+      expect(count(library, `infolder:"Trip 2024"`)).toBe(1);
+      expect(count(library, `infolder:"Trip 2024/Bali"`)).toBe(1);
+      expect(count(library, `infolder:"Trip 2024/Bali/Night"`)).toBe(1);
+      expect(count(library, `folder:"Trip 2024"`)).toBe(4);
+
+      // Journalled, not only indexed: a rebuild from the journal draws the same.
+      await library.rebuild();
+      expect(paths()).toHaveLength(4);
+      expect(count(library, `infolder:"Trip 2024/Bali/Night"`)).toBe(1);
+    });
+
+    it("puts it inside the run's own folder, and reuses what is already there", async () => {
+      const design = await createFolder(library, "Design", null);
+      // Another case of the same name is the same folder, as `createFolder`
+      // would refuse it as a sibling anyway.
+      await createFolder(library, "trip 2024", design);
+      const report = await importInto(library, [await tree()], { structure: true, folder: design });
+
+      expect(report.folders).toBe(3);
+      expect(paths()).toEqual([
+        "Design",
+        "Design/trip 2024",
+        "Design/trip 2024/Bali",
+        "Design/trip 2024/Bali/Night",
+        "Design/trip 2024/Lombok",
+      ]);
+      expect(count(library, "folder:Design")).toBe(4);
+    });
+
+    it("makes one folder for each of many new directories met at once", async () => {
+      // Eight files are worked at a time, and `createFolder` reads the next id
+      // before it journals: made side by side, two folders would get one id.
+      for (let n = 0; n < 12; n += 1) await picture(`Many/d${n}/p.png`, 10 + n);
+      const report = await importInto(library, [join(source, "Many")], { structure: true });
+
+      expect(report.folders).toBe(13);
+      expect(new Set(paths()).size).toBe(13);
+      for (let n = 0; n < 12; n += 1) expect(count(library, `infolder:"Many/d${n}"`)).toBe(1);
+      await library.rebuild();
+      expect(new Set(paths()).size).toBe(13);
+    });
+
+    it("files a file named on its own in the run's folder, as without it", async () => {
+      const design = await createFolder(library, "Design", null);
+      const path = await picture("loose.png", 6);
+      await importInto(library, [path], { structure: true, folder: design });
+      expect(paths()).toEqual(["Design"]);
+      expect(count(library, "infolder:Design")).toBe(1);
+    });
+
+    it("makes nothing for duplicates, and files them where they belong when asked", async () => {
+      const root = await tree();
+      await importInto(library, [join(root, "Bali")]);
+      expect(paths()).toEqual([]);
+
+      const report = await importInto(library, [root], { structure: true });
+      // Bali's two pictures were already here, so Bali and Night are not made.
+      expect(report.duplicates).toBe(2);
+      expect(paths()).toEqual(["Trip 2024", "Trip 2024/Lombok"]);
+      expect([...report.duplicatePlaces].map((place) => place.join("/")).sort()).toEqual([
+        "Trip 2024/Bali",
+        "Trip 2024/Bali/Night",
+      ]);
+
+      const filed = await fileInPlaces(
+        library,
+        null,
+        report.duplicateIds.map((id, at) => ({ id, place: report.duplicatePlaces[at] ?? [] })),
+      );
+      expect(filed).toBe(2);
+      expect(count(library, `infolder:"Trip 2024/Bali/Night"`)).toBe(1);
+      expect(count(library, `folder:"Trip 2024"`)).toBe(4);
+    });
   });
 
   it("refuses a folder that is not there before it hashes anything", async () => {

@@ -87,6 +87,7 @@ const DEFAULT_SETTINGS: WireSettings = {
   showInspector: true,
   sidebarWidth: SIDEBAR.fallback,
   inspectorWidth: INSPECTOR.fallback,
+  handOutByName: true,
 };
 
 /**
@@ -617,6 +618,11 @@ function ImportStatus({ importing }: { readonly importing: Importing }): React.J
     // (ADR-0055 §3.3), so a stop reads as a smaller import, not a failed one.
     ...(report.cancelled ? ["Import stopped"] : []),
     `${counted(report.imported)} imported`,
+    // Made from the directories brought across (ADR-0058), and said because
+    // the sidebar has grown by them without anybody making one.
+    ...(report.folders > 0
+      ? [report.folders === 1 ? "1 folder made" : `${counted(report.folders)} folders made`]
+      : []),
     ...(report.duplicates > 0
       ? // Not a failure: re-importing a folder is the ordinary case, and this
         // build skips a file whose bytes are already here rather than making a
@@ -1569,17 +1575,14 @@ function LibraryView({
   /**
    * Deleting a folder, and the one question that goes with it (ADR-0033).
    *
-   * The count in the body is the row's **subtree** count, which is the number of
-   * assets the ticked box would move. It is a separate field from the one the
-   * pane draws, because since ADR-0036 those two can differ: with *Show
-   * subfolder contents* off the row shows what is directly in the folder, and
-   * a question that said 2 while trashing 12 would be the worst kind of wrong.
-   * Taking both from the row rather than asking the engine keeps the dialog
-   * instant and keeps it from disagreeing with what it is about to do.
+   * The count in the body is the row's own, which is the **subtree** count
+   * whatever *Show subfolder contents* says (ADR-0036 §3.3) and so the number
+   * of assets the ticked box would move. Taking it from the row rather than
+   * asking the engine keeps the dialog instant.
    */
   const deleteFolder = useCallback(
     (folder: SidebarFolderRow) => {
-      const held = folder.descendants;
+      const held = folder.count ?? 0;
       setConfirming({
         title: `Delete ${folder.name}?`,
         body:
@@ -1642,13 +1645,16 @@ function LibraryView({
         });
         if (!removed.ok) return setActed(removed.problem);
         // They have left the view they were dragged out of, so the same
-        // targeted drop `Ctrl+Delete` needs applies here (`paging.drop`).
-        dropRows(ids);
+        // targeted drop `Ctrl+Delete` needs applies here (`paging.drop`) —
+        // unless the view is the whole subtree and they went deeper into it,
+        // onto one of the tiles it draws (ADR-0043 §3, amended 2026-10-01).
+        const stayed = split.subfolders === true && folder.path.startsWith(`${from.path}/`);
+        if (!stayed) dropRows(ids);
         clearSelection();
         noteResult(`Moved ${assets(ids.length)} from ${from.name} to ${folder.name}`);
       })();
     },
-    [openFolder, dropRows, clearSelection, noteResult],
+    [openFolder, split.subfolders, dropRows, clearSelection, noteResult],
   );
 
   /** A folder dropped on another, or on the heading (`null` is the top level). */
@@ -1661,27 +1667,73 @@ function LibraryView({
   }, []);
 
   /**
+   * Where a folder's subfolders' assets begin, with *Show subfolder contents*
+   * on (ADR-0059). The engine pages the folder's own first and says where the
+   * rest start; this only words it, and keeps one object per place so the grid
+   * does not lay out again for a label it already drew.
+   */
+  const beneath = paging.beneath;
+  const divider = useMemo(
+    () =>
+      beneath === null || beneath.first === null
+        ? undefined
+        : { before: beneath.first, label: `In subfolders · ${counted(beneath.count)}` },
+    [beneath],
+  );
+
+  /**
+   * The folders a typed search finds by name (ADR-0057), or `null` where the
+   * query is not one a folder can answer.
+   *
+   * Asked again when the tree changes as well as the query, so a folder renamed
+   * or made while a search is on screen is found or dropped by it. The engine
+   * reads the query; the window only holds the answer.
+   */
+  const [found, setFound] = useState<ReadonlySet<number> | null>(null);
+  useEffect(() => {
+    let current = true;
+    // The whole library is no search, and not asking keeps opening a library
+    // to the requests it made before (`assets:page` last).
+    if (!settings.showFolders || sidebar === undefined || query === "") {
+      setFound(null);
+      return;
+    }
+    void invoke({ type: "folder:find", query }).then((outcome) => {
+      if (current) setFound(outcome.ok && outcome.value !== null ? new Set(outcome.value) : null);
+    });
+    return () => {
+      current = false;
+    };
+  }, [settings.showFolders, sidebar, query]);
+
+  /**
    * The folders drawn in the grid, and everything one can do (ADR-0043).
    *
-   * Three conditions, and two of them come out of what is already on screen
-   * rather than being enforced here. **A folder has to be open** — `openFolder`
+   * Two sources. **The folder on screen**, whose children are drawn whether or
+   * not *Show subfolder contents* is ticked (ADR-0043 §3, amended 2026-10-01):
+   * a tile is a way in, not a result, so it offers no asset twice. `openFolder`
    * matches the query the *engine* wrote for a row, so a query narrowed by a
-   * rating or a typed word is nobody's row and draws no tiles, which is right:
-   * a subfolder does not have five stars. And **the query must be that folder's
-   * own contents**: with *Show subfolder contents* on, everything beneath is
-   * already in the grid and a tile would offer the same assets twice.
+   * rating is nobody's row and draws no tiles, which is right: a subfolder
+   * does not have five stars. And **a typed search**, whose folders are drawn
+   * with where they are, because names repeat (ADR-0057).
    *
    * The rows cost nothing to find. The window holds the whole tree for the
    * pane, and it arrives depth-first, so the children of the folder on screen
-   * are a slice of it.
+   * are a slice of it and a search's folders keep the tree's order.
    */
   const folderTiles = useMemo<FolderTiles | undefined>(() => {
-    if (!settings.showFolders || openFolder === undefined) return undefined;
-    if (split.subfolders !== false) return undefined;
-    const rows = childrenOf(sidebar?.folders ?? NO_FOLDERS, openFolder.folder);
+    if (!settings.showFolders) return undefined;
+    const tree = sidebar?.folders ?? NO_FOLDERS;
+    const rows =
+      openFolder !== undefined
+        ? childrenOf(tree, openFolder.folder)
+        : found !== null
+          ? tree.filter((row) => found.has(row.folder))
+          : [];
     if (rows.length === 0) return undefined;
     return {
       rows,
+      located: openFolder === undefined,
       onOpen: (row) => pickQuery(row.query),
       onNewFolder: newFolder,
       onRename: renameFolder,
@@ -1692,7 +1744,7 @@ function LibraryView({
   }, [
     settings.showFolders,
     openFolder,
-    split.subfolders,
+    found,
     sidebar,
     pickQuery,
     newFolder,
@@ -1800,17 +1852,22 @@ function LibraryView({
    * size. Where a copy is free the drag always goes out. Where it is not, it
    * goes out up to {@link DRAG_OUT_BUDGET} and stays inside the window past it,
    * and the status bar says why. Otherwise a drag that can no longer reach
-   * Dolphin would look broken rather than deliberate.
+   * Dolphin would look broken rather than deliberate. A library that hands out
+   * its own files copies nothing, so there a drag is as free as a clone
+   * (ADR-0034 §8).
    *
    * The ids are remembered until main answers, which it does when the drag
    * ends, because a drop back onto a folder in this window carries only files.
    */
   const assetsNow = useRef(paging.assets);
   assetsNow.current = paging.assets;
+  // A ref, so `dragOut` stays one function for every cell it is handed to.
+  const byName = useRef(settings.handOutByName);
+  byName.current = settings.handOutByName;
   const dragOut = useCallback(
     (ids: readonly string[]): boolean => {
       const sizes = ids.map((id) => assetsNow.current.find((asset) => asset.id === id)?.size);
-      const verdict = dragGoesOut(handoff.current, sizes);
+      const verdict = dragGoesOut(byName.current ? handoff.current : "free", sizes);
       if (!verdict.out) {
         noteResult(
           verdict.bytes === null
@@ -2066,6 +2123,8 @@ function LibraryView({
       inspector={settings.showInspector}
       onSidebar={(on) => applyView({ showSidebar: on })}
       onInspector={(on) => applyView({ showInspector: on })}
+      byName={settings.handOutByName}
+      onByName={(on) => applyView({ handOutByName: on })}
       onCloseLibrary={onClose}
       onRenameLibrary={() => setRenamingLibrary(true)}
       onReclaim={reclaim}
@@ -2222,7 +2281,6 @@ function LibraryView({
                     onShuffle={applyShuffle}
                     showFolders={settings.showFolders}
                     onShowFolders={(on) => applyView({ showFolders: on })}
-                    subfolders={split.subfolders ?? settings.showSubfolderContents}
                   />
                   <AddMenu
                     busy={importing.running}
@@ -2338,6 +2396,7 @@ function LibraryView({
                 loading={!paging.done}
                 onDragOut={dragOut}
                 {...(folderTiles === undefined ? {} : { folders: folderTiles })}
+                divider={divider}
               />
             </AssetContextMenu>
           )}
@@ -2511,7 +2570,11 @@ function LibraryView({
             void importing.fileDuplicates(folder).then((filed) => {
               if (filed === undefined) return;
               if (filed.expired) return noteResult("That import's list is no longer held");
-              noteResult(`Added ${assets(filed.filed)} to ${openFolder?.name ?? "the folder"}`);
+              noteResult(
+                folder === null
+                  ? `Added ${assets(filed.filed)} to their folders`
+                  : `Added ${assets(filed.filed)} to ${openFolder?.name ?? "the folder"}`,
+              );
             });
           }}
         />

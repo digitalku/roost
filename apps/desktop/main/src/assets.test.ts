@@ -428,6 +428,23 @@ describe("handing files out by dragging (ADR-0034 §4)", () => {
     expect((await readdir(root)).filter((name) => name.startsWith(".roost"))).toEqual([]);
   });
 
+  it("hands out a named copy, or the library's own file when staging is off", async () => {
+    // ADR-0034 §8. The file itself is written here because this block's
+    // library has only the index; the sweep has to finish first, or it would
+    // take the named copy with it.
+    const own = new FileStore(root).locate(PICTURE, "png");
+    await mkdir(dirname(own), { recursive: true });
+    await writeFile(own, "the library's own bytes");
+    await server.handoffCost();
+
+    const [named] = await server.handOut([PICTURE, ABSENT], true);
+    expect(named).toBe(join(root, "staging", "logo.png"));
+
+    // Off: the path in `files/`, under the id, and nothing more in staging.
+    expect(await server.handOut([PICTURE, ABSENT], false)).toEqual([own]);
+    expect(await readdir(join(root, "staging"))).toEqual(["logo.png"]);
+  });
+
   it("carries the icon on the first drag and the picture after", async () => {
     // Loading the decoder costs ~180 ms, which a drag must not wait for.
     expect(await server.dragPicture(PICTURE)).toBeUndefined();

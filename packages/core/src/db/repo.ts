@@ -2300,20 +2300,63 @@ export class Repo {
    *
    * Direct membership only: a parent does not inherit its children's counts.
    * A caller that wants a subtree total sums it from the tree it already has,
-   * rather than paying for a recursive query per folder.
+   * rather than paying for a recursive query per folder, and takes away the
+   * second count of an asset in two of them with {@link Repo.sharedMemberships}.
    */
   folderCounts(): Map<number, number> {
     // Trashed assets are excluded, because `folder:` excludes them too — a
     // count beside a query has to be the count *of* that query, or the sidebar
     // is telling the user something the grid then contradicts (ADR-0022).
-    const rows = this.#s(
+    //
+    // Every membership less the trashed ones, rather than one join that
+    // filters: that join looks up the asset behind every membership, 3.7 s at a
+    // million of them, where the trash is small and has an index of its own
+    // (`BENCHMARKS.md`). `CROSS JOIN` fixes the order — left to itself, with no
+    // statistics, the planner walks the memberships and took 7.4 s.
+    const counts = new Map<number, number>();
+    const all = this.#s(
+      `SELECT folder_id AS folderId, count(*) AS n FROM asset_folders GROUP BY folder_id`,
+    ).all() as { folderId: number; n: number }[];
+    for (const row of all) counts.set(row.folderId, row.n);
+    const trashed = this.#s(
       `SELECT af.folder_id AS folderId, count(*) AS n
-         FROM asset_folders af
-         JOIN assets a ON a.id = af.asset_id
-        WHERE a.trashed_at IS NULL
+         FROM assets a
+        CROSS JOIN asset_folders af ON af.asset_id = a.id
+        WHERE a.trashed_at IS NOT NULL
         GROUP BY af.folder_id`,
     ).all() as { folderId: number; n: number }[];
-    return new Map(rows.map((row) => [row.folderId, row.n]));
+    for (const row of trashed) counts.set(row.folderId, (counts.get(row.folderId) ?? 0) - row.n);
+    return counts;
+  }
+
+  /**
+   * The folders of every live asset that is in more than one.
+   *
+   * What a subtree count needs so that it counts an asset once: summing
+   * {@link Repo.folderCounts} over a subtree counts an asset in `Design` and
+   * `Design/Icons` twice, where `folder:Design` finds it once. Only these
+   * assets can be counted twice, and in an ordinary library they are few.
+   *
+   * One scan of the membership key, grouped as it is stored, and the trash
+   * taken out afterwards for the reason `folderCounts` gives.
+   */
+  sharedMemberships(): number[][] {
+    const trashed = new Set(
+      (
+        this.#s("SELECT id FROM assets WHERE trashed_at IS NOT NULL").all() as { id: AssetId }[]
+      ).map((row) => row.id),
+    );
+    const rows = this.#s(
+      `SELECT asset_id AS id, group_concat(folder_id) AS folders
+         FROM asset_folders
+        GROUP BY asset_id
+       HAVING count(*) > 1`,
+    ).all() as { id: AssetId; folders: string }[];
+    const shared: number[][] = [];
+    for (const row of rows) {
+      if (!trashed.has(row.id)) shared.push(row.folders.split(",").map(Number));
+    }
+    return shared;
   }
 
   /**

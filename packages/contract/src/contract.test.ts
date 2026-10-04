@@ -113,6 +113,7 @@ describe("validating a request", () => {
       "folder:rename",
       "folder:move",
       "folder:covers",
+      "folder:find",
       "folder:delete",
       "comment:add",
       "comment:set",
@@ -168,7 +169,7 @@ describe("validating a page of the grid", () => {
   });
 
   it("takes a cursor back only in the shape it handed one out", () => {
-    const cursor = { key: 1_700_000_000, id: "AAAAAAAAAAAA" };
+    const cursor = { key: 1_700_000_000, id: "AAAAAAAAAAAA", section: "own" };
     expect(page({ after: cursor })).toEqual({
       ok: true,
       value: { type: "assets:page", query: "", limit: 100, after: cursor, sort: null },
@@ -177,7 +178,12 @@ describe("validating a page of the grid", () => {
     // A key is a number or a string and nothing else, because that is what a
     // sort key can be (ADR-0039 §4) — the *meaning* is the engine's, and a
     // contract with an opinion about it would be a second one.
-    expect(page({ after: { key: "asset-01", id: "AAAAAAAAAAAA" } }).ok).toBe(true);
+    expect(page({ after: { key: "asset-01", id: "AAAAAAAAAAAA", section: "beneath" } }).ok).toBe(
+      true,
+    );
+    // The part of the listing it resumes in (ADR-0059), one of two.
+    expect(page({ after: { key: 1, id: "AAAAAAAAAAAA" } }).ok).toBe(false);
+    expect(page({ after: { key: 1, id: "AAAAAAAAAAAA", section: "elsewhere" } }).ok).toBe(false);
 
     // Every field of it, checked. A cursor is used in a keyset predicate, and
     // the renderer is the process this build assumes may be compromised.
@@ -269,6 +275,17 @@ describe("validating a change of preferences", () => {
     expect(checkRequest({ type: "settings:write", showSidebar: 0 })).toEqual({
       ok: false,
       reason: "settings:write: showSidebar: expected a boolean",
+    });
+  });
+
+  it("carries whether a file is handed out by name (ADR-0034 §8)", () => {
+    expect(checkRequest({ type: "settings:write", handOutByName: false })).toEqual({
+      ok: true,
+      value: { type: "settings:write", handOutByName: false },
+    });
+    expect(checkRequest({ type: "settings:write", handOutByName: "no" })).toEqual({
+      ok: false,
+      reason: "settings:write: handOutByName: expected a boolean",
     });
   });
 
@@ -408,14 +425,18 @@ describe("validating an import's destination", () => {
     }
   });
 
-  it("needs a real folder to file the last run's duplicates into", () => {
-    // No null here, unlike the import itself: the request exists to name
-    // somewhere, and there is nothing to do without one.
+  it("files the last run's duplicates in a folder, or each in its own", () => {
+    // `null` is each in the folder its directory became (ADR-0058 §3.4), so it
+    // is an answer here where it was refused before; a missing one is not.
     expect(checkRequest({ type: "import:fileDuplicates", folder: 7 })).toEqual({
       ok: true,
       value: { type: "import:fileDuplicates", folder: 7 },
     });
-    expect(checkRequest({ type: "import:fileDuplicates", folder: null })).toMatchObject({
+    expect(checkRequest({ type: "import:fileDuplicates", folder: null })).toEqual({
+      ok: true,
+      value: { type: "import:fileDuplicates", folder: null },
+    });
+    expect(checkRequest({ type: "import:fileDuplicates", folder: 0 })).toMatchObject({
       ok: false,
     });
     expect(checkRequest({ type: "import:fileDuplicates" })).toMatchObject({ ok: false });

@@ -33,6 +33,16 @@ export interface AppMenuProps {
   readonly inspector: boolean;
   readonly onSidebar: (on: boolean) => void;
   readonly onInspector: (on: boolean) => void;
+  /**
+   * Whether **Copy file** and a drag hand over a copy under the name the
+   * library shows, or the library's own file under its id (ADR-0034 §8).
+   *
+   * In here because it is a preference about the library rather than about
+   * the selection, and is changed once rather than per gesture: a context menu
+   * that asked every time would be asking a question already answered.
+   */
+  readonly byName: boolean;
+  readonly onByName: (on: boolean) => void;
   readonly onCloseLibrary: () => void;
   /**
    * Rename the library, which is renaming its folder (ADR-0056 §3.2).
@@ -74,6 +84,8 @@ export function AppMenu({
   inspector,
   onSidebar,
   onInspector,
+  byName,
+  onByName,
   onCloseLibrary,
   onRenameLibrary,
   onReclaim,
@@ -133,6 +145,17 @@ export function AppMenu({
             <span className="menu-mark">{inspector ? "✓" : ""}</span>
             <span className="menu-label">Show inspector</span>
             <span className="menu-accelerator">F4</span>
+          </DropdownMenu.CheckboxItem>
+
+          <DropdownMenu.Separator className="menu-separator" />
+
+          <DropdownMenu.CheckboxItem
+            className="menu-item"
+            checked={byName}
+            onCheckedChange={onByName}
+          >
+            <span className="menu-mark">{byName ? "✓" : ""}</span>
+            <span className="menu-label">Copy and drag by name</span>
           </DropdownMenu.CheckboxItem>
 
           <DropdownMenu.Separator className="menu-separator" />

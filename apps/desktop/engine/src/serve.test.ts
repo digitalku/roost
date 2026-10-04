@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ImportProgress, ReplyEnvelope, Request } from "@roost/contract";
+import type { ImportProgress, ReplyEnvelope, Request, WireCursor } from "@roost/contract";
 import { ASSET_KINDS as WIRE_KINDS, LIBRARY_SUFFIX as WIRE_SUFFIX } from "@roost/contract";
 import { KINDS, latestSchemaVersion } from "@roost/core";
 import {
@@ -658,7 +658,7 @@ describe("the engine's message loop", () => {
       type: "assets:page",
       query: "",
       limit: 2,
-      after: firstPage.next as { key: number; id: string },
+      after: firstPage.next as WireCursor,
       sort: null,
     });
     const secondPage = pageOfHits(second);
@@ -670,7 +670,7 @@ describe("the engine's message loop", () => {
       type: "assets:page",
       query: "",
       limit: 2,
-      after: secondPage.next as { key: number; id: string },
+      after: secondPage.next as WireCursor,
       sort: null,
     });
     // A short page is the last page, and saying so saves the grid a round trip
@@ -1271,8 +1271,10 @@ describe("the engine's message loop", () => {
         "cancelled",
         "duplicateNames",
         "duplicates",
+        "duplicatesPlaced",
         "elapsedMs",
         "failed",
+        "folders",
         "imported",
         "moved",
         "copied",

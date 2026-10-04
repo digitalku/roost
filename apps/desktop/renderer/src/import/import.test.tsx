@@ -38,7 +38,6 @@ const DESIGN: SidebarFolderRow = {
   name: "Design",
   query: 'folder:"Design"',
   count: 2,
-  descendants: 2,
   depth: 0,
   group: null,
   stars: null,
@@ -399,6 +398,31 @@ describe("importing", () => {
     expect(screen.queryByRole("button", { name: /^Add to / })).toBeNull();
   });
 
+  it("files duplicates from a directory in their own folders, with no folder open (ADR-0058)", async () => {
+    // A re-imported tree's duplicates belong in the tree, and the engine knows
+    // which folder each one's directory became.
+    const user = await open({
+      importReport: {
+        imported: 1,
+        duplicates: 2,
+        duplicateNames: ["one.png", "two.png"],
+        duplicatesPlaced: true,
+        folders: 3,
+      },
+      filed: { filed: 2, expired: false },
+    });
+    fire("drop", [droppedFile("/photos/Trip")]);
+
+    expect(await screen.findByText(/3 folders made/)).toBeDefined();
+    await user.click(await screen.findByRole("button", { name: "Add to their folders" }));
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "import:fileDuplicates")[0]).toMatchObject({
+        folder: null,
+      }),
+    );
+    expect(await screen.findByText(/Added 2 assets to their folders/)).toBeDefined();
+  });
+
   /** Opens the Add menu and picks one of its items. */
   const add = async (user: ReturnType<typeof userEvent.setup>, item: RegExp): Promise<void> => {
     await user.click(screen.getByRole("button", { name: "Add" }));
@@ -635,5 +659,22 @@ describe("dragging out of the grid", () => {
     expect(event.defaultPrevented).toBe(false);
     expect(await screen.findByText(/Dragging within Roost only/)).toBeDefined();
     expect(sent("asset:dragOut")).toHaveLength(0);
+  });
+
+  it("lets the same drag out where the library hands out its own files", async () => {
+    // ADR-0034 §8: nothing is copied, so there is no size to wait for. Read
+    // from the settings rather than sent: main asks the engine itself.
+    const engine = new FakeEngine();
+    const user = await open({
+      handoffCost: "copies",
+      assets: [fakeAsset(0, { size: 900 * 1024 * 1024 })],
+      settings: { ...engine.settings, handOutByName: false },
+    });
+    const event = await startDrag(user);
+
+    expect(event.defaultPrevented).toBe(true);
+    await waitFor(() => expect(sent("asset:dragOut")).toHaveLength(1));
+    expect(screen.queryByText(/Dragging within Roost only/)).toBeNull();
+    letGo();
   });
 });

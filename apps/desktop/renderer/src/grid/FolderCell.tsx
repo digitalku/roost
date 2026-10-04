@@ -23,7 +23,12 @@ export interface FolderCellProps extends React.ComponentPropsWithoutRef<"div"> {
   /** The tile id, which is the folder's id in the grid's vocabulary. */
   readonly id: string;
   readonly name: string;
-  /** How many assets the folder's own query finds, or `null` if uncounted. */
+  /**
+   * The path of the folder holding it, drawn before the name, or `null` for
+   * none. Only a search's tiles have one (ADR-0057 §3.4).
+   */
+  readonly where: string | null;
+  /** How many assets the folder holds, its subfolders included, or `null` if uncounted. */
   readonly count: number | null;
   readonly x: number;
   readonly y: number;
@@ -43,10 +48,11 @@ export interface FolderCellProps extends React.ComponentPropsWithoutRef<"div"> {
 }
 
 export const FolderCell = forwardRef<HTMLDivElement, FolderCellProps>(function FolderCell(
-  { id, name, count, x, y, width, height, caption, isFocused, view, covers, ...rest },
+  { id, name, where, count, x, y, width, height, caption, isFocused, view, covers, ...rest },
   ref,
 ) {
-  const label = count === null ? `${name}, folder` : `${name}, folder, ${count} assets`;
+  const named = where === null ? name : `${where}/${name}`;
+  const label = count === null ? `${named}, folder` : `${named}, folder, ${count} assets`;
   const style = { transform: `translate(${x}px, ${y}px)`, width, height };
 
   /*
@@ -60,8 +66,17 @@ export const FolderCell = forwardRef<HTMLDivElement, FolderCellProps>(function F
    * noise.
    */
   const nameBand = (
-    <span className="cell-name" title={name}>
-      <span className="cell-name-text">{name}</span>
+    <span className="cell-name" title={named}>
+      {where === null ? (
+        <span className="cell-name-text">{name}</span>
+      ) : (
+        // The path gives way before the name does: the name is what was
+        // searched for, and the path only tells two of them apart.
+        <span className="cell-name-text cell-name-located">
+          <span className="cell-where">{where}/</span>
+          <span className="cell-name-own">{name}</span>
+        </span>
+      )}
       {count !== null && view !== "details" && <span className="cell-count">{count}</span>}
     </span>
   );

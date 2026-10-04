@@ -14,6 +14,9 @@
  * enough for × to be pressed in the middle of it: each file takes the counted
  * copy (ADR-0055 §3.2), and the directory is on `tmpfs`, where no reflink makes
  * the copy free. Built in a temporary directory, and deleted.
+ *
+ * The directory also comes across as a folder (ADR-0058), and the second drop
+ * fills the folder the first one made.
  */
 import { randomBytes } from "node:crypto";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
@@ -150,6 +153,17 @@ try {
     "all six are in the library once",
     after?.value?.assets === 2 + FILES,
     `assets=${after?.value?.assets}`,
+  );
+  // The directory came across as a folder (ADR-0058), and the stopped run and
+  // the one after it filled the same one rather than making a second.
+  const filed = await cdp.evaluate(request({ type: "assets:count", query: "infolder:incoming" }));
+  const named = await cdp.evaluate(
+    `${request({ type: "library:sidebar" })}.then((o) => o.value.folders.filter((f) => f.name === "incoming").length)`,
+  );
+  check(
+    "in one folder named after the directory",
+    filed?.value === FILES && named === 1,
+    `filed=${filed?.value} folders=${named}`,
   );
 } finally {
   await window.close();

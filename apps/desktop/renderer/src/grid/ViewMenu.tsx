@@ -71,15 +71,12 @@ export interface ViewMenuProps {
   readonly onSort: (sort: WireSort) => void;
   /** Rolls a new shuffle, which is the only way `random` changes (ADR-0039). */
   readonly onShuffle: () => void;
-  /** Whether the grid draws the folders inside the folder on screen (ADR-0043). */
+  /**
+   * Whether the grid draws folders: the ones inside the folder on screen
+   * (ADR-0043), and the ones a search finds (ADR-0057).
+   */
   readonly showFolders: boolean;
   readonly onShowFolders: (on: boolean) => void;
-  /**
-   * Whether the query on screen reaches into subfolders (ADR-0036).
-   *
-   * Only to disable the item above: with it on there are no folders to draw.
-   */
-  readonly subfolders: boolean;
 }
 
 export function ViewMenu({
@@ -94,7 +91,6 @@ export function ViewMenu({
   onShuffle,
   showFolders,
   onShowFolders,
-  subfolders,
 }: ViewMenuProps): React.JSX.Element {
   const { steps, initial } = ZOOMS[view];
   const first = steps[0] ?? initial;
@@ -163,16 +159,12 @@ export function ViewMenu({
             — while *Show subfolder contents* changes the **query**, which is
             what the bar is a view of.
 
-            Disabled while that checkbox is on, because there is then nothing to
-            draw: the grid already holds everything beneath the folder, and a
-            tile for a subfolder whose contents are on screen around it would
-            offer the same assets twice. Disabled rather than hidden, so the
-            menu does not appear to lose an item.
+            It was disabled while that checkbox was on, until the tiles were
+            drawn there too (ADR-0043 §3, amended 2026-10-01).
           */}
           <DropdownMenu.CheckboxItem
             className="menu-item"
             checked={showFolders}
-            disabled={subfolders}
             onCheckedChange={onShowFolders}
           >
             <span className="menu-mark">{showFolders ? "✓" : ""}</span>

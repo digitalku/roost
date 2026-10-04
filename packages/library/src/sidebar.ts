@@ -57,22 +57,14 @@ export interface FolderEntry {
    */
   readonly query: string;
   /**
-   * How many assets {@link query} matches.
+   * Every live asset in this folder and beneath it, each once, **whatever
+   * *Show subfolder contents* says** (ADR-0036 §3.3, amended 2026-10-01).
    *
-   * **The count of the row's own query**, so it follows the setting: the
-   * subtree when subfolder contents are shown, this folder alone when they are
-   * not. `UI_SPEC.md` §4.1 — a sidebar saying 412 over a grid showing 12 is the
-   * shape this goes wrong in.
+   * It is what the folder holds rather than what its row's query draws, as a
+   * file manager counts a folder. It is also what **Delete folder…** asks
+   * about, since ticking its box trashes the subtree (ADR-0033 §3.3).
    */
   readonly count: number;
-  /**
-   * Every live asset in this folder and beneath it, whatever the setting says.
-   *
-   * What **Delete folder…** asks about: ticking its box trashes the subtree in
-   * one journal batch (ADR-0033 §3.3), so the number in the question has to be
-   * the subtree's even when the pane is drawing a shallower one.
-   */
-  readonly descendants: number;
 }
 
 export interface TagEntry {
@@ -129,26 +121,23 @@ export function readSidebar(library: Library): Sidebar {
   // Depth-first, so a row is followed by its own subtree: the pane indents
   // these and a flat listing would draw a tree that is not one.
   const rows = orderTree(repo.folders());
-  const direct = repo.folderCounts();
   const byId = new Map(rows.map((row) => [row.id, row]));
-  const children = childrenById(rows);
+  const counts = subtreeCounts(rows, repo.folderCounts(), repo.sharedMemberships());
 
-  // Which term a folder row asks with, and therefore what its count counts
-  // (ADR-0036). The setting decides what is *written*, never what a term
-  // means — a query saved months ago asks the same question forever.
+  // Which term a folder row asks with (ADR-0036). The setting decides what is
+  // *written*, never what a term means — a query saved months ago asks the
+  // same question forever.
   const deep = library.settings.showSubfolderContents;
 
   const folders = rows.map((row) => {
     const path = pathOf(byId, row);
-    const descendants = subtreeCount(children, direct, row.id);
     return {
       id: row.id,
       parentId: row.parentId,
       name: row.name,
       path,
       query: `${deep ? "folder" : "infolder"}:${quoteValue(path)}`,
-      count: deep ? descendants : (direct.get(row.id) ?? 0),
-      descendants,
+      count: counts.get(row.id) ?? 0,
     };
   });
 
@@ -264,17 +253,43 @@ function pathOf(byId: ReadonlyMap<number, FolderRow>, row: FolderRow): string {
 }
 
 /**
- * Assets in a folder and everything under it.
+ * Live assets in each folder and everything under it, each asset once.
  *
- * `folder:` matches the subtree, so a count that did not would contradict the
- * query sitting beside it in the same row.
+ * `folder:` matches the subtree and finds an asset once however many of its
+ * folders are in it, so a count that summed the folders would say more than
+ * the grid draws. The sum is right for every asset in one folder; an asset in
+ * several is counted again under every folder above two of them, and that is
+ * taken back here.
  */
-function subtreeCount(
-  children: ReadonlyMap<number, readonly number[]>,
+function subtreeCounts(
+  rows: readonly FolderRow[],
   direct: ReadonlyMap<number, number>,
-  root: number,
-): number {
-  let total = 0;
-  for (const id of descendants(children, [root])) total += direct.get(id) ?? 0;
-  return total;
+  shared: readonly (readonly number[])[],
+): Map<number, number> {
+  const children = childrenById(rows);
+  const counts = new Map<number, number>();
+  for (const row of rows) {
+    let total = 0;
+    for (const id of descendants(children, [row.id])) total += direct.get(id) ?? 0;
+    counts.set(row.id, total);
+  }
+
+  const parents = new Map(rows.map((row) => [row.id, row.parentId]));
+  for (const folders of shared) {
+    const holding = new Map<number, number>();
+    for (const folder of folders) {
+      // The `walked` check is `descendants`' `seen` set, from the other end: a
+      // hand-edited journal can describe a cycle.
+      const walked = new Set<number>();
+      for (let at: number | null | undefined = folder; at != null; at = parents.get(at)) {
+        if (walked.has(at)) break;
+        walked.add(at);
+        holding.set(at, (holding.get(at) ?? 0) + 1);
+      }
+    }
+    for (const [folder, held] of holding) {
+      if (held > 1) counts.set(folder, (counts.get(folder) ?? 0) - (held - 1));
+    }
+  }
+  return counts;
 }

@@ -61,6 +61,14 @@ describe("reading settings", () => {
     expect((await readSettings(dir)).derivePaused).toBe(false);
   });
 
+  it("hands a file out by name unless somebody turned it off", async () => {
+    // ADR-0034 §8: staging is the default, at the user's choosing, and a
+    // library that turned it off keeps it off.
+    expect(DEFAULT_SETTINGS.handOutByName).toBe(true);
+    await write('{ "handOutByName": false }');
+    expect(await readSettings(dir)).toEqual({ ...DEFAULT_SETTINGS, handOutByName: false });
+  });
+
   it("starts in the order the application had before it had a menu", async () => {
     // ADR-0039: `added` descending is what every library shows until somebody
     // asks for something else, and a new library must not open shuffled.

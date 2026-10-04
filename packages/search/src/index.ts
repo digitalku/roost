@@ -40,9 +40,12 @@ export {
   NO_FACETS,
   type SplitQuery,
   type Stars,
+  type SubfolderSections,
   splitQuery,
+  subfolderSections,
   withSubfolders,
 } from "./facets.js";
+export { type FolderSearch, folderSearch } from "./folder-search.js";
 export { MAX_DEPTH, parse } from "./parser.js";
 export { quoteValue } from "./quote.js";
 

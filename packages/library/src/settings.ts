@@ -153,6 +153,18 @@ export interface Settings {
    * what Try again releases.
    */
   readonly derivePaused: boolean;
+  /**
+   * Whether a file leaves the window under the name the library shows
+   * (ADR-0034 §8).
+   *
+   * On, the default: **Copy file** and a drag hand over a named copy staged in
+   * `staging/`, which is free where the filesystem clones and the whole file
+   * where it does not. Off, at the user's choosing for somebody who does not
+   * mind the id: they hand over the library's own file, where it lies, and
+   * nothing is copied. Per library, because the filesystem that makes a copy
+   * expensive is the library's.
+   */
+  readonly handOutByName: boolean;
 }
 
 /**
@@ -191,6 +203,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarWidth: 240,
   inspectorWidth: 280,
   derivePaused: false,
+  handOutByName: true,
 };
 
 /**
@@ -232,6 +245,7 @@ export async function readSettings(root: string): Promise<Settings> {
       INSPECTOR_RANGE,
     ),
     derivePaused: boolish(raw["derivePaused"], DEFAULT_SETTINGS.derivePaused),
+    handOutByName: boolish(raw["handOutByName"], DEFAULT_SETTINGS.handOutByName),
   };
 }
 

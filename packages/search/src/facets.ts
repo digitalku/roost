@@ -217,6 +217,38 @@ export function withSubfolders(query: string, on: boolean): string {
   return changed ? rewritten.join(" ") : query;
 }
 
+/** A query reaching into subfolders, read as the two parts the grid draws in turn. */
+export interface SubfolderSections {
+  /** The folder's own assets: the query with `folder:` turned to `infolder:`. */
+  readonly own: string;
+  /** The rest of the subtree: the query with the folder's own assets taken out. */
+  readonly beneath: string;
+}
+
+/**
+ * Splits a query that shows a folder's subfolders into the folder's own assets
+ * and then everything beneath it (ADR-0059), or `undefined` for any other.
+ *
+ * Only a query with **one** `folder:` among its top-level terms is split: that
+ * is what *Show subfolder contents* writes, with or without the filter bar's
+ * terms beside it. Each part is an ordinary query, so each is paged by the same
+ * index the whole would have been, and an asset both in the folder and beneath
+ * it is in the first part only.
+ */
+export function subfolderSections(query: string): SubfolderSections | undefined {
+  const conjuncts = topLevelConjuncts(query);
+  if (conjuncts === undefined) return undefined;
+  const folders = conjuncts.map(folderTerm).filter((term) => term !== undefined);
+  const [folder] = folders;
+  if (folders.length !== 1 || folder === undefined || folder.field !== "folder") return undefined;
+  return {
+    own: withSubfolders(query, false),
+    // Appended rather than placed: there is no top-level `OR` here, or there
+    // would have been no conjuncts, so one more term narrows all of it.
+    beneath: `${conjuncts.join(" ")} -infolder:${quoteValue(folder.value)}`,
+  };
+}
+
 /** A conjunct that is one plain folder term, at whichever depth it names. */
 function folderTerm(
   slice: string,

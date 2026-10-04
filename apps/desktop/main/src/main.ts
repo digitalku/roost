@@ -11,6 +11,7 @@ import type {
   WireAbout,
   WireImportReport,
   WirePasted,
+  WireSettings,
 } from "@roost/contract";
 import { checkRequest } from "@roost/contract";
 import {
@@ -280,9 +281,9 @@ async function answerHere(
   if (request.type === "asset:openExternally") return openExternally(request.id);
   if (request.type === "asset:reveal") return reveal(request.id);
   if (request.type === "asset:copyPath") return copyPaths(request.ids);
-  if (request.type === "asset:copyFiles") return copyFiles(request.ids);
+  if (request.type === "asset:copyFiles") return copyFiles(engine, request.ids);
   if (request.type === "asset:copyImage") return copyImage(request.id);
-  if (request.type === "asset:dragOut") return dragOut(request.ids, sender);
+  if (request.type === "asset:dragOut") return dragOut(engine, request.ids, sender);
   if (request.type === "handoff:cost") return assets.handoffCost();
   if (request.type === "clipboard:paste") return paste(engine, request.take);
   if (request.type === "clipboard:copyText") {
@@ -551,10 +552,12 @@ async function copyPaths(idList: readonly string[]): Promise<boolean> {
  *
  * `XDG_CURRENT_DESKTOP` is the signal, and where it says nothing the
  * standard format wins.
+ *
+ * Named copies or the library's own files, as the library says (ADR-0034 §8).
  */
-async function copyFiles(idList: readonly string[]): Promise<number> {
+async function copyFiles(engine: Engine, idList: readonly string[]): Promise<number> {
   const ids = idList.filter(isAssetId);
-  const files = await assets.stage(ids);
+  const files = await assets.handOut(ids, await handOutByName(engine));
   if (files.length === 0) return 0;
 
   const uris = files.map((file) => pathToFileURL(file).href);
@@ -600,8 +603,9 @@ async function copyImage(id: string): Promise<boolean> {
  * The window cancelled its own drag in `dragstart` and asked for this one, and
  * the button is still held: `startDrag` begins a drag the compositor carries,
  * which is the only kind a file manager can take a drop from. The files are
- * the same named copies **Copy file** stages, so what lands in Dolphin is
- * `Sunset at the pier.png` rather than an id.
+ * the ones **Copy file** hands over, so what lands in Dolphin is
+ * `Sunset at the pier.png` rather than an id — unless the library has staging
+ * turned off (ADR-0034 §8), when it is the library's own file, under its id.
  *
  * **`startDrag` returns when the drag ends**, dropped or abandoned. It runs a
  * nested loop, so main goes on answering the window meanwhile (measured: the
@@ -612,10 +616,14 @@ async function copyImage(id: string): Promise<boolean> {
  * The window tells the two apart by remembering what it asked for, not by
  * reading these paths back, which are copies and name nothing in the library.
  */
-async function dragOut(idList: readonly string[], sender: WebContents): Promise<number> {
+async function dragOut(
+  engine: Engine,
+  idList: readonly string[],
+  sender: WebContents,
+): Promise<number> {
   const ids = idList.filter(isAssetId);
   const [files, picture] = await Promise.all([
-    assets.stage(ids),
+    handOutByName(engine).then((byName) => assets.handOut(ids, byName)),
     ids[0] === undefined ? undefined : assets.dragPicture(ids[0]),
   ]);
   const [first] = files;
@@ -623,6 +631,24 @@ async function dragOut(idList: readonly string[], sender: WebContents): Promise<
   const icon = picture === undefined ? DRAG_ICON : nativeImage.createFromBuffer(picture);
   sender.startDrag(files.length === 1 ? { file: first, icon } : { file: first, files, icon });
   return files.length;
+}
+
+/**
+ * Whether the open library hands a file out by name (ADR-0034 §8).
+ *
+ * Asked of the engine at the gesture rather than sent by the window, so the
+ * context menu, `Ctrl+C`, the preview and a drag all follow the one setting
+ * without each of them having to carry it, and a second window that changed it
+ * is followed too. **By name when the answer cannot be had**: a named copy
+ * costs time, the other costs a promise the library was never asked to make.
+ */
+async function handOutByName(engine: Engine): Promise<boolean> {
+  // `settings:read` is answered with the engine's `WireSettings`. `null` is the
+  // request failing — no library open, or no engine — and means the default.
+  const settings = (await engine
+    .request({ type: "settings:read" })
+    .catch(() => null)) as WireSettings | null;
+  return settings?.handOutByName ?? true;
 }
 
 /**

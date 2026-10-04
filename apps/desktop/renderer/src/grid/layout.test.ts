@@ -312,3 +312,49 @@ describe("a zoom per view", () => {
     expect(small.columns.length).toBeGreaterThan(large.columns.length);
   });
 });
+
+describe("a break between a folder's own assets and its subfolders' (ADR-0059)", () => {
+  const items = shaped(7);
+  const breakBefore = { id: items[5]?.id ?? "", height: 32 };
+
+  it("starts a fresh row below a band across every column", () => {
+    const plain = layout(items, { ...OPTIONS, proportional: false });
+    const broken = layout(items, { ...OPTIONS, proportional: false, breakBefore });
+    const columns = plain.columns.length;
+    expect(columns).toBeGreaterThan(2);
+
+    const first = broken.order[5];
+    const last = broken.order[4];
+    expect(broken.divider).not.toBeNull();
+    // The band begins below the rows above it, and the next tile below the band.
+    expect(broken.divider?.y).toBeGreaterThanOrEqual((last?.y ?? 0) + (last?.height ?? 0));
+    expect(first?.x).toBe(0);
+    expect(first?.y).toBe((broken.divider?.y ?? 0) + 32 + OPTIONS.gap);
+    expect(broken.order[6]?.x).toBe(broken.order[1]?.x);
+    expect(broken.height).toBeGreaterThan(plain.height);
+    expect(overlaps(broken.order)).toBe(false);
+  });
+
+  it("draws the band at the top when the folder holds nothing of its own", () => {
+    const broken = layout(items, {
+      ...OPTIONS,
+      breakBefore: { id: items[0]?.id ?? "", height: 32 },
+    });
+    expect(broken.divider).toEqual({ y: 0, height: 32 });
+    expect(broken.order[0]?.y).toBe(32 + OPTIONS.gap);
+  });
+
+  it("packs proportional icons below the band too", () => {
+    const broken = layout(items, { ...OPTIONS, proportional: true, breakBefore });
+    const above = broken.order.slice(0, 5);
+    const lowest = Math.max(...above.map((tile) => tile.y + tile.height));
+    expect(broken.divider?.y).toBeGreaterThanOrEqual(lowest);
+    for (const tile of broken.order.slice(5)) {
+      expect(tile.y).toBeGreaterThanOrEqual((broken.divider?.y ?? 0) + 32);
+    }
+  });
+
+  it("has none where nothing asked for one", () => {
+    expect(layout(items, OPTIONS).divider).toBeNull();
+  });
+});

@@ -499,6 +499,11 @@ monthly archive under [`sessions/`](sessions/), and what shipped is in
   on a 24-megapixel photograph. `check-clipboard.mjs` reads both copies back with `wl-paste`, under
   XWayland, because Wayland ignores a clipboard write from a window without the focus: 8 of 8.
 
+- ☑ ~~**Copy and drag by name, as a choice.**~~ **Built 2026-10-02** (ADR-0034 §8). A checkbox in the
+  `☰`, ticked by default and remembered as `handOutByName` in `settings.json`. Unticked, Copy file
+  and a drag hand over the library's own file under its id, nothing is staged, and the 200 MB drag
+  guard does not apply. Main asks the engine at the gesture. `check-clipboard.mjs`: 13 of 13.
+
 - ☑ ~~**Dragging a file out is not built, and cannot be decided by reading.**~~ A window cannot be
   an HTML5 drag source and a native file drag source in the same gesture: `webContents.startDrag`
   *replaces* the HTML5 drag, and the grid's drag is already how an asset is filed into a folder

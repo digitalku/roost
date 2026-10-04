@@ -169,6 +169,27 @@ export class AssetServer {
   }
 
   /**
+   * The files to hand this selection to another application as: named copies
+   * when `byName`, the library's own files when not (ADR-0034 §8).
+   *
+   * The second is what **Copy path** already reaches, put on as files rather
+   * than text. It is safe to hand over because nothing that receives it can
+   * take it away: the clipboard says `copy`, and a native drag offers copy and
+   * link but not move. What the receiver can do is write to it, which RL-20
+   * permits and the watcher notices (ADR-0047). Turning staging off is
+   * agreeing to that.
+   */
+  async handOut(ids: readonly AssetId[], byName: boolean): Promise<string[]> {
+    if (byName) return this.stage(ids);
+    const files: string[] = [];
+    for (const id of ids) {
+      const path = await this.locate(id);
+      if (path !== undefined) files.push(path);
+    }
+    return files;
+  }
+
+  /**
    * Files with readable names, for handing this selection to another
    * application (ADR-0034).
    *

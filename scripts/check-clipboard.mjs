@@ -1,6 +1,7 @@
 /**
  * `Ctrl+C` and **Copy image**, asserted against a **running window** and the
- * desktop's own clipboard (ADR-0034 §5).
+ * desktop's own clipboard (ADR-0034 §5), and `Ctrl+C` again with **Copy and
+ * drag by name** unticked (ADR-0034 §8).
  *
  *     node scripts/check-clipboard.mjs
  *
@@ -20,7 +21,7 @@
  * It builds its own library in a temporary directory and deletes it again.
  */
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ledger } from "./lib/checks.mjs";
@@ -53,6 +54,30 @@ const note = () =>
   );
 
 const types = async () => ((await paste(["--list-types"])) ?? "").toString().trim().split("\n");
+
+/** The first file the clipboard holds, as a path, or `""`. */
+const pastedFile = async () => {
+  const format = (await types()).find((type) =>
+    ["text/uri-list", "x-special/gnome-copied-files"].includes(type),
+  );
+  const listed = ((await paste(["-t", format ?? "text/uri-list"])) ?? "").toString();
+  const uri = listed.split(/\r?\n/).find((line) => line.startsWith("file://"));
+  return uri === undefined ? "" : fileURLToPath(uri);
+};
+
+/** `settings.json` once `ready` holds of it. */
+const settled = async (ready) => {
+  for (let left = 50; left > 0; left -= 1) {
+    try {
+      const held = JSON.parse(await readFile(join(root, "settings.json"), "utf8"));
+      if (ready(held)) return held;
+    } catch {
+      // Absent until the first preference is changed.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return undefined;
+};
 
 try {
   section("Ctrl+C on the selection");
@@ -116,6 +141,43 @@ try {
   );
   const now = await types();
   check("and nothing but the picture", !now.includes("text/uri-list"), now.join(", "));
+
+  section("Ctrl+C with Copy and drag by name unticked");
+  const trigger = await cdp.box(".app-menu-trigger");
+  await cdp.mouse.click(trigger.x, trigger.y);
+  const item = await cdp.settle(
+    `(() => {
+      const found = [...document.querySelectorAll('[role="menuitemcheckbox"]')]
+        .find((node) => node.textContent.includes("Copy and drag by name"));
+      if (found === undefined) return null;
+      const box = found.getBoundingClientRect();
+      return { x: box.left + box.width / 2, y: box.top + box.height / 2, on: found.getAttribute("aria-checked") };
+    })()`,
+    (found) => found !== null,
+  );
+  check("the ☰ has it, ticked", item.on === "true", item.on);
+  await cdp.mouse.click(item.x, item.y);
+  const settings = await settled((held) => held.handOutByName === false);
+  check("the library remembers it", settings !== undefined, JSON.stringify(settings ?? {}));
+
+  const before = await readdir(join(root, "staging"));
+  await cdp.mouse.click(cell.x, cell.y);
+  await cdp.keyboard.press("c", { ctrl: true });
+  // Polled here rather than through `cdp.settle`, which evaluates in the page:
+  // the clipboard is read from this side, as another application reads it.
+  let own = "";
+  for (let left = 50; left > 0 && !own.startsWith(join(root, "files")); left -= 1) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    own = await pastedFile();
+  }
+  check("the clipboard holds the library's own file", own.startsWith(join(root, "files")), own);
+  check(
+    "under the id it is stored as",
+    /^[0-9A-HJKMNP-TV-Z]{12}\.png$/.test(basename(own)),
+    basename(own),
+  );
+  const after = await readdir(join(root, "staging"));
+  check("and nothing was staged", after.length === before.length, after.join(", "));
 } finally {
   report();
   await window.close();

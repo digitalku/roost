@@ -16,6 +16,13 @@
  * double-click opens the folder without landing a preview on it**, which is the
  * hazard ADR-0043 chose Explorer's gesture against, and which happy-dom cannot
  * see because it fires both clicks at a DOM that never re-rendered.
+ *
+ * Two more since 2026-10-01: **the folders stay with *Show subfolder contents*
+ * ticked** (ADR-0043 §3, amended), and **a typed search draws the folders it
+ * finds by name**, each saying where it is, with Back returning to the search
+ * from one opened (ADR-0057). And with the box ticked, **a divider stands
+ * between the folder's own pictures and its subfolders'** (ADR-0059). That last is the engine's matching, the window's
+ * tree and the trail together, which no unit test holds at once.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -156,6 +163,109 @@ try {
   }
   await setView("icons");
 
+  section("Show subfolder contents keeps the folders");
+  await clickAt(".filter-check input");
+  const deep = await cdp.settle(
+    `({
+      query: document.querySelector(".search-input")?.value ?? null,
+      folders: document.querySelectorAll(".cell-folder").length,
+      assets: document.querySelectorAll(".cell:not(.cell-folder)").length,
+    })`,
+    (seen) => seen.assets === 12,
+  );
+  check(
+    "the subtree's twelve pictures are drawn",
+    deep.query === "folder:Projects" && deep.assets === 12,
+    `${deep.query} → ${deep.assets}`,
+  );
+  check("and its five folders ahead of them", deep.folders === 5, `${deep.folders} folders`);
+  // `Projects` holds nothing of its own, so the divider comes straight after
+  // the folders and before every picture (ADR-0059).
+  const divided = await cdp.evaluate(`(() => {
+    const divider = document.querySelector(".grid-divider");
+    if (divider === null) return null;
+    const band = divider.getBoundingClientRect();
+    const folders = [...document.querySelectorAll(".cell-folder")].map((c) => c.getBoundingClientRect().bottom);
+    const assets = [...document.querySelectorAll(".cell:not(.cell-folder)")].map((c) => c.getBoundingClientRect().top);
+    return {
+      text: divider.textContent,
+      below: Math.max(...folders) <= band.top + 1,
+      above: Math.min(...assets) >= band.bottom - 1,
+    };
+  })()`);
+  if (process.env.ROOST_SHOTS !== undefined) {
+    await cdp.screenshot(join(process.env.ROOST_SHOTS, "folder-sections.png"));
+  }
+  check(
+    "a divider says the pictures are in its subfolders",
+    divided?.text === "In subfolders · 12",
+    JSON.stringify(divided),
+  );
+  check(
+    "drawn below the folders and above every picture",
+    divided?.below === true && divided?.above === true,
+    JSON.stringify(divided),
+  );
+  await clickAt(".filter-check input");
+  await cdp.settle(`document.querySelectorAll(".cell:not(.cell-folder)").length`, (n) => n === 0);
+
+  section("A search finds folders");
+  const located = `
+    [...document.querySelectorAll(".cell-folder")].map((tile) => ({
+      where: tile.querySelector(".cell-where")?.textContent ?? null,
+      name: tile.querySelector(".cell-name-own")?.textContent ?? null,
+    }))`;
+  await typeQuery("kid");
+  const kid = await cdp.settle(located, (list) => list.length === 1);
+  check(
+    "a word finds the folder by its name, and says where it is",
+    kid[0]?.name === "Kid" && kid[0]?.where === "Projects/Only folders/",
+    JSON.stringify(kid),
+  );
+  if (process.env.ROOST_SHOTS !== undefined) {
+    await cdp.screenshot(join(process.env.ROOST_SHOTS, "folder-search.png"));
+  }
+  const found = await cdp.evaluate(`document.querySelectorAll(".cell:not(.cell-folder)").length`);
+  check("ahead of the pictures the same word finds", found === 3, `${found} pictures`);
+  await typeQuery("ki");
+  await cdp.settle(`document.querySelector(".grid-empty") !== null`, (empty) => empty === true);
+  check(
+    "a part of a word finds no folder, as it finds no picture",
+    (await cdp.evaluate(located)).length === 0,
+  );
+  await typeQuery("kid rating:5");
+  await cdp.settle(`document.querySelector(".grid-empty") !== null`, (empty) => empty === true);
+  check("a filter as well draws none", (await cdp.evaluate(located)).length === 0);
+
+  await typeQuery("kid");
+  await cdp.settle(located, (list) => list.length === 1);
+  const tile = await cdp.box(".cell-folder");
+  await cdp.mouse.click(tile.x, tile.y, { clickCount: 1 });
+  await cdp.mouse.click(tile.x, tile.y, { clickCount: 2 });
+  const inside = await cdp.settle(
+    `document.querySelector(".search-input")?.value ?? null`,
+    (value) => typeof value === "string" && value.includes("Kid"),
+  );
+  check("a double-click opens it", inside.includes("Projects/Only folders/Kid"), inside);
+  await clickAt('button[aria-label="Back"]');
+  const back = await cdp.settle(
+    `document.querySelector(".search-input")?.value ?? null`,
+    (value) => value === "kid",
+  );
+  check("and Back returns to the search", back === "kid", JSON.stringify(back));
+
+  const projects = await cdp.settle(
+    `(() => {
+      const r = [...document.querySelectorAll(".sidebar-row")].find((r) => r.textContent.includes("Projects"));
+      if (!r) return null;
+      const b = r.getBoundingClientRect();
+      return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+    })()`,
+    (box) => box !== null,
+  );
+  await cdp.mouse.click(projects.x, projects.y);
+  await cdp.settle(tilesExpression, (list) => Array.isArray(list) && list.length === 5);
+
   section("Double-clicking a folder");
   const design = await cdp.box(`.cell-folder[aria-label^="Design"]`);
   await cdp.mouse.click(design.x, design.y, { clickCount: 1 });
@@ -177,6 +287,21 @@ try {
 } finally {
   await window.close();
   await dispose();
+}
+
+/** Clicks the middle of the first element `selector` finds. */
+async function clickAt(selector) {
+  const at = await cdp.box(selector);
+  await cdp.mouse.click(at.x, at.y);
+}
+
+/** Replaces the search field's text and applies it, as a person would. */
+async function typeQuery(text) {
+  await clickAt(".search-input");
+  await cdp.keyboard.press("a", { ctrl: true });
+  await cdp.keyboard.press("Backspace");
+  for (const character of text) await cdp.keyboard.press(character);
+  await cdp.keyboard.press("Enter");
 }
 
 /** Switches the view by its shortcut and waits for the grid to be drawn in it. */

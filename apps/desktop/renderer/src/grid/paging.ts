@@ -25,8 +25,31 @@ import { invoke } from "../bridge.js";
 /** One page. A screen of grid with room to scroll into (`DEFAULT_PAGE_LIMIT`). */
 export const PAGE_SIZE = 100;
 
+/**
+ * Where the assets beneath the folder begin, for the divider drawn there
+ * (ADR-0059): the first of them still held, and how many there are in all.
+ */
+export interface Beneath {
+  /**
+   * `null` while none of them is held: every one already paged in was taken
+   * out, and the next page's first row is where the divider goes.
+   */
+  readonly first: string | null;
+  readonly count: number;
+}
+
+/** The rows held, and where the second part of them begins. */
+export interface Rows {
+  readonly assets: readonly AssetCard[];
+  readonly beneath: Beneath | null;
+}
+
+const NO_ROWS: Rows = { assets: [], beneath: null };
+
 export interface Paging {
   readonly assets: readonly AssetCard[];
+  /** Where a folder's subfolders' assets begin, or `null` for a listing in one part. */
+  readonly beneath: Beneath | null;
   /** No further page exists. The grid stops asking. */
   readonly done: boolean;
   readonly loading: boolean;
@@ -100,7 +123,7 @@ export function useAssetPages(
   generation: number,
   sort: WireSort | undefined,
 ): Paging {
-  const [assets, setAssets] = useState<readonly AssetCard[]>([]);
+  const [rows, setRows] = useState<Rows>(NO_ROWS);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [problem, setProblem] = useState<WireProblem | undefined>();
@@ -167,7 +190,17 @@ export function useAssetPages(
         finished.current = true;
         setDone(true);
       }
-      setAssets((held) => [...held, ...outcome.value.assets]);
+      const { assets, beneath } = outcome.value;
+      const first = beneath === null ? undefined : assets[beneath.at];
+      setRows((held) => ({
+        assets: [...held.assets, ...assets],
+        beneath:
+          first !== undefined
+            ? { first: first.id, count: beneath?.count ?? 0 }
+            : held.beneath?.first === null
+              ? { ...held.beneath, first: assets[0]?.id ?? null }
+              : held.beneath,
+      }));
     })();
   }, [query, sort]);
 
@@ -184,7 +217,7 @@ export function useAssetPages(
     inFlight.current = false;
     finished.current = false;
     cursor.current = null;
-    setAssets([]);
+    setRows(NO_ROWS);
     setDone(false);
     setProblem(undefined);
 
@@ -199,11 +232,17 @@ export function useAssetPages(
   }, [query, generation, sort, more]);
 
   const pinPoster = useCallback((id: string, posterMs: number | null): void => {
-    setAssets((held) => held.map((card) => (card.id === id ? { ...card, posterMs } : card)));
+    setRows((held) => ({
+      ...held,
+      assets: held.assets.map((card) => (card.id === id ? { ...card, posterMs } : card)),
+    }));
   }, []);
 
   const rename = useCallback((id: string, name: string): void => {
-    setAssets((held) => held.map((card) => (card.id === id ? { ...card, name } : card)));
+    setRows((held) => ({
+      ...held,
+      assets: held.assets.map((card) => (card.id === id ? { ...card, name } : card)),
+    }));
   }, []);
 
   /**
@@ -218,7 +257,8 @@ export function useAssetPages(
    */
   const redraw = useCallback((redrawn: readonly WireRedrawn[]): void => {
     const moved = new Map(redrawn.map((one) => [one.id, one]));
-    setAssets((held) => {
+    setRows((rows) => {
+      const held = rows.assets;
       let changed = false;
       const next = held.map((card) => {
         const one = moved.get(card.id);
@@ -231,14 +271,46 @@ export function useAssetPages(
       });
       // A new array for a batch that touched nothing on screen would re-render
       // the grid on every batch of a hundred-thousand-asset import.
-      return changed ? next : held;
+      return changed ? { ...rows, assets: next } : rows;
     });
   }, []);
 
   const drop = useCallback((ids: readonly string[]): void => {
     const gone = new Set(ids);
-    setAssets((held) => held.filter((card) => !gone.has(card.id)));
+    setRows((held) => without(held, gone));
   }, []);
 
-  return { assets, done, loading, problem, more, pinPoster, rename, redraw, drop };
+  return {
+    assets: rows.assets,
+    beneath: rows.beneath,
+    done,
+    loading,
+    problem,
+    more,
+    pinPoster,
+    rename,
+    redraw,
+    drop,
+  };
+}
+
+/**
+ * The rows with `gone` taken out (ADR-0059).
+ *
+ * The divider stays before whichever of the second part is still held, and
+ * counts one fewer for each of them that went. With none of them left, there
+ * is nothing for it to stand before.
+ */
+export function without(held: Rows, gone: ReadonlySet<string>): Rows {
+  const assets = held.assets.filter((card) => !gone.has(card.id));
+  const { beneath } = held;
+  if (beneath === null || beneath.first === null) return { assets, beneath };
+  const from = held.assets.findIndex((card) => card.id === beneath.first);
+  const after = from === -1 ? [] : held.assets.slice(from);
+  const first = after.find((card) => !gone.has(card.id));
+  const left = beneath.count - after.filter((card) => gone.has(card.id)).length;
+  // None held and none left: nothing for it to stand before. None held and
+  // some left: they are on a page not fetched yet, and it waits for them.
+  if (left <= 0) return { assets, beneath: null };
+  return { assets, beneath: { first: first?.id ?? null, count: left } };
 }

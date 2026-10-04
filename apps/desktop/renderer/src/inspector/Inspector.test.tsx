@@ -67,7 +67,6 @@ function folderRow(folder: number, name: string, path: string, depth: number): S
     name,
     query: `folder:"${path}"`,
     count: null,
-    descendants: 0,
     depth,
     group: null,
     stars: null,

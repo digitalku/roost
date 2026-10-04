@@ -923,6 +923,7 @@ describe("the library view", () => {
         showInspector: true,
         sidebarWidth: 240,
         inspectorWidth: 280,
+        handOutByName: true,
       },
     });
     install(engine);
@@ -965,6 +966,7 @@ describe("the library view", () => {
         showInspector: true,
         sidebarWidth: 240,
         inspectorWidth: 280,
+        handOutByName: true,
       },
     });
     install(engine);
@@ -1128,7 +1130,6 @@ describe("the navigation pane, in the window", () => {
     stars: null,
     folder: 8,
     path: "Logos",
-    descendants: 0,
   };
 
   /**
@@ -1155,7 +1156,6 @@ describe("the navigation pane, in the window", () => {
     name: "Design",
     query: 'folder:"Design"',
     count: 2,
-    descendants: 2,
     depth: 0,
     group: null,
     stars: null,
@@ -1393,7 +1393,6 @@ describe("the navigation pane, in the window", () => {
             stars: null,
             folder: 7,
             path: "Design",
-            descendants: 2,
           },
         ],
         smartFolders: [],
@@ -1617,7 +1616,6 @@ describe("the navigation pane, in the window", () => {
             stars: null,
             folder: 7,
             path: "Design",
-            descendants: 2,
           },
         ],
         smartFolders: [],
@@ -1754,8 +1752,7 @@ describe("Show subfolder contents, in the window (ADR-0036)", () => {
     id: "folder:7",
     name: "Design",
     query: "infolder:Design",
-    count: 1,
-    descendants: 4,
+    count: 4,
     depth: 0,
     group: null,
     stars: null,
@@ -1835,16 +1832,6 @@ describe("Show subfolder contents, in the window (ADR-0036)", () => {
     await user.type(field, "folder:Design{Enter}");
     await waitFor(() => expect(box()).toHaveProperty("checked", true));
   });
-
-  it("asks about the subtree when a folder is deleted, not about what is drawn", async () => {
-    // The row shows 1 and holds 4. A question saying "also move 1 asset" while
-    // trashing four would be the worst kind of wrong (ADR-0036).
-    const { user } = await open();
-    const row = await screen.findByRole("button", { name: /^Design/ });
-    fireEvent.contextMenu(row);
-    await user.click(await screen.findByRole("menuitem", { name: "Delete folder…" }));
-    expect(await screen.findByText(/Also move 4 assets to the trash/)).toBeDefined();
-  });
 });
 
 describe("folders in the grid, in the window (ADR-0043)", () => {
@@ -1854,8 +1841,7 @@ describe("folders in the grid, in the window (ADR-0043)", () => {
     id: "folder:7",
     name: "Design",
     query: "infolder:Design",
-    count: 4,
-    descendants: 6,
+    count: 6,
     depth: 0,
     group: null,
     stars: null,
@@ -1869,7 +1855,6 @@ describe("folders in the grid, in the window (ADR-0043)", () => {
     name: "Icons",
     query: "infolder:Design/Icons",
     count: 2,
-    descendants: 2,
     depth: 1,
     group: null,
     stars: null,
@@ -1917,7 +1902,7 @@ describe("folders in the grid, in the window (ADR-0043)", () => {
 
   const tiles = (): HTMLElement[] =>
     screen
-      .getAllByRole("option")
+      .queryAllByRole("option")
       .filter((cell) => cell.getAttribute("data-id")?.startsWith("folder-") === true);
 
   const field = (): HTMLElement => screen.getByRole("searchbox", { name: /Search/ });
@@ -1976,21 +1961,107 @@ describe("folders in the grid, in the window (ADR-0043)", () => {
     await waitFor(() => expect(tiles()).toEqual([]));
   });
 
-  it("draws none while Show subfolder contents is on", async () => {
-    // Everything beneath the folder is already in the grid, so a tile would
-    // offer the same assets twice — and the view menu says so rather than
-    // leaving a checkbox that does nothing (ADR-0043 §9).
+  it("draws them while Show subfolder contents is on, too", async () => {
+    // A tile is a way in, not a result, so it offers no asset twice when the
+    // subtree's assets are around it (ADR-0043 §3, amended 2026-10-01) — and
+    // **Show folders** is no longer disabled there, with nothing to disable it
+    // for.
     const { user } = await open();
     await user.click(await screen.findByRole("button", { name: /^Design/ }));
     await waitFor(() => expect(tiles().length).toBe(1));
 
     await user.click(screen.getByRole("checkbox", { name: "Show subfolder contents" }));
     await waitFor(() => expect(field()).toHaveProperty("value", "folder:Design"));
-    await waitFor(() => expect(tiles()).toEqual([]));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(7));
+    expect(tiles().length).toBe(1);
 
     await user.click(screen.getByRole("button", { name: "View" }));
     const item = await screen.findByRole("menuitemcheckbox", { name: /Show folders/ });
-    expect(item.getAttribute("aria-disabled")).toBe("true");
+    expect(item.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("draws the folder's own assets first, then a divider, then its subfolders' (ADR-0059)", async () => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 6 },
+      assets: Array.from({ length: 6 }, (_, i) => fakeAsset(i)),
+      byQuery: {
+        "infolder:Design": Array.from({ length: 4 }, (_, i) => fakeAsset(i)),
+        "folder:Design": Array.from({ length: 6 }, (_, i) => fakeAsset(i)),
+      },
+      ownRows: { "folder:Design": 4 },
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [DESIGN, ICONS],
+        smartFolders: [],
+        tags: [],
+        types: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    // Unticked, the folder alone: one part, and nothing to divide.
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(5));
+    expect(document.querySelector(".grid-divider")).toBeNull();
+
+    await user.click(screen.getByRole("checkbox", { name: "Show subfolder contents" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(7));
+    const divider = document.querySelector(".grid-divider");
+    expect(divider?.textContent).toBe("In subfolders · 2");
+
+    // Below the fourth of the folder's own, and above the first beneath it.
+    const top = (id: string): number => {
+      const cell = document.querySelector(`[data-id="${id}"]`);
+      return Number(
+        /translate\([^,]+,\s*([\d.]+)px\)/.exec(cell?.getAttribute("style") ?? "")?.[1],
+      );
+    };
+    const at = Number(/translateY\(([\d.]+)px\)/.exec(divider?.getAttribute("style") ?? "")?.[1]);
+    expect(at).toBeGreaterThan(top(fakeAsset(3).id));
+    expect(top(fakeAsset(4).id)).toBeGreaterThan(at);
+  });
+
+  it("keeps an asset moved onto a subfolder's tile while the subtree is on screen", async () => {
+    // Out of Design and into Design/Icons is still a move, and with *Show
+    // subfolder contents* on the asset is still beneath the folder on screen —
+    // so it stays drawn, where a move anywhere else takes it away.
+    const { engine, user } = await open();
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await user.click(screen.getByRole("checkbox", { name: "Show subfolder contents" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(7));
+
+    const tile = tiles()[0] as HTMLElement;
+    const dataTransfer = {
+      types: [ASSET_DRAG_TYPE],
+      getData: () => JSON.stringify([fakeAsset(0).id]),
+      dropEffect: "none",
+      effectAllowed: "all",
+    } as unknown as DataTransfer;
+    fireEvent(tile, createEvent.drop(tile, { dataTransfer }));
+
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "asset:folderRemove")).toBe(true),
+    );
+    expect(await screen.findByText("Moved 1 asset from Design to Icons")).toBeDefined();
+    expect(screen.getAllByRole("option").length).toBe(7);
+  });
+
+  it("draws the folders a typed search finds, and where each one is (ADR-0057)", async () => {
+    const { engine, user } = await open();
+    engine.foundFolders = { icons: [ICONS.folder] };
+    await user.type(field(), "icons{Enter}");
+    await waitFor(() => expect(tiles().length).toBe(1));
+    expect(tiles()[0]?.getAttribute("aria-label")).toBe("Design/Icons, folder, 2 assets");
+
+    // A filter as well is a question a folder cannot answer, and the engine
+    // says so with `null`.
+    await user.type(field(), " rating:5{Enter}");
+    await waitFor(() => expect(tiles()).toEqual([]));
   });
 
   it("descends on a double-click and comes back up on Alt+ArrowUp", async () => {
@@ -2020,8 +2091,7 @@ describe("back, forward and up, in the window (ADR-0044)", () => {
     id: "folder:7",
     name: "Design",
     query: "infolder:Design",
-    count: 4,
-    descendants: 6,
+    count: 6,
     depth: 0,
     group: null,
     stars: null,
@@ -2034,7 +2104,6 @@ describe("back, forward and up, in the window (ADR-0044)", () => {
     name: "Icons",
     query: "infolder:Design/Icons",
     count: 2,
-    descendants: 2,
     depth: 1,
     group: null,
     stars: null,
@@ -2115,6 +2184,9 @@ describe("back, forward and up, in the window (ADR-0044)", () => {
     const { user } = await open();
     await user.click(await screen.findByRole("button", { name: /^Design/ }));
     await waitFor(() => expect(field()).toHaveProperty("value", "infolder:Design"));
+    // The trail is recorded from the split, which arrives after the field shows
+    // the query — so Back is waited for, as a hand would see it lit.
+    await waitFor(() => expect(nav("Back")).toHaveProperty("disabled", false));
 
     fireEvent.keyDown(window, { key: "Backspace" });
     await waitFor(() => expect(field()).toHaveProperty("value", ""));
@@ -2306,7 +2378,6 @@ describe("the preview, in the window", () => {
             name: "Design",
             query: 'folder:"Design"',
             count: 2,
-            descendants: 2,
             depth: 0,
             group: null,
             stars: null,
@@ -2372,6 +2443,7 @@ describe("the volume a library remembers", () => {
         showInspector: true,
         sidebarWidth: 240,
         inspectorWidth: 280,
+        handOutByName: true,
       },
     });
     install(engine);
@@ -2616,6 +2688,7 @@ describe("showing and hiding the side panes", () => {
               showInspector: true,
               sidebarWidth: 240,
               inspectorWidth: 280,
+              handOutByName: true,
               ...settings,
             },
           }),
@@ -2675,6 +2748,22 @@ describe("showing and hiding the side panes", () => {
     await user.click(screen.getAllByRole("option")[1] as HTMLElement);
     await new Promise((settle) => setTimeout(settle, 20));
     expect(details()).toBe(before);
+  });
+
+  it("turns handing a file out by name off and on, in the library", async () => {
+    // ADR-0034 §8: on by default, and the `☰` is where it is changed. Not one of
+    // the panes, but the same menu and the same write.
+    const { engine, user } = await open();
+    expect(engine.settings.handOutByName).toBe(true);
+
+    await toggle(user, /Copy and drag by name/);
+    await waitFor(() => expect(engine.settings.handOutByName).toBe(false));
+
+    await user.click(await screen.findByRole("button", { name: "Menu" }));
+    const item = await screen.findByRole("menuitemcheckbox", { name: /Copy and drag by name/ });
+    expect(item.getAttribute("aria-checked")).toBe("false");
+    await user.click(item);
+    await waitFor(() => expect(engine.settings.handOutByName).toBe(true));
   });
 
   it("asks for a detail while the inspector is open, which is what the last test denies", async () => {

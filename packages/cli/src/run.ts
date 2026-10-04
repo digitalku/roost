@@ -68,6 +68,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
     tag: { type: "string", multiple: true },
     hidden: { type: "boolean" },
     folder: { type: "string" },
+    flat: { type: "boolean" },
     "from-eagle": { type: "string" },
     "dry-run": { type: "boolean" },
   },
@@ -221,6 +222,9 @@ async function dispatch(
         if (text(values, "folder") !== undefined) {
           return usage(streams, command, "--folder means nothing with --from-eagle");
         }
+        if (flag(values, "flat")) {
+          return usage(streams, command, "--flat means nothing with --from-eagle");
+        }
         if (flag(values, "dry-run")) {
           // No library is opened: reading an Eagle library is a question that
           // stands on its own, and there may not be anywhere to put it yet.
@@ -251,6 +255,7 @@ async function dispatch(
           take,
           tags: list(values, "tag"),
           includeHidden: flag(values, "hidden"),
+          structure: !flag(values, "flat"),
           ...(folder === undefined ? {} : { folder }),
         },
         streams.out,

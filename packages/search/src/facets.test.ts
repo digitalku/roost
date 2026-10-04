@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { type Facets, joinQuery, NO_FACETS, splitQuery, withSubfolders } from "./facets.js";
+import {
+  type Facets,
+  joinQuery,
+  NO_FACETS,
+  splitQuery,
+  subfolderSections,
+  withSubfolders,
+} from "./facets.js";
 import { parse } from "./parser.js";
 
 /**
@@ -259,6 +266,33 @@ describe("the depth a query names", () => {
     for (const query of ["tag:wood   rating:4", "", "-folder:Design", "a OR b"]) {
       expect(withSubfolders(query, false)).toBe(query);
       expect(withSubfolders(query, true)).toBe(query);
+    }
+  });
+});
+
+describe("subfolderSections (ADR-0059)", () => {
+  it("reads a folder with its subfolders as its own assets, then the rest", () => {
+    expect(subfolderSections("folder:Design")).toEqual({
+      own: "infolder:Design",
+      beneath: "folder:Design -infolder:Design",
+    });
+    expect(subfolderSections('rating:5 folder:"Trip 2024"')).toEqual({
+      own: 'rating:5 infolder:"Trip 2024"',
+      beneath: 'rating:5 folder:"Trip 2024" -infolder:"Trip 2024"',
+    });
+  });
+
+  it("splits nothing else", () => {
+    for (const query of [
+      "",
+      "infolder:Design",
+      "tag:wood",
+      "folder:A folder:B",
+      "folder:A OR tag:b",
+      "-folder:Design",
+      "(folder:Design rating:5)",
+    ]) {
+      expect(subfolderSections(query), query).toBeUndefined();
     }
   });
 });

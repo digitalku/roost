@@ -315,7 +315,16 @@ export interface WireProblem {
 export interface WireCursor {
   readonly key: number | string;
   readonly id: string;
+  /**
+   * Which part of the listing the row is in (ADR-0059): a folder's own assets,
+   * or the ones beneath it. `own` for every listing that is one part.
+   */
+  readonly section: WireSection;
 }
+
+/** The two parts a folder with its subfolders is listed in, in turn (ADR-0059). */
+export const SECTIONS = ["own", "beneath"] as const;
+export type WireSection = (typeof SECTIONS)[number];
 
 /**
  * The order a listing is asked for (ADR-0039).
@@ -429,6 +438,12 @@ export interface AssetPage {
   readonly assets: readonly AssetCard[];
   /** `null` when this was the last page, so the grid stops asking. */
   readonly next: WireCursor | null;
+  /**
+   * Where the assets beneath the folder begin on this page, as an index into
+   * `assets`, and how many of them there are in all (ADR-0059). Only on the
+   * page where they begin, which is where the grid draws its divider.
+   */
+  readonly beneath: { readonly at: number; readonly count: number } | null;
 }
 
 /**
@@ -507,21 +522,16 @@ export interface WireSubtitle {
  * to name the one that is chosen: the window already re-reads this tree
  * whenever the library changes, so a second request for the same rows would be
  * a second read of one small table and a second idea of what it holds.
+ *
+ * Its `count` is the subtree's, each asset once, whatever *Show subfolder
+ * contents* says (ADR-0036 §3.3): what the folder holds, not what its query
+ * draws.
  */
 export interface SidebarFolderRow extends SidebarRow {
   /** The folder's own id, which is what an edit names. */
   readonly folder: number;
   /** Slash-separated, from the root. `name` is only the last segment. */
   readonly path: string;
-  /**
-   * Every live asset in this folder and beneath it (ADR-0036).
-   *
-   * `count` is the count of this row's *query*, which follows *Show subfolder
-   * contents*; this one never does. **Delete folder…** asks about the subtree
-   * whatever the pane is drawing, so the question and what it does have to be
-   * counted the same way.
-   */
-  readonly descendants: number;
 }
 
 /**
@@ -677,6 +687,16 @@ export interface WireSettings {
    */
   readonly sidebarWidth: number;
   readonly inspectorWidth: number;
+  /**
+   * Whether **Copy file** and a drag hand over a named copy, or the library's
+   * own file under its id (ADR-0034 §8).
+   *
+   * On by default. Main reads it from the engine at the gesture rather than
+   * being told it by the window, so a menu or a key that never heard of it
+   * still follows it. The window reads it for one thing: a drag that copies
+   * nothing has no size to wait for.
+   */
+  readonly handOutByName: boolean;
 }
 
 /** A query read as somewhere to look plus what the bar narrowed it to. */
@@ -1017,6 +1037,14 @@ export interface WireImportReport {
    * them without any of them crossing back.
    */
   readonly duplicateNames: readonly string[];
+  /**
+   * Whether any duplicate came from a directory brought across as a folder
+   * (ADR-0058), and so has a folder of its own to be filed in — which the
+   * dialog offers whether or not a folder is on screen.
+   */
+  readonly duplicatesPlaced: boolean;
+  /** Folders the run made, its directories brought across (ADR-0058). */
+  readonly folders: number;
   /**
    * Thumbnails generated for what was imported.
    *

@@ -1,7 +1,13 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type AssetId, DEFAULT_PAGE_LIMIT, IndexSink, withoutDerived } from "@roost/core";
+import {
+  type AssetId,
+  DEFAULT_PAGE_LIMIT,
+  IndexSink,
+  lastCursor,
+  withoutDerived,
+} from "@roost/core";
 import {
   AmbiguousFolderNameError,
   addComment,
@@ -18,6 +24,7 @@ import {
   EmptyNameError,
   emptyTrash,
   FolderCycleError,
+  findFolders,
   InvalidMomentError,
   InvalidRatingError,
   importInto,
@@ -39,6 +46,7 @@ import {
   resolveTagGroup,
   restoreAssets,
   search,
+  sectionedPage,
   setComment,
   setNote,
   setPoster,
@@ -413,16 +421,14 @@ describe("organizing a library", () => {
     const nested = sidebar.folders.find((folder) => folder.id === icons);
     expect(nested?.path).toBe("Design/Icons");
 
-    // **A count is the count of the row's own query**, so both follow *Show
-    // subfolder contents* together (ADR-0036). Off by default: `Design` asks
-    // with `infolder:` and holds nothing directly, whatever is under it.
+    // *Show subfolder contents* decides the term a row asks with (ADR-0036).
+    // Off by default: `Design` asks with `infolder:` and holds nothing
+    // directly — and **its count is still its subtree's**, which is what a
+    // folder holds rather than what its query draws (§3.3, amended 2026-10-01).
     const shallow = sidebar.folders.find((folder) => folder.id === design);
     expect(shallow?.query).toBe("infolder:Design");
-    expect(shallow?.count).toBe(0);
     expect(count(library, shallow?.query ?? "")).toBe(0);
-    // And the subtree is still carried, because **Delete folder…** asks about
-    // it whatever the pane is drawing.
-    expect(shallow?.descendants).toBe(1);
+    expect(shallow?.count).toBe(1);
 
     await library.updateSettings({ showSubfolderContents: true });
     const deep = readSidebar(library).folders.find((folder) => folder.id === design);
@@ -542,6 +548,112 @@ describe("organizing a library", () => {
     expect(sidebar.folders.find((row) => row.name === "Moodboards")?.count).toBe(2);
     expect(sidebar.tags.find((row) => row.name === "shared")?.count).toBe(2);
     expect(sidebar.places.find((place) => place.id === "trash")?.count).toBe(1);
+  });
+
+  it("counts an asset in two folders of one subtree once", async () => {
+    // `folder:Design` finds it once, so the row beside it says one. The counts
+    // were summed per folder until 2026-10-01, and said two.
+    const [first, second, third] = ids as [AssetId, AssetId, AssetId];
+    const design = await createFolder(library, "Design", null);
+    const icons = await createFolder(library, "Icons", design);
+    const logos = await createFolder(library, "Logos", design);
+    await addToFolder(library, [first, second], design);
+    await addToFolder(library, [first], icons);
+    await addToFolder(library, [first, third], logos);
+    await trashAssets(library, [second]);
+
+    const counts = new Map(readSidebar(library).folders.map((row) => [row.name, row.count]));
+    expect(counts.get("Design")).toBe(2);
+    expect(count(library, "folder:Design")).toBe(2);
+    expect(counts.get("Icons")).toBe(1);
+    expect(counts.get("Logos")).toBe(2);
+
+    // Trashed, it leaves every row it was counted in, however many that is.
+    await trashAssets(library, [first]);
+    const after = new Map(readSidebar(library).folders.map((row) => [row.name, row.count]));
+    expect([after.get("Design"), after.get("Icons"), after.get("Logos")]).toEqual([1, 0, 1]);
+  });
+
+  it("finds folders by whole words of their names (ADR-0057)", async () => {
+    const design = await createFolder(library, "Design", null);
+    const inside = await createFolder(library, "Highlights 2024", design);
+    const archive = await createFolder(library, "Archive", null);
+    const elsewhere = await createFolder(library, "highlights", archive);
+    await createFolder(library, "Highlighted", null);
+
+    const found = (query: string) => findFolders(library, query)?.sort();
+    expect(found("highlights")).toEqual([inside, elsewhere].sort());
+    // Whole words, as an asset's name is matched: a prefix finds nothing.
+    expect(found("highl")).toEqual([]);
+    expect(found("2024 highlights")).toEqual([inside]);
+
+    // Inside a folder, everything beneath it and not the folder itself, at
+    // either depth.
+    expect(found("infolder:Design highlights")).toEqual([inside]);
+    expect(found("folder:Design highlights")).toEqual([inside]);
+    expect(found("infolder:Design design")).toEqual([]);
+
+    // Not a search a folder can answer.
+    expect(findFolders(library, "highlights rating:5")).toBeNull();
+    expect(findFolders(library, "infolder:Design")).toBeNull();
+  });
+
+  it("splits a folder's name into words as the full-text index splits an asset's", async () => {
+    // The rule is written twice — once by FTS5's `unicode61`, once for the
+    // folders in memory — so this holds the two to one answer.
+    const [first] = ids as [AssetId, AssetId, AssetId];
+    const folder = await createFolder(library, "placeholder", null);
+    const cases: [string, string[]][] = [
+      ["Café Mood", ["cafe", "café", "CAFE", "mood", "caf"]],
+      ["IMG_2024 trip", ["img", "2024", "img_2024", "trip", "IMG_2024"]],
+      ["oak-wood", ['"oak wood"', "oak-wood", "wood", '"wood oak"']],
+      ["naïve ÉCOLE", ["naive", "ecole", "école", "naïve"]],
+    ];
+    for (const [name, words] of cases) {
+      await renameAsset(library, first, name);
+      await renameFolder(library, folder, name);
+      for (const word of words) {
+        const asset = count(library, word) > 0;
+        const named = (findFolders(library, word) ?? []).includes(folder);
+        expect(named, `${name} / ${word}`).toBe(asset);
+      }
+    }
+  });
+
+  it("pages a folder's own assets before its subfolders' (ADR-0059)", async () => {
+    const [first, second, third] = ids as [AssetId, AssetId, AssetId];
+    const design = await createFolder(library, "Design", null);
+    const icons = await createFolder(library, "Icons", design);
+    await addToFolder(library, [first, second], design);
+    // In both: it belongs to the folder's own part, and only there.
+    await addToFolder(library, [first, third], icons);
+
+    // One page holds both parts, and says where the second begins.
+    const whole = sectionedPage(library, "folder:Design", { limit: 10 });
+    expect(
+      whole.hits
+        .map((hit) => hit.id)
+        .slice(0, 2)
+        .sort(),
+    ).toEqual([first, second].sort());
+    expect(whole.hits.map((hit) => hit.id)).toEqual(expect.arrayContaining([third]));
+    expect(whole.hits).toHaveLength(3);
+    expect(whole.beneath).toEqual({ at: 2, count: 1 });
+    expect(whole.section).toBe("beneath");
+
+    // A page that ends exactly where the folder's own do: the next one begins
+    // the second part from its own first row.
+    const head = sectionedPage(library, "folder:Design", { limit: 2 });
+    expect(head).toMatchObject({ section: "own", beneath: null });
+    expect(head.hits).toHaveLength(2);
+    const after = lastCursor(head.hits);
+    if (after === undefined) throw new Error("a full page has a cursor");
+    const tail = sectionedPage(library, "folder:Design", { limit: 2, after }, head.section);
+    expect(tail.hits.map((hit) => hit.id)).toEqual([third]);
+    expect(tail.beneath).toEqual({ at: 0, count: 1 });
+
+    // Any other query is one part.
+    expect(sectionedPage(library, "infolder:Design", { limit: 10 }).beneath).toBeNull();
   });
 
   it("empties the trash by removing exactly what is in it", async () => {

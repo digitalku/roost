@@ -20,6 +20,11 @@ import type { DuplicateQuestion } from "./useImport.js";
  * button wide — still worth drawing, because "14 files were already here" is
  * the answer to a question somebody is about to ask about a grid that did not
  * grow.
+ *
+ * **Unless they came from a directory brought across as a folder** (ADR-0058
+ * §3.4). Then each one has a folder of its own, the one its directory became,
+ * and that is the offer, with or without a folder on screen: the duplicates of
+ * a re-imported tree belong in the tree.
  */
 export function DuplicatesDialog({
   question,
@@ -31,7 +36,8 @@ export function DuplicatesDialog({
   /** The folder on screen, if one is. */
   readonly folder?: { readonly id: number; readonly name: string };
   readonly onIgnore: () => void;
-  readonly onFile: (folder: number) => void;
+  /** Files them in `folder`, or each in its own folder for `null`. */
+  readonly onFile: (folder: number | null) => void;
 }): React.JSX.Element {
   const rest = question.total - question.names.length;
   // Two files in different directories can share a name, and this is a list of
@@ -76,10 +82,16 @@ export function DuplicatesDialog({
             <Dialog.Close asChild>
               <button type="button">Ignore all</button>
             </Dialog.Close>
-            {folder !== undefined && (
-              <button type="button" onClick={() => onFile(folder.id)}>
-                Add to {folder.name}
+            {question.placed ? (
+              <button type="button" onClick={() => onFile(null)}>
+                Add to their folders
               </button>
+            ) : (
+              folder !== undefined && (
+                <button type="button" onClick={() => onFile(folder.id)}>
+                  Add to {folder.name}
+                </button>
+              )
             )}
           </div>
         </Dialog.Content>

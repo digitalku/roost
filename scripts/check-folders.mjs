@@ -212,14 +212,6 @@ const folderCount = async (name) => {
   return rows.find((row) => row.name === name)?.count ?? -1;
 };
 
-/** Every live asset in a folder and beneath it, which is what a delete asks about. */
-const folderDescendants = async (name) => {
-  const rows = await cdp.evaluate(
-    'window.roost.invoke({ type: "library:sidebar" }).then((o) => o.value.folders)',
-  );
-  return rows.find((row) => row.name === name)?.descendants ?? -1;
-};
-
 const liveCount = () =>
   cdp.evaluate('window.roost.invoke({ type: "assets:count", query: "" }).then((o) => o.value)');
 
@@ -242,18 +234,14 @@ try {
     names(initial) === "0:Design 0:Zebra",
     names(initial),
   );
-  // A count is the count of the row's own query (ADR-0036), and *Show subfolder
-  // contents* starts off — so `Design` says what is directly in it, which is
-  // nothing: its two assets are in `Alpha`.
+  // A row counts its subtree whatever *Show subfolder contents* says (ADR-0036
+  // §3.3, amended 2026-10-01). The setting starts off, so `Design` asks only
+  // for what is directly in it, which is nothing — and still says two, because
+  // its two assets are in `Alpha`.
   check(
-    "a row says what its own query matches",
-    initial.find((row) => row.name === "Design")?.count === "0",
+    "a row counts what is beneath it, not what its query draws",
+    initial.find((row) => row.name === "Design")?.count === String(FILED),
     `Design=${initial.find((row) => row.name === "Design")?.count}`,
-  );
-  check(
-    "and the engine still knows the subtree, for the question a delete asks",
-    (await folderDescendants("Design")) === FILED,
-    `Design descendants=${await folderDescendants("Design")}`,
   );
   check(
     "a folder with children has an arrow, and it reads closed",

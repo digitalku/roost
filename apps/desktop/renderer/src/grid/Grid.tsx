@@ -64,6 +64,9 @@ const PREFETCH = 1200;
 /** The band under the thumbnail, reserved rather than overlaid. */
 const CAPTION = 22;
 
+/** The band a divider takes across the grid (ADR-0059), the same in every view. */
+const DIVIDER = 32;
+
 /**
  * The folders drawn ahead of the assets, and everything they can do (ADR-0043).
  *
@@ -78,6 +81,12 @@ const CAPTION = 22;
  */
 export interface FolderTiles {
   readonly rows: readonly SidebarFolderRow[];
+  /**
+   * Whether each tile says where its folder is (ADR-0057 §3.4). A folder's
+   * children all come from the folder on screen; a search's come from anywhere,
+   * and four of them can be called `highlights`.
+   */
+  readonly located: boolean;
   /** Descend: the row's own query, applied exactly as a sidebar click does. */
   readonly onOpen: (row: SidebarFolderRow) => void;
   readonly onNewFolder: (parent: SidebarFolderRow) => void;
@@ -109,6 +118,11 @@ export interface GridProps {
   readonly onOpen?: (id: string) => void;
   /** The subfolders of the folder on screen, where there is one (ADR-0043). */
   readonly folders?: FolderTiles;
+  /**
+   * A band across the grid before the asset with id `before`, saying `label`
+   * (ADR-0059): where a folder's own assets end and its subfolders' begin.
+   */
+  readonly divider?: { readonly before: string; readonly label: string } | undefined;
   /**
    * No page has arrived yet, and one is coming.
    *
@@ -152,6 +166,7 @@ export function Grid({
   onMore,
   onOpen,
   folders,
+  divider,
   loading = false,
   onDragOut,
 }: GridProps): React.JSX.Element {
@@ -181,6 +196,8 @@ export function Grid({
     ];
   }, [assets, folders]);
 
+  // The id alone, so a new label object for the same place lays nothing out again.
+  const breakAt = divider?.before;
   const grid = useMemo(
     () =>
       layout(items, {
@@ -190,8 +207,9 @@ export function Grid({
         target,
         gap: view === "details" ? 0 : 8,
         caption: CAPTION,
+        breakBefore: breakAt === undefined ? undefined : { id: breakAt, height: DIVIDER },
       }),
-    [items, view, proportional, width, target],
+    [items, view, proportional, width, target, breakAt],
   );
 
   // After the same 150ms the picker waits (`UI_SPEC.md` §8): a first page that
@@ -804,6 +822,17 @@ export function Grid({
         tabIndex={0}
       >
         <div className="grid-canvas" style={{ height: grid.height }} ref={canvas}>
+          {/* Hidden from the accessibility tree, because a listbox holds options
+              and groups and nothing else. */}
+          {grid.divider !== null && divider !== undefined && (
+            <div
+              className="grid-divider"
+              aria-hidden="true"
+              style={{ transform: `translateY(${grid.divider.y}px)`, height: grid.divider.height }}
+            >
+              {divider.label}
+            </div>
+          )}
           {marquee !== null && (
             <div
               className="grid-marquee"
@@ -848,6 +877,7 @@ export function Grid({
                 >
                   <ConnectedFolderCell
                     row={row}
+                    located={folders.located}
                     covers={covers.get(row.folder) ?? NO_COVERS}
                     view={view}
                     x={tile.x}
@@ -987,6 +1017,7 @@ const ConnectedFolderCell = forwardRef<
   HTMLDivElement,
   {
     readonly row: SidebarFolderRow;
+    readonly located: boolean;
     readonly covers: readonly string[];
     readonly view: GridView;
     readonly x: number;
@@ -996,7 +1027,7 @@ const ConnectedFolderCell = forwardRef<
     readonly selection: SelectionStore;
   } & React.ComponentPropsWithoutRef<"div">
 >(function ConnectedFolderCell(
-  { row, covers, view, x, y, width, height, selection, ...rest },
+  { row, located, covers, view, x, y, width, height, selection, ...rest },
   ref,
 ) {
   const id = folderTileId(row.folder);
@@ -1010,6 +1041,7 @@ const ConnectedFolderCell = forwardRef<
       ref={ref}
       id={id}
       name={row.name}
+      where={located ? parentPath(row.path) : null}
       count={row.count}
       x={x}
       y={y}
@@ -1022,6 +1054,12 @@ const ConnectedFolderCell = forwardRef<
     />
   );
 });
+
+/** The path of the folder holding this one, or `null` at the top level. */
+function parentPath(path: string): string | null {
+  const cut = path.lastIndexOf("/");
+  return cut === -1 ? null : path.slice(0, cut);
+}
 
 /** A folder with no pictures to show, shared so an empty tile is one array. */
 const NO_COVERS: readonly string[] = [];

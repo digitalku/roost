@@ -58,6 +58,8 @@ import {
   exportAssets,
   type FileWatcher,
   type FoldProgress,
+  fileInPlaces,
+  findFolders,
   forgetLibrary,
   type ImportBytes,
   type ImportReport,
@@ -69,7 +71,6 @@ import {
   listRecent,
   matches,
   moveFolder,
-  pageOf,
   pinLibrary,
   queueStatus,
   type Redrawn,
@@ -92,6 +93,7 @@ import {
   retryBlocked,
   retryFailed,
   runDerives,
+  sectionedPage,
   setComment,
   setNote,
   setPoster,
@@ -143,7 +145,7 @@ export class EngineHost {
    * hand back. It is replaced by the next run and dropped with the library, so
    * a dialog left open across either is answered with `expired`.
    */
-  #duplicates: AssetId[] | undefined;
+  #duplicates: HeldDuplicates | undefined;
 
   /**
    * Answers one request.
@@ -239,7 +241,8 @@ export class EngineHost {
         }
         // Everything else here is a preference about how the window draws what
         // it already has — the video's fit (ADR-0024 §8), the volume, the
-        // order, the view, the zoom, which panes are drawn (ADR-0028 §6) — so
+        // order, the view, the zoom, which panes are drawn (ADR-0028 §6), how a
+        // file is handed out (ADR-0034 §8, which main asks for itself) — so
         // none of them is announced: no query answers
         // differently, and the window that sent it is already drawing the new
         // state. The keys are applied in one write rather than one each,
@@ -264,6 +267,7 @@ export class EngineHost {
           ...(request.showInspector !== undefined && { showInspector: request.showInspector }),
           ...(request.sidebarWidth !== undefined && { sidebarWidth: request.sidebarWidth }),
           ...(request.inspectorWidth !== undefined && { inspectorWidth: request.inspectorWidth }),
+          ...(request.handOutByName !== undefined && { handOutByName: request.handOutByName }),
         };
         if (Object.keys(quiet).length > 0) await library.updateSettings(quiet);
         return library.settings;
@@ -490,6 +494,9 @@ export class EngineHost {
         }));
       }
 
+      case "folder:find":
+        return findFolders(this.#require(), request.query);
+
       case "derive:retryAsset": {
         const library = this.#require();
         const id = parseAssetId(request.id);
@@ -655,12 +662,19 @@ export class EngineHost {
       after === null ? undefined : { key: after.key, id: parseAssetId(after.id) };
 
     // Spread rather than assigned: `exactOptionalPropertyTypes` makes an
-    // explicit `after: undefined` a different thing from an absent one.
-    const hits = pageOf(library, query, {
-      limit,
-      ...(sort !== null && { sort }),
-      ...(cursor && { after: cursor }),
-    });
+    // explicit `after: undefined` a different thing from an absent one. A
+    // folder shown with its subfolders comes in two parts, its own assets
+    // first, and the cursor says which part it resumes (ADR-0059).
+    const { hits, section, beneath } = sectionedPage(
+      library,
+      query,
+      {
+        limit,
+        ...(sort !== null && { sort }),
+        ...(cursor && { after: cursor }),
+      },
+      after?.section ?? "own",
+    );
     const last = hits.length < limit ? undefined : lastCursor(hits);
     const stalled = library.db.repo.stalledReasons(
       "derive",
@@ -668,7 +682,8 @@ export class EngineHost {
     );
     return {
       assets: hits.map((hit) => cardOf(hit, stalled.get(hit.id) ?? null)),
-      next: last === undefined ? null : { key: last.key, id: last.id },
+      next: last === undefined ? null : { key: last.key, id: last.id, section },
+      beneath,
     };
   }
 
@@ -703,6 +718,9 @@ export class EngineHost {
           take,
           tags: [...tags],
           ...(folder === null ? {} : { folder }),
+          // Always, from the window: a directory dropped on it comes across as
+          // a folder with its subfolders (ADR-0058).
+          structure: true,
           signal,
           onBytes: (running) => {
             bytes = running;
@@ -735,7 +753,11 @@ export class EngineHost {
     // Kept only once the run finished. A run that threw has no answer to
     // offer, and leaving the previous run's list in place would offer the
     // wrong one.
-    this.#duplicates = report.duplicateIds;
+    this.#duplicates = {
+      ids: report.duplicateIds,
+      places: report.duplicatePlaces,
+      base: folder,
+    };
 
     this.onChanged?.();
     return reportOf(report, derived?.derived ?? 0);
@@ -783,14 +805,26 @@ export class EngineHost {
    * import and the click would otherwise fail the whole batch, and the answer
    * to "one of these is gone" is to file the rest.
    */
-  async #fileDuplicates(folder: number): Promise<WireFiled> {
+  async #fileDuplicates(folder: number | null): Promise<WireFiled> {
     const library = this.#require();
     const held = this.#duplicates;
     if (held === undefined) return { filed: 0, expired: true };
+    const alive = (id: AssetId): boolean => library.db.repo.findAsset(id) !== undefined;
+
+    // Each in the folder its own directory became, below the folder the run
+    // was given (ADR-0058 §3.4).
+    if (folder === null) {
+      const items = held.ids
+        .map((id, at) => ({ id, place: held.places[at] ?? [] }))
+        .filter((item) => alive(item.id));
+      const filed = await fileInPlaces(library, held.base, items);
+      if (filed > 0) this.onChanged?.();
+      return { filed, expired: false };
+    }
 
     // A Set because one run can meet the same bytes twice: the second copy of
     // a file inside the same import is a duplicate of the first.
-    const live = [...new Set(held)].filter((hash) => library.db.repo.findAsset(hash) !== undefined);
+    const live = [...new Set(held.ids)].filter(alive);
     if (live.length === 0) return { filed: 0, expired: false };
 
     await addToFolder(library, live, folder);
@@ -1429,7 +1463,6 @@ function sidebarOf(library: Library): WireSidebar {
         // by being a string; this is the number an op names.
         folder: folder.id,
         path: folder.path,
-        descendants: folder.descendants,
       }),
     ),
     smartFolders: sidebar.smartFolders.map(
@@ -1648,7 +1681,21 @@ function reportOf(report: ImportReport, thumbnails: number): WireImportReport {
     // A preview. The rest stays in the engine, which is what the dialog's
     // button acts through (ADR-0037 §3.1).
     duplicateNames: report.duplicateNames,
+    duplicatesPlaced: report.duplicatePlaces.some((place) => place.length > 0),
+    folders: report.folders,
   };
+}
+
+/**
+ * The duplicates the last import found, and where each would have gone.
+ *
+ * `places` runs beside `ids`; `base` is the folder the run was given, below
+ * which a place's names are found or made (ADR-0058 §3.4).
+ */
+interface HeldDuplicates {
+  readonly ids: readonly AssetId[];
+  readonly places: readonly (readonly string[])[];
+  readonly base: number | null;
 }
 
 /** The survey, with everything unbounded reduced to a count (ADR-0032 §6). */
