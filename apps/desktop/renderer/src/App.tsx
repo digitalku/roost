@@ -39,7 +39,12 @@ import { GRID_VIEWS, type GridView, isGridView, ZOOMS, zoomBy, zoomFor } from ".
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
 import { percentOf, TransferStatus, useTransfer } from "./grid/TransferStatus.js";
-import { assets, type ConfirmRequest, useTrashActions } from "./grid/trash-actions.js";
+import {
+  assets,
+  type ConfirmRequest,
+  type RowChange,
+  useTrashActions,
+} from "./grid/trash-actions.js";
 import { ViewMenu } from "./grid/ViewMenu.js";
 import { DropZone } from "./import/DropZone.js";
 import { DuplicatesDialog } from "./import/DuplicatesDialog.js";
@@ -78,7 +83,6 @@ const DEFAULT_SETTINGS: WireSettings = {
   mediaMuted: false,
   sortKey: "added",
   sortDescending: true,
-  shuffleSeed: 0,
   gridView: "icons",
   matchImageProportions: true,
   gridZooms: {},
@@ -99,6 +103,18 @@ const DEFAULT_SETTINGS: WireSettings = {
  * in this neighbourhood removes it.
  */
 const VOLUME_SETTLE_MS = 400;
+
+/**
+ * A shuffle the window has not shown: any seed is one (ADR-0039 §11), and the
+ * one on screen is stepped over so that rolling never gives back the order it
+ * had, which would read as a shuffle that did not happen.
+ */
+function rollSeed(previous?: number): number {
+  for (;;) {
+    const seed = Math.floor(Math.random() * 2 ** 32);
+    if (seed !== previous) return seed;
+  }
+}
 
 /** The order a menu draws while the library is still being asked for its own. */
 const DEFAULT_ORDER: WireSort = { key: "added", descending: true, seed: 0 };
@@ -184,8 +200,9 @@ export function App(): React.JSX.Element {
    * than a reload: a card the grid holds can go stale in itself — a pinned
    * poster, a rename — which `paging.pinPoster` and `paging.rename` put right,
    * and a *filtered* grid does not drop an asset that has just stopped
-   * matching, which `paging.drop` answers only for `Ctrl+Delete`. `TODO.md`
-   * §M3 records what is left.
+   * matching, which `paging.drop` answers for `Ctrl+Delete`, a drag out of a
+   * folder, and this window's own trashing (`expectRows`). `TODO.md` §M3
+   * records what is left.
    */
   const [generation, setGeneration] = useState(0);
   const [revision, setRevision] = useState(0);
@@ -232,6 +249,25 @@ export function App(): React.JSX.Element {
     setOpened({ summary, stats: stats.value });
     setRevision((n) => n + 1);
     if (rowsChanged) setGeneration((n) => n + 1);
+  }, []);
+
+  /**
+   * This window is about to move the counts itself, and has already taken the
+   * rows out of its grid (`useTrashActions`).
+   *
+   * Moving the expected counts first is what makes the re-read that follows
+   * agree with them, so the grid keeps its pages and its scroll position
+   * instead of starting again from the top (reported 2026-10-05). Anything
+   * else that moved them at the same moment — another window, the CLI — makes
+   * them disagree, and the grid re-pages as it always did.
+   */
+  const expectRows = useCallback((change: RowChange) => {
+    const counts = lastCounts.current;
+    if (counts === undefined) return;
+    lastCounts.current = {
+      assets: counts.assets + change.assets,
+      trashed: counts.trashed + change.trashed,
+    };
   }, []);
 
   // Read whenever the picker could be on screen, including after a library is
@@ -370,6 +406,7 @@ export function App(): React.JSX.Element {
         revision={revision}
         onClose={() => void close()}
         onImported={() => void readStats(opened.summary)}
+        onLeaving={expectRows}
         problem={problem}
       />
     );
@@ -701,6 +738,17 @@ function isPicture(assets: readonly AssetCard[], id: string | undefined): boolea
   return assets.find((asset) => asset.id === id)?.kind === "image";
 }
 
+/**
+ * Whether any of `ids` shows a thumbnail somebody chose, which is what offers
+ * **Remove custom thumbnail** (ADR-0060). One pass over the cards rather than a
+ * search per id: a selection can be the whole library.
+ */
+function anyChosen(assets: readonly AssetCard[], ids: readonly string[]): boolean {
+  if (ids.length === 0) return false;
+  const wanted = new Set(ids);
+  return assets.some((asset) => asset.chosenThumbnail && wanted.has(asset.id));
+}
+
 /** Whether an asset is the kind a caption track can be attached to (ADR-0025). */
 function captionable(assets: readonly AssetCard[], id: string | undefined): boolean {
   if (id === undefined) return false;
@@ -797,6 +845,7 @@ function LibraryView({
   revision,
   onClose,
   onImported,
+  onLeaving,
   problem,
 }: {
   readonly opened: Opened;
@@ -805,6 +854,8 @@ function LibraryView({
   readonly onClose: () => void;
   /** An import added rows, so the grid throws its pages away and starts again. */
   readonly onImported: () => void;
+  /** Rows are leaving because of this window, so the grid keeps its pages. */
+  readonly onLeaving: (change: RowChange) => void;
   readonly problem: WireProblem | undefined;
 }): React.JSX.Element {
   /**
@@ -842,6 +893,17 @@ function LibraryView({
    * be read still has a grid, and it draws in the defaults.
    */
   const [known, setKnown] = useState(false);
+  /**
+   * Which shuffle `random` shows: the window's, not the library's.
+   *
+   * Rolled each time a library is opened, at the user's asking on 2026-10-05
+   * (ADR-0039 §11), and again when Random is chosen from another order or
+   * **Shuffle again** is pressed. Held still otherwise, because the grid pages
+   * by it: a seed that moved between two pages would show one asset twice and
+   * another not at all. Two windows on one library have one each, as they
+   * have one trail each (ADR-0044).
+   */
+  const [shuffleSeed, setShuffleSeed] = useState(rollSeed);
   /*
    * Keyed on **which library**, not on the object holding it: `opened` is
    * rebuilt whenever the stats are re-read, and re-reading the preferences
@@ -855,6 +917,7 @@ function LibraryView({
       setSettings(DEFAULT_SETTINGS);
       return;
     }
+    setShuffleSeed(rollSeed);
     let current = true;
     void (async () => {
       const outcome = await invoke({ type: "settings:read" });
@@ -965,10 +1028,10 @@ function LibraryView({
         ? {
             key: settings.sortKey,
             descending: settings.sortDescending,
-            seed: settings.shuffleSeed,
+            seed: shuffleSeed,
           }
         : undefined,
-    [known, settings.sortKey, settings.sortDescending, settings.shuffleSeed],
+    [known, settings.sortKey, settings.sortDescending, shuffleSeed],
   );
 
   /**
@@ -1268,21 +1331,23 @@ function LibraryView({
   }, [applyView, settings.showSidebar, settings.showInspector]);
 
   /**
-   * **Shuffle again** — the only thing that changes what `random` shows.
-   *
-   * A seed the window rolls: what it selects is the engine's business
-   * (ADR-0039 §5). Chosen away from the one on screen, because a shuffle that
-   * gives back the order it had reads as a shuffle that did not happen, and
-   * one seed in sixty-three would do exactly that.
+   * **Shuffle again**, and Random chosen from another order: both are asking
+   * for a shuffle they have not seen (ADR-0039 §11). What a seed selects is
+   * the engine's business (§5).
    */
   const applyShuffle = useCallback(() => {
-    setSettings((held) => {
-      let next = held.shuffleSeed;
-      while (next === held.shuffleSeed) next = Math.floor(Math.random() * 1_000_000);
-      void invoke({ type: "settings:write", sortKey: "random", shuffleSeed: next });
-      return { ...held, sortKey: "random", shuffleSeed: next };
-    });
-  }, []);
+    setShuffleSeed(rollSeed);
+    // A shuffle has no direction, and the menu writes it the one way it has.
+    applyView({ sortKey: "random", sortDescending: false });
+  }, [applyView]);
+
+  const applySort = useCallback(
+    (next: WireSort) => {
+      if (next.key === "random" && settings.sortKey !== "random") return applyShuffle();
+      applyView({ sortKey: next.key, sortDescending: next.descending });
+    },
+    [applyShuffle, applyView, settings.sortKey],
+  );
 
   /** A facet was ticked: the place stands, the facets are the new ones. */
   const applyFacets = useCallback(
@@ -1472,12 +1537,27 @@ function LibraryView({
     onLeft: deselectLeft,
   });
 
+  /**
+   * Assets this window trashed, restored or deleted: their rows go, and the
+   * rest stay where they are, ring and scroll position included. Emptying the
+   * trash takes every row in view, so it lets the grid start again.
+   */
+  const leaveRows = useCallback(
+    (ids?: readonly string[]) => {
+      if (ids === undefined) return selection.reset();
+      dropRows(ids);
+      selection.leave(ids);
+    },
+    [selection, dropRows],
+  );
+
   const trashing = useTrashActions({
     ids: selected,
     onNote: noteResult,
     onProblem: setActed,
     onConfirm: setConfirming,
-    onGone: clearSelection,
+    onGone: leaveRows,
+    onLeaving,
   });
 
   const reclaim = useReclaim({
@@ -1529,17 +1609,16 @@ function LibraryView({
         // neither — the assets are still there and still live. Without the drop
         // they stay on screen in a folder they have just left, which is the
         // status bar and the grid saying different things. Found in a real
-        // window on 2026-09-07.
-        dropRows(selected);
+        // window on 2026-09-07. The ring goes to the neighbour, as a trash's does.
         // The same order the trash actions keep: what was acted on has left
         // the view, so the selection goes before the line that reports it.
-        clearSelection();
+        leaveRows(selected);
         noteResult(`Removed ${assets(selected.length)} from ${openFolder.name}`);
       });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openFolder, selected, clearSelection, noteResult, dropRows]);
+  }, [openFolder, selected, noteResult, leaveRows]);
 
   /**
    * The row the three columns sit in, which is what carries their widths.
@@ -1649,12 +1728,12 @@ function LibraryView({
         // unless the view is the whole subtree and they went deeper into it,
         // onto one of the tiles it draws (ADR-0043 §3, amended 2026-10-01).
         const stayed = split.subfolders === true && folder.path.startsWith(`${from.path}/`);
-        if (!stayed) dropRows(ids);
-        clearSelection();
+        if (stayed) clearSelection();
+        else leaveRows(ids);
         noteResult(`Moved ${assets(ids.length)} from ${from.name} to ${folder.name}`);
       })();
     },
-    [openFolder, split.subfolders, dropRows, clearSelection, noteResult],
+    [openFolder, split.subfolders, leaveRows, clearSelection, noteResult],
   );
 
   /** A folder dropped on another, or on the heading (`null` is the top level). */
@@ -2275,9 +2354,7 @@ function LibraryView({
                         },
                       })
                     }
-                    onSort={(next) =>
-                      applyView({ sortKey: next.key, sortDescending: next.descending })
-                    }
+                    onSort={applySort}
                     onShuffle={applyShuffle}
                     showFolders={settings.showFolders}
                     onShowFolders={(on) => applyView({ showFolders: on })}
@@ -2319,9 +2396,11 @@ function LibraryView({
               onNote={noteResult}
               onProblem={setActed}
               onConfirm={setConfirming}
-              onGone={clearSelection}
+              onGone={leaveRows}
+              onLeaving={onLeaving}
               onPosterPinned={paging.pinPoster}
               picture={isPicture(paging.assets, focused)}
+              chosenThumbnail={anyChosen(paging.assets, [focused])}
             >
               <PreviewPane
                 id={focused}
@@ -2357,7 +2436,8 @@ function LibraryView({
               onNote={noteResult}
               onProblem={setActed}
               onConfirm={setConfirming}
-              onGone={clearSelection}
+              onGone={leaveRows}
+              onLeaving={onLeaving}
               onPaste={paste}
               onNewFile={composeFile}
             >
@@ -2372,7 +2452,8 @@ function LibraryView({
               onNote={noteResult}
               onProblem={setActed}
               onConfirm={setConfirming}
-              onGone={clearSelection}
+              onGone={leaveRows}
+              onLeaving={onLeaving}
               onPaste={paste}
               onNewFile={composeFile}
               onOpenHere={(id) => {
@@ -2384,6 +2465,7 @@ function LibraryView({
               {...(root === undefined ? {} : { libraryRoot: root })}
               onTransfer={transferring.start}
               transferring={transferring.running !== undefined}
+              chosenThumbnail={anyChosen(paging.assets, selected)}
             >
               <Grid
                 assets={paging.assets}

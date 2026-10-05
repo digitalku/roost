@@ -195,6 +195,8 @@ export interface Redrawn {
    * libheif"* until the grid re-paged.
    */
   readonly undrawn: string | null;
+  /** Whether the pictures are ones somebody chose (ADR-0060). */
+  readonly chosen: boolean;
 }
 
 /** What the queue is holding, for a status line or a capability prompt. */
@@ -545,12 +547,39 @@ export async function runDerives(
     library.db.transaction(() => {
       for (const outcome of outcomes) {
         const id = parseAssetId(outcome.claim.assetId);
+        // Read inside the transaction, not trusted from before the derive:
+        // somebody may have chosen this asset's pictures while it was being
+        // drawn, and a drawing committed now would replace them (ADR-0060).
+        const chosen = library.db.repo.pictureSource(id)?.chosen === true;
         if (outcome.kind === "kept") {
           library.db.repo.putDerived(id, outcome.metadata, now);
           library.db.repo.completeJob(outcome.claim.id);
-          redrawn.push({ id, derivedAt: now, undrawn: null });
+          redrawn.push({ id, derivedAt: now, undrawn: null, chosen });
           report.derived += 1;
           report.kept += 1;
+        } else if (chosen && (outcome.kind === "ok" || outcome.kind === "measured")) {
+          // The file was measured and its pictures kept: what it is now is the
+          // file's, and what it looks like is somebody's.
+          const { size, mtime } = outcome.metadata;
+          if (size !== undefined && mtime !== undefined) {
+            library.db.repo.putPictureSource(id, {
+              size,
+              mtime,
+              posterMs: outcome.claim.posterMs,
+              metadata: outcome.metadata,
+            });
+          }
+          library.db.repo.putDerived(id, outcome.metadata, now);
+          library.db.repo.completeJob(outcome.claim.id);
+          redrawn.push({ id, derivedAt: now, undrawn: null, chosen });
+          report.derived += 1;
+          report.kept += 1;
+        } else if (outcome.kind === "measured") {
+          // Measured for pictures somebody chose, which are gone by the
+          // commit. Queued again, to be drawn from the file this time.
+          library.db.repo.putDerived(id, outcome.metadata, now);
+          library.db.repo.enqueueJob("derive", id, JOB_PRIORITY.interactive, now);
+          redrawn.push({ id, derivedAt: null, undrawn: null, chosen });
         } else if (outcome.kind === "ok") {
           // Whatever this asset had is a picture of the file as it was, and a
           // preview size this pass does not draw would outlive the bytes it
@@ -578,7 +607,7 @@ export async function runDerives(
           }
           library.db.repo.putDerived(id, outcome.metadata, now);
           library.db.repo.completeJob(outcome.claim.id);
-          redrawn.push({ id, derivedAt: now, undrawn: null });
+          redrawn.push({ id, derivedAt: now, undrawn: null, chosen });
           report.derived += 1;
         } else if (outcome.kind === "blocked") {
           // What was measured survives the block: a format this build cannot
@@ -594,13 +623,14 @@ export async function runDerives(
             id,
             derivedAt: outcome.measured === undefined ? null : now,
             undrawn: outcome.reason,
+            chosen,
           });
           library.db.repo.blockJob(outcome.claim.id, outcome.reason);
           if (outcome.reason === MISSING_FILE) report.missing += 1;
           else report.blocked += 1;
         } else {
           library.db.repo.failJob(outcome.claim.id, outcome.reason);
-          redrawn.push({ id, derivedAt: null, undrawn: outcome.reason });
+          redrawn.push({ id, derivedAt: null, undrawn: outcome.reason, chosen });
           report.failed += 1;
           if (report.failures.length < REPORTED_FAILURES) {
             report.failures.push({ id: outcome.claim.assetId, reason: outcome.reason });
@@ -696,6 +726,16 @@ type DeriveOutcomeRow =
       metadata: DerivedMetadata;
     }
   | {
+      /**
+       * Measured and not drawn, because the pictures are somebody's
+       * (ADR-0060). A format nothing here can draw ends here too, rather
+       * than parked: the picture it lacked has been supplied.
+       */
+      kind: "measured";
+      claim: JobClaim;
+      metadata: DerivedMetadata;
+    }
+  | {
       kind: "blocked";
       claim: JobClaim;
       reason: string;
@@ -733,8 +773,23 @@ async function deriveOne(
     const aligned = await alignExtension(library, id, resolved.ext, resolved.path);
     const path = aligned.path;
 
+    const source = library.db.repo.pictureSource(claim.assetId);
     const kept = await keptPictures(library, claim, path, sizes);
     if (kept !== undefined) return { kind: "kept", claim, metadata: kept };
+
+    if (source?.chosen === true) {
+      // The file changed under pictures somebody chose. Its dimensions and
+      // duration are still the file's to say (RL-22), and a backend is what
+      // reads them, so it runs and what it drew is thrown away.
+      const probed = await derive(path, sizes, claim.posterMs ?? undefined);
+      const measured = await measure(path);
+      const read = probed.metadata;
+      return {
+        kind: "measured",
+        claim,
+        metadata: read === undefined ? measured : { ...read, ...measured },
+      };
+    }
 
     // The moment somebody pinned the thumbnail to, if they did. A rebuild
     // replays `poster_set` into this column and the frame is re-extracted here,
@@ -775,7 +830,8 @@ async function deriveOne(
  * The metadata recorded with this asset's pictures, if they can be kept as
  * they are (ADR-0051 §5).
  *
- * All three must hold: every size asked for is there, the frame they show is
+ * All three must hold for pictures drawn from the file, and the last for ones
+ * somebody chose: every size asked for is there, the frame they show is
  * the one the asset is pinned to now, and the file's size and modification
  * time are the ones they were drawn from. That last test is the one ADR-0047
  * already trusts to decide that a file changed, so trusting it the other way
@@ -791,8 +847,13 @@ async function keptPictures(
 ): Promise<DerivedMetadata | undefined> {
   const { repo } = library.db;
   const source = repo.pictureSource(claim.assetId);
-  if (source === undefined || source.posterMs !== claim.posterMs) return undefined;
-  if (!repo.hasThumbnails(claim.assetId, sizes)) return undefined;
+  if (source === undefined) return undefined;
+  // Pictures somebody chose show no frame, and are every size there is of
+  // them: neither test describes them (ADR-0060).
+  if (!source.chosen) {
+    if (source.posterMs !== claim.posterMs) return undefined;
+    if (!repo.hasThumbnails(claim.assetId, sizes)) return undefined;
+  }
 
   const stats = await stat(path);
   // Floored as `hashFile` floors it, or every comparison would miss.

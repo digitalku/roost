@@ -299,9 +299,71 @@ describe("the thumbnail database (ADR-0051)", () => {
           height: 480,
           props: { codec: "h264" },
         },
+        chosen: false,
       });
       const main = (db.pragma("main.table_list") as { name: string }[]).map((t) => t.name);
       expect(main).not.toContain("thumbs");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("brings a version 1 thumbnail database forward without losing a picture (ADR-0060)", () => {
+    const path = join(dir, "index.db");
+    const before = Db.open(path);
+    try {
+      addAsset(before, ONE);
+      before.repo.putThumbnail(ONE, 256, 256, 160, Buffer.from("kept"));
+      before.repo.putPictureSource(ONE, { size: 7, mtime: 9, posterMs: null, metadata: {} });
+    } finally {
+      before.close();
+    }
+    // What every library has on disk from before ADR-0060.
+    const raw = new BetterSqlite3(join(dir, THUMBNAILS_FILE));
+    raw.exec("ALTER TABLE sources DROP COLUMN chosen; PRAGMA user_version = 1");
+    raw.close();
+
+    const db = Db.open(path);
+    try {
+      expect(db.repo.thumbnail(ONE, 256)?.toString()).toBe("kept");
+      expect(db.repo.pictureSource(ONE)).toMatchObject({ size: 7, mtime: 9, chosen: false });
+    } finally {
+      db.close();
+    }
+    const after = new BetterSqlite3(join(dir, THUMBNAILS_FILE), { readonly: true });
+    try {
+      expect(after.pragma("user_version", { simple: true })).toBe(2);
+    } finally {
+      after.close();
+    }
+  });
+
+  it("never drops a chosen picture for a changed file, only for a removed asset", () => {
+    const db = Db.openInMemory();
+    try {
+      addAsset(db, ONE);
+      addAsset(db, TWO);
+      const chosen = [
+        { size: 256, width: 256, height: 128, data: Buffer.from("small") },
+        { size: 512, width: 512, height: 256, data: Buffer.from("large") },
+      ];
+      db.repo.choosePictures(ONE, chosen);
+      db.repo.putThumbnail(TWO, 256, 256, 160, Buffer.from("drawn"));
+
+      db.repo.dropThumbnails(ONE);
+      db.repo.dropThumbnail(ONE, 512);
+      db.repo.dropThumbnails(TWO);
+
+      expect(db.repo.picturesOf(ONE).map((one) => one.data.toString())).toEqual(["small", "large"]);
+      expect(db.repo.thumbnail(TWO, 256)).toBeUndefined();
+      // Unmeasured, so the next derive reads the file rather than trusting a
+      // size nobody took.
+      expect(db.repo.pictureSource(ONE)).toMatchObject({ size: -1, chosen: true });
+      expect([...db.repo.chosenAmong([ONE, TWO])]).toEqual([ONE]);
+
+      db.transaction(() => new IndexSink(db).apply({ ts: 2, op: "remove", asset: ONE }));
+      expect(db.repo.picturesOf(ONE)).toEqual([]);
+      expect(db.repo.pictureSource(ONE)).toBeUndefined();
     } finally {
       db.close();
     }

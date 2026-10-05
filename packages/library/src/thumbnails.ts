@@ -107,6 +107,10 @@ function asThumbnailReport(report: DeriveReport): ThumbnailReport {
  */
 export async function redrawPoster(library: Library, id: string): Promise<boolean> {
   const asset = parseAssetId(id);
+  // A frame is a choice about the file's own picture, and the picture on
+  // screen is somebody else's: the moment is journalled, and shows when that
+  // one is removed (ADR-0060). Answered as done, so nothing queues a redraw.
+  if (library.db.repo.pictureSource(asset)?.chosen === true) return true;
   const target = library.db.repo.thumbnailTarget(asset);
   if (target === undefined) return false;
   const path = library.storage.locate(asset, target.ext);
@@ -118,6 +122,9 @@ export async function redrawPoster(library: Library, id: string): Promise<boolea
     const outcome = await derive(path, THUMBNAIL_SIZES, target.posterMs ?? undefined);
     if (!outcome.ok) return false;
     library.db.transaction(() => {
+      // Checked again where it is written: the decode above took long enough
+      // for somebody to choose a picture in the meantime.
+      if (library.db.repo.pictureSource(asset)?.chosen === true) return;
       for (const thumbnail of outcome.thumbnails) {
         library.db.repo.putThumbnail(
           asset,
@@ -142,6 +149,9 @@ export async function ensurePreview(library: Library, id: string): Promise<boole
   const asset = parseAssetId(id);
   if (library.db.repo.thumbnail(asset, PREVIEW_SIZE) !== undefined) return true;
   if (library.db.repo.thumbnail(asset, GRID_SIZE) === undefined) return false;
+  // Chosen pictures come at every size or not at all, and the file is not what
+  // they show, so a missing one is not drawn from it (ADR-0060).
+  if (library.db.repo.pictureSource(asset)?.chosen === true) return false;
 
   const target = library.db.repo.thumbnailTarget(asset);
   if (target === undefined) return false;
@@ -154,6 +164,7 @@ export async function ensurePreview(library: Library, id: string): Promise<boole
     const outcome = await derive(path, [PREVIEW_SIZE], target.posterMs ?? undefined);
     if (!outcome.ok) return false;
     library.db.transaction(() => {
+      if (library.db.repo.pictureSource(asset)?.chosen === true) return;
       for (const thumbnail of outcome.thumbnails) {
         library.db.repo.putThumbnail(
           asset,

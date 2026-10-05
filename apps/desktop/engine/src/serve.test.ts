@@ -694,6 +694,8 @@ describe("the engine's message loop", () => {
     // message. A field added here that carried bytes would pass every other
     // test in this file.
     expect(Object.keys(card ?? {}).sort()).toEqual([
+      // A flag, for the asset menu's Remove custom thumbnail (ADR-0060).
+      "chosenThumbnail",
       // Part of the thumbnail's address rather than something a cell draws,
       // and the reason an externally edited file redraws (ADR-0047).
       "derivedAt",
@@ -894,6 +896,7 @@ describe("the engine's message loop", () => {
       [
         // Whether the pane may load the file into an `<img>` (ADR-0040 §7).
         "browserDrawable",
+        "chosenThumbnail",
         "comments",
         "createdAt",
         "durationMs",

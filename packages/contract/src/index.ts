@@ -59,6 +59,8 @@ export {
   TAG_RULES,
   TAKES,
   type Take,
+  THUMBNAIL_SOURCES,
+  type ThumbnailSource,
   type WireAbout,
   type WireAssetDetail,
   type WireCapability,
@@ -101,6 +103,7 @@ export {
   type WireSubtitle,
   type WireSubtitlesAdded,
   type WireTagRule,
+  type WireThumbnailChosen,
   type WireTransferProgress,
   type WireTransferReport,
 } from "./dto.js";

@@ -41,11 +41,11 @@ export { isKind, KINDS, type Kind } from "./kind.js";
 export {
   DEFAULT_SORT,
   isSortKey,
-  rotationFor,
-  SHUFFLES,
+  type Shuffle,
   SORT_KEYS,
   type Sort,
   type SortKey,
+  shuffleFor,
 } from "./sort.js";
 export {
   isPlacement,

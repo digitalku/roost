@@ -263,6 +263,12 @@ M5 and M6 are deferred at the user's request (below), so a feature they ask for 
 ask for it rather than waiting for a milestone nobody has planned yet. What has arrived that way
 is listed here, so the order stays visible instead of becoming folklore.
 
+- ☑ **A thumbnail somebody chose** — 2026-10-05, ADR-0060 (**accepted** the same day), from the
+  user asking for *Set thumbnail from clipboard* and *from file…* on any file, so that one Roost
+  cannot draw still has a picture. Kept in `thumbs/roost.db` alone, at the user's choosing, so it is
+  lost with `thumbs/` and nothing is journalled; `FORMAT.md` revision 2.3 says so of RL-2. Never drawn
+  over, carried by a move to another library, and `roost thumbnail` in the CLI. The extension badge
+  over a picture's corner came first, the same afternoon. `scripts/check-thumbnail.mjs`, 13 checks
 - ☑ **The folder is the library's name** — 2026-10-01, ADR-0056 (**accepted** the same day), from
   the user asking whether a library could be named by its folder, as Eagle's are, so that renaming
   the folder renames the library. It can, as `FORMAT.md` **revision 2.2**: RL-7b, and `name` in
@@ -441,6 +447,17 @@ support · library merge · on-image annotation.
 ---
 
 ## Decision status
+
+**ADR-0060 — a thumbnail somebody chose** was proposed and **accepted** on 2026-10-05. The user chose
+to keep it in `thumbs/roost.db` alone over keeping a copy of the image as a hidden asset, knowing it
+is lost with `thumbs/`. A format revision (2.3), not a version, and invariant 9's one exception.
+
+**ADR-0039 §11 — a new shuffle at every open** was proposed and **accepted** on 2026-10-05, from the
+user asking why Random did not shuffle each time the library opened. Now it does, and it also
+shuffles when Random is chosen from another order. The order is still the library's, but the seed
+is the window's. The shuffle reads one character of the id through a reordered alphabet, which
+gives 12 × 32! orders where there were eleven. A walk through it costs about a second where it cost
+twenty. No format change.
 
 **ADR-0056 — the folder is the library's name** was proposed and **accepted** on 2026-10-01: the
 user asked for Eagle's rule, then for *Rename library…* in the window as well, and then what a

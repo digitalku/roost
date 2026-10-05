@@ -245,6 +245,37 @@
   display: none;
 }
 
+/*
+ * The extension over a picture's corner (`UI_SPEC.md` §6). Bottom left, where
+ * nothing else on a cell is drawn, and out of the way of the ring. Hidden until
+ * the image beside it has loaded: a cell with no picture shows its extension in
+ * the placeholder already.
+ */
+.cell-ext {
+  position: absolute;
+  bottom: var(--space-1);
+  left: var(--space-1);
+  display: none;
+  max-width: calc(100% - 2 * var(--space-1));
+  overflow: hidden;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--on-image-bg);
+  color: var(--on-image-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.cell-image[data-loaded]:not([hidden]) + .cell-ext {
+  display: block;
+}
+
 .cell-name {
   overflow: hidden;
   padding: 0 var(--space-1);

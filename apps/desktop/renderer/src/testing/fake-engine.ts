@@ -37,6 +37,7 @@ import type {
   WireSort,
   WireStars,
   WireTagRule,
+  WireThumbnailChosen,
   WireTransferReport,
 } from "@roost/contract";
 import type { WindowBridge } from "../bridge.js";
@@ -78,6 +79,8 @@ export interface FakeEngineOptions {
    * with each of the four.
    */
   readonly clipboard?: WirePasted;
+  /** What `asset:thumbnail` answers with: by default, set on every id asked. */
+  readonly thumbnail?: WireThumbnailChosen;
   /** What `dialog:openLibrary` answers with. `null` is a cancelled dialog. */
   readonly openLibraryDialog?: string | null;
   /** What `dialog:chooseLocation` answers with. */
@@ -279,6 +282,7 @@ export function fakeDetail(index: number, over: Partial<WireAssetDetail> = {}): 
     contentHash: null,
     derivedAt: null,
     undrawn: null,
+    chosenThumbnail: false,
     createdAt: null,
     importedAt: card.importedAt,
     trashedAt: null,
@@ -320,6 +324,7 @@ export function fakeAsset(index: number, over: Partial<AssetCard> = {}): AssetCa
     posterMs: null,
     derivedAt: 1_700_000_000,
     undrawn: null,
+    chosenThumbnail: false,
     size: 1024 + index,
     width: 800,
     height: 600,
@@ -363,6 +368,10 @@ export class FakeEngine {
 
   /** Every request the component made, in order. */
   readonly seen: Request[] = [];
+  /** What this fake trashed, restored and removed, for `library:stats`. */
+  #trashedHere = 0;
+  #restoredHere = 0;
+  #removedHere = 0;
 
   /** The last text `clipboard:copyText` was given, or `undefined` for none. */
   copied: string | undefined;
@@ -416,7 +425,6 @@ export class FakeEngine {
       mediaMuted: false,
       sortKey: "added",
       sortDescending: true,
-      shuffleSeed: 0,
       gridView: "icons",
       matchImageProportions: true,
       showFolders: true,
@@ -751,8 +759,23 @@ export class FakeEngine {
           return problem("remote", "No library is open", {});
         }
         // The asset count follows what an import actually added, because the
-        // window decides whether to re-page the grid from it.
-        return ok({ ...EMPTY_STATS, assets: this.assets.length, ...this.#options.stats });
+        // window decides whether to re-page the grid from it. The two counts
+        // move as the engine's do: trashing leaves the total alone and adds to
+        // the trash, and a permanent delete takes from both — the window
+        // recognises its own change by exactly that (`expectRows`).
+        return ok({
+          ...EMPTY_STATS,
+          ...this.#options.stats,
+          assets:
+            this.#options.stats?.assets === undefined
+              ? this.assets.length + this.#trashedHere
+              : this.#options.stats.assets - this.#removedHere,
+          trashed:
+            (this.#options.stats?.trashed ?? 0) +
+            this.#trashedHere -
+            this.#restoredHere -
+            this.#removedHere,
+        });
 
       case "asset:detail":
         return ok(this.details.get(request.id) ?? null);
@@ -795,6 +818,17 @@ export class FakeEngine {
 
       case "clipboard:paste":
         return ok(this.#options.clipboard ?? { kind: "empty" });
+
+      case "asset:thumbnail":
+        // What main would answer, as the test said: the clipboard and the
+        // dialog are main's, and the engine half is `asset:thumbnailSet`.
+        return ok(this.#options.thumbnail ?? { kind: "chosen", count: request.ids.length });
+
+      case "asset:thumbnailSet":
+        return ok(request.ids.length);
+
+      case "asset:thumbnailClear":
+        return ok(request.ids.length);
 
       case "asset:addSubtitle": {
         // The engine's list of what counts as a subtitle, as much of it as a
@@ -1006,6 +1040,7 @@ export class FakeEngine {
       case "assets:trash": {
         const gone = new Set(request.ids);
         this.assets = this.assets.filter((asset) => !gone.has(asset.id));
+        this.#trashedHere += gone.size;
         this.emit({ type: "library:changed" });
         return ok(null);
       }
@@ -1013,11 +1048,13 @@ export class FakeEngine {
       case "assets:remove": {
         const gone = new Set(request.ids);
         this.assets = this.assets.filter((asset) => !gone.has(asset.id));
+        this.#removedHere += gone.size;
         this.emit({ type: "library:changed" });
         return ok({ assets: gone.size, bytes: this.#options.freedBytes ?? 0 });
       }
 
       case "assets:restore":
+        this.#restoredHere += request.ids.length;
         this.emit({ type: "library:changed" });
         return ok(null);
 

@@ -575,7 +575,10 @@ Violating any of these is a bug, regardless of what it enables:
    in a way that stops another application writing to it (RL-21).
 7. No network calls at runtime, except explicit user-initiated "import from URL".
 8. `@roost/core` depends on no other workspace package.
-9. Every user-authored mutation is journalled before it touches `index.db`.
+9. Every user-authored mutation is journalled before it touches `index.db`. **One exception, by
+   the user's choice** (ADR-0060): a thumbnail somebody chose is written to `thumbs/roost.db`
+   alone, never journalled and never in `index.db`, and is lost with `thumbs/`. A line could only
+   say that one existed, never what it was, so replaying it would restore nothing.
 10. The renderer is sandboxed, context-isolated, and reaches the engine only through the
     preload's typed surface.
 11. Image bytes never travel through IPC, and are never base64-encoded.

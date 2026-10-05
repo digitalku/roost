@@ -29,6 +29,7 @@ export const ERROR_CODES = [
   "malformed_record",
   "migration_failed",
   "not_a_library",
+  "not_a_picture",
   "not_an_eagle_library",
   "not_a_video",
   "not_editable",

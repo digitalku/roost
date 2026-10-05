@@ -33,13 +33,13 @@
  * to a `radix-ui` submenu is the half a component test cannot drive — happy-dom
  * decides differently from what a browser does with the same clicks — and
  * "the library opens in the order it was left in" needs a second window to
- * mean anything.
+ * mean anything — and "but in a new shuffle" (ADR-0039 §11) two more.
  *
  *   node scripts/check-grid.mjs
  *
  * Builds its own library in a temporary directory and deletes it again.
  */
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ledger } from "./lib/checks.mjs";
@@ -191,17 +191,19 @@ async function unhover() {
   await sleep(120);
 }
 
-/** A click on the scroller's own padding, which is background rather than a cell. */
+/**
+ * A click on the scroller's own padding, which is background rather than a cell.
+ *
+ * Halfway into the top padding and across from the left edge, not 3px in: the
+ * sidebar's seam grabs −3…+4px around that edge and calls `preventDefault`, so
+ * a click there never reaches the grid (found 2026-09-25, and lost since).
+ */
 async function clearSelection() {
   const grid = await cdp.box(".grid");
-  console.log(
-    "DEBUG",
-    grid,
-    await cdp.evaluate(
-      `(() => { const e = document.elementFromPoint(${grid.left + 3}, ${grid.top + 3}); return [e?.className, document.querySelectorAll('.cell[aria-selected="true"]').length, document.querySelector('.grid').scrollTop, JSON.stringify(document.querySelector('.cell')?.getBoundingClientRect())]; })()`,
-    ),
+  const padding = await cdp.evaluate(
+    `parseFloat(getComputedStyle(document.querySelector(".grid")).paddingTop) || 0`,
   );
-  await cdp.mouse.click(grid.left + 3, grid.top + 3);
+  await cdp.mouse.click(grid.left + 40, grid.top + Math.max(1, Math.floor(padding / 2)));
   await cdp.settle(`${selectedHashes}.length`, (n) => n === 0);
 }
 
@@ -635,6 +637,12 @@ try {
       .sort((a, b) => (Math.abs(a.top - b.top) > 2 ? a.top - b.top : a.left - b.left))
       .map((cell) => cell.name)`;
 
+  const inOrder = (names) => JSON.stringify(names) === JSON.stringify([...names].sort());
+  const samePrefix = (one, two) => {
+    const length = Math.min(one.length, two.length);
+    return JSON.stringify(one.slice(0, length)) === JSON.stringify(two.slice(0, length));
+  };
+
   /**
    * Where a menu row is, by the words on it.
    *
@@ -699,7 +707,7 @@ try {
   await chooseSort("Name");
   const byName = await cdp.settle(
     drawnExpression,
-    (names) => names.length > 0 && names[0] === "shot-0.png",
+    (names) => names.length > 0 && names[0] === "shot-0",
   );
   check(
     "choosing Name draws the grid A to Z, which is the direction Name means",
@@ -710,9 +718,13 @@ try {
   await openSort();
   await chooseSort("Z to A");
   const reversed = await cdp.settle(drawnExpression, (names) => names[0] !== byName[0]);
+  // Against the order rather than against `byName` turned round: the grid is
+  // virtualised, so each direction draws its own first screen and only the
+  // first screen, and the two are different assets once the library is taller
+  // than the window.
   check(
     "and turning it round reverses what is drawn, without changing the key",
-    JSON.stringify(reversed) === JSON.stringify([...byName].reverse()),
+    JSON.stringify(reversed) === JSON.stringify([...reversed].sort().reverse()),
     reversed.slice(0, 4).join(" "),
   );
 
@@ -730,13 +742,13 @@ try {
   await chooseSort("Random");
   const shuffled = await cdp.settle(
     drawnExpression,
-    (names) => names.length === byName.length && JSON.stringify(names) !== JSON.stringify(reversed),
+    (names) => names.length > 0 && !inOrder(names) && !samePrefix(names, reversed),
   );
   check(
     "Random draws the same assets in an order that is neither way round",
-    JSON.stringify(shuffled) !== JSON.stringify(byName) &&
-      JSON.stringify(shuffled) !== JSON.stringify(reversed) &&
-      new Set(shuffled).size === byName.length,
+    !samePrefix(shuffled, byName) &&
+      !samePrefix(shuffled, reversed) &&
+      new Set(shuffled).size === shuffled.length,
     shuffled.slice(0, 4).join(" "),
   );
 
@@ -744,13 +756,32 @@ try {
   await chooseSort("Shuffle again", "menuitem");
   const reshuffled = await cdp.settle(
     drawnExpression,
-    (names) =>
-      names.length === shuffled.length && JSON.stringify(names) !== JSON.stringify(shuffled),
+    (names) => names.length > 0 && !samePrefix(names, shuffled),
   );
   check(
     "and Shuffle again gives a different one",
-    JSON.stringify(reshuffled) !== JSON.stringify(shuffled),
+    !samePrefix(reshuffled, shuffled),
     reshuffled.slice(0, 4).join(" "),
+  );
+
+  // ADR-0039 §11: coming back to Random from another order is asking for a
+  // shuffle, not for the one that was left. Two draws are compared over what
+  // both drew: how many cells a virtualised grid draws depends on where it was
+  // scrolled, and is no part of the order.
+  await openSort();
+  await chooseSort("Name");
+  await cdp.evaluate('document.querySelector(".grid").scrollTop = 0');
+  await cdp.settle(drawnExpression, (names) => names[0] === "shot-0");
+  await openSort();
+  await chooseSort("Random");
+  const returned = await cdp.settle(
+    drawnExpression,
+    (names) => names.length > 0 && !inOrder(names),
+  );
+  check(
+    "and choosing Random again from another order shuffles again",
+    !samePrefix(returned, reshuffled),
+    returned.slice(0, 4).join(" "),
   );
 
   // Back to an order that can be predicted from the outside, so the window
@@ -761,7 +792,11 @@ try {
   await chooseSort("Name");
   await openSort();
   await chooseSort("A to Z");
-  await cdp.settle(drawnExpression, (names) => names[0] === "shot-0.png");
+  // A new order keeps the focused asset in view, so the grid may have moved
+  // with a shuffle, and the first drawn cell is only the first of the order
+  // at the top.
+  await cdp.evaluate('document.querySelector(".grid").scrollTop = 0');
+  await cdp.settle(drawnExpression, (names) => names[0] === "shot-0");
 
   section("A zoom per view (ADR-0039 §10)");
   /*
@@ -873,7 +908,7 @@ try {
     );
     check(
       "the grid is in the remembered order on the first page it draws",
-      names[0] === "shot-0.png" && JSON.stringify(names) === JSON.stringify([...names].sort()),
+      names[0] === "shot-0" && JSON.stringify(names) === JSON.stringify([...names].sort()),
       names.slice(0, 4).join(" "),
     );
     // The view as well as the order: they are one menu and one preference, and
@@ -889,6 +924,42 @@ try {
   } finally {
     await second.close();
   }
+
+  section("Random is remembered, the shuffle is not (ADR-0039 §11)");
+  // Asked for on 2026-10-05: a library left in Random opens in Random, and in
+  // a shuffle it has not shown before. Written into the file rather than
+  // chosen from the menu, because the menu is covered above and what is under
+  // test here is two start-ups.
+  const preferences = JSON.parse(await readFile(settingsPath, "utf8"));
+  await writeFile(settingsPath, JSON.stringify({ ...preferences, sortKey: "random" }));
+  const openings = [];
+  for (let n = 0; n < 2; n += 1) {
+    const next = await launch({ library: root });
+    try {
+      openings.push(
+        await next.cdp.settle(drawnExpression, (drawn) => Array.isArray(drawn) && drawn.length > 0),
+      );
+    } finally {
+      await next.close();
+    }
+  }
+  const [firstOpen = [], secondOpen = []] = openings;
+  check(
+    "a library left in Random opens shuffled",
+    firstOpen.length > 0 && !inOrder(firstOpen),
+    firstOpen.slice(0, 4).join(" "),
+  );
+  check(
+    "and opening it again draws another shuffle",
+    !samePrefix(secondOpen, firstOpen),
+    secondOpen.slice(0, 4).join(" "),
+  );
+  const after = JSON.parse(await readFile(settingsPath, "utf8"));
+  check(
+    "and nothing about which shuffle is written to the library",
+    after.sortKey === "random" && !("shuffleSeed" in after),
+    JSON.stringify(after),
+  );
 
   report();
 } catch (error) {

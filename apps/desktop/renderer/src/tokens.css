@@ -63,6 +63,12 @@
   --radius-lg: 12px;
   --radius-full: 9999px;
 
+  /* Over a picture, whose colours are the file's and not the theme's: the same
+     dark chip and light text on either theme, or a light chip vanishes over
+     snow and a dark one over night. */
+  --on-image-bg: rgb(0 0 0 / 55%);
+  --on-image-text: rgb(255 255 255 / 92%);
+
   /* No webfont: invariant 7 forbids the request, and chrome does not need one. */
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;

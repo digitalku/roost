@@ -32,7 +32,13 @@ describe("the asset context menu", () => {
       inTrash = false,
       drawable,
       picture,
-    }: { inTrash?: boolean; drawable?: boolean; picture?: boolean } = {},
+      chosenThumbnail,
+    }: {
+      inTrash?: boolean;
+      drawable?: boolean;
+      picture?: boolean;
+      chosenThumbnail?: boolean;
+    } = {},
   ) => {
     engine = new FakeEngine(options);
     install(engine);
@@ -54,6 +60,7 @@ describe("the asset context menu", () => {
         onOpenHere={(id) => opened.push(id)}
         {...(drawable === undefined ? {} : { drawable })}
         {...(picture === undefined ? {} : { picture })}
+        {...(chosenThumbnail === undefined ? {} : { chosenThumbnail })}
       >
         <div data-testid="surface" tabIndex={-1}>
           the grid
@@ -87,6 +94,52 @@ describe("the asset context menu", () => {
     show();
     await open();
     expect(screen.getByRole("menuitem", { name: /Copy 3 paths/ })).toBeDefined();
+  });
+
+  it("sets a thumbnail from the clipboard on every selected asset (ADR-0060)", async () => {
+    const { user } = show();
+    await open();
+    // Nothing to remove while no asset in the selection has one.
+    expect(screen.queryByRole("menuitem", { name: "Remove custom thumbnail" })).toBeNull();
+    await user.click(screen.getByRole("menuitem", { name: "Set thumbnail from clipboard" }));
+
+    await waitFor(() => expect(notes).toEqual(["Set a custom thumbnail on 3 assets"]));
+    expect(engine.seen.filter((request) => request.type === "asset:thumbnail")).toEqual([
+      { type: "asset:thumbnail", ids: HASHES, from: "clipboard" },
+    ]);
+  });
+
+  it("says so when the clipboard holds nothing that can be a thumbnail", async () => {
+    const { user } = show(HASHES, { thumbnail: { kind: "empty" } });
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "Set thumbnail from clipboard" }));
+
+    await waitFor(() =>
+      expect(notes).toEqual(["Nothing on the clipboard can be a thumbnail — copy an image"]),
+    );
+  });
+
+  it("says nothing when the dialog is closed", async () => {
+    const { user } = show(HASHES, { thumbnail: { kind: "cancelled" } });
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "Set thumbnail from file…" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:thumbnail")).toEqual([
+        { type: "asset:thumbnail", ids: HASHES, from: "file" },
+      ]),
+    );
+    expect(notes).toEqual([]);
+  });
+
+  it("offers to remove a custom thumbnail where one is shown, from every selected asset", async () => {
+    const { user } = show(HASHES, {}, { chosenThumbnail: true });
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "Remove custom thumbnail" }));
+
+    await waitFor(() => expect(sentTo("asset:thumbnailClear")).toHaveLength(1));
+    expect(sentTo("asset:thumbnailClear")[0]?.ids).toEqual(HASHES);
+    await waitFor(() => expect(notes).toEqual(["Removed the custom thumbnail from 3 assets"]));
   });
 
   it("copies every selected path, not the first one", async () => {

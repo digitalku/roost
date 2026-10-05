@@ -70,7 +70,7 @@ export interface Settings {
   readonly mediaVolume: number;
   readonly mediaMuted: boolean;
   /**
-   * The order the grid is in, and which shuffle `random` means (ADR-0039).
+   * The order the grid is in (ADR-0039).
    *
    * Here rather than in the window because a library is a kind of thing: a
    * folder of screenshots wants newest first and a folder of scans wants the
@@ -78,17 +78,14 @@ export interface Settings {
    * something it was told. It is **not** part of the query — a smart folder
    * stores query text, and a saved search whose meaning depended on a
    * preference would answer differently in two windows (ADR-0036's lesson).
+   *
+   * Which shuffle `random` shows is not kept. It was until 2026-10-05, and the
+   * user asked for a fresh one at every open instead, so the window rolls it
+   * (ADR-0039 §11). A `shuffleSeed` an older build wrote is left in the file,
+   * as any key this build does not read is.
    */
   readonly sortKey: SortKey;
   readonly sortDescending: boolean;
-  /**
-   * Which shuffle the random order is showing.
-   *
-   * Remembered, at the user's choosing on 2026-09-09, so that switching views
-   * or reopening the library does not scramble a grid somebody was working
-   * through. **Shuffle again** rolls it.
-   */
-  readonly shuffleSeed: number;
   /**
    * The view, its icon shape, and its zoom (ADR-0018, ADR-0039 §7).
    *
@@ -193,7 +190,6 @@ export const DEFAULT_SETTINGS: Settings = {
   mediaMuted: false,
   sortKey: DEFAULT_SORT.key,
   sortDescending: DEFAULT_SORT.descending,
-  shuffleSeed: DEFAULT_SORT.seed,
   gridView: "icons",
   matchImageProportions: true,
   gridZooms: {},
@@ -225,10 +221,6 @@ export async function readSettings(root: string): Promise<Settings> {
     mediaMuted: boolish(raw["mediaMuted"], DEFAULT_SETTINGS.mediaMuted),
     sortKey: sortKeyish(raw["sortKey"]),
     sortDescending: boolish(raw["sortDescending"], DEFAULT_SETTINGS.sortDescending),
-    shuffleSeed: numberish(raw["shuffleSeed"], DEFAULT_SETTINGS.shuffleSeed, {
-      min: 0,
-      max: Number.MAX_SAFE_INTEGER,
-    }),
     gridView: typeof raw["gridView"] === "string" ? raw["gridView"] : DEFAULT_SETTINGS.gridView,
     matchImageProportions: boolish(
       raw["matchImageProportions"],

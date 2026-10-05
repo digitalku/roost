@@ -18,6 +18,7 @@ export {
   type AssetDetail,
   type AssetJudgements,
   type AssetSummary,
+  type ChosenPicture,
   type CommentRow,
   type CoverAsset,
   type DerivedMetadata,

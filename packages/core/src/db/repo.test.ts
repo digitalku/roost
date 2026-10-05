@@ -10,7 +10,6 @@ import {
   ID_ALPHABET,
   JOB_PRIORITY,
   parseAssetId,
-  SHUFFLES,
   SORT_KEYS,
   type Sort,
 } from "../model/index.js";
@@ -379,12 +378,15 @@ describe("keyset paging", () => {
     expect(sql).toContain("COALESCE(a.rating, 0) < @cursorKey");
   });
 
-  it("needs one seek for an order that cannot tie", () => {
-    // A rotation of the hash is a bijection of a unique column, so the second
-    // seek would be a scan that can only return nothing.
+  it("resumes a shuffle as two seeks as well, because its key ties on purpose", () => {
+    // ADR-0039 §11: the key is one character's place in a reordered alphabet,
+    // and the first seek — the rest of that character's run, in id order — is
+    // what spares most pages a sort of the whole library.
     const sql = searchSql("1", true, { key: "random", descending: false, seed: 3 });
-    expect(sql).not.toContain("UNION ALL");
-    expect(sql).toContain("@rotate");
+    expect(sql).toContain("UNION ALL");
+    expect(sql).toContain(
+      "instr(@shuffleAlphabet, substr(a.id, @shuffleAt, 1)) = @cursorKey AND a.id > @cursorId",
+    );
   });
 
   it("orders by a total order, tie-break included and pointing the same way", () => {
@@ -447,14 +449,14 @@ describe("the plan a grid query actually gets", () => {
       // The filter is written once per seek and a resume has two of them, so
       // its positional values are repeated with it — the same doubling
       // `Repo.search` does.
-      const repeated = sort.key === "random" ? params : [...params, ...params];
       const plan = raw
         .prepare(`EXPLAIN QUERY PLAN ${searchSql(filterSql, true, sort)}`)
-        .all(...repeated, {
+        .all(...params, ...params, {
           cursorKey: sort.key === "name" ? "asset-1" : 1_700_000_100,
           cursorId: idOf(1),
           limit: 200,
-          rotate: 1,
+          shuffleAt: 1,
+          shuffleAlphabet: ID_ALPHABET,
         }) as { detail: string }[];
       return plan.map((row) => row.detail).join("\n");
     } finally {
@@ -520,15 +522,17 @@ describe("the plan a grid query actually gets", () => {
   });
 
   it("has no index for the random order, and says so rather than pretending", () => {
-    // A rotation per seed is an index per shuffle. This plan is the cost ADR-0039 §5
-    // accepts deliberately, and a test asserting it is what keeps the
-    // acceptance visible.
-    const detail = planFor(`(1) AND ${MATCH_LIVE.sql}`, {
+    // A shuffle per seed is an index per shuffle. Its second seek sorts every
+    // match: the cost ADR-0039 §5 accepts deliberately, and a test asserting it
+    // is what keeps the acceptance visible. The first seek walks the ids in
+    // order and sorts nothing, which is what §11 bought.
+    const [sameKey, beyondKey] = planFor(`(1) AND ${MATCH_LIVE.sql}`, {
       key: "random",
       descending: false,
       seed: 7,
-    });
-    expect(detail).toContain("TEMP B-TREE");
+    }).split("UNION ALL");
+    expect(beyondKey).toContain("TEMP B-TREE");
+    expect(sameKey).not.toContain("TEMP B-TREE");
   });
 });
 
@@ -647,10 +651,13 @@ describe("the random order", () => {
     expect(order(9)).toEqual(order(9));
   });
 
-  it("counts a seed past the last shuffle as one of the shuffles it has", () => {
-    // `rotationFor` wraps, so a seed is a number a frontend can roll without
-    // knowing anything about hashes.
-    expect(order(1)).toEqual(order(1 + SHUFFLES));
+  it("gives a different order for each of many seeds", () => {
+    // The rotation this replaced had eleven shuffles, so a window rolling one
+    // at every open would have shown an old one again within a week. Sixty
+    // assets in twenty seeds is too small to prove there are many, and large
+    // enough that eleven would have repeated.
+    const orders = new Set(Array.from({ length: 20 }, (_, seed) => order(seed).join()));
+    expect(orders.size).toBe(20);
   });
 });
 

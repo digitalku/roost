@@ -7,6 +7,7 @@ import {
   importInto,
   Library,
   queueStatus,
+  type Redrawn,
   Requested,
   releaseNowSupported,
   retryBlocked,
@@ -114,13 +115,18 @@ describe("the derive queue", () => {
     const ext = library.db.repo.assetDetail(gone)?.ext ?? "";
     await rename(library.storage.locate(gone, ext), join(dir, "moved.png"));
 
-    const told: { id: string; derivedAt: number | null; undrawn: string | null }[] = [];
+    const told: Redrawn[] = [];
     await runDerives(library, { sizes: [GRID_SIZE], onDerived: (assets) => told.push(...assets) });
 
     const byId = new Map(told.map((one) => [one.id, one]));
     expect(told).toHaveLength(4);
     // Parked, with nothing measured: a reason and no new cache key.
-    expect(byId.get(gone)).toEqual({ id: gone, derivedAt: null, undrawn: "missing:file" });
+    expect(byId.get(gone)).toEqual({
+      id: gone,
+      derivedAt: null,
+      undrawn: "missing:file",
+      chosen: false,
+    });
     const failed = told.filter((one) => one.undrawn !== null && one.id !== gone);
     expect(failed).toHaveLength(1);
     expect(failed[0]?.derivedAt).toBeNull();

@@ -10,6 +10,7 @@
  * asserts no sharp binary was loaded.
  */
 export {
+  extensionsOfKind,
   type Format,
   formatFromExtension,
   isBrowserDrawable,

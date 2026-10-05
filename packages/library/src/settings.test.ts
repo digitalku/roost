@@ -76,6 +76,19 @@ describe("reading settings", () => {
     expect(DEFAULT_SETTINGS.sortDescending).toBe(true);
   });
 
+  it("no longer reads which shuffle was on, and leaves it in the file", async () => {
+    // ADR-0039 §11: the window rolls a shuffle at every open, so a seed an
+    // older build remembered is a key like any other this build does not read.
+    await write('{ "sortKey": "random", "shuffleSeed": 7 }');
+    expect(await readSettings(dir)).toEqual({ ...DEFAULT_SETTINGS, sortKey: "random" });
+    await writeSettings(dir, { sortDescending: false });
+    expect(JSON.parse(await read())).toEqual({
+      sortKey: "random",
+      shuffleSeed: 7,
+      sortDescending: false,
+    });
+  });
+
   it("falls back on a sort key this build has retired", async () => {
     // The one shape ADR-0019's per-key rule has to survive on a vocabulary:
     // a newer build's key read by an older one is not a broken library.

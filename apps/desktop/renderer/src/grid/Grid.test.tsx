@@ -79,6 +79,54 @@ describe("the grid", () => {
     vi.stubGlobal("getComputedStyle", () => ({ paddingLeft: "0px", paddingRight: "0px" }));
   });
 
+  it("labels a loaded picture with its extension, and nothing else", () => {
+    // The user's ask, 2026-10-05. The badge is in the DOM from the start and
+    // CSS shows it beside a loaded image, so what the cell owes is the marker.
+    show(1);
+    const cell = screen.getAllByRole("option")[0] as HTMLElement;
+    const image = cell.querySelector<HTMLImageElement>(".cell-image");
+    if (image === null) throw new Error("no image");
+    expect(cell.querySelector(".cell-ext")?.textContent).toBe("png");
+    expect(image.hasAttribute("data-loaded")).toBe(false);
+
+    fireEvent.load(image);
+    expect(image.hasAttribute("data-loaded")).toBe(true);
+    // A picture that goes, as an edited file's can, takes the label with it.
+    fireEvent.error(image);
+    expect(image.hasAttribute("data-loaded")).toBe(false);
+  });
+
+  it("draws no extension badge on an extensionless file or in a list", () => {
+    const view = render(
+      <Grid
+        assets={[fakeAsset(0, { ext: "", name: "Makefile" })]}
+        view="icons"
+        proportional={false}
+        target={240}
+        selection={selection}
+        onMore={more}
+      />,
+    );
+    expect(document.querySelector(".cell-ext")).toBeNull();
+    view.unmount();
+
+    for (const view of ["compact", "details"] as const) {
+      const drawn = render(
+        <Grid
+          assets={[fakeAsset(0)]}
+          view={view}
+          proportional={false}
+          target={34}
+          selection={selection}
+          onMore={more}
+        />,
+      );
+      expect(document.querySelector(".cell")).not.toBeNull();
+      expect(document.querySelector(".cell-ext")).toBeNull();
+      drawn.unmount();
+    }
+  });
+
   it("renders only what is near the viewport", () => {
     show(2000);
     const drawn = screen.getAllByRole("option");
@@ -201,7 +249,8 @@ describe("the grid", () => {
         onMore={more}
       />,
     );
-    expect(screen.getByText("zip")).toBeDefined();
+    // The placeholder's, which is the one on screen when no picture arrives.
+    expect(document.querySelector(".placeholder .cell-kind")?.textContent).toBe("zip");
   });
 
   it("lays out inside the scroller's padding, not over it", () => {
@@ -754,6 +803,54 @@ describe("folders in the grid", () => {
     fireEvent.pointerUp(grid, { pointerId: 1, clientX: 900, clientY: 10 });
     // The sweep crossed both tiles on its way across the first row.
     expect(selection.selected().every((id) => !id.startsWith("folder-"))).toBe(true);
+  });
+
+  it("leaves a press and a key in the folder's menu to the menu", async () => {
+    // The menu is portalled out of the tile, and React bubbled its events back
+    // into the grid's handlers anyway: a press on an item began a sweep that
+    // captured the pointer, so no item could be chosen (2026-10-05).
+    const renamed = vi.fn();
+    render(
+      <Grid
+        assets={[fakeAsset(0)]}
+        view="details"
+        proportional={false}
+        target={240}
+        selection={selection}
+        onMore={() => {}}
+        folders={{
+          rows: [ICONS, LOGOS],
+          located: false,
+          onOpen: opened,
+          onNewFolder: () => {},
+          onRename: renamed,
+          onMoveFolder: () => {},
+          onDelete: () => {},
+          onDropAssets: () => {},
+        }}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(tile(7));
+    tile(7).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    // By text: the role query computes styles, and this suite stubs them out.
+    const label = await screen.findByText("Rename…");
+    const item = label.closest<HTMLElement>('[role="menuitem"]');
+    if (item === null) throw new Error("no Rename item");
+
+    // Not by role: an open menu hides everything else from the a11y tree.
+    const grid = document.querySelector<HTMLElement>(".grid");
+    if (grid === null) throw new Error("no grid");
+    fireEvent.pointerDown(item, { button: 0, pointerId: 1, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(grid, { pointerId: 1, clientX: 900, clientY: 10 });
+    expect(grid.hasAttribute("data-sweeping")).toBe(false);
+    fireEvent.pointerUp(grid, { pointerId: 1, clientX: 900, clientY: 10 });
+
+    fireEvent.keyDown(item, { key: "ArrowDown" });
+    expect(selection.focused).toBe("folder-7");
+
+    await user.click(item);
+    expect(renamed).toHaveBeenCalledWith(ICONS);
   });
 
   it("does nothing on Space over a folder", async () => {

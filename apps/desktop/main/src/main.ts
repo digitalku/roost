@@ -8,10 +8,12 @@ import type {
   Request,
   RequestType,
   Take,
+  ThumbnailSource,
   WireAbout,
   WireImportReport,
   WirePasted,
   WireSettings,
+  WireThumbnailChosen,
 } from "@roost/contract";
 import { checkRequest } from "@roost/contract";
 import {
@@ -27,7 +29,7 @@ import {
   stderrSink,
   teeSink,
 } from "@roost/core";
-import { SUBTITLE_EXTENSIONS } from "@roost/media/serving";
+import { extensionsOfKind, SUBTITLE_EXTENSIONS } from "@roost/media/serving";
 import {
   app,
   BrowserWindow,
@@ -263,6 +265,7 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   "asset:copyFiles",
   "asset:copyImage",
   "asset:dragOut",
+  "asset:thumbnail",
   "handoff:cost",
   "clipboard:paste",
   "clipboard:copyText",
@@ -277,7 +280,16 @@ async function answerHere(
   engine: Engine,
   request: Request,
   sender: WebContents,
-): Promise<string | number | boolean | readonly string[] | WirePasted | WireAbout | null> {
+): Promise<
+  | string
+  | number
+  | boolean
+  | readonly string[]
+  | WirePasted
+  | WireAbout
+  | WireThumbnailChosen
+  | null
+> {
   if (request.type === "asset:openExternally") return openExternally(request.id);
   if (request.type === "asset:reveal") return reveal(request.id);
   if (request.type === "asset:copyPath") return copyPaths(request.ids);
@@ -286,6 +298,7 @@ async function answerHere(
   if (request.type === "asset:dragOut") return dragOut(engine, request.ids, sender);
   if (request.type === "handoff:cost") return assets.handoffCost();
   if (request.type === "clipboard:paste") return paste(engine, request.take);
+  if (request.type === "asset:thumbnail") return chooseThumbnail(engine, request.ids, request.from);
   if (request.type === "clipboard:copyText") {
     clipboard.writeText(request.text);
     return true;
@@ -705,6 +718,70 @@ async function paste(engine: Engine, take: Take): Promise<WirePasted> {
   return isHttpUrl(text)
     ? { kind: "url", url: text }
     : { kind: "text", text: clipboard.readText() };
+}
+
+/**
+ * *Set thumbnail from clipboard* and *from file…* (ADR-0060).
+ *
+ * Main's half: find an image and hand the engine its path. From the clipboard
+ * that is a file copied in a file manager, or a bitmap written to a temporary
+ * file of main's and removed once the engine has drawn it, as a paste does. A
+ * link is not fetched (invariant 7). The image is only ever read.
+ */
+async function chooseThumbnail(
+  engine: Engine,
+  ids: readonly string[],
+  from: ThumbnailSource,
+): Promise<WireThumbnailChosen> {
+  const set = async (path: string): Promise<WireThumbnailChosen> => {
+    const count = await engine.request({ type: "asset:thumbnailSet", ids, path });
+    if (typeof count !== "number") throw new Error("asset:thumbnailSet answered with no count");
+    return { kind: "chosen", count };
+  };
+
+  if (from === "file") {
+    const path = await chooseThumbnailFile();
+    return path === null ? { kind: "cancelled" } : set(path);
+  }
+
+  const paths = pathsFromUriList(
+    clipboard.read("text/uri-list") || clipboard.read("x-special/gnome-copied-files"),
+  );
+  // The first, when several were copied: one picture is what a thumbnail is.
+  const copied = paths[0];
+  if (copied !== undefined) return set(copied);
+
+  const image = clipboard.readImage();
+  if (image.isEmpty()) return { kind: "empty" };
+  const temp = join(tmpdir(), pastedName(new Date(), "png"));
+  await writeFile(temp, image.toPNG());
+  try {
+    return await set(temp);
+  } finally {
+    await rm(temp, { force: true });
+  }
+}
+
+/** The dialog behind *Set thumbnail from file…*, offering images first. */
+async function chooseThumbnailFile(): Promise<string | null> {
+  const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const options = {
+    title: "Set thumbnail",
+    buttonLabel: "Set thumbnail",
+    properties: ["openFile"] as const,
+    filters: [
+      { name: "Images", extensions: extensionsOfKind("image") },
+      { name: "All files", extensions: ["*"] },
+    ],
+    defaultPath: app.getPath("pictures"),
+  };
+
+  const chosen =
+    parent === undefined
+      ? await dialog.showOpenDialog({ ...options, properties: [...options.properties] })
+      : await dialog.showOpenDialog(parent, { ...options, properties: [...options.properties] });
+
+  return chosen.canceled ? null : (chosen.filePaths[0] ?? null);
 }
 
 async function importVia(

@@ -20,8 +20,11 @@ import { ledger } from "./lib/checks.mjs";
 import { imageLibrary, scratch } from "./lib/fixtures.mjs";
 import { launch } from "./lib/window.mjs";
 
-/** How many assets the fixture holds. Enough to page, few enough to be instant. */
-const ASSETS = 12;
+/**
+ * How many assets the fixture holds. Enough that the grid scrolls, which the
+ * last section needs, and few enough to be instant.
+ */
+const ASSETS = 60;
 
 const { dir, dispose } = await scratch("check-trash");
 const root = await imageLibrary(dir, { count: ASSETS });
@@ -235,6 +238,69 @@ try {
     "an empty trash says so, rather than reporting a failed search",
     (await cdp.evaluate("document.querySelector('.grid-empty')?.textContent ?? null")) ===
       "The trash is empty.",
+  );
+
+  section("Delete keeps its place (reported 2026-10-05)");
+  // The grid went back to the top: the trash count moved, so the window threw
+  // its pages away and fetched them again, and the ring was left on an asset
+  // that was gone. Scrolled halfway first, because at the top a jump to the
+  // top is invisible.
+  await cdp.evaluate(clickPlace("All assets"));
+  await cdp.settle("document.querySelectorAll('.cell').length", (n) => n > 1);
+  const room = await cdp.evaluate(
+    '(() => { const g = document.querySelector(".grid"); return g.scrollHeight - g.clientHeight; })()',
+  );
+  check("the fixture is tall enough to scroll", room > 200, `room=${room}px`);
+  await cdp.evaluate(`document.querySelector(".grid").scrollTop = ${Math.floor(room / 2)}`);
+  await sleep(300);
+  const scrolled = await cdp.evaluate('document.querySelector(".grid").scrollTop');
+  const middle = await cdp.evaluate(`
+    (() => {
+      const frame = document.querySelector(".grid").getBoundingClientRect();
+      const y = frame.top + frame.height / 2;
+      const cell = [...document.querySelectorAll(".cell:not(.cell-folder)")].find((c) => {
+        const box = c.getBoundingClientRect();
+        return box.top < y && box.bottom > y;
+      });
+      if (cell === undefined) return null;
+      const box = cell.getBoundingClientRect();
+      return { id: cell.dataset.id, x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+    })()`);
+  await cdp.mouse.click(middle.x, middle.y);
+  await cdp.settle(
+    "document.querySelectorAll('.cell[aria-selected=\"true\"]').length",
+    (n) => n === 1,
+  );
+  await cdp.keyboard.press("Delete");
+  await cdp.settle(
+    `[...document.querySelectorAll(".cell")].some((c) => c.dataset.id === ${JSON.stringify(middle.id)})`,
+    (present) => present === false,
+  );
+  // Long enough for the counts to be re-read and a re-page to have landed,
+  // which is the thing that used to move it.
+  await sleep(600);
+  const after = await cdp.evaluate(`
+    (() => {
+      const grid = document.querySelector(".grid");
+      const ring = grid.getAttribute("aria-activedescendant");
+      const cell = ring === null ? null : document.getElementById(ring);
+      const frame = grid.getBoundingClientRect();
+      const box = cell?.getBoundingClientRect();
+      return {
+        top: grid.scrollTop,
+        ring: cell?.dataset.id ?? null,
+        inView: box !== undefined && box.bottom > frame.top && box.top < frame.bottom,
+      };
+    })()`);
+  check(
+    "the grid stays where it was scrolled to",
+    Math.abs(after.top - scrolled) <= 2,
+    `${scrolled}px -> ${after.top}px`,
+  );
+  check(
+    "and the ring moves to an asset that is still here, on screen",
+    after.ring !== null && after.ring !== middle.id && after.inView,
+    `ring=${after.ring?.slice(0, 8) ?? null}… inView=${after.inView}`,
   );
 
   report();

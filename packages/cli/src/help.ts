@@ -25,6 +25,7 @@ export const COMMANDS = [
   "source",
   "comment",
   "poster",
+  "thumbnail",
   "save",
   "subtitle",
   "rename",
@@ -69,6 +70,7 @@ Commands:
   source    Set or clear where an asset came from
   comment   Comment on an asset, or on a moment in one
   poster    Choose which frame a video's thumbnail comes from
+  thumbnail Give an asset a thumbnail of your choosing, or its own back
   save      Replace an asset's contents with a file's, as a new version
   subtitle  Attach, list, or detach the caption tracks of a video
   rename    Change an asset's display name. The file on disk is untouched
@@ -427,6 +429,25 @@ Options:
 ${LIBRARY_FLAG}
       --at <TIME>        The moment to take the thumbnail from
       --clear            Go back to the default frame
+${GLOBAL}`,
+
+  thumbnail: `Give an asset a thumbnail of your choosing, or its own back.
+
+Usage: roost thumbnail <ASSET> <IMAGE>
+       roost thumbnail <ASSET> --clear
+       roost thumbnail <ASSET>
+
+Without an image it says whether the thumbnail is the file's own. With one,
+the image is drawn as the thumbnail, in place of the file's, and nothing ever
+draws over it: an edit of the file is measured and leaves the picture alone.
+The image is only read. Anything Roost can draw will do.
+
+The picture is kept with the other thumbnails, in thumbs/, and nowhere else:
+nothing is journalled and the image is not copied. Deleting thumbs/ loses it.
+
+Options:
+${LIBRARY_FLAG}
+      --clear            Go back to the file's own thumbnail
 ${GLOBAL}`,
 
   rename: `Change an asset's display name.

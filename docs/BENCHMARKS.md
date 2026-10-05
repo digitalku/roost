@@ -57,6 +57,47 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-10-05 — a shuffle that ties, so a resume is a walk (ADR-0039 §11)
+
+Machine: Fedora 44 host, Intel Core Ultra 7 155H, NVMe, the library on tmpfs. Node 22.23.1. 95,001
+assets from `roost fixture --count 100000 --size 2048 --seed 5`, imported with `--flat`, warm. The
+"before" column is the rotation of §5, built from the same tree with the change stashed, against
+the same library.
+
+**Choosing a key, synthetic, one page of 100 with the grid's projection** (a throwaway script, not
+kept: an in-memory table of random 12-character ids and the same eleven columns):
+
+| Key | 95,001 rows | 1,000,000 rows |
+| --- | --- | --- |
+| rotation, `substr(id, r+1) \|\| substr(id, 1, r)` | 9.3 ms | 97 ms |
+| `instr(@alphabet, substr(id, @at, 1))` | **9.0 ms** | **97 ms** |
+| two characters as an integer, `k1 * 33 + k2` | 14.8 ms | 160 ms |
+| one reordered character `\|\|` the rotation | 18.3 ms | 194 ms |
+| two reordered characters `\|\|` the rotation | 24.0 ms | 262 ms |
+
+**Through `Repo.search`** (`scripts/bench-search.ts` for the first two rows, a walk of every page
+for the third):
+
+| | Rotation | Shuffle |
+| --- | --- | --- |
+| First page p95 | 16.87 ms | 17.81 ms |
+| Page 200 p95 | 21.43 ms | **0.57 ms** |
+| All 952 pages, three seeds | ~20 s | **0.8–1.0 s**: median 0.26–0.55 ms, 34 pages over 5 ms, max 24 ms |
+
+A filter changes the picture little. `ext:png` (21,124 matches), 60 pages: median 5.24 ms before,
+2.41 ms after. A name filter with no index under it, 20 to a page: 7.7 s → 0.77 s for 4,000
+matches; 1.28 s → 1.11 s for 950; and for 9 matches the one page went from 40 ms to 56 ms, a
+single sample each.
+
+**What this revealed.** A per-row string is what a shuffle key costs. A `substr` concatenation, an
+`instr`, a `char()`: each adds about as much as the sort it serves. An integer key costs nothing
+over the rotation it replaced. The integer also ties, on purpose, and that is the larger gain. A
+key that ties resumes as ADR-0039 §4's two seeks, and the first seek, *the rest of this character's
+run in id order*, is the primary key walked for a page. Only a page that crosses into the next of
+the 32 runs sorts the library again, so a walk that sorted on each of its 952 pages now sorts on
+34 of them. Every walk
+returned each of the 95,001 assets exactly once.
+
 ### 2026-10-01 — a folder's count, its subtree's, each asset once (ADR-0036 §6)
 
 Machine: Fedora 44 host, Intel Core Ultra 7 155H, NVMe. A throwaway script, not kept, against a
@@ -530,7 +571,8 @@ an index that already holds `(key, hash)`.
   descending timestamp meant one index served a single direction and the cursor could not be a
   comparison of the pair — a comment `searchSql` had carried since M2. Turning the tie-break to
   follow the key made both directions of every key one index walk, forwards or backwards.
-- **`random` costs what it costs, and it is constant.** 18.4 ms at page 1 and 24.0 ms at page 200:
+- **`random` costs what it costs, and it is constant.** *(Its resume is cheap since 2026-10-05,
+  ADR-0039 §11; this paragraph is what the rotation cost.)* 18.4 ms at page 1 and 24.0 ms at page 200:
   the seeded rotation of the hash is a full index scan with a sorter every time, so paging into it
   does not get worse — it is simply never cheap. At a million that is ~200 ms, above the search
   budget, and ADR-0039 §5 accepts it deliberately rather than shipping a shuffle that is one fixed

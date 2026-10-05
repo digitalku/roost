@@ -805,6 +805,21 @@ monthly archive under [`sessions/`](sessions/), and what shipped is in
     worth nothing while they hold one value, and only a measurement finds that: the stylesheet
     reads as though they differ.
 
+- ☑ ~~**`check-grid.mjs` has not yet completed a run in a composited window.**~~ Written and driven
+  on 2026-09-03: fifteen of its claims were seen to pass, and then the session's compositor
+  stopped drawing new windows, at which point the script correctly refused rather than reporting
+  the layout and the marquee as broken (§4 lesson 18). The two defects the first run found were in
+  the script, not in the grid — a card read while `Ctrl+A` was still in force, and cells taken in
+  DOM order rather than visual order — and both are fixed. **It needs one clean run on a desktop
+  session with the window visible** before it can be called a guard.
+  **Closed 2026-10-05: 52 of 52, twice in a row, on the Wayland desktop.** Getting there fixed
+  three things in the script and nothing in the grid. `clearSelection` was clicking 3px in again,
+  inside the sidebar seam's grab area: the 2026-09-25 fix had been lost, and a `console.log` was
+  left where it had been. The names were still `shot-0.png`, but a name has had no extension
+  since format 2. And four order checks compared whole drawn lists, which a virtualised grid
+  draws as a different number of cells depending on where it is scrolled. They now compare the
+  order, or what both lists drew.
+
 ### Settings, windows, and the picker (ADR-0019 and ADR-0020, decided 2026-08-30)
 
 - ☑ ~~**`settings.json` in the library** (ADR-0019).~~ Built 2026-09-08, when ADR-0036 needed the
@@ -858,6 +873,17 @@ monthly archive under [`sessions/`](sessions/), and what shipped is in
   version written with `dblClick` passed with the wrong rule wired in.
 
 ### Trash (ADR-0022, decided and built 2026-09-01)
+
+- ☑ ~~**The grid re-pages on a trash rather than dropping the row.**~~ `readStats` now compares the
+  trashed count as well as the asset count, so trashing does invalidate the pages — but it
+  invalidates *all* of them and the scroll position goes with them. That is the same targeted-update
+  gap §M3 already carries, now reachable one gesture sooner.
+  **Closed 2026-10-05**, after the user reported it: *"ketika menghapus file. focus nya kok langsung
+  keatas"*. Trashing, restoring and deleting drop their rows (`paging.drop`), and the ring moves to
+  the neighbour (`SelectionStore.leave`). Before asking, the window moves the counts it expects
+  (`expectRows`), so the re-read that follows matches and nothing re-pages. A count that moved for
+  any other reason still re-pages. `check-trash.mjs` scrolls halfway and deletes there: 1213px
+  stays 1213px, where the old path went to 0.
 
 - ☑ ~~Migration 0007, the `trash` and `restore` ops, and replay.~~ The rebuild test in
   `organize.test.ts` carries both now, and it earned it: a `trash` that replayed as a no-op

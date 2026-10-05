@@ -63,8 +63,28 @@ export interface TrashActionsOptions {
    * the selection moves away from the one the line was written against, so a
    * note written before the clear is wiped by it. Saying it afterwards stamps
    * the note against the selection that will still be there to read it.
+   *
+   * `ids` names what left, so the window can take those rows out and leave
+   * the rest where they are (reported 2026-10-05: the grid went back to the
+   * top). Absent when the trash was emptied, which takes everything in view.
    */
-  readonly onGone: () => void;
+  readonly onGone: (ids?: readonly string[]) => void;
+  /**
+   * The library's counts are about to move, and by this much, because of
+   * what this window is doing.
+   *
+   * Said **before** the request, because the engine announces the change
+   * before it answers. The window uses it to recognise its own change when the
+   * counts are re-read, and to keep its pages rather than fetch them again from
+   * the top. A guess that turns out wrong costs only that re-fetch.
+   */
+  readonly onLeaving?: (change: RowChange) => void;
+}
+
+/** How far an action moves the two counts the grid's pages depend on. */
+export interface RowChange {
+  readonly assets: number;
+  readonly trashed: number;
 }
 
 export interface TrashActions {
@@ -82,22 +102,38 @@ export function useTrashActions({
   onProblem,
   onConfirm,
   onGone,
+  onLeaving,
 }: TrashActionsOptions): TrashActions {
   return useMemo(() => {
     const count = ids.length;
 
+    /**
+     * Tells the window what is about to move, and takes it back if the engine
+     * refuses: a refused request moves nothing, and a window still expecting
+     * the change would mistake the next real one for its own.
+     */
+    const expecting = (change: RowChange) => {
+      onLeaving?.(change);
+      return (problem: WireProblem): void => {
+        onLeaving?.({ assets: -change.assets, trashed: -change.trashed });
+        onProblem(problem);
+      };
+    };
+
     const trash = (): void => {
+      const refused = expecting({ assets: 0, trashed: count });
       void invoke({ type: "assets:trash", ids }).then((outcome) => {
-        if (!outcome.ok) return onProblem(outcome.problem);
-        onGone();
+        if (!outcome.ok) return refused(outcome.problem);
+        onGone(ids);
         onNote(`Moved ${assets(count)} to the trash`);
       });
     };
 
     const restore = (): void => {
+      const refused = expecting({ assets: 0, trashed: -count });
       void invoke({ type: "assets:restore", ids }).then((outcome) => {
-        if (!outcome.ok) return onProblem(outcome.problem);
-        onGone();
+        if (!outcome.ok) return refused(outcome.problem);
+        onGone(ids);
         onNote(`Restored ${assets(count)}`);
       });
     };
@@ -109,9 +145,13 @@ export function useTrashActions({
         body: `${capitalise(assets(count))} will be removed from the library, and the files they own will be deleted from it. Tags, ratings, notes, and folder memberships go with them, and this cannot be undone.`,
         confirmLabel: "Delete",
         run: () => {
+          // Offered only inside the Trash, so what goes was trashed. Were it
+          // ever offered elsewhere, the counts would disagree and the grid
+          // would re-page, which is all a wrong guess costs.
+          const refused = expecting({ assets: -count, trashed: -count });
           void invoke({ type: "assets:remove", ids }).then((outcome) => {
-            if (!outcome.ok) return onProblem(outcome.problem);
-            onGone();
+            if (!outcome.ok) return refused(outcome.problem);
+            onGone(ids);
             onNote(deleted(outcome.value.assets, outcome.value.bytes));
           });
         },
@@ -134,7 +174,7 @@ export function useTrashActions({
     };
 
     return { trash, restore, deletePermanently, emptyTrash };
-  }, [ids, onNote, onProblem, onConfirm, onGone]);
+  }, [ids, onNote, onProblem, onConfirm, onGone, onLeaving]);
 }
 
 /**

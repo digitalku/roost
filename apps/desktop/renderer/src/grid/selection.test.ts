@@ -101,6 +101,30 @@ describe("selecting in the grid", () => {
     expect(store.focused).toBeUndefined();
   });
 
+  it("hands the ring to the asset that takes a gone one's place", () => {
+    // Reported 2026-10-05: trashing an asset sent the grid back to the top,
+    // because the ring stayed on an asset that was no longer there.
+    const store = stored();
+    store.click("b");
+    store.extendTo("c");
+    store.leave(["b", "c"]);
+    expect(store.selected()).toEqual([]);
+    expect(store.focused).toBe("d");
+
+    // The last one has nothing after it, so the one before takes its place.
+    store.click("e");
+    store.leave(["e"]);
+    expect(store.focused).toBe("d");
+
+    // A ring on something that stayed is left where it is.
+    store.click("a");
+    store.leave(["d"]);
+    expect(store.focused).toBe("a");
+
+    store.leave(HASHES);
+    expect(store.focused).toBeUndefined();
+  });
+
   it("wakes the cell that was carrying the ring when it is reset", () => {
     const store = stored();
     store.click("b");

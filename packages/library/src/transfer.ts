@@ -633,6 +633,34 @@ async function transferChunk(run: Run, chunk: readonly AssetId[]): Promise<void>
   }
 
   await commit(target, batch);
+  carryChosen(source, target, batch, into);
+}
+
+/**
+ * Copies the thumbnails somebody chose onto the assets that just arrived
+ * (ADR-0060 §3.6).
+ *
+ * The target would otherwise draw the file's own, and these are kept nowhere
+ * else: a move would lose them. Not onto an asset the target already had with
+ * a chosen one of its own, which a person put there (ADR-0054 §3.5).
+ */
+function carryChosen(
+  source: Library,
+  target: Library,
+  batch: readonly Ingested[],
+  into: ReadonlyMap<AssetId, AssetId>,
+): void {
+  const arrived = new Set(batch.map((item) => item.id));
+  const pairs = [...into].filter(([, to]) => arrived.has(to));
+  const chosen = source.db.repo.chosenAmong(pairs.map(([from]) => from));
+  if (chosen.size === 0) return;
+  const held = target.db.repo.chosenAmong(pairs.map(([, to]) => to));
+  target.db.transaction(() => {
+    for (const [from, to] of pairs) {
+      if (!chosen.has(from) || held.has(to)) continue;
+      target.db.repo.choosePictures(to, source.db.repo.picturesOf(from));
+    }
+  });
 }
 
 function commentKey(atMs: number | null, body: string): string {

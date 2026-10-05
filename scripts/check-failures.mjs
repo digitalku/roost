@@ -115,6 +115,36 @@ try {
   const ids = await cdp.evaluate(brokenCells);
   check("each broken file carries its badge", ids.length === BROKEN, `${ids.length} badged`);
 
+  /*
+   * The extension over a picture's corner (2026-10-05), shown by CSS once the
+   * image has loaded — which a component test cannot see. A lazy image is only
+   * fetched in a frame the window draws, so each attempt asks for one.
+   */
+  const labels = `[...document.querySelectorAll(".cell")].map((cell) => {
+    const label = cell.querySelector(".cell-ext");
+    return {
+      broken: cell.querySelector(".placeholder-badge") !== null,
+      shown: label !== null && getComputedStyle(label).display !== "none",
+      text: label?.textContent ?? null,
+    };
+  })`;
+  let seen = [];
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    seen = await cdp.evaluate(labels);
+    if (seen.filter((cell) => cell.shown).length === WHOLE) break;
+    await cdp.send("Page.captureScreenshot");
+  }
+  check(
+    "each drawn picture carries its extension",
+    seen.filter((cell) => !cell.broken && cell.shown && cell.text === "png").length === WHOLE,
+    JSON.stringify(seen),
+  );
+  check(
+    "and a file with no picture does not, its placeholder saying it already",
+    seen.filter((cell) => cell.broken && cell.shown).length === 0,
+    JSON.stringify(seen),
+  );
+
   section("Selecting one");
   const box = await cdp.box(`[data-id="${ids[0]}"]`);
   await cdp.mouse.click(box.x, box.y);

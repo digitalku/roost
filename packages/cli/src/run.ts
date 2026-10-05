@@ -36,6 +36,7 @@ import { stats } from "./commands/stats.js";
 import { subtitle } from "./commands/subtitle.js";
 import { tag } from "./commands/tag.js";
 import { thumb } from "./commands/thumb.js";
+import { thumbnail } from "./commands/thumbnail.js";
 import { transfer } from "./commands/transfer.js";
 import { type Command, helpFor, isCommand, VERSION } from "./help.js";
 import { EXIT, flag, list, type Streams, text, usage, type Values } from "./io.js";
@@ -109,6 +110,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
     remove: { type: "string" },
   },
   poster: { at: { type: "string" }, clear: { type: "boolean" } },
+  thumbnail: { clear: { type: "boolean" } },
   save: { clear: { type: "boolean" } },
   subtitle: { detach: { type: "boolean" }, lang: { type: "string" } },
   rename: {},
@@ -435,6 +437,12 @@ async function dispatch(
       const [asset] = positionals;
       if (asset === undefined) return usage(streams, command, "poster needs an asset");
       return poster(await library(), asset, text(values, "at"), flag(values, "clear"), streams);
+    }
+
+    case "thumbnail": {
+      const [asset, image] = positionals;
+      if (asset === undefined) return usage(streams, command, "thumbnail needs an asset");
+      return thumbnail(await library(), asset, image, flag(values, "clear"), streams);
     }
 
     case "save": {

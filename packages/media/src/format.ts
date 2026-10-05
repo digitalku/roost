@@ -195,6 +195,18 @@ export function extensionsNaming(format: Format): string[] {
 }
 
 /**
+ * Every extension that names a format of this kind, lower case.
+ *
+ * For a dialog's filter, which speaks in extensions: *Set thumbnail from
+ * file…* offers images (ADR-0060).
+ */
+export function extensionsOfKind(kind: Kind): string[] {
+  return Object.entries(FORMAT_OF_EXTENSION)
+    .filter(([, format]) => kindOf(format) === kind)
+    .map(([ext]) => ext);
+}
+
+/**
  * The extension a file of this format is conventionally called by.
  *
  * The inverse of {@link formatFromExtension} where one exists, choosing the

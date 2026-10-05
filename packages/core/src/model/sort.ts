@@ -1,4 +1,4 @@
-import { ID_LENGTH } from "./asset-id.js";
+import { ID_ALPHABET, ID_LENGTH } from "./asset-id.js";
 
 /**
  * The orders a listing can be asked for (ADR-0039).
@@ -9,7 +9,7 @@ import { ID_LENGTH } from "./asset-id.js";
  *
  * `added` is the order the application had before there was a menu, and it is
  * still the default. `random` is the one key with no index and no column — a
- * seeded rotation of the asset id, described in {@link rotationFor}.
+ * seeded reading of the asset id, described in {@link shuffleFor}.
  */
 export const SORT_KEYS = ["added", "created", "name", "size", "rating", "random"] as const;
 
@@ -32,9 +32,10 @@ export interface Sort {
   /**
    * Which shuffle `random` means. Ignored by every other key.
    *
-   * Kept by the caller — `settings.json` in the library — rather than by the
-   * engine, because a shuffle that changed while somebody was scrolling would
-   * show them one asset twice and another not at all.
+   * Kept by the caller — the window rolls one each time it opens a library
+   * (ADR-0039 §11) — rather than by the engine, and held still between pages,
+   * because a shuffle that changed while somebody was scrolling would show
+   * them one asset twice and another not at all.
    */
   readonly seed: number;
 }
@@ -42,28 +43,54 @@ export interface Sort {
 /** Newest first: the order the grid had before the menu could ask for another. */
 export const DEFAULT_SORT: Sort = { key: "added", descending: true, seed: 0 };
 
-/** How many characters of the id a seed rotates the order by. */
-export const SHUFFLES = ID_LENGTH - 1;
+/**
+ * Which shuffle a seed names: one character of the id, and an order for the
+ * alphabet that character is read in.
+ *
+ * An id is twelve uniformly random characters (RL-14), so the assets are
+ * ordered by where the character at `at` falls in `alphabet`, and the id
+ * breaks the ties. Twelve places and every ordering of thirty-two characters
+ * make the shuffles too many to come round again, where the rotation this
+ * replaced had eleven (ADR-0039 §11).
+ *
+ * The key is a small integer rather than a string on purpose. Building a
+ * string per row doubled the cost of the first page, and an integer that ties
+ * is what lets a resume be the cheap seek every other order has: the rest of
+ * the run of one character, in id order, from the primary key.
+ *
+ * Every seed is a shuffle, zero included, and nearby seeds are unrelated
+ * ones: the seed only starts a generator.
+ */
+export interface Shuffle {
+  /** Which character of the id is read, counted from 1 as `substr` counts. */
+  readonly at: number;
+  /** `ID_ALPHABET` reordered: a character's place in it is the sort key. */
+  readonly alphabet: string;
+}
+
+export function shuffleFor(seed: number): Shuffle {
+  const next = mulberry32(Math.abs(Math.trunc(seed)) % 2 ** 32);
+  const letters = [...ID_ALPHABET];
+  for (let i = letters.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(next() * (i + 1));
+    // Both indexes are below `letters.length`, so neither read is undefined.
+    [letters[i], letters[j]] = [letters[j] as string, letters[i] as string];
+  }
+  return { at: 1 + Math.floor(next() * ID_LENGTH), alphabet: letters.join("") };
+}
 
 /**
- * The rotation a seed names, in `1..SHUFFLES`.
- *
- * An id is twelve uniformly random characters (RL-14), so ordering by the id
- * *starting at character k* is an order that has nothing to do with the order
- * starting at character 0: two assets adjacent in one share a prefix, and in
- * the other are compared on characters that were never looked at. That is what
- * makes a rotation a shuffle rather than a rearrangement of one, and no two of
- * them are correlated.
- *
- * There are eleven rather than version 1's sixty-three, because an id is twelve
- * characters and a hash was sixty-four. That is the shuffle count falling, not
- * the shuffle getting worse: each one is still a uniformly random order of the
- * whole library, and nobody has ever asked for a twelfth.
- *
- * Zero is excluded because it is the identity: id order is a real order that
- * something else may one day want, and a shuffle that leaves the list alone
- * would read as a shuffle that failed.
+ * A small seeded generator. Not for anything secret: its only job is that two
+ * seeds give two unrelated shuffles, and that one seed gives the same one in
+ * every build.
  */
-export function rotationFor(seed: number): number {
-  return 1 + (Math.abs(Math.trunc(seed)) % SHUFFLES);
+function mulberry32(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }

@@ -1,11 +1,18 @@
-import type { Take, WireExportReport, WireProblem, WireRecentLibrary } from "@roost/contract";
+import type {
+  Take,
+  ThumbnailSource,
+  WireExportReport,
+  WireProblem,
+  WireRecentLibrary,
+  WireThumbnailChosen,
+} from "@roost/contract";
 import { ContextMenu } from "radix-ui";
 import { useRef, useState } from "react";
 import { invoke } from "../bridge.js";
 import { playhead, usePlayer } from "../preview/playhead.js";
 import { timecode } from "../timecode.js";
 import { destinations, TransferMenu } from "./TransferMenu.js";
-import { assets, type ConfirmRequest, useTrashActions } from "./trash-actions.js";
+import { assets, type ConfirmRequest, type RowChange, useTrashActions } from "./trash-actions.js";
 
 /**
  * Right-click on the grid or on an open preview (`UI_SPEC.md` §3.3).
@@ -43,7 +50,9 @@ export interface AssetContextMenuProps {
   /** Asks for the confirmation an irreversible action needs. */
   readonly onConfirm: (request: ConfirmRequest) => void;
   /** The assets acted on have left the view, so the selection naming them has to go. */
-  readonly onGone: () => void;
+  readonly onGone: (ids?: readonly string[]) => void;
+  /** The library's counts are about to move because of this menu (`useTrashActions`). */
+  readonly onLeaving?: (change: RowChange) => void;
   /**
    * A thumbnail was pinned to a moment, and the grid holds a card that still
    * says otherwise (ADR-0024 stage 4).
@@ -101,6 +110,11 @@ export interface AssetContextMenuProps {
   readonly onTransfer?: (ids: readonly string[], target: WireRecentLibrary, take: Take) => void;
   /** A transfer is running, so another cannot start. */
   readonly transferring?: boolean;
+  /**
+   * Whether an asset in the selection shows a thumbnail somebody chose, which
+   * is what offers **Remove custom thumbnail** (ADR-0060).
+   */
+  readonly chosenThumbnail?: boolean;
   readonly children: React.ReactNode;
 }
 
@@ -111,6 +125,7 @@ export function AssetContextMenu({
   onProblem,
   onConfirm,
   onGone,
+  onLeaving,
   onPosterPinned,
   onPaste,
   onNewFile,
@@ -120,6 +135,7 @@ export function AssetContextMenu({
   libraryRoot,
   onTransfer,
   transferring,
+  chosenThumbnail,
   children,
 }: AssetContextMenuProps): React.JSX.Element {
   const count = ids.length;
@@ -155,6 +171,32 @@ export function AssetContextMenu({
         atMs === null
           ? "Thumbnail back to the default frame"
           : `Thumbnail set to the frame at ${timecode(atMs)}`,
+      );
+    });
+  };
+
+  /**
+   * A thumbnail somebody chose, from the clipboard or a file (ADR-0060).
+   *
+   * Main finds the image and the engine draws it; the cells change when the
+   * engine announces them, as they do for any redraw, so nothing here patches
+   * a card.
+   */
+  const chooseThumbnail = (from: ThumbnailSource): void => {
+    void invoke({ type: "asset:thumbnail", ids, from }).then((outcome) => {
+      if (!outcome.ok) return onProblem(outcome.problem);
+      const line = thumbnailLine(outcome.value);
+      if (line !== null) onNote(line);
+    });
+  };
+
+  const clearThumbnail = (): void => {
+    void invoke({ type: "asset:thumbnailClear", ids }).then((outcome) => {
+      if (!outcome.ok) return onProblem(outcome.problem);
+      onNote(
+        outcome.value === 1
+          ? "Removed the custom thumbnail"
+          : `Removed the custom thumbnail from ${assets(outcome.value)}`,
       );
     });
   };
@@ -216,6 +258,7 @@ export function AssetContextMenu({
     onProblem,
     onConfirm,
     onGone,
+    ...(onLeaving !== undefined && { onLeaving }),
   });
 
   const openHere =
@@ -355,6 +398,28 @@ export function AssetContextMenu({
                 </>
               )}
 
+              {/* A thumbnail somebody chose (ADR-0060), over any file and any
+                  number of them. Remove is there only when there is one to
+                  remove, which the cards say without asking the engine. */}
+              <ContextMenu.Separator className="menu-separator" />
+
+              <ContextMenu.Item className="menu-item" onSelect={() => chooseThumbnail("clipboard")}>
+                <span className="menu-mark" />
+                <span className="menu-label">Set thumbnail from clipboard</span>
+              </ContextMenu.Item>
+
+              <ContextMenu.Item className="menu-item" onSelect={() => chooseThumbnail("file")}>
+                <span className="menu-mark" />
+                <span className="menu-label">Set thumbnail from file…</span>
+              </ContextMenu.Item>
+
+              {chosenThumbnail === true && (
+                <ContextMenu.Item className="menu-item" onSelect={clearThumbnail}>
+                  <span className="menu-mark" />
+                  <span className="menu-label">Remove custom thumbnail</span>
+                </ContextMenu.Item>
+              )}
+
               <ContextMenu.Separator className="menu-separator" />
 
               {/*
@@ -456,6 +521,18 @@ export function copiedLine(copied: number): string {
   return copied === 0
     ? "Nothing could be copied — those files are not on this machine"
     : `Copied ${assets(copied)} to the clipboard`;
+}
+
+/**
+ * What the status bar says after *Set thumbnail from…*, or `null` for a dialog
+ * somebody closed, which needs no sentence.
+ */
+export function thumbnailLine(chosen: WireThumbnailChosen): string | null {
+  if (chosen.kind === "cancelled") return null;
+  if (chosen.kind === "empty") return "Nothing on the clipboard can be a thumbnail — copy an image";
+  return chosen.count === 1
+    ? "Set a custom thumbnail"
+    : `Set a custom thumbnail on ${assets(chosen.count)}`;
 }
 
 /** What the status bar says after an export. */

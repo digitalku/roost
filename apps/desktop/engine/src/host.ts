@@ -42,6 +42,9 @@ import {
   addToFolder,
   catchUp,
   check as checkLibrary,
+  chooseThumbnail,
+  chosenThumbnails,
+  clearThumbnail,
   compileFor,
   createAsset,
   createFolder,
@@ -246,8 +249,8 @@ export class EngineHost {
         // none of them is announced: no query answers
         // differently, and the window that sent it is already drawing the new
         // state. The keys are applied in one write rather than one each,
-        // because a menu can change two at once (choosing `random` rolls a
-        // seed) and two writes would be two reads of the file.
+        // because a menu can change two at once (choosing a key sets its own
+        // direction) and two writes would be two reads of the file.
         const quiet = {
           ...(request.fitVideoToWindow !== undefined && {
             fitVideoToWindow: request.fitVideoToWindow,
@@ -256,7 +259,6 @@ export class EngineHost {
           ...(request.mediaMuted !== undefined && { mediaMuted: request.mediaMuted }),
           ...(request.sortKey !== undefined && { sortKey: request.sortKey }),
           ...(request.sortDescending !== undefined && { sortDescending: request.sortDescending }),
-          ...(request.shuffleSeed !== undefined && { shuffleSeed: request.shuffleSeed }),
           ...(request.gridView !== undefined && { gridView: request.gridView }),
           ...(request.matchImageProportions !== undefined && {
             matchImageProportions: request.matchImageProportions,
@@ -295,6 +297,7 @@ export class EngineHost {
           library.db.repo.commentsFor(found.id),
           library.db.repo.subtitlesFor(found.id),
           library.db.repo.stalledReasons("derive", [found.id]).get(found.id) ?? null,
+          chosenThumbnails(library, [found.id]).has(found.id),
         );
       }
 
@@ -320,6 +323,28 @@ export class EngineHost {
           // which is the same path a rebuild takes. Nothing to work when the
           // moment was already the one asked for.
           if (pinned) void this.#runDerives();
+        });
+
+      case "asset:thumbnailSet":
+        // Announced as a derive, so every window holding these cards patches
+        // them, and as a change, so an inspector reads the line that says so.
+        // Nothing was journalled and no count moved (ADR-0060), so no grid
+        // pages again.
+        return this.#editReporting(async () => {
+          const redrawn = await chooseThumbnail(this.#require(), ids(request.ids), request.path);
+          this.onDerived?.(redrawn);
+          return redrawn.length;
+        });
+
+      case "asset:thumbnailClear":
+        return this.#editReporting(async () => {
+          const cleared = clearThumbnail(this.#require(), ids(request.ids));
+          if (cleared.length === 0) return 0;
+          this.onDerived?.(cleared);
+          // The file's own pictures, drawn now: somebody is looking at the cell.
+          if (this.#paused) for (const one of cleared) this.#requested.open(one.id);
+          void this.#runDerives();
+          return cleared.length;
         });
 
       case "asset:create":
@@ -626,6 +651,7 @@ export class EngineHost {
       case "asset:copyFiles":
       case "asset:copyImage":
       case "asset:dragOut":
+      case "asset:thumbnail":
       case "handoff:cost":
       case "dialog:openLibrary":
       case "dialog:chooseLocation":
@@ -676,12 +702,11 @@ export class EngineHost {
       after?.section ?? "own",
     );
     const last = hits.length < limit ? undefined : lastCursor(hits);
-    const stalled = library.db.repo.stalledReasons(
-      "derive",
-      hits.map((hit) => hit.id),
-    );
+    const shown = hits.map((hit) => hit.id);
+    const stalled = library.db.repo.stalledReasons("derive", shown);
+    const chosen = chosenThumbnails(library, shown);
     return {
-      assets: hits.map((hit) => cardOf(hit, stalled.get(hit.id) ?? null)),
+      assets: hits.map((hit) => cardOf(hit, stalled.get(hit.id) ?? null, chosen.has(hit.id))),
       next: last === undefined ? null : { key: last.key, id: last.id, section },
       beneath,
     };
@@ -1385,7 +1410,11 @@ function statsOf(library: Library): LibraryStats {
  * shape are allowed to differ and this is the place that has to notice when
  * they do (ADR-0007 — the duplication is the boundary).
  */
-function cardOf(hit: SearchHit, undrawn: string | null): AssetPage["assets"][number] {
+function cardOf(
+  hit: SearchHit,
+  undrawn: string | null,
+  chosenThumbnail: boolean,
+): AssetPage["assets"][number] {
   return {
     id: hit.id,
     name: hit.name,
@@ -1397,6 +1426,7 @@ function cardOf(hit: SearchHit, undrawn: string | null): AssetPage["assets"][num
     posterMs: hit.posterMs,
     derivedAt: hit.derivedAt,
     undrawn,
+    chosenThumbnail,
     width: hit.width,
     height: hit.height,
     importedAt: hit.importedAt,
@@ -1539,6 +1569,7 @@ function detailOf(
   comments: readonly CommentRow[],
   tracks: readonly SubtitleRow[],
   undrawn: string | null,
+  chosenThumbnail: boolean,
 ): WireAssetDetail {
   return {
     id: detail.id,
@@ -1553,6 +1584,7 @@ function detailOf(
     contentHash: detail.contentHash,
     derivedAt: detail.derivedAt,
     undrawn,
+    chosenThumbnail,
     createdAt: detail.createdAt,
     importedAt: detail.importedAt,
     trashedAt: detail.trashedAt,

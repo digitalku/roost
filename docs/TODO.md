@@ -31,6 +31,9 @@ versions that came with it.
 
 Still open, and none of it blocks M0:
 
+- 🟢 **ADR-0060 was accepted on 2026-10-05**, the day it was proposed: a thumbnail chosen by hand,
+  kept in `thumbs/roost.db` alone, at the user's choosing. The work is in §3, under *A thumbnail
+  somebody chose*.
 - 🟢 **ADR-0056 was accepted on 2026-10-01**, the day it was proposed: the folder is the library's
   name (`FORMAT.md` revision 2.2, RL-7b), with *Rename library…* in the `☰`. The work is in §3,
   under *The folder is the library's name*.
@@ -142,6 +145,27 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
+
+### A thumbnail somebody chose (ADR-0060) — built 2026-10-05
+
+- 🟢 **Dragging an image onto the inspector's picture to set it.** A fourth gesture onto the same
+  request (ADR-0060 §5), not asked for.
+- 🟢 **An Eagle library's custom thumbnails** (ADR-0032). Whether Eagle's export tells a chosen
+  thumbnail apart from a generated one has not been checked.
+- 🟢 **No window check drives *Set thumbnail from file…***: it opens the system's dialog, which
+  CDP cannot reach. Its row is checked, and the engine half is the clipboard's.
+- 🟢 **A pictures file at a version this build does not know is still emptied**, and since ADR-0060
+  that loses the chosen thumbnails in it. An older checkout opening a library this one wrote would
+  do the same to version 2. Accepted with the rest of §2 of the ADR; worth a refusal rather than an
+  emptying if a version 3 ever comes.
+
+### A new shuffle at every open (ADR-0039 §11) — built 2026-10-05
+
+- 🟢 **The page that crosses from one character's run into the next still sorts the library.**
+  That is 34 pages of a 952-page walk at 95,001 assets, about 20 ms each, and about 200 ms at a
+  million. The second seek could walk the next run along the primary key as the first one does,
+  as `key = @cursorKey + 1`, then `+ 2` while a run is empty. Not done because nobody has felt
+  it, and a filtered walk can meet many empty runs in a row.
 
 ### Folder counts, tiles and a search for folders (ADR-0036 §6, ADR-0043 §12, ADR-0057) — built 2026-10-01
 
@@ -445,14 +469,6 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
     ledger), and `fixtures.mjs` (a scratch library, real images, a playable clip). Adding a sixth
     check is now a page expression and a claim rather than a fifth copy of the plumbing.
 
-- 🟡 **`check-grid.mjs` has not yet completed a run in a composited window.** Written and driven
-  on 2026-09-03: fifteen of its claims were seen to pass, and then the session's compositor
-  stopped drawing new windows, at which point the script correctly refused rather than reporting
-  the layout and the marquee as broken (§4 lesson 18). The two defects the first run found were in
-  the script, not in the grid — a card read while `Ctrl+A` was still in force, and cells taken in
-  DOM order rather than visual order — and both are fixed. **It needs one clean run on a desktop
-  session with the window visible** before it can be called a guard.
-
 - 🟢 **The grid's first layout is measured before the inspector has claimed its width**, and only
   a `ResizeObserver` delivery corrects it. Seen while writing the check above: at mount the
   scroller is the full width of the frame, so `measure()` records a container about 240px too
@@ -716,11 +732,6 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   grid and the preview still fill their new wrapper.
 
 ### Trash (ADR-0022, decided and built 2026-09-01)
-
-- 🟡 **The grid re-pages on a trash rather than dropping the row.** `readStats` now compares the
-  trashed count as well as the asset count, so trashing does invalidate the pages — but it
-  invalidates *all* of them and the scroll position goes with them. That is the same targeted-update
-  gap §M3 already carries, now reachable one gesture sooner.
 
 - 🟡 **The inspector says nothing about a trashed asset.** `AssetDetail` and the wire both carry
   `trashedAt` and nothing draws it, so an asset opened from Trash looks like any other.
@@ -1145,6 +1156,10 @@ claim and counts made cheap at a million. What is still open:
   So the synthetic pointer sequence is **not** the common cause: the drags work here. That leaves
   two separate failures rather than one, both ahead of where Windows stopped, and neither
   diagnosed — this run was a bystander to `pnpm start` work rather than an attempt to fix them.
+
+  **`check-grid.mjs`'s half is closed (2026-10-05)**, and it was the script. On Linux it passes 52
+  of 52 (`todo-done.md`, *Shell and UI (M3)*). The marquee section passes with it, so the drags
+  CDP sends do work. What is left here is `check-folders.mjs`, and the Windows run.
 
 - 🟡 **`check-workspace.mjs` flaked on a first-ever cold start.** Seen once on 2026-09-22, on the
   first Electron start in a fresh container: it timed out waiting for the thumbnail's address to

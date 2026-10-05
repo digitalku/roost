@@ -9,7 +9,7 @@ import type {
   SortKey,
   Take,
 } from "../model/index.js";
-import { DEFAULT_SORT, JOB_KINDS, rotationFor } from "../model/index.js";
+import { DEFAULT_SORT, JOB_KINDS, shuffleFor } from "../model/index.js";
 import type { Cursor, CursorKey, Filter, Page, SearchHit } from "./query.js";
 
 /**
@@ -177,12 +177,32 @@ export interface PictureSource {
   readonly mtime: number;
   readonly posterMs: number | null;
   readonly metadata: DerivedMetadata;
+  /**
+   * Whether somebody supplied these pictures (ADR-0060). Never drawn over:
+   * the file is still measured, and the pictures are kept whatever it says.
+   */
+  readonly chosen: boolean;
 }
+
+/** One picture somebody supplied, at one of the sizes every asset has. */
+export interface ChosenPicture {
+  readonly size: number;
+  readonly width: number;
+  readonly height: number;
+  readonly data: Buffer;
+}
+
+/**
+ * What `file_size` holds for a chosen picture whose file has not been measured
+ * since (ADR-0060): no file is that size, so the next derive measures it.
+ */
+const UNMEASURED = -1;
 
 /** A `pictures.sources` row as SQLite returns it. */
 interface PictureSourceRow {
   readonly size: number;
   readonly mtime: number;
+  readonly chosen: number;
   readonly posterMs: number | null;
   readonly contentHash: ContentHash | null;
   readonly width: number | null;
@@ -924,6 +944,7 @@ export class Repo {
    * disagrees with its own grid cell is worse than either (ADR-0024).
    */
   dropThumbnail(id: AssetId, size: number): void {
+    if (this.#isChosen(id)) return;
     this.#s("DELETE FROM pictures.thumbs WHERE asset_id = ? AND size = ?").run(id, size);
   }
 
@@ -935,8 +956,14 @@ export class Repo {
    * longer exists. Under version 1 this could not happen — a different file was
    * a different asset at a different address. What they were drawn from goes
    * with them, so nothing can reuse them afterwards.
+   *
+   * **Except pictures somebody chose** (ADR-0060), which are not pictures of
+   * the file and so are not made wrong by its changing. Their source stays
+   * too; its size and time no longer match, which is what makes the next
+   * derive measure the file again.
    */
   dropThumbnails(id: AssetId): void {
+    if (this.#isChosen(id)) return;
     this.#dropPictures(id);
   }
 
@@ -1403,6 +1430,13 @@ export class Repo {
     return row?.data;
   }
 
+  /** Every picture one asset has, at every size, for carrying elsewhere (ADR-0060 §3.6). */
+  picturesOf(id: AssetId): ChosenPicture[] {
+    return this.#s(
+      "SELECT size, width, height, data FROM pictures.thumbs WHERE asset_id = ? ORDER BY size",
+    ).all(id) as ChosenPicture[];
+  }
+
   /** Whether one asset has a thumbnail at every one of `sizes`. */
   hasThumbnails(id: AssetId, sizes: readonly number[]): boolean {
     const probe = this.#s("SELECT 1 FROM pictures.thumbs WHERE asset_id = ? AND size = ?");
@@ -1417,7 +1451,7 @@ export class Repo {
    * still the one that was drawn, and a source it cannot check is one it must
    * not reuse.
    */
-  putPictureSource(id: AssetId, source: PictureSource): void {
+  putPictureSource(id: AssetId, source: Omit<PictureSource, "chosen">): void {
     this.#s(
       `INSERT INTO pictures.sources (asset_id, file_size, file_mtime, poster_ms, content_hash,
                                      width, height, duration_ms, page_count, props)
@@ -1455,7 +1489,7 @@ export class Repo {
     const row = this.#s(
       `SELECT file_size AS size, file_mtime AS mtime, poster_ms AS posterMs,
               content_hash AS contentHash, width, height, duration_ms AS durationMs,
-              page_count AS pageCount, props
+              page_count AS pageCount, props, chosen
          FROM pictures.sources WHERE asset_id = ?`,
     ).get(id) as PictureSourceRow | undefined;
     if (row === undefined) return undefined;
@@ -1469,7 +1503,85 @@ export class Repo {
       ...(row.pageCount === null ? {} : { pageCount: row.pageCount }),
       ...(row.props === null ? {} : { props: parseProps(row.props) }),
     };
-    return { size: row.size, mtime: row.mtime, posterMs: row.posterMs, metadata };
+    return {
+      size: row.size,
+      mtime: row.mtime,
+      posterMs: row.posterMs,
+      metadata,
+      chosen: row.chosen !== 0,
+    };
+  }
+
+  #isChosen(id: AssetId): boolean {
+    return (
+      this.#s("SELECT 1 FROM pictures.sources WHERE asset_id = ? AND chosen = 1").get(id) !==
+      undefined
+    );
+  }
+
+  /**
+   * Replaces an asset's pictures with ones somebody supplied (ADR-0060).
+   *
+   * Every picture it had goes first, at every size, so none drawn from the file
+   * can be served beside them. The source is kept where there is one, because
+   * what it measured about the file is still true, and marked chosen. Where
+   * there is none, it is written unmeasured, so that the next derive measures
+   * the file rather than believing a size nobody took.
+   *
+   * Not journalled, by the user's choice: the pictures live here and nowhere
+   * else, and are lost with `thumbs/` (ADR-0060 §2).
+   */
+  choosePictures(id: AssetId, pictures: readonly ChosenPicture[]): void {
+    this.#s("DELETE FROM pictures.thumbs WHERE asset_id = ?").run(id);
+    for (const picture of pictures) {
+      this.putThumbnail(id, picture.size, picture.width, picture.height, picture.data);
+    }
+    this.#s(
+      `INSERT INTO pictures.sources (asset_id, file_size, file_mtime, chosen) VALUES (?, ?, ?, 1)
+       ON CONFLICT(asset_id) DO UPDATE SET chosen = 1`,
+    ).run(id, UNMEASURED, UNMEASURED);
+  }
+
+  /**
+   * Gives an asset back the pictures of its own file, and says whether it had
+   * chosen ones (ADR-0060).
+   *
+   * Drops them and their source together, so the derive that follows draws
+   * from the file rather than finding pictures it would keep.
+   */
+  unchoosePictures(id: AssetId): boolean {
+    if (!this.#isChosen(id)) return false;
+    this.#dropPictures(id);
+    return true;
+  }
+
+  /**
+   * Which of `ids` show pictures somebody chose (ADR-0060).
+   *
+   * Asked after a page is read rather than joined into it, as
+   * {@link Repo.stalledReasons} is and for its reason: one primary-key lookup
+   * per card. The ids travel as one JSON parameter.
+   */
+  chosenAmong(ids: readonly AssetId[]): Set<AssetId> {
+    if (ids.length === 0) return new Set();
+    const rows = this.#s(
+      `SELECT s.asset_id AS id
+         FROM json_each(?) e
+         JOIN pictures.sources s ON s.asset_id = e.value
+        WHERE s.chosen = 1`,
+    ).all(JSON.stringify(ids)) as { id: AssetId }[];
+    return new Set(rows.map((row) => row.id));
+  }
+
+  /**
+   * Moves the cache key a thumbnail's address carries, without saying anything
+   * new about the file (ADR-0060, ADR-0047).
+   *
+   * For pictures that changed without a derive: an `<img>` whose address did
+   * not move is one Chromium never asks about again.
+   */
+  touchPictures(id: AssetId, now: number): void {
+    this.#s("UPDATE assets SET derived_at = ? WHERE id = ?").run(now, id);
   }
 
   /**
@@ -1822,6 +1934,25 @@ export class Repo {
    */
   blockJob(id: number, reason: string): void {
     this.#s("UPDATE jobs SET state = 'blocked', reason = ? WHERE id = ?").run(reason, id);
+  }
+
+  /**
+   * Forgets a parked or failed job for one asset, and says whether there was
+   * one.
+   *
+   * For an asset whose pictures somebody has just supplied (ADR-0060): what
+   * the job was stuck on has been answered, so the badge it puts on the cell
+   * should go. A job still waiting is left alone, since it will measure the
+   * file, and so is one stalled for a reason in `unless`.
+   */
+  settleStalled(kind: JobKind, asset: AssetId, unless: readonly string[] = []): boolean {
+    return (
+      this.#s(
+        `DELETE FROM jobs
+          WHERE kind = ? AND asset_id = ? AND state IN ('blocked', 'failed')
+            AND coalesce(reason, '') NOT IN (SELECT value FROM json_each(?))`,
+      ).run(kind, asset, JSON.stringify(unless)).changes > 0
+    );
   }
 
   /** Records a job that was tried and did not survive. */
@@ -2458,12 +2589,14 @@ export class Repo {
    */
   search(filter: Filter, page: Page): SearchHit[] {
     const sort = page.sort ?? DEFAULT_SORT;
+    const shuffle = shuffleFor(sort.seed);
     const named: {
       limit: number;
-      rotate: number;
+      shuffleAt: number;
+      shuffleAlphabet: string;
       cursorKey?: CursorKey;
       cursorId?: string;
-    } = { limit: page.limit, rotate: rotationFor(sort.seed) };
+    } = { limit: page.limit, shuffleAt: shuffle.at, shuffleAlphabet: shuffle.alphabet };
     if (page.after !== undefined) {
       named.cursorKey = page.after.key;
       named.cursorId = page.after.id;
@@ -2476,9 +2609,7 @@ export class Repo {
     // parameter to SQLite.
     const sql = searchSql(filter.sql, page.after !== undefined, sort);
     const positional =
-      page.after !== undefined && ties(sort)
-        ? [...filter.params, ...filter.params]
-        : [...filter.params];
+      page.after !== undefined ? [...filter.params, ...filter.params] : [...filter.params];
 
     const rows = this.#s(sql).all(...positional, named) as (Omit<SearchHit, "isFavorite"> & {
       isFavorite: number;
@@ -2497,7 +2628,7 @@ export class Repo {
 }
 
 /**
- * How each sort key is spelled in SQL, and whether two rows can share it.
+ * How each sort key is spelled in SQL.
  *
  * The expression is the **definition of the order**: the schema indexes exactly
  * these, character for character, and the resume compares exactly these. A
@@ -2511,25 +2642,21 @@ export class Repo {
  * which folds ASCII and nothing else — the same folding `@roost/library` does
  * for folder names, chosen there for the same reason.
  *
- * `random` is the one with no column, no index, and no ties: a rotation of the
- * **id** by `@rotate` characters (`rotationFor`). Because the rotation is a
- * bijection of a unique id it cannot tie, which is why it needs only one seek
- * rather than two. Version 1 rotated the content hash; an id is uniformly
- * random too (RL-14) and, unlike a hash, is never absent.
+ * `random` is the one with no column and no index: where one character of the
+ * **id** falls in a reordered alphabet (`shuffleFor`), so thirty-two values and
+ * the id to break the ties. It ties on purpose. The first page sorts every
+ * match, as any shuffle must, but a resume's first seek is the rest of one
+ * character's run walked along the primary key, and only the page that crosses
+ * into the next character pays for a sort again (ADR-0039 §11).
  */
-const ORDERS: Readonly<Record<SortKey, { readonly expr: string; readonly ties: boolean }>> = {
-  added: { expr: "a.imported_at", ties: true },
-  created: { expr: "COALESCE(a.created_at, a.imported_at)", ties: true },
-  name: { expr: "lower(a.name)", ties: true },
-  size: { expr: "COALESCE(a.size, 0)", ties: true },
-  rating: { expr: "COALESCE(a.rating, 0)", ties: true },
-  random: { expr: "substr(a.id, @rotate + 1) || substr(a.id, 1, @rotate)", ties: false },
+const ORDERS: Readonly<Record<SortKey, string>> = {
+  added: "a.imported_at",
+  created: "COALESCE(a.created_at, a.imported_at)",
+  name: "lower(a.name)",
+  size: "COALESCE(a.size, 0)",
+  rating: "COALESCE(a.rating, 0)",
+  random: "instr(@shuffleAlphabet, substr(a.id, @shuffleAt, 1))",
 };
-
-/** Whether resuming this order needs the second seek. */
-function ties(sort: Sort): boolean {
-  return ORDERS[sort.key].ties;
-}
 
 /**
  * Assembles the statement {@link Repo.search} runs, around a compiled filter.
@@ -2563,7 +2690,7 @@ export function searchSql(
   hasCursor: boolean,
   sort: Sort = DEFAULT_SORT,
 ): string {
-  const { expr, ties: canTie } = ORDERS[sort.key];
+  const expr = ORDERS[sort.key];
   const way = sort.descending ? "DESC" : "ASC";
   // Descending, "still to come" means smaller. The comparison and the direction
   // are the same fact said twice, and they are derived from it rather than
@@ -2584,8 +2711,6 @@ export function searchSql(
   if (!hasCursor) return page(`(${filterSql})`, whole);
 
   const beyondKey = page(`(${filterSql}) AND ${expr} ${beyond} @cursorKey`, whole);
-  if (!canTie) return beyondKey;
-
   const sameKey = page(
     `(${filterSql}) AND ${expr} = @cursorKey AND a.id ${beyond} @cursorId`,
     `a.id ${way}`,

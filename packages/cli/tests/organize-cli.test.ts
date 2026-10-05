@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { EXIT, run } from "@roost/cli";
 import { parseAssetId } from "@roost/core";
 import { addSubtitles, Library, subtitles } from "@roost/library";
+import { gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 /** Collects what a command would have printed, so no subprocess is needed. */
@@ -332,6 +333,29 @@ describe("the organize commands", () => {
 
     expect((await ok("poster", clip, "--clear"))[0]).toContain("default frame");
     expect(await ok("poster", clip)).toEqual([expect.stringContaining("default frame")]);
+  });
+
+  it("gives an asset a thumbnail of somebody's choosing, and its own back", async () => {
+    // ADR-0060, and ADR-0005 once more: the window can, so this can.
+    const asset = hashes[0] as string;
+    const image = join(dir, "cover.png");
+    await writeFile(image, await gradient(64, 48, 5, "png"));
+
+    expect(await ok("thumbnail", asset)).toEqual([expect.stringContaining("its own thumbnail")]);
+    expect(await ok("thumbnail", asset, image)).toEqual([
+      expect.stringContaining("now has a custom thumbnail"),
+    ]);
+    expect(await ok("thumbnail", asset)).toEqual([expect.stringContaining("has a custom")]);
+
+    // Not a picture: refused, by its code.
+    const text = join(dir, "notes.txt");
+    await writeFile(text, "words");
+    const refused = capture();
+    expect(await run(["thumbnail", asset, text, "-L", root], refused.streams)).not.toBe(EXIT.ok);
+    expect(refused.warn.join("\n")).toContain("[not_a_picture]");
+
+    expect((await ok("thumbnail", asset, "--clear"))[0]).toContain("roost thumb");
+    expect((await ok("thumbnail", asset, "--clear"))[0]).toContain("already");
   });
 
   it("writes a file's bytes over an asset's own file", async () => {

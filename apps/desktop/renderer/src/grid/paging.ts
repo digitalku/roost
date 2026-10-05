@@ -265,9 +265,15 @@ export function useAssetPages(
         if (one === undefined) return card;
         // `null` is "nothing about the file was written", not "forget the key".
         const derivedAt = one.derivedAt ?? card.derivedAt;
-        if (derivedAt === card.derivedAt && one.undrawn === card.undrawn) return card;
+        if (
+          derivedAt === card.derivedAt &&
+          one.undrawn === card.undrawn &&
+          one.chosen === card.chosenThumbnail
+        ) {
+          return card;
+        }
         changed = true;
-        return { ...card, derivedAt, undrawn: one.undrawn };
+        return { ...card, derivedAt, undrawn: one.undrawn, chosenThumbnail: one.chosen };
       });
       // A new array for a batch that touched nothing on screen would re-render
       // the grid on every batch of a hundred-thousand-asset import.

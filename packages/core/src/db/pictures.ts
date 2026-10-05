@@ -15,8 +15,8 @@ export const THUMBNAILS_FILE = join("thumbs", "roost.db");
 /** The schema name the thumbnail database is attached under. */
 export const PICTURES_SCHEMA = "pictures";
 
-/** The one version of `thumbs_schema.sql`, kept in `PRAGMA user_version`. */
-const PICTURES_VERSION = 1;
+/** The version of `thumbs_schema.sql`, kept in `PRAGMA user_version`. */
+const PICTURES_VERSION = 2;
 
 /**
  * Where the thumbnail database for the index at `indexPath` lives.
@@ -35,9 +35,11 @@ export function picturesPathFor(indexPath: string): string {
  * It runs before the index's migrations, because migration 0002 copies the
  * pictures across into it.
  *
- * A file at a version this build does not know is emptied and made again
- * rather than refused: nothing in it is data (RL-2), so the only cost is the
- * time it takes to draw the pictures again.
+ * Version 1 is brought forward in place by adding `chosen` (ADR-0060), so an
+ * upgrade does not send a library back to placeholders. A file at a version
+ * this build does not know is emptied and made again rather than refused. That
+ * costs the time it takes to draw the pictures again, and the thumbnails
+ * somebody chose, which the user accepted as the price of keeping them here.
  */
 export function attachPictures(db: Database, indexPath: string): void {
   const path = picturesPathFor(indexPath);
@@ -48,6 +50,21 @@ export function attachPictures(db: Database, indexPath: string): void {
   const version = db.pragma(`${PICTURES_SCHEMA}.user_version`, { simple: true });
   if (version === PICTURES_VERSION) {
     configurePictures(db);
+    return;
+  }
+  if (version === 1) {
+    configurePictures(db);
+    db.exec("BEGIN");
+    try {
+      db.exec(
+        `ALTER TABLE ${PICTURES_SCHEMA}.sources ADD COLUMN chosen INTEGER NOT NULL DEFAULT 0`,
+      );
+      db.pragma(`${PICTURES_SCHEMA}.user_version = ${PICTURES_VERSION}`);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
     return;
   }
 

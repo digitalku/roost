@@ -508,6 +508,7 @@ export function Grid({
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      if (fromPortal(event)) return;
       const id = hashAt(event.target);
 
       // The secondary button opens a menu over the selection, so it must not
@@ -626,6 +627,7 @@ export function Grid({
 
   const onDoubleClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
+      if (fromPortal(event)) return;
       // The pointer-down that preceded this already selected and focused the
       // cell, so opening is all that is left to do.
       const id = hashAt(event.target);
@@ -737,6 +739,7 @@ export function Grid({
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (fromPortal(event)) return;
       const direction = DIRECTIONS[event.key];
       if (direction !== undefined) {
         event.preventDefault();
@@ -1063,6 +1066,20 @@ function parentPath(path: string): string | null {
 
 /** A folder with no pictures to show, shared so an empty tile is one array. */
 const NO_COVERS: readonly string[] = [];
+
+/**
+ * Whether an event reached the grid from a portal rather than from inside it.
+ *
+ * React bubbles along its own tree, where a portal is a child of the component
+ * that rendered it, not of `body`. The folder menu is rendered by a tile and
+ * portalled out, so until 2026-10-05 a press on one of its items arrived here
+ * as a press on the background: it began a sweep, the sweep captured the
+ * pointer, and the item never received the release that selects it. Every item
+ * in the menu did nothing. Its keys arrived too, and moved the ring.
+ */
+function fromPortal(event: React.SyntheticEvent<HTMLElement>): boolean {
+  return !(event.target instanceof Node && event.currentTarget.contains(event.target));
+}
 
 /** Keeps a right-click on a folder tile out of the asset menu's trigger. */
 function stopBubble(event: React.MouseEvent): void {

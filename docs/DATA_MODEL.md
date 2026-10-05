@@ -329,10 +329,11 @@ the key plus those with the same key and a later id, and as one disjunction SQLi
 and then walks the whole run of equal keys. A rating has six values: page 500 cost 5.8 ms that way
 and 0.06 ms as a `UNION ALL` of two ranges over `(key, id)`.
 
-**No index for the random order and no possibility of one.** It is a seeded rotation of the id —
-eleven independent orders, since an id is uniformly distributed and comparing from character *k*
-has nothing to do with comparing from character 0 — and an index per seed is an index per shuffle.
-ADR-0039 §5 records why that is the right trade and what the two faster alternatives break.
+**No index for the random order and no possibility of one.** Its key is where one character of
+the id falls in a reordered alphabet, `instr(@shuffleAlphabet, substr(a.id, @shuffleAt, 1))`, with
+the id breaking ties, and an index per seed is an index per shuffle. ADR-0039 §5 records why that is
+the right trade, and §11 why the key is an integer that ties: the first page sorts every match, and
+a resume walks the rest of one character's run along the primary key.
 
 **No journal op, no column, no table for the order itself.** It is a *preference*, not library
 data: it lives in `settings.json` (ADR-0019, ADR-0039 §7) with the view, the icon shape and the
@@ -377,15 +378,23 @@ rewrite is of the rows alone.
 
 Not the index and not a numbered migration: a cache of its own (ADR-0051), inside `thumbs/`, which
 the format reserves (RL-56) and leaves to the implementation (RL-2). Named for this build so that
-nothing else writing into `thumbs/` can collide with it. It has one version, in
-`PRAGMA user_version`, and a file at any other version is emptied and made again rather than
-migrated, because every row in it can be drawn again from `files/`.
+nothing else writing into `thumbs/` can collide with it. Its version is in `PRAGMA user_version`,
+and it is at **2**. Version 1 is brought forward in place, by `ALTER TABLE … ADD COLUMN chosen`, so
+an upgrade does not send a library back to placeholders. A file at any other version is emptied and
+made again rather than migrated. That used to cost only time, because every row could be drawn
+again from `files/`. **Since ADR-0060 it also loses the thumbnails somebody chose**, which are kept
+here and nowhere else, by the user's choice: a row with `chosen = 1` is never drawn over, and a
+changed file under it is measured again while its pictures stay.
 
 ```sql
 -- What the pictures were drawn from, one row per asset. A thumbnail is reused
 -- only while `file_size`, `file_mtime` and `poster_ms` still match the file and
 -- the asset, and then so is everything else here -- which is what lets a
 -- rebuild restore the derived columns without decoding or hashing anything.
+--
+-- `chosen` is 1 where somebody supplied the pictures (ADR-0060). Those are
+-- never drawn over: a changed file is measured again and its pictures kept,
+-- and `file_size` = -1 says the file has not been measured since.
 CREATE TABLE pictures.sources (
   asset_id     TEXT PRIMARY KEY,
   file_size    INTEGER NOT NULL,
@@ -396,7 +405,8 @@ CREATE TABLE pictures.sources (
   height       INTEGER,
   duration_ms  INTEGER,
   page_count   INTEGER,
-  props        TEXT                  -- JSON object, or NULL for none
+  props        TEXT,                 -- JSON object, or NULL for none
+  chosen       INTEGER NOT NULL DEFAULT 0
 ) WITHOUT ROWID;
 
 -- A rowid table on purpose: WITHOUT ROWID stores a row inside the B-tree, and a

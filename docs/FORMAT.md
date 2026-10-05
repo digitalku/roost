@@ -1,13 +1,15 @@
 # Roost Library Format
 
-**Format version 2 · Document revision 2.2 · Status: DRAFT**
+**Format version 2 · Document revision 2.3 · Status: DRAFT**
 
 **This document belongs to this repository** (ADR-0052). It was written in the `roost-library`
 repository and copied here unchanged at revision 2.0 on 2026-09-26. From then on it is kept here, it
 is not synchronised with that repository, and it changes in the same commit as the code that
 implements the change (§12). **Revision 2.1** (2026-09-26, ADR-0053) rewrote RL-6a: a lower version
 is not a library, and version 1 is no longer named. **Revision 2.2** (2026-10-01, ADR-0056) made
-the folder the library's name: RL-5 rewords `name`, and RL-7b is new. `docs/STORAGE_SPEC.md` maps each requirement to the code that meets it,
+the folder the library's name: RL-5 rewords `name`, and RL-7b is new. **Revision 2.3** (2026-10-05,
+ADR-0060) corrected what RL-2 says of `thumbs/`: an implementation may keep there pictures somebody
+chose, and those are lost with it. `docs/STORAGE_SPEC.md` maps each requirement to the code that meets it,
 `OPS.md` beside this file is the operation registry, and `conformance/` at the repository root is
 the suite.
 
@@ -63,7 +65,7 @@ them differently, omit them, or use a different technology entirely:
 | | |
 |---|---|
 | `index.db` | A cache. RL-24 requires the library be reconstructible without it, which is what makes it not data |
-| `thumbs/` | Pictures derived from the bytes. Discarding them costs time and nothing else |
+| `thumbs/` | Pictures of the files. Discarding them costs time, and any pictures somebody chose in place of a file's own |
 | `settings.json` | Per-library preferences |
 | `staging/` | Named copies handed to other applications. Transient |
 
@@ -79,6 +81,11 @@ neither means anything the journal and the files do not already say. Version 1 w
 forbade thumbnails inside the library at all; version 2 does not, because `thumbs/` is a reserved
 name here and an implementation that fills it is not writing data — it is writing a cache it may
 delete at any time.
+
+*Pictures somebody chose* (revision 2.3). An implementation MAY let a person choose a file's
+thumbnail, and MAY keep that picture in `thumbs/` and nowhere else. It is then not reconstructible,
+and deleting `thumbs/` loses it. Nothing in this format records the choice, so another implementation shows the file's own picture,
+and is right to: what a library means is unchanged.
 
 ---
 

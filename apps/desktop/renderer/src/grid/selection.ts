@@ -198,6 +198,36 @@ export class SelectionStore {
   }
 
   /**
+   * These assets have left the view — trashed, restored, deleted — and the
+   * ones around them have not.
+   *
+   * The selection empties, as `clear` does. The ring stays put unless it was
+   * on one of them, and then it moves to the asset that takes that one's
+   * place: the next one still here, or the one before when nothing after it
+   * is. A file manager does the same, and a ring left on an asset that is gone
+   * is a focus nothing can see, which the grid answered by scrolling to the
+   * top (reported 2026-10-05).
+   */
+  leave(gone: readonly string[]): void {
+    const leaving = new Set(gone);
+    const focused = this.#focused;
+    let next = focused;
+    if (focused !== undefined && leaving.has(focused)) {
+      const at = this.#order.indexOf(focused);
+      const stays = (id: string): boolean => !leaving.has(id);
+      next =
+        at === -1
+          ? undefined
+          : (this.#order.slice(at + 1).find(stays) ?? this.#order.slice(0, at).findLast(stays));
+    }
+    this.#change(() => {
+      this.#selected = new Set();
+      this.#anchor = undefined;
+      this.#focused = next;
+    });
+  }
+
+  /**
    * Marks one thing that is not an asset: the ring moves to it and the
    * selection empties (ADR-0043).
    *

@@ -133,6 +133,19 @@ export class LibraryTooNewError extends RoostError {
   }
 }
 
+/**
+ * A file offered as a thumbnail that nothing in this build can draw
+ * (ADR-0060). `reason` is the queue's own word for why, as a parked derive
+ * would carry it.
+ */
+export class NotAPictureError extends RoostError {
+  readonly code = "not_a_picture";
+
+  constructor(path: string, reason: string) {
+    super(`${path} cannot be used as a thumbnail (${reason})`, { path, reason });
+  }
+}
+
 export class UnknownAssetError extends RoostError {
   readonly code = "unknown_asset";
 

@@ -1,6 +1,6 @@
 # Storage — how this build meets the library format
 
-**Roost Library Format 2, revision 2.2.** The normative document is [`FORMAT.md`](FORMAT.md),
+**Roost Library Format 2, revision 2.3.** The normative document is [`FORMAT.md`](FORMAT.md),
 beside this file, with [`OPS.md`](OPS.md) for the journal operations and `conformance/` at the
 repository root for the suite. This file is **not** a specification and binds nothing on its own:
 it is the map from that document's numbered requirements to the code here, plus the notes that
@@ -28,7 +28,8 @@ Two things the format deliberately leaves to this build:
   because they are derived from bytes the format *does* define, and `thumbs/` is a reserved name
   the format leaves to the implementation. A SQLite file of its own beside the index, so that a
   rebuild keeps them (ADR-0051). `ARCHITECTURE.md` §3.3 owns the encoding, and `DATA_MODEL.md`
-  §2.2 the schema.
+  §2.2 the schema. **A thumbnail somebody chose is kept there and nowhere else** (ADR-0060), marked
+  `chosen` and never drawn over, so it is the one thing in `thumbs/` a deletion loses.
 - **The index schema.** A cache (RL-2), so it lives in `DATA_MODEL.md` §2.0.
 
 ## The map
@@ -41,7 +42,7 @@ construction or by a rule nothing here can break.
 | | | |
 |---|---|---|
 | RL-1 | The normative files are read and written as specified | `packages/core` |
-| RL-2 | `index.db`, `thumbs/`, `settings.json`, `staging/` are ours, not the format's | `db/`, `db/pictures.ts` (`thumbs/roost.db`), `settings.ts`, `storage/handoff.ts` |
+| RL-2 | `index.db`, `thumbs/`, `settings.json`, `staging/` are ours, not the format's; a chosen thumbnail lives in `thumbs/` alone (revision 2.3) | `db/`, `db/pictures.ts` (`thumbs/roost.db`), `chosen.ts`, `settings.ts`, `storage/handoff.ts` |
 | RL-3 | Nothing unlisted is created in the library root | Only the reserved names are ever joined to the root |
 | RL-4 | A library is a readable `library.json` with an integer version | `library/src/manifest.ts` |
 | RL-5, RL-5b | All four fields required; a bad file is *not a library*, never repaired | `manifest.ts` · `tests/standard.test.ts` |

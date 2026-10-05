@@ -160,6 +160,38 @@ try {
       rows.every((r) => r.holes === 3),
       rows.map((r) => `${r.name}=${r.holes}`).join(" "),
     );
+    /*
+     * The tile's menu is portalled out of the grid, and React bubbled a press
+     * on its items back into the grid's sweep, which captured the pointer: no
+     * item could be chosen, in any view (2026-10-05). Only a real pointer
+     * captures, so only a window can see it.
+     */
+    const tile = await cdp.box(".cell-folder");
+    await cdp.mouse.click(tile.x, tile.y, { button: "right" });
+    const item = await cdp.settle(
+      `(() => {
+        const i = [...document.querySelectorAll("[role=menuitem]")].find((i) => i.textContent.includes("Rename"));
+        if (!i) return null;
+        const b = i.getBoundingClientRect();
+        return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) };
+      })()`,
+      (box) => box !== null,
+    );
+    await cdp.mouse.click(item.x, item.y);
+    const dialog = await cdp
+      .settle(
+        `document.querySelector("[role=dialog]")?.textContent ?? null`,
+        (text) => text !== null,
+        { attempts: 20 },
+      )
+      .catch(() => null);
+    check(
+      `${view}: Rename… in a folder's menu opens its dialog`,
+      typeof dialog === "string" && dialog.startsWith("Rename folder"),
+      String(dialog),
+    );
+    await cdp.keyboard.press("Escape");
+    await cdp.settle(`document.querySelector("[role=dialog]") === null`, (gone) => gone);
   }
   await setView("icons");
 

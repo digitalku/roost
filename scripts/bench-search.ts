@@ -132,8 +132,10 @@ function pagingCost(library: Library): void {
  * equal keys (ADR-0039 §4).
  *
  * `random` is measured with the rest and is expected to be the slow one: it is
- * a seeded rotation of the hash with no index and cannot have one, and the
- * number here is what that costs.
+ * a seeded shuffle of the id with no index and cannot have one, and the
+ * number here is what that costs. Its resume is cheap until a page crosses
+ * from one character's run into the next (ADR-0039 §11), so page 200 here is
+ * mostly the cheap seek, and the first page is the price.
  *
  * Measured through `MATCH_LIVE` rather than `MATCH_ALL`, unlike the paging cost
  * above it: every index the schema has is **partial**, scoped to live rows

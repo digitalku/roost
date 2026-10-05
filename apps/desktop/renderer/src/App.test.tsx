@@ -1,4 +1,4 @@
-import type { SidebarFolderRow, WireSettings } from "@roost/contract";
+import type { Request, SidebarFolderRow, WireSettings } from "@roost/contract";
 import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -267,7 +267,7 @@ describe("a library that is already open", () => {
     const pages = engine.seen.filter((request) => request.type === "assets:page").length;
     engine.emit({
       type: "assets:derived",
-      assets: [{ id, derivedAt: 1_799_999_999, undrawn: null }],
+      assets: [{ id, derivedAt: 1_799_999_999, undrawn: null, chosen: false }],
     });
 
     await waitFor(() => {
@@ -308,7 +308,7 @@ describe("a library that is already open", () => {
     // Parked, with nothing measured: a reason and no new cache key.
     engine.emit({
       type: "assets:derived",
-      assets: [{ id, derivedAt: null, undrawn: "missing:libheif" }],
+      assets: [{ id, derivedAt: null, undrawn: "missing:libheif", chosen: false }],
     });
     const badge = await waitFor(() => {
       const found = document.querySelector<HTMLElement>(`[data-id="${id}"] .placeholder-badge`);
@@ -323,7 +323,7 @@ describe("a library that is already open", () => {
     // Installed, retried and drawn: the reason goes with the new picture.
     engine.emit({
       type: "assets:derived",
-      assets: [{ id, derivedAt: 1_799_999_999, undrawn: null }],
+      assets: [{ id, derivedAt: 1_799_999_999, undrawn: null, chosen: false }],
     });
     await waitFor(() => {
       expect(document.querySelector(`[data-id="${id}"] .placeholder-badge`)).toBeNull();
@@ -349,7 +349,7 @@ describe("a library that is already open", () => {
 
     engine.emit({
       type: "assets:derived",
-      assets: [{ id: "ZZZZZZZZZZZZ", derivedAt: 1, undrawn: null }],
+      assets: [{ id: "ZZZZZZZZZZZZ", derivedAt: 1, undrawn: null, chosen: false }],
     });
 
     // A page this window has not reached will carry the new key when it
@@ -640,10 +640,9 @@ describe("the library view", () => {
     );
     // The asset is off screen, so a selection naming it is a selection of
     // something nobody can see — the inspector would go on editing it. The
-    // total is the fake's own and is pinned, so what is asserted is the
-    // disappearance of the selection clause rather than the count beside it.
+    // fake counts as the engine does, so the trashed one is out of the count.
     await waitFor(() => expect(screen.queryByText(/ · 1 selected/)).toBeNull());
-    expect(screen.getByText("12 assets")).toBeDefined();
+    await waitFor(() => expect(screen.getByText("11 assets")).toBeDefined());
 
     // **Read after the clear has rendered, never with `findByText`.** The
     // status line survives the selection change the action itself caused, and
@@ -652,6 +651,28 @@ describe("the library view", () => {
     // then stops watching. Written that way the test passed with the fix
     // removed (`TODO.md` §4, lesson 9).
     expect(screen.getByText("Moved 1 asset to the trash")).toBeDefined();
+  });
+
+  it("keeps its place when Delete takes an asset away, and rings the next one", async () => {
+    // Reported 2026-10-05: the grid went back to the top. The trash count
+    // moved, so the window threw its pages away and fetched them again from
+    // row one, with the ring left on an asset that was no longer there.
+    const { engine, user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+    await user.click(screen.getAllByRole("option")[5] as HTMLElement);
+    const paged = engine.seen.filter((request) => request.type === "assets:page").length;
+
+    await user.keyboard("{Delete}");
+
+    await waitFor(() => expect(screen.getByText("11 assets")).toBeDefined());
+    expect(screen.getAllByRole("option")).toHaveLength(11);
+    expect(engine.seen.filter((request) => request.type === "assets:page")).toHaveLength(paged);
+    const trashed = fakeAsset(5).id;
+    expect(screen.queryByRole("option", { name: fakeAsset(5).name })).toBeNull();
+    expect(screen.getByRole("listbox").getAttribute("aria-activedescendant")).toBe(
+      `cell-${fakeAsset(6).id}`,
+    );
+    expect(engine.seen).toContainEqual({ type: "assets:trash", ids: [trashed] });
   });
 
   it("copies the selected files with Ctrl+C, and says so", async () => {
@@ -691,6 +712,38 @@ describe("the library view", () => {
     await user.keyboard("{Control>}c{/Control}");
 
     expect(engine.seen.some((request) => request.type === "asset:copyFiles")).toBe(false);
+  });
+
+  it("offers to remove a custom thumbnail once the engine says the card has one", async () => {
+    // ADR-0060. The card learns it from the same event every redraw sends, so
+    // a thumbnail set from another window is removable here without a re-page.
+    const { engine, user } = await open(12);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(12));
+    const first = screen.getAllByRole("option")[0] as HTMLElement;
+    await user.click(first);
+    const grid = screen.getByRole("listbox", { name: "Assets" });
+    grid.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await screen.findByRole("menuitem", { name: "Set thumbnail from clipboard" });
+    expect(screen.queryByRole("menuitem", { name: "Remove custom thumbnail" })).toBeNull();
+    await user.keyboard("{Escape}");
+
+    engine.emit({
+      type: "assets:derived",
+      assets: [
+        { id: first.dataset["id"] ?? "", derivedAt: 1_799_999_999, undrawn: null, chosen: true },
+      ],
+    });
+    await waitFor(() =>
+      expect(first.querySelector(".cell-image")?.getAttribute("src")).toContain("v=1799999999"),
+    );
+    grid.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await user.click(await screen.findByRole("menuitem", { name: "Remove custom thumbnail" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((request) => request.type === "asset:thumbnailClear")).toEqual([
+        { type: "asset:thumbnailClear", ids: [first.dataset["id"]] },
+      ]),
+    );
   });
 
   it("keeps the selection after an export, which takes nothing off screen", async () => {
@@ -893,10 +946,50 @@ describe("the library view", () => {
     expect(screen.queryByRole("menuitemradio", { name: "Newest first" })).toBeNull();
     const shuffle = await screen.findByRole("menuitem", { name: "Shuffle again" });
 
-    const before = engine.settings.shuffleSeed;
+    const before = lastSeed(engine);
     fireEvent.click(shuffle);
-    await waitFor(() => expect(engine.settings.shuffleSeed).not.toBe(before));
+    await waitFor(() => expect(lastSeed(engine)).not.toBe(before));
     expect(engine.settings.sortKey).toBe("random");
+  });
+
+  const pages = (engine: FakeEngine) =>
+    engine.seen.filter(
+      (request): request is Extract<Request, { type: "assets:page" }> =>
+        request.type === "assets:page",
+    );
+
+  /** The seed the grid last paged by: the window's, never the library's. */
+  const lastSeed = (engine: FakeEngine): number | undefined => pages(engine).at(-1)?.sort?.seed;
+
+  it("shuffles again each time Random is chosen and each time the library opens", async () => {
+    // ADR-0039 §11, at the user's asking: the order is remembered, the shuffle
+    // is not. Nothing about which one is written to the library.
+    const { engine, user } = await open(6);
+    await openSort(user);
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Random" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(lastSeed(engine)).toBeDefined());
+    const first = lastSeed(engine);
+
+    await openSort(user);
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Name" }));
+    await user.keyboard("{Escape}");
+    await openSort(user);
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Random" }));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(pages(engine).at(-1)?.sort?.key).toBe("random"));
+    const second = lastSeed(engine);
+    expect(second).not.toBe(first);
+
+    const paged = pages(engine).length;
+    await closeLibrary(user);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+    await waitFor(() => expect(pages(engine).length).toBeGreaterThan(paged));
+    expect(pages(engine).at(-1)?.sort?.key).toBe("random");
+    expect(lastSeed(engine)).not.toBe(second);
+    expect(engine.settings).toMatchObject({ sortKey: "random" });
+    expect(engine.settings).not.toHaveProperty("shuffleSeed");
   });
 
   it("opens in the order, view and zoom the library was left in", async () => {
@@ -914,7 +1007,6 @@ describe("the library view", () => {
         mediaMuted: false,
         sortKey: "name",
         sortDescending: false,
-        shuffleSeed: 0,
         gridView: "details",
         matchImageProportions: false,
         showFolders: true,
@@ -957,7 +1049,6 @@ describe("the library view", () => {
         mediaMuted: false,
         sortKey: "added",
         sortDescending: true,
-        shuffleSeed: 0,
         gridView: "gallery",
         matchImageProportions: true,
         showFolders: true,
@@ -2434,7 +2525,6 @@ describe("the volume a library remembers", () => {
         mediaMuted,
         sortKey: "added",
         sortDescending: true,
-        shuffleSeed: 0,
         gridView: "icons",
         matchImageProportions: true,
         showFolders: true,
@@ -2679,7 +2769,6 @@ describe("showing and hiding the side panes", () => {
               mediaMuted: false,
               sortKey: "added",
               sortDescending: true,
-              shuffleSeed: 0,
               gridView: "icons",
               matchImageProportions: true,
               showFolders: true,

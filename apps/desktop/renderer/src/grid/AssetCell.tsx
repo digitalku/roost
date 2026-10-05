@@ -42,6 +42,7 @@ export function cellId(id: string): string {
  */
 function hideBroken(event: React.SyntheticEvent<HTMLImageElement>): void {
   event.currentTarget.hidden = true;
+  delete event.currentTarget.dataset.loaded;
 }
 
 /**
@@ -54,6 +55,9 @@ function hideBroken(event: React.SyntheticEvent<HTMLImageElement>): void {
  */
 function showLoaded(event: React.SyntheticEvent<HTMLImageElement>): void {
   event.currentTarget.hidden = false;
+  // What the extension badge waits for: it labels a picture, so it has none
+  // to label until one has arrived (`UI_SPEC.md` §6).
+  event.currentTarget.dataset.loaded = "";
 }
 
 export interface AssetCellProps {
@@ -207,6 +211,18 @@ export const AssetCell = memo(function AssetCell({
           onLoad={showLoaded}
           onError={hideBroken}
         />
+        {/*
+          The extension over the picture's corner, the user's ask of
+          2026-10-05: a still from an `.mp4` and a `.jpg` look alike. Shown by
+          CSS once the image has loaded, so a cell without a picture keeps the
+          placeholder's own extension and is not labelled twice. Icons only:
+          the two lists say it in the row.
+        */}
+        {ext !== "" && (
+          <span className="cell-ext" aria-hidden="true">
+            {ext}
+          </span>
+        )}
       </div>
       <span className="cell-name" title={name}>
         {name}

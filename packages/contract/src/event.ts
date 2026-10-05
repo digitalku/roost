@@ -250,7 +250,14 @@ export const EVENT_VALIDATORS: {
       if (!derivedAt.ok) return derivedAt;
       const undrawn = readNullable(entry, "undrawn", readString);
       if (!undrawn.ok) return undrawn;
-      redrawn.push({ id: id.value, derivedAt: derivedAt.value, undrawn: undrawn.value });
+      const chosen = readBoolean(entry, "chosen");
+      if (!chosen.ok) return chosen;
+      redrawn.push({
+        id: id.value,
+        derivedAt: derivedAt.value,
+        undrawn: undrawn.value,
+        chosen: chosen.value,
+      });
     }
     return ok({ type: "assets:derived", assets: redrawn });
   },

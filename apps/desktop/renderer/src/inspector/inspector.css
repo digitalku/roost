@@ -50,6 +50,15 @@
   object-fit: contain;
 }
 
+/* Under the picture, quiet: it explains the picture rather than asking
+   anything of anybody (ADR-0060). */
+.inspector-chosen {
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+
 /*
  * The heading of the panel, and it wraps: a generated filename is longer than
  * this column and reading it matters more than the field being one line tall.

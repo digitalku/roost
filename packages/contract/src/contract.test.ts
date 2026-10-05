@@ -100,6 +100,9 @@ describe("validating a request", () => {
       "asset:source",
       "link:open",
       "asset:poster",
+      "asset:thumbnail",
+      "asset:thumbnailSet",
+      "asset:thumbnailClear",
       "asset:create",
       "clipboard:paste",
       "asset:addSubtitle",
@@ -372,6 +375,46 @@ describe("validating a thumbnail moment", () => {
   });
 });
 
+describe("validating a thumbnail somebody chose (ADR-0060)", () => {
+  const ID = "AAAAAAAAAAAA";
+
+  it("takes the selection and where the image comes from", () => {
+    for (const from of ["clipboard", "file"] as const) {
+      expect(checkRequest({ type: "asset:thumbnail", ids: [ID], from })).toEqual({
+        ok: true,
+        value: { type: "asset:thumbnail", ids: [ID], from },
+      });
+    }
+    // Main reads the clipboard and the dialog; anywhere else is not a source.
+    expect(checkRequest({ type: "asset:thumbnail", ids: [ID], from: "url" })).toMatchObject({
+      ok: false,
+    });
+    expect(checkRequest({ type: "asset:thumbnail", ids: [], from: "file" })).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("takes a path for the engine, and nothing empty", () => {
+    expect(checkRequest({ type: "asset:thumbnailSet", ids: [ID], path: "/tmp/a.png" })).toEqual({
+      ok: true,
+      value: { type: "asset:thumbnailSet", ids: [ID], path: "/tmp/a.png" },
+    });
+    expect(checkRequest({ type: "asset:thumbnailSet", ids: [ID], path: "" })).toMatchObject({
+      ok: false,
+    });
+    expect(
+      checkRequest({ type: "asset:thumbnailSet", ids: ["nope"], path: "/a.png" }),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("clears by id", () => {
+    expect(checkRequest({ type: "asset:thumbnailClear", ids: [ID] })).toEqual({
+      ok: true,
+      value: { type: "asset:thumbnailClear", ids: [ID] },
+    });
+  });
+});
+
 describe("validating the import chooser", () => {
   it("takes each subject", () => {
     for (const what of ["files", "folders"] as const) {
@@ -588,8 +631,8 @@ describe("validating an envelope", () => {
       checkEvent({
         type: "assets:derived",
         assets: [
-          { id: "K7QM4X2AJH9F", derivedAt: 1_700_000_000, undrawn: null },
-          { id: "5KM76B88XVJM", derivedAt: 1_700_000_001, undrawn: null },
+          { id: "K7QM4X2AJH9F", derivedAt: 1_700_000_000, undrawn: null, chosen: false },
+          { id: "5KM76B88XVJM", derivedAt: 1_700_000_001, undrawn: null, chosen: false },
         ],
       }),
     ).toEqual({
@@ -597,8 +640,8 @@ describe("validating an envelope", () => {
       value: {
         type: "assets:derived",
         assets: [
-          { id: "K7QM4X2AJH9F", derivedAt: 1_700_000_000, undrawn: null },
-          { id: "5KM76B88XVJM", derivedAt: 1_700_000_001, undrawn: null },
+          { id: "K7QM4X2AJH9F", derivedAt: 1_700_000_000, undrawn: null, chosen: false },
+          { id: "5KM76B88XVJM", derivedAt: 1_700_000_001, undrawn: null, chosen: false },
         ],
       },
     });
@@ -609,8 +652,8 @@ describe("validating an envelope", () => {
       checkEvent({
         type: "assets:derived",
         assets: [
-          { id: "K7QM4X2AJH9F", derivedAt: null, undrawn: "missing:libheif" },
-          { id: "5KM76B88XVJM", derivedAt: 1, undrawn: "missing:decoder:hevc" },
+          { id: "K7QM4X2AJH9F", derivedAt: null, undrawn: "missing:libheif", chosen: false },
+          { id: "5KM76B88XVJM", derivedAt: 1, undrawn: "missing:decoder:hevc", chosen: false },
         ],
       }),
     ).toMatchObject({ ok: true });
@@ -625,16 +668,33 @@ describe("validating an envelope", () => {
       reason: "assets:derived: assets: expected an array",
     });
     expect(
-      checkEvent({ type: "assets:derived", assets: [{ id: "K7QM4X2AJH9F", undrawn: null }] }),
+      checkEvent({
+        type: "assets:derived",
+        assets: [{ id: "K7QM4X2AJH9F", undrawn: null, chosen: false }],
+      }),
     ).toEqual({
       ok: false,
       reason: "assets:derived: derivedAt: expected a safe integer",
     });
     expect(
-      checkEvent({ type: "assets:derived", assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1 }] }),
+      checkEvent({
+        type: "assets:derived",
+        assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1, chosen: false }],
+      }),
     ).toEqual({
       ok: false,
       reason: "assets:derived: undrawn: expected a string",
+    });
+    // Whether the picture is somebody's (ADR-0060) is said every time: a
+    // window patching a card must not guess it from an absence.
+    expect(
+      checkEvent({
+        type: "assets:derived",
+        assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1, undrawn: null }],
+      }),
+    ).toEqual({
+      ok: false,
+      reason: "assets:derived: chosen: expected a boolean",
     });
 
     // Built field by field, so a path or a thumbnail cannot ride along
@@ -642,12 +702,18 @@ describe("validating an envelope", () => {
     const smuggled = checkEvent({
       type: "assets:derived",
       assets: [
-        { id: "K7QM4X2AJH9F", derivedAt: 1, undrawn: null, path: "/home/someone/secret.png" },
+        {
+          id: "K7QM4X2AJH9F",
+          derivedAt: 1,
+          undrawn: null,
+          chosen: false,
+          path: "/home/someone/secret.png",
+        },
       ],
     });
     expect(smuggled.ok && smuggled.value).toEqual({
       type: "assets:derived",
-      assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1, undrawn: null }],
+      assets: [{ id: "K7QM4X2AJH9F", derivedAt: 1, undrawn: null, chosen: false }],
     });
   });
 

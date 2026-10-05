@@ -328,7 +328,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `AssetList` | content | scroll, pages | Details view; same paging hook |
 | `PreviewPane` | content | — | Image, video, audio, PDF, fallback; §7 |
 | `Transport` | content | position, loop | The player's own controls, over a `<video controls={false}>`. Timeline, buffered ranges, volume, fullscreen, picture-in-picture, the comment marks, and what the native bar withholds — frame stepping, playback rate, an A-B loop; §7. ADR-0024 |
-| `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state. With one asset selected, **its picture is the file**: dragging it drags the file out of the window, as a cell does (ADR-0034 §7) |
+| `Inspector` | inspector | field drafts | Always drawn; empty selection gets §8's empty state. With one asset selected, **its picture is the file**: dragging it drags the file out of the window, as a cell does (ADR-0034 §7). Under the picture, a quiet **Custom thumbnail** where somebody chose it (ADR-0060, §3.3) |
 | `FilterBar` | content | menu open, search draft | Tags, rating and file type over the grid, then **Show subfolder contents**. A **view of the query**: read with `query:split`, written with `query:join` and `query:subfolders`. Tags carry an Any/All rule the window remembers where the query cannot hold it; the depth falls back to the library's setting the same way. §4.4. ADR-0035, ADR-0036 |
 | `NameField` | inspector | draft | The panel's heading, and the only editable name. Holds the **stem**: the extension is not editable and is not shown here. **Wraps over as many lines as the name takes**; `Enter` commits and a name never holds one. §3.10 |
 | `RatingControl` | inspector | — | 0–5, `null` is not 0 |
@@ -456,6 +456,9 @@ the grid's roving ring and the preview's stepping both dead until something is c
 | **Open** | opens it here, in the preview. Disabled for a file Roost cannot draw — there is nothing to open | disabled — a preview shows one asset |
 | **Open externally** | hands the file to the desktop's own handler | disabled — three files is three applications opening |
 | **Show in file manager** | reveals it, selected | disabled, same reason |
+| **Set thumbnail from clipboard** | an image on the clipboard, or an image file copied in a file manager, drawn as its thumbnail (ADR-0060) | the same picture on every one |
+| **Set thumbnail from file…** | the system's open dialog, offering images first | the same |
+| **Remove custom thumbnail** | only where one is shown; the file's own picture is drawn again | from every one that has one |
 | **Copy file** `Ctrl+C` | the file itself, for pasting into a file manager — a copy under the name the library shows, staged in the library (ADR-0034); the library's own file under its id where **Copy and drag by name** is off (§1, ADR-0034 §8) | `Copy N files` |
 | **Copy image** | the picture, as a full-size PNG, for pasting into a chat, an editor or a slide. Disabled over anything but a picture (ADR-0034 §5) | disabled — a clipboard holds one picture |
 | **Copy path** | one path | `Copy N paths`, one per line |
@@ -496,6 +499,17 @@ result reads as a gesture that failed. **Use the default frame** is drawn beside
 or not a moment is set — the engine writes nothing when the thumbnail is already on the default
 frame, and a menu whose rows appear and vanish with state nothing on screen shows is a menu people
 misread.
+
+**A thumbnail somebody chose** (ADR-0060) is three rows below their own separator, after the two
+frame rows where those are drawn. The first two are always there and always live, over any file and
+any number of them: knowing whether the clipboard holds an image would be a round trip to main
+every time the menu opened, so a clipboard holding nothing usable is said in the status bar instead,
+*Nothing on the clipboard can be a thumbnail — copy an image*. A closed dialog says nothing.
+**Remove custom thumbnail** is drawn only when a selected card has one, which the cards say without
+asking (`chosenThumbnail`). The image is drawn at the sizes every thumbnail has, kept in
+`thumbs/roost.db` and nowhere else, and never drawn over: a file edited elsewhere is measured again
+and keeps it, and a frame pinned meanwhile waits until it is removed. The inspector says **Custom
+thumbnail** under its picture (§3, `Inspector`). The preview pane is unchanged.
 
 **Over the grid's empty space the menu is a different menu** (ADR-0026 §4, §5). Nothing is
 selected, so nothing can be acted on — and the three things that make sense there are the three
@@ -558,6 +572,16 @@ them says "1 selected" over a grid with nothing highlighted, keeps the inspector
 trashed asset, and leaves the roving ring with nowhere to go. Exporting does not clear it — an
 export takes nothing off screen. Found by driving a real window on 2026-09-01, and invisible to
 every component test, because no component owns a selection *and* a grid.
+
+**Everything else stays where it was.** The rows that went are taken out of the grid, and the
+grid is not paged again. The scroll position holds, and the roving ring moves to the asset that
+takes the gone one's place: the next one, or the one before when nothing comes after it. A file
+manager does the same, and so does `Ctrl+Delete` in a folder and a drag out of one. In the
+preview, that means the pane steps on to the neighbour. The window tells itself how far the counts
+will move before it asks (`expectRows`), so the re-read that follows recognises its own change.
+If the counts moved by anything else at the same moment, the grid pages again from the top, as it
+always did. Reported on 2026-10-05: trashing an asset sent the grid back to the top, because the
+trash count moved and the ring was left on an asset that was gone.
 
 **Results go to the status bar, not to a dialog.** An export that worked is not worth
 interrupting anyone for, and one that partly did not is not worth losing. The line clears when
@@ -1632,9 +1656,10 @@ a key **sets that key's own direction**, since keeping the last one's would make
 for anybody looking at the newest first, which is every library by default.
 
 **Random** is the sixth, and it has no direction — reversing a shuffle is another shuffle — so where
-the two ways round would be, it offers **Shuffle again** instead. The shuffle it is showing is
-remembered with the order, so scrolling, switching views and reopening the library all leave it
-alone; only that item rolls a new one.
+the two ways round would be, it offers **Shuffle again** instead. The library remembers that it is
+in Random, but not which shuffle (ADR-0039 §11). A new one is rolled each time the library opens,
+each time Random is chosen from another order, and by **Shuffle again**. Scrolling, switching
+views, zooming and filtering leave it alone, because the grid pages by it.
 
 **The order is not a renderer change and never was.** It is a key, an index, and a cursor per key
 (ADR-0039 §4), which is why this menu carried it as a disabled promise from M3 until the engine work
@@ -1679,6 +1704,13 @@ derive queue is keeping up.
   its kind and the extension set in the monospace stack, legible at the smallest zoom, over the
   surface colour — never a broken-image glyph and never an empty box. Where the queue has given
   up on a picture for a reason somebody can act on, it says so (§6.1).
+- **A picture carries its extension in its corner**, in Icons only (the user's ask, 2026-10-05):
+  a still from an `.mp4` and a `.jpg` otherwise look alike, and the name under a cell is the stem.
+  A small monospace chip, bottom left, in `--on-image-bg` and `--on-image-text` — one pair for
+  both themes, because what it sits on is the file's colours. It is **shown by CSS once the image
+  has loaded** (`data-loaded`, set and cleared beside `hidden`), so a cell with no picture is not
+  labelled twice, and costs the memo nothing. Not in Compact or Details, whose rows say it in
+  *Kind*; not hidden at the smallest zoom, because Icons stop at 120px.
 
 **Folders are drawn in the grid, and they are not results** (ADR-0043, built 2026-09-13). Where
 the query is one folder's own contents, its subfolders are laid out **ahead of the assets** — a

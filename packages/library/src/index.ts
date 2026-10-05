@@ -5,6 +5,7 @@
  * It never imports `electron` — directly or transitively — because the CLI is
  * what proves the layering and the CLI has no Electron in it.
  */
+export { chooseThumbnail, chosenThumbnails, clearThumbnail } from "./chosen.js";
 export { discover, type Measured, measure } from "./discover.js";
 export {
   type Ambiguous,
@@ -105,6 +106,7 @@ export {
   LibraryTooNewError,
   NotALibraryError,
   NotAnEagleLibraryError,
+  NotAPictureError,
   NotAVideoError,
   NotEditableError,
   SameLibraryError,

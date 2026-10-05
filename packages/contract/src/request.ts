@@ -47,6 +47,7 @@ import type {
   WireStars,
   WireSubtitlesAdded,
   WireTagRule,
+  WireThumbnailChosen,
   WireTransferReport,
 } from "./dto.js";
 import {
@@ -61,6 +62,8 @@ import {
   STARS,
   TAG_RULES,
   TAKES,
+  THUMBNAIL_SOURCES,
+  type ThumbnailSource,
 } from "./dto.js";
 
 /**
@@ -215,7 +218,6 @@ export type Request =
       readonly mediaMuted?: boolean;
       readonly sortKey?: SortKey;
       readonly sortDescending?: boolean;
-      readonly shuffleSeed?: number;
       readonly gridView?: string;
       readonly matchImageProportions?: boolean;
       readonly gridZooms?: Readonly<Record<string, number>>;
@@ -289,6 +291,36 @@ export type Request =
    * moment it is already pinned to writes nothing.
    */
   | { readonly type: "asset:poster"; readonly id: string; readonly atMs: number | null }
+  /**
+   * A thumbnail somebody chose, for every asset in `ids` (ADR-0060), from an
+   * image on the clipboard or one picked in a dialog.
+   *
+   * Answered in **main**, which reads the clipboard or shows the dialog and
+   * sends the engine `asset:thumbnailSet` with a path. A bitmap on the
+   * clipboard goes through a temporary file of main's, as a paste's does.
+   */
+  | {
+      readonly type: "asset:thumbnail";
+      readonly ids: readonly string[];
+      readonly from: ThumbnailSource;
+    }
+  /**
+   * Draws the image at `path` as the thumbnail of every asset in `ids`, in
+   * place of the file's own (ADR-0060). The image is only read. Refused with
+   * `not_a_picture` for a file nothing here can draw.
+   *
+   * Answers how many assets it was set on.
+   */
+  | {
+      readonly type: "asset:thumbnailSet";
+      readonly ids: readonly string[];
+      readonly path: string;
+    }
+  /**
+   * Gives every asset in `ids` its own thumbnail back (ADR-0060). Answers how
+   * many had a chosen one.
+   */
+  | { readonly type: "asset:thumbnailClear"; readonly ids: readonly string[] }
   /**
    * Creates an asset from text the window holds, under a name the user chose
    * (ADR-0026 §4).
@@ -845,6 +877,9 @@ export interface Responses {
   "asset:note": null;
   "asset:source": null;
   "asset:poster": null;
+  "asset:thumbnail": WireThumbnailChosen;
+  "asset:thumbnailSet": number;
+  "asset:thumbnailClear": number;
   "asset:rename": null;
   "asset:create": WireCreated;
   /** How many caption tracks were attached (ADR-0025). */
@@ -1051,7 +1086,6 @@ export const REQUEST_VALIDATORS: {
       mediaMuted?: boolean;
       sortKey?: SortKey;
       sortDescending?: boolean;
-      shuffleSeed?: number;
       gridView?: string;
       matchImageProportions?: boolean;
       gridZooms?: Readonly<Record<string, number>>;
@@ -1110,7 +1144,7 @@ export const REQUEST_VALIDATORS: {
       patch.gridZooms = checked;
     }
 
-    for (const key of ["shuffleSeed", "sidebarWidth", "inspectorWidth"] as const) {
+    for (const key of ["sidebarWidth", "inspectorWidth"] as const) {
       if (source[key] === undefined) continue;
       const value = readInteger(source, key);
       if (!value.ok) return value;
@@ -1183,6 +1217,29 @@ export const REQUEST_VALIDATORS: {
     const atMs = readMoment(source);
     if (!atMs.ok) return atMs;
     return ok({ type: "asset:poster", id: id.value, atMs: atMs.value });
+  },
+
+  "asset:thumbnail": (source) => {
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
+    if (ids.value.length === 0) return bad("ids: expected at least one");
+    const from = readOneOf(source, "from", THUMBNAIL_SOURCES);
+    if (!from.ok) return from;
+    return ok({ type: "asset:thumbnail", ids: ids.value, from: from.value });
+  },
+
+  "asset:thumbnailSet": (source) => {
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
+    if (ids.value.length === 0) return bad("ids: expected at least one");
+    const path = readNonEmpty(source, "path");
+    if (!path.ok) return path;
+    return ok({ type: "asset:thumbnailSet", ids: ids.value, path: path.value });
+  },
+
+  "asset:thumbnailClear": (source) => {
+    const ids = readAssetIdArray(source, "ids");
+    return ids.ok ? ok({ type: "asset:thumbnailClear", ids: ids.value }) : ids;
   },
 
   "asset:create": (source) => {

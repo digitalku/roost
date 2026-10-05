@@ -52,6 +52,13 @@ export const TAKES = ["move", "copy"] as const;
 export type Take = (typeof TAKES)[number];
 
 /**
+ * Where an image for a thumbnail comes from (ADR-0060). Main reads either one
+ * and hands the engine a path: the clipboard and a dialog are both main's.
+ */
+export const THUMBNAIL_SOURCES = ["clipboard", "file"] as const;
+export type ThumbnailSource = (typeof THUMBNAIL_SOURCES)[number];
+
+/**
  * What the import chooser offers to pick.
  *
  * The two are separate dialogs rather than one that accepts either, because a
@@ -343,7 +350,7 @@ export interface WireSort {
    * Which shuffle `random` means. Ignored by every other key.
    *
    * A number the window rolls and gives back; what it selects is the engine's
-   * business. Seeds past the last shuffle wrap onto one it has.
+   * business. Every seed is a shuffle, and two seeds are two shuffles.
    */
   readonly seed: number;
 }
@@ -414,6 +421,11 @@ export interface AssetCard {
    * mean an engine change (`UI_SPEC.md` §6.1).
    */
   readonly undrawn: string | null;
+  /**
+   * Whether the thumbnail is one somebody chose (ADR-0060), which is what the
+   * asset menu reads to offer *Remove custom thumbnail*.
+   */
+  readonly chosenThumbnail: boolean;
 }
 
 /**
@@ -431,6 +443,8 @@ export interface WireRedrawn {
   readonly derivedAt: number | null;
   /** {@link AssetCard.undrawn}, as the derive left it. */
   readonly undrawn: string | null;
+  /** {@link AssetCard.chosenThumbnail}, as it stands now. */
+  readonly chosen: boolean;
 }
 
 /** One page of the grid, and where the next one starts. */
@@ -619,10 +633,12 @@ export interface WireFacets {
 export interface WireSettings {
   /** Whether opening a folder shows what is in its subfolders (ADR-0036). */
   readonly showSubfolderContents: boolean;
-  /** The order the grid is in, and which shuffle is on (ADR-0039). */
+  /**
+   * The order the grid is in (ADR-0039). Which shuffle `random` shows is not
+   * here: the window rolls one each time it opens the library (§11).
+   */
   readonly sortKey: SortKey;
   readonly sortDescending: boolean;
-  readonly shuffleSeed: number;
   /**
    * The view menu's three (ADR-0018, ADR-0039 §7).
    *
@@ -790,6 +806,8 @@ export interface WireAssetDetail {
   readonly derivedAt: number | null;
   /** {@link AssetCard.undrawn}: why there is no picture, if something says. */
   readonly undrawn: string | null;
+  /** {@link AssetCard.chosenThumbnail}: the inspector says so under the picture. */
+  readonly chosenThumbnail: boolean;
   /** The source file's date at import, unix seconds. `null` when unknown. */
   readonly createdAt: number | null;
   readonly importedAt: number;
@@ -1151,6 +1169,18 @@ export interface WireEagleReport {
  * an explicit, user-initiated import from a URL — and a fetch triggered by
  * `Ctrl+V` is precisely what that rule exists to forbid.
  */
+/**
+ * What *Set thumbnail from clipboard* or *from file…* came to (ADR-0060).
+ *
+ * `empty` is a clipboard holding nothing that could be one, and `cancelled` a
+ * dialog closed: both are answers rather than failures, and the status line
+ * says which. An image nothing here can draw is a refusal, `not_a_picture`.
+ */
+export type WireThumbnailChosen =
+  | { readonly kind: "chosen"; readonly count: number }
+  | { readonly kind: "empty" }
+  | { readonly kind: "cancelled" };
+
 export type WirePasted =
   | { readonly kind: "imported"; readonly report: WireImportReport }
   | { readonly kind: "text"; readonly text: string }

@@ -247,6 +247,11 @@ export function Inspector({
         />
       </div>
 
+      {/* Why the file looks like that: the picture is somebody's, not drawn
+          from it (ADR-0060). A line rather than a control; the asset menu is
+          where it is removed. */}
+      {detail.chosenThumbnail && <p className="inspector-chosen">Custom thumbnail</p>}
+
       {/* Why this file has no picture and what to do, the moment it is selected
           (ADR-0050). Nothing at all for a file that has one. */}
       <FileProblem detail={detail} />
