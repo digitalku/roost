@@ -987,9 +987,9 @@ reported, and the button acts on all of it.
 
 ### 3.12 About, and the credit under the picker
 
-Roost is proprietary software (ADR-0038), which puts two things on the interface that an open
-build could leave to the repository: **which build this is**, and **the licences of the code it
-ships**. Both live in one dialog, opened from **About Roost…** in the `☰`.
+A binary that ships other people's code owes two things to the interface rather than to the
+repository: **which build this is**, and **the licences of the code it ships** (ADR-0038 §5, kept by
+ADR-0062 when the licence became MIT). Both live in one dialog, opened from **About Roost…** in the `☰`.
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -998,9 +998,10 @@ ships**. Both live in one dialog, opened from **About Roost…** in the `☰`.
 │                                              │
 │  Version 0.0.0 · 9f2c1ab · Electron 43.4.1…  │
 │                                              │
-│  © 2026 Digitalku. Proprietary software,     │
-│  licensed for use rather than for            │
-│  redistribution. Your files stay yours…      │
+│  © 2026 Digitalku. Open source under the     │
+│  MIT licence: free to use, change and share, │
+│  as long as this notice comes along. Your    │
+│  files stay yours…                           │
 │                                              │
 │  Home     roost.digitalku.com                │
 │  Support  roostsupport@digitalku.com         │

@@ -1,7 +1,7 @@
 # Third-party notices
 
-Roost is proprietary software, © 2026 Digitalku (see [LICENSE](LICENSE)). It is built on other
-people's work, distributed under the terms below. Those terms govern those components, and
+Roost is open source under the MIT licence, © 2026 Digitalku (see [LICENSE](LICENSE)). It is built
+on other people's work, distributed under the terms below. Those terms govern those components, and
 nothing in Roost's licence limits any right they give you.
 
 This file is the index. **Every distributed artifact must carry it, together with the full
@@ -29,7 +29,7 @@ Last regenerated: 2026-09-08.
 
 **libffmpeg is Electron's, and it is dynamically linked.** Ship it as the separate shared library
 Electron ships it as — never statically linked into the binary — which is what keeps LGPL-2.1
-satisfied for a proprietary application.
+satisfied however Roost itself is licensed.
 
 **Roost's own use of ffmpeg is a different thing entirely and is not bundled.** ADR-0017 calls the
 *system's* `ffmpeg` and `ffprobe` executables, probed once per session and absent gracefully. They

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Format probing, decoding, thumbnails, metadata extraction, and content hashing.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

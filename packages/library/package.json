@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "The application service layer: import, edit, search, thumbnails, doctor, rebuild.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

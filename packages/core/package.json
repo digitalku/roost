@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Domain model, SQLite index, content-addressed storage, the journal, and platform access. Everything the Roost Library Format governs.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

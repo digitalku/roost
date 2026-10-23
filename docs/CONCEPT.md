@@ -1,7 +1,7 @@
 # Roost — Concept
 
 > A local-first digital asset manager. A Linux-first alternative to Eagle.cool,
-> built in TypeScript on Electron. Proprietary software with an open format (ADR-0038).
+> built in TypeScript on Electron. Open source under the MIT licence, with an open format (ADR-0062).
 
 Status: **Draft v2** · Last updated: 2026-09-08
 
@@ -20,10 +20,10 @@ researchers use it to hoard references, screenshots, mockups, textures, fonts, a
 clips, then find them again months later. It is excellent — and it does not ship for Linux, and it
 locks your metadata into a format you do not control.
 
-Roost is proprietary too (ADR-0038), so the complaint is deliberately the second one and not the
-first. Source availability is not what decides whether you can leave: a documented format, a plain
-JSONL journal, and files named and laid out so that another program can read them without asking
-this one. Those are promises this product keeps whether or not its own code is published.
+The complaint is deliberately the second one. Source availability is not what decides whether you
+can leave: a documented format, a plain JSONL journal, and files named and laid out so that another
+program can read them without asking this one. Roost's code is MIT (ADR-0062), but those are the
+promises that matter to somebody's data, and they would hold if it were not.
 
 Linux users today fall back to a pile of compromises:
 
@@ -164,8 +164,6 @@ Legend: **M** = must have (v1.0) · **S** = should have · **C** = could have ·
 - Not a file manager replacement. A library holds what was imported into it; Roost does not
   browse arbitrary filesystems. Accepting any file is not the same as replacing the thing that
   browses every file.
-- Not open source. Roost is proprietary and distributed as a binary (ADR-0038). What is open is
-  the format: the journal, the layout, and the specification that documents them.
 - No telemetry, no crash reporting phone-home, no auto-update that talks to us silently.
 - Not a web app. The renderer runs against a local engine over a private protocol; it is not
   going to be hosted, and no code should be written to keep that door open.
@@ -193,8 +191,8 @@ These are the differentiators worth building, not just parity items:
    indexing, no "loading 40k items" spinner.
 7. **Open format, documented.** The library layout is a numbered spec, `docs/FORMAT.md`, with an
    operation registry and a conformance suite, and it is not a reverse engineering project. It is
-   this repository's own and changes with the code (ADR-0052). The application is proprietary;
-   the format is not, and M6 publishes the spec (ADR-0038).
+   this repository's own and changes with the code (ADR-0052). The application is MIT
+   (ADR-0062), and M6 publishes the spec.
 
 ## 7. Success criteria for v1.0
 

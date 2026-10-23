@@ -15,9 +15,10 @@ import { capture } from "./external.js";
  * HEVC decoder at all (ADR-0040 §2 has the measurements).
  *
  * Like ffmpeg (ADR-0017) this is the **system's** tool and never a hard
- * dependency: HEVC is patent-encumbered, so the decoder cannot be shipped
- * inside a proprietary binary, and a machine without one imports its HEIC
- * files exactly as before and gains the pictures the day libheif arrives.
+ * dependency: HEVC is patent-encumbered, whoever publishes the source, so the
+ * decoder is not shipped inside Roost (ADR-0062 §3), and a machine without one
+ * imports its HEIC files exactly as before and gains the pictures the day
+ * libheif arrives.
  */
 
 /**

@@ -108,9 +108,9 @@ below come from somewhere other than `dnf`.
 
 Roost ships the decoders it can: images through libvips, SVG through resvg, PDF through pdfium.
 Two families it cannot ship, because they are **patent-encumbered** — HEVC, which is what an
-iPhone's `.HEIC` photographs and many camera videos are coded with. Roost is proprietary software
-(ADR-0038), so bundling a decoder for them is a licensing question rather than a packaging one.
-This is the same reason Fedora's own `ffmpeg-free` cannot open them.
+iPhone's `.HEIC` photographs and many camera videos are coded with. Bundling a decoder for them is
+a patent question rather than a packaging one, whatever Roost's own licence (ADR-0062). This is
+the same reason Fedora's own `ffmpeg-free` cannot open them.
 
 Nothing here is required. Files of these kinds still import, still hash, still carry tags and
 folders, and still turn up in a search — what is missing is the picture, and Roost says so in the
@@ -234,16 +234,13 @@ but recovering from a bad build means going forward to a fixed one, not back to 
 
 ## Licence
 
-**Proprietary — see [LICENSE](LICENSE).** Roost is licensed for use, not for redistribution: it
-may not be copied, published, modified, or resold, and this repository is not open source
-(ADR-0038).
+**MIT — see [LICENSE](LICENSE).** Use it, change it, share it and sell it, as long as the copyright
+notice and the licence text come along (ADR-0062).
 
-**The format is open, and that is the part that protects you.** Your files are never modified in
-place, every change is appended to a plain JSONL journal you can read in any text editor, and the
-layout is a published standard that no program owns — *Roost Library Format 1*, which has three
-implementations and a conformance suite any of them can be held to. Roost's source
-being closed does not close your data — you can walk away with all of it, and the licence says so
-in section 4.
+**The format is open as well, and that is the part that protects your data.** Every change is
+appended to a plain JSONL journal you can read in any text editor, and the layout is a numbered
+specification, *Roost Library Format 2* ([`docs/FORMAT.md`](docs/FORMAT.md)), with a conformance
+suite in [`conformance/`](conformance/). You can walk away with all of it.
 
 Third-party components, and what their licences oblige, are listed in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

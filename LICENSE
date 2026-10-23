@@ -1,84 +1,21 @@
-Roost — Software Licence Agreement
+MIT License
 
-Copyright (c) 2026 Digitalku. All rights reserved.
+Copyright (c) 2026 Digitalku
 
-Roost ("the Software") is proprietary software owned by Digitalku ("the Licensor").
-It is licensed, not sold. By installing, copying, or using the Software you agree to
-the terms below. If you do not agree to them, do not install or use the Software.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-1. GRANT OF LICENCE
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-   Subject to these terms, the Licensor grants you a non-exclusive, non-transferable,
-   revocable licence to install and use the Software on devices you own or control,
-   for your personal use or for the internal business purposes of your organisation.
-
-2. RESTRICTIONS
-
-   Except to the extent that applicable law expressly permits it despite this
-   restriction, you may not:
-
-   a. distribute, publish, sell, rent, lease, lend, or sublicense the Software, or
-      make it available to any third party;
-   b. modify, adapt, translate, or create derivative works of the Software;
-   c. reverse engineer, decompile, or disassemble the Software, or attempt to derive
-      its source code;
-   d. remove, obscure, or alter any copyright, trademark, or other proprietary notice
-      contained in the Software; or
-   e. use the Software to develop a product that competes with it.
-
-3. OWNERSHIP
-
-   The Software is protected by copyright and other intellectual property laws. The
-   Licensor retains all right, title, and interest in and to the Software, including
-   all copies and derivative works of it. No rights are granted except those stated
-   here expressly.
-
-4. YOUR FILES AND YOUR DATA
-
-   The Software runs locally. Your files, and the library the Software builds from
-   them, remain yours: the Licensor claims no right in them, receives no copy of
-   them, and collects no telemetry. The library format is documented, and its journal
-   is plain text, so your metadata is readable and portable without the Software.
-
-5. THIRD-PARTY COMPONENTS
-
-   The Software includes third-party components distributed under their own licence
-   terms. Those components are listed in THIRD-PARTY-NOTICES.md, and for each of them
-   its own licence governs to the extent it conflicts with this agreement. Nothing in
-   this agreement limits any right you have under those licences.
-
-6. NO WARRANTY
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-   FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. YOU ARE RESPONSIBLE FOR MAINTAINING
-   BACKUPS OF YOUR FILES.
-
-7. LIMITATION OF LIABILITY
-
-   TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE LICENSOR
-   BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF
-   CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE
-   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE, INCLUDING ANY LOSS OF DATA
-   OR LOSS OF PROFITS.
-
-8. TERM AND TERMINATION
-
-   This licence applies until terminated. It terminates automatically if you breach
-   any of its terms. On termination you must stop using the Software and destroy all
-   copies of it in your possession. Sections 3, 6, and 7 survive termination.
-
-   Termination of this licence does not affect your files: they stay on your disk in
-   their original form, and the library's journal remains readable without the
-   Software (section 4).
-
-9. GOVERNING LAW
-
-   This agreement is governed by the laws of the Republic of Indonesia, without
-   regard to its conflict-of-law provisions.
-
-10. CONTACT
-
-    Digitalku
-    https://roost.digitalku.com
-    roostsupport@digitalku.com
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

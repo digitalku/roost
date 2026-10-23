@@ -77,9 +77,9 @@ export function AboutDialog({ onClose }: { readonly onClose: () => void }): Reac
             <div className="about-body">
               <p className="about-build">{describe(build)}</p>
               <p className="about-rights">
-                {COPYRIGHT}. Proprietary software, licensed for use rather than for redistribution.
-                Your files stay yours: nothing is uploaded, and the library format is documented so
-                your metadata outlives the application.
+                {COPYRIGHT}. Open source under the MIT licence: free to use, change and share, as
+                long as this notice comes along. Your files stay yours: nothing is uploaded, and the
+                library format is documented so your metadata outlives the application.
               </p>
               <dl className="about-contact">
                 <dt>Home</dt>

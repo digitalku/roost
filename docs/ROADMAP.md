@@ -448,6 +448,16 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
+**ADR-0062 — open source, under the MIT licence** was proposed and **accepted** on 2026-10-24,
+superseding ADR-0038's licence and keeping its credit. The user called Roost a hobby project, wanted
+others free to take and change it as long as the attribution is written into the licence, and chose
+MIT over Apache-2.0 and over staying proprietary. Nothing was published by it: the repository's
+visibility and any release are the owner's own act.
+
+**ADR-0061 — a page for the tags** was proposed and **accepted** on 2026-10-24: a *Tags* row under
+Untagged, the page in the grid's place, `tag_delete` in format revision 2.4, a group's colour
+derived, groups alphabetical.
+
 **ADR-0060 — a thumbnail somebody chose** was proposed and **accepted** on 2026-10-05. The user chose
 to keep it in `thumbs/roost.db` alone over keeping a copy of the image as a hidden asset, knowing it
 is lost with `thumbs/`. A format revision (2.3), not a version, and invariant 9's one exception.

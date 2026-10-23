@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "A local-first digital asset manager",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "author": "Digitalku",
   "homepage": "https://roost.digitalku.com",
   "bugs": {

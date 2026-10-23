@@ -8,8 +8,9 @@ import { FakeEngine, install } from "./testing/fake-engine.js";
  * About Roost (`UI_SPEC.md` §3.12, ADR-0038 §5.1).
  *
  * What is worth holding here is not that a dialog opens. It is that the two
- * things a proprietary build owes somebody are actually reachable from the
- * window: which build this is, and the licences of the code it ships. Both
+ * things any build that ships other people's code owes somebody are actually
+ * reachable from the window: which build this is, and the licences of the code
+ * it ships (ADR-0062 kept both when the licence became MIT). Both
  * were the point of the ADR, and both are easy to lose to a later tidy-up.
  */
 
