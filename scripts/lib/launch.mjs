@@ -7,7 +7,9 @@
  * here about a flag, and in `refresh.mjs` about an install.
  */
 import { spawnSync } from "node:child_process";
+import { linkSync, statSync, unlinkSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, extname, join } from "node:path";
 
 /**
  * Electron's own binary, by absolute path.
@@ -27,6 +29,44 @@ export function electronBinary() {
     process.exit(1);
   }
   return binary;
+}
+
+/**
+ * Electron's binary under Roost's own name: `roost` beside `electron` in the
+ * same `dist`, hard-linked, so the system monitor lists every process of the
+ * window as `roost` rather than `electron`.
+ *
+ * Measured, both ways. A symlink named `roost` changes nothing, because
+ * Electron re-executes itself by its resolved path and every child takes the
+ * name of that; a hard link is a file of its own name, and the main process,
+ * the zygotes, the GPU process, the renderer and the engine all carry it. It
+ * has to sit in `dist`, where Electron looks for its resources beside the
+ * executable, and costs no space there. Packaging names the binary itself and
+ * retires this (M6).
+ *
+ * Checked on every call rather than trusted: an install replaces `dist`, and a
+ * link left from before it is the previous Electron. Where the link cannot be
+ * made or replaced — a running `roost.exe` cannot be deleted on Windows — the
+ * window opens as `electron`, which is a name and not a failure.
+ */
+export function roostBinary() {
+  return linkAs(electronBinary(), "roost");
+}
+
+/** `binary` hard-linked as `name` in its own directory, or `binary` itself. */
+export function linkAs(binary, name) {
+  const link = join(dirname(binary), name + extname(binary));
+  try {
+    const target = statSync(binary, { bigint: true });
+    const existing = statSync(link, { bigint: true, throwIfNoEntry: false });
+    if (existing?.ino === target.ino && existing.dev === target.dev) return link;
+    if (existing !== undefined) unlinkSync(link);
+    linkSync(binary, link);
+    return link;
+  } catch (error) {
+    console.warn(`could not name the window's binary ${name}: ${error.message}`);
+    return binary;
+  }
 }
 
 /**

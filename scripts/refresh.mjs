@@ -23,6 +23,7 @@
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { roostBinary } from "./lib/launch.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const onWindows = process.platform === "win32";
@@ -38,6 +39,11 @@ if (onWindows) installElectron();
 
 pnpm(["build"]);
 pnpm(["--filter", "@roost/desktop-renderer", "build"]);
+
+// The install may have replaced Electron's `dist`, and with it the binary named
+// `roost` that the menu entry runs; `pnpm start` would make it again, but a
+// click on the entry would find nothing there first.
+roostBinary();
 
 console.log("\nRoost is up to date. Open it from the menu, or run `pnpm start`.");
 

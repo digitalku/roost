@@ -12,11 +12,11 @@
  */
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { commit, electronBinary, ozone } from "./lib/launch.mjs";
+import { commit, ozone, roostBinary } from "./lib/launch.mjs";
 
 const MAIN = fileURLToPath(new URL("../apps/desktop/main/dist/main.js", import.meta.url));
 
-const child = spawn(electronBinary(), [MAIN, ...ozone], {
+const child = spawn(roostBinary(), [MAIN, ...ozone], {
   stdio: "inherit",
   env: { ...process.env, ROOST_COMMIT: commit() },
 });

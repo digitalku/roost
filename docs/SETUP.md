@@ -398,8 +398,8 @@ is `assets/brand/roost.ico`, which `scripts/build-brand.mjs` writes beside the P
 cannot point at a `.png`, and Windows picks a different member of an `.ico` for the Start Menu,
 the taskbar and Alt+Tab.
 
-**The desktop entry launches the built output and never builds.** It runs the `electron` binary
-from `node_modules` directly, by absolute path, so it depends on nothing being on `PATH` — a
+**The desktop entry launches the built output and never builds.** It runs Electron's binary from
+`node_modules` directly, by absolute path, so it depends on nothing being on `PATH` — a
 desktop entry is not started from a login shell and cannot be assumed to have one. A menu click
 that ran `tsc -b` first would spend a couple of seconds on it and, when it failed, would have
 nowhere to print the error. So building is `pnpm refresh`, and it is a separate, visible step. A
@@ -439,11 +439,22 @@ container's own applications directory, which no desktop draws. From inside the 
 distrobox-export --app roost           # and --delete to take it back out
 ```
 
+**The binary is called `roost`, so the system monitor says Roost rather than Electron.** It is
+Electron's own, hard-linked as `roost` beside `electron` in `node_modules/electron/dist`, and
+`pnpm start`, `pnpm dev`, the desktop entry and the Start Menu shortcut all run it
+(`scripts/lib/launch.mjs`). Both halves are measured: a symlink named `roost` changes nothing,
+because Electron re-executes itself by its resolved path and every child process takes that name,
+while the hard link carries `roost` into all of them — main, the zygotes, the GPU process, the
+renderer and the engine. It has to sit in `dist`, where Electron looks for its resources, and
+costs no space. An install replaces `dist` and takes the link with it, so every launch checks it
+is still the same file as `electron` and `pnpm refresh` makes it again for the menu entry. Where it
+cannot be made, the window opens as `electron` and says why on the terminal.
+
 **The window groups under `StartupWMClass=electron`, which is measured rather than chosen.** An
 unpackaged Electron reports `WM_CLASS` as `electron` whatever it is launched as — neither
-`--class=Roost` nor a symlink named `roost` moves it, both tried. It is accurate here because
-every other Electron application on a machine ships its own named binary. Packaging gives Roost
-one too, and settles it (M6).
+`--class=Roost`, a symlink named `roost`, nor the hard link above moves it, all three tried. It is
+accurate here because every other Electron application on a machine ships its own packaged
+binary. Packaging settles it (M6).
 
 ## 5. A test library, cheaply
 

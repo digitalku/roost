@@ -19,10 +19,11 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { linkAs } from "./lib/launch.mjs";
 
 const root = new URL("../", import.meta.url);
 
-/** The launched program, the window's script, and the icons it opens with. */
+/** Electron, the window's script, and the icons it opens with. */
 const ELECTRON = await electronBinary();
 const ENTRY = fileURLToPath(new URL("apps/desktop/main/dist/main.js", root));
 const ICON = fileURLToPath(new URL("assets/brand/icon-512.png", root));
@@ -37,6 +38,9 @@ const FILE = "roost.desktop";
 /** What the shortcut is called in the Start Menu, and so what it is found as. */
 const LINK = "Roost.lnk";
 
+/** The program the launcher runs, settled once `main` has checked Electron is there. */
+let binary = ELECTRON;
+
 await main();
 
 async function main() {
@@ -46,6 +50,10 @@ async function main() {
   if (!(await exists(ELECTRON))) {
     fail(`no electron at ${ELECTRON}\nRun \`pnpm install\` and try again.`);
   }
+  // Electron under the name `roost`, so the system monitor says so
+  // (`lib/launch.mjs`). An install removes it, which is why `pnpm refresh`
+  // makes it again.
+  binary = linkAs(ELECTRON, "roost");
 
   if (process.platform === "linux") return await desktopEntry();
   if (process.platform === "win32") return await startMenuShortcut();
@@ -66,7 +74,7 @@ async function desktopEntry() {
   await writeFile(path, entry(), "utf8");
 
   console.log(`wrote ${path}`);
-  console.log(`      ${ELECTRON}`);
+  console.log(`      ${binary}`);
   if (await inContainer()) {
     // The entry is now in the container's menu, which nothing draws. Exporting
     // is what puts it in the host's, and it is run from in here rather than out
@@ -90,16 +98,17 @@ function entry() {
     // The same flag `pnpm dev` passes: without it the window is XWayland on a
     // Wayland session, which is blurry on a HiDPI screen and wrong under
     // fractional scaling (TODO.md §2).
-    `Exec=${quote(ELECTRON)} ${quote(ENTRY)} --ozone-platform-hint=auto`,
+    `Exec=${quote(binary)} ${quote(ENTRY)} --ozone-platform-hint=auto`,
     `Icon=${ICON}`,
     "Terminal=false",
     "Categories=Graphics;Photography;Viewer;",
     "Keywords=assets;images;photos;tags;library;",
     "StartupNotify=true",
     // Measured, not guessed: an unpackaged Electron reports WM_CLASS "electron"
-    // whatever it is launched as — neither `--class` nor a renamed symlink
-    // moves it. Without this line the window would not group under its own
-    // icon. Packaging gives the binary its own name and settles it (M6).
+    // whatever it is launched as — neither `--class`, a renamed symlink, nor
+    // the hard link named `roost` this entry runs moves it, so the name is not
+    // where Electron reads it from. Without this line the window would not
+    // group under its own icon. Packaging settles it (M6).
     "StartupWMClass=electron",
   ].join("\n")}\n`;
 }
@@ -136,7 +145,7 @@ async function startMenuShortcut() {
   const script = [
     "$shell = New-Object -ComObject WScript.Shell",
     `$link = $shell.CreateShortcut(${literal(path)})`,
-    `$link.TargetPath = ${literal(ELECTRON)}`,
+    `$link.TargetPath = ${literal(binary)}`,
     // One argument, quoted for the command line rather than for PowerShell:
     // `main.js` is inside this checkout, and a checkout can sit in a directory
     // whose name has a space in it.
@@ -160,7 +169,7 @@ async function startMenuShortcut() {
   }
 
   console.log(`wrote ${path}`);
-  console.log(`      ${ELECTRON}`);
+  console.log(`      ${binary}`);
   console.log(
     "\nIt is in the Start Menu as Roost; right-click it there to pin it to Start or to the" +
       "\ntaskbar. Deleting that file is how it is removed.",

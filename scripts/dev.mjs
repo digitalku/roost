@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { commit, electronBinary, ozone } from "./lib/launch.mjs";
+import { commit, ozone, roostBinary } from "./lib/launch.mjs";
 
 const RENDERER = fileURLToPath(new URL("../apps/desktop/renderer", import.meta.url));
 const MAIN = fileURLToPath(new URL("../apps/desktop/main/dist/main.js", import.meta.url));
@@ -43,7 +43,7 @@ children.push(vite);
 
 await waitForPort(PORT, 20_000);
 
-const electron = run(electronBinary(), [MAIN, ...ozone], {
+const electron = run(roostBinary(), [MAIN, ...ozone], {
   env: { ...process.env, ROOST_DEV_SERVER: `http://${HOST}:${PORT}`, ROOST_COMMIT: commit() },
 });
 children.push(electron);
