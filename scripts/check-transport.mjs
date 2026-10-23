@@ -309,11 +309,11 @@ try {
   // made itself would sit at the old moment until something else redrew it.
   const nudged = await cdp.settle(
     transportExpression,
-    (t) => t !== null && Math.abs(t.valueNow - 12_000) < 200,
+    (t) => t !== null && Math.abs(t.valueNow - 7_000) < 200,
   );
   check(
-    "L seeks ten seconds on, and the timeline follows a seek it did not make",
-    Math.abs(nudged.currentTime - 12) < 0.6,
+    "L seeks five seconds on, and the timeline follows a seek it did not make",
+    Math.abs(nudged.currentTime - 7) < 0.6,
     `t=${nudged.currentTime} timeline=${nudged.valueNow}ms`,
   );
 
@@ -465,13 +465,15 @@ try {
   );
   check(
     "the CC menu lists Off first and then the attached track",
-    listed[0]?.includes("Off") === true && listed[1]?.includes("clip.srt") === true,
+    // By its name, which is the file's without the extension (RL-9a keeps the
+    // two apart), so `clip.srt` is listed as `clip`.
+    listed[0]?.includes("Off") === true && listed[1]?.includes("clip") === true,
     listed.join(" · "),
   );
 
   await cdp.evaluate(
     `[...document.querySelectorAll("[role=menuitemradio]")]
-      .find((item) => item.textContent.includes("clip.srt"))
+      .find((item) => item.textContent.includes("clip"))
       .click()`,
   );
   const shown = await cdp.settle(
@@ -655,8 +657,9 @@ try {
   );
   check(
     "the cell asks for a new address, so the picture is not the cached one",
-    cell.src.endsWith("@256?at=15000"),
-    cell.src.slice(-24),
+    // `&v=` follows since the derive time joined the address (ADR-0047).
+    cell.src.includes("@256?at=15000"),
+    cell.src.slice(-36),
   );
   /*
    * The address the cell asks for, fetched here rather than read off the cell's

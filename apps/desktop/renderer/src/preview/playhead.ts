@@ -156,10 +156,10 @@ class Playhead {
  * **One number for both**, and it is drawn on the buttons. Two controls that do
  * the same thing by different amounts is the kind of difference nobody
  * remembers which way round, and the button is the one that has to say what it
- * does before it is pressed. Fifteen seconds at the user's word (2026-09-13),
- * over the ten the keys carried alone.
+ * does before it is pressed. Five seconds at the user's word (2026-10-23),
+ * after fifteen (2026-09-13) over the ten the keys carried alone.
  */
-export const SKIP_MS = 15_000;
+export const SKIP_MS = 5_000;
 
 export const playhead = new Playhead();
 

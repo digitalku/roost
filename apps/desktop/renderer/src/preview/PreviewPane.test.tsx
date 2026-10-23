@@ -761,13 +761,13 @@ describe("the transport", () => {
     expect(steps).toEqual([]);
   });
 
-  it("seeks fifteen seconds with J and L, because the arrows step assets", async () => {
+  it("seeks five seconds with J and L, because the arrows step assets", async () => {
     const { user } = showVideo();
     const video = await player();
 
     await user.keyboard("l");
     // The same number the buttons carry: `SKIP_MS` is one constant.
-    expect(video.currentTime).toBe(15);
+    expect(video.currentTime).toBe(5);
     await user.keyboard("j");
     // Clamped at the start rather than run negative.
     expect(video.currentTime).toBe(0);
@@ -780,13 +780,13 @@ describe("the transport", () => {
     const { user } = showVideo();
     const video = await player();
 
-    await user.click(screen.getByRole("button", { name: "Forward 15 seconds" }));
-    expect(video.currentTime).toBe(15);
+    await user.click(screen.getByRole("button", { name: "Forward 5 seconds" }));
+    expect(video.currentTime).toBe(5);
     // The position the transport seeks from is the one it has been told about,
     // so the element has to say it moved — a real one does (`announce`).
     announce(video, "seeked");
 
-    await user.click(screen.getByRole("button", { name: "Back 15 seconds" }));
+    await user.click(screen.getByRole("button", { name: "Back 5 seconds" }));
     // Clamped at the start rather than run negative, as `J` is.
     expect(video.currentTime).toBe(0);
   });

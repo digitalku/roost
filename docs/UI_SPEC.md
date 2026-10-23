@@ -1997,7 +1997,7 @@ did.
 | Control | Notes |
 | --- | --- |
 | Play / pause | The button, `Space`, and `K` |
-| **Back / forward fifteen seconds** | Two buttons **side by side**, after the play cluster, and `J` / `L`. Together rather than either side of play (2026-09-13): one gesture with two directions, and a pair reads as one control where a split reads as two. One constant behind both, and it is **drawn on the buttons**: an arrow is the one control in this bar whose amount cannot be guessed, and a tooltip is not an answer for a button somebody is about to press. Asked for on 2026-09-13, which moved the keys from ten |
+| **Back / forward five seconds** | Two buttons **side by side**, after the play cluster, and `J` / `L`. Together rather than either side of play (2026-09-13): one gesture with two directions, and a pair reads as one control where a split reads as two. One constant behind both, and it is **drawn on the buttons**: an arrow is the one control in this bar whose amount cannot be guessed, and a tooltip is not an answer for a button somebody is about to press. Asked for on 2026-09-13, which moved the keys from ten to fifteen; five since 2026-10-23, at the user's word |
 | Timeline | A `role="slider"` whose `aria-valuetext` is a timecode, never a count of milliseconds. Arrow keys move a tenth of a second, which is the precision a comment's moment carries |
 | Buffered ranges | Drawn from `video.buffered`, behind the played range — the difference between a slow file and a broken one |
 | Elapsed / duration | Monospace and tabular, so the digits do not dance. **To the second**, both of them: a comment's moment carries a tenth because somebody chose it, and a playhead only passes through. The elapsed is floored — at 16:12.6 you are in the twelfth second — and the total is rounded, which is the same number the inspector's Duration row shows |
@@ -2351,7 +2351,7 @@ In the preview, with a video or an audio file open (ADR-0024):
 | Key | Action |
 | --- | --- |
 | `Space` / `K` | Play / pause |
-| `J` / `L` | Seek fifteen seconds back · on — the amount the transport's two skip buttons carry (§7) |
+| `J` / `L` | Seek five seconds back · on — the amount the transport's two skip buttons carry (§7) |
 | `M` | Mute |
 | `Arrows` on the timeline | Seek a tenth of a second. Everywhere else in the preview the arrows still step between assets, and whichever control acted on the key keeps it |
 | `,` / `.` | Step one frame back · on |
