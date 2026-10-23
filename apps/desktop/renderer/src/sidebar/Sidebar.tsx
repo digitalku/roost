@@ -1,6 +1,6 @@
 import type { SidebarFolderRow, SidebarRow, WireSidebar } from "@roost/contract";
 import { ContextMenu } from "radix-ui";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   carriesAssets,
   carriesFolder,
@@ -67,6 +67,14 @@ export interface SidebarProps {
    * window owns the one dialog it has at a time.
    */
   readonly onEmptyTrash: () => void;
+  /**
+   * The tags page (ADR-0061): whether it is on screen, how many tags it holds,
+   * and how to open it. Its row is the window's rather than the engine's,
+   * because it opens a page and carries no query.
+   */
+  readonly tagsOpen: boolean;
+  readonly tagCount: number;
+  readonly onOpenTags: () => void;
 }
 
 export function Sidebar({
@@ -80,19 +88,26 @@ export function Sidebar({
   onDropAssets,
   onMoveFolder,
   onEmptyTrash,
+  tagsOpen,
+  tagCount,
+  onOpenTags,
 }: SidebarProps): React.JSX.Element {
+  // While the tags page is open no row is where the window is looking: the
+  // grid is not on screen, whatever its query still says.
+  const marked = tagsOpen ? null : query;
   return (
     <nav className="sidebar" aria-label="Library">
       <Section
         title="Places"
         rows={sidebar.places}
-        query={query}
+        query={marked}
         onPick={onPick}
         onEmptyTrash={onEmptyTrash}
+        tags={{ open: tagsOpen, count: tagCount, onOpen: onOpenTags }}
       />
       <Folders
         rows={sidebar.folders}
-        query={query}
+        query={marked}
         onPick={onPick}
         expansion={expansion}
         onNewFolder={onNewFolder}
@@ -101,7 +116,7 @@ export function Sidebar({
         onDropAssets={onDropAssets}
         onMoveFolder={onMoveFolder}
       />
-      <Section title="Smart folders" rows={sidebar.smartFolders} query={query} onPick={onPick} />
+      <Section title="Smart folders" rows={sidebar.smartFolders} query={marked} onPick={onPick} />
     </nav>
   );
 }
@@ -131,7 +146,8 @@ function Folders({
   onMoveFolder,
 }: {
   readonly rows: readonly SidebarFolderRow[];
-  readonly query: string;
+  /** `null` while no row can be the one on screen: the tags page is. */
+  readonly query: string | null;
   readonly onPick: (query: string) => void;
   readonly expansion: Expansion;
   readonly onNewFolder: (parent: SidebarFolderRow | null) => void;
@@ -573,19 +589,26 @@ export function drawn(rows: readonly SidebarFolderRow[], open: ReadonlySet<numbe
  */
 const TRASH = "trash";
 
+/** The place the tags page's row follows (ADR-0061), matched the same way. */
+const UNTAGGED = "untagged";
+
 function Section({
   title,
   rows,
   query,
   onPick,
   onEmptyTrash,
+  tags,
 }: {
   readonly title: string;
   readonly rows: readonly SidebarRow[];
-  readonly query: string;
+  /** `null` while no row can be the one on screen: the tags page is. */
+  readonly query: string | null;
   readonly onPick: (query: string) => void;
   /** Given to Places only: it is the one section with a row that has a command. */
   readonly onEmptyTrash?: (() => void) | undefined;
+  /** Given to Places only: the tags page's row, drawn after Untagged (ADR-0061). */
+  readonly tags?: { readonly open: boolean; readonly count: number; readonly onOpen: () => void };
 }): React.JSX.Element | null {
   // An empty section is not drawn: a library with no smart folders should not
   // have to look at a heading explaining that.
@@ -607,6 +630,25 @@ function Section({
               onPick={onPick}
             />
           );
+          if (row.id === UNTAGGED && tags !== undefined) {
+            return (
+              <Fragment key={row.id}>
+                <li>{drawn}</li>
+                <li>
+                  <button
+                    type="button"
+                    className="sidebar-row"
+                    data-current={tags.open || undefined}
+                    aria-current={tags.open ? "true" : undefined}
+                    onClick={tags.onOpen}
+                  >
+                    <span className="sidebar-label">Tags</span>
+                    <span className="sidebar-count">{counted(tags.count)}</span>
+                  </button>
+                </li>
+              </Fragment>
+            );
+          }
           if (row.id !== TRASH || onEmptyTrash === undefined) return <li key={row.id}>{drawn}</li>;
           return (
             <li key={row.id}>

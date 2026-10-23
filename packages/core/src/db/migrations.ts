@@ -28,6 +28,11 @@ interface Migration {
 const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: "initial", file: "0001_initial.sql" },
   { version: 2, name: "thumbnails leave the index", file: "0002_thumbnails_leave_the_index.sql" },
+  {
+    version: 3,
+    name: "tag group names need not be unique",
+    file: "0003_tag_group_names_need_not_be_unique.sql",
+  },
 ];
 
 /** The schema version this build understands. */

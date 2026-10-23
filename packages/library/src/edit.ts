@@ -17,6 +17,8 @@ import {
   AmbiguousFolderNameError,
   AmbiguousIdError,
   DuplicateFolderNameError,
+  DuplicateTagError,
+  DuplicateTagGroupNameError,
   EditTooLargeError,
   EmptyCommentError,
   EmptyNameError,
@@ -237,13 +239,58 @@ export async function tagRename(library: Library, from: string, to: string): Pro
  * unique, so grouping never changes what `tag:` means.
  */
 export async function createTagGroup(library: Library, name: string): Promise<number> {
+  const cleaned = cleanName(name, "tag group");
+  requireFreeGroupName(library, cleaned, null);
   const id = library.db.repo.nextTagGroupId();
-  await apply(library, [{ op: "tag_group_create", id, name: cleanName(name, "tag group") }]);
+  await apply(library, [{ op: "tag_group_create", id, name: cleaned }]);
   return id;
 }
 
 export async function renameTagGroup(library: Library, id: number, name: string): Promise<void> {
-  return apply(library, [{ op: "tag_group_rename", id, name: cleanName(name, "tag group") }]);
+  const cleaned = cleanName(name, "tag group");
+  requireFreeGroupName(library, cleaned, id);
+  return apply(library, [{ op: "tag_group_rename", id, name: cleaned }]);
+}
+
+/**
+ * Refuses a group name another group has, before anything is journalled
+ * (ADR-0061). `self` is the group being renamed, which may change its own case.
+ */
+function requireFreeGroupName(library: Library, name: string, self: number | null): void {
+  const found = library.db.repo.findTagGroupByName(name);
+  if (found !== undefined && found.id !== self) throw new DuplicateTagGroupNameError(name);
+}
+
+/**
+ * Makes a tag that nothing carries yet, in `group` or in none (ADR-0061).
+ *
+ * No operation of its own: `tag_group_set` already brings the tag it names
+ * into being, which is how a taxonomy is built before anything is imported.
+ *
+ * @throws DuplicateTagError when the library has the name, in any case.
+ */
+export async function createTag(
+  library: Library,
+  name: string,
+  group: number | null,
+): Promise<void> {
+  const cleaned = cleanName(name, "tag");
+  if (library.db.repo.hasTag(cleaned)) throw new DuplicateTagError(cleaned);
+  return apply(library, [{ op: "tag_group_set", tag: cleaned, group }]);
+}
+
+/**
+ * Takes tags off every asset and out of the library (ADR-0061).
+ *
+ * One `tag_delete` line per tag, however many assets carry it. Nothing is
+ * moved to the trash: a tag is a word, and the assets it was on are untouched
+ * otherwise.
+ */
+export async function deleteTags(library: Library, tags: readonly string[]): Promise<void> {
+  return apply(
+    library,
+    cleanNames(tags, "tag").map((tag) => ({ op: "tag_delete", tag }) as const),
+  );
 }
 
 /** Deletes a group. The tags in it survive, ungrouped. */

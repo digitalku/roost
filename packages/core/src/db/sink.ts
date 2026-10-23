@@ -43,11 +43,11 @@ const REFERENT_NAMES: Readonly<Record<IdentifiedTable, string>> = {
  * Which entities a record depends on is the format's business, and belongs in
  * one list somebody can read against the registry.
  *
- * `add`, `folder_create`, `smart_folder_create`, `tag_group_create` and the two
- * rename-by-name operations answer with nothing. A tag is named rather than
- * numbered (the registry says why), so `tag_rename` from a name nobody uses is
- * an ordinary no-op and not a dangling reference; and a create is what brings
- * its own entity into being.
+ * `add`, `folder_create`, `smart_folder_create`, `tag_group_create`, the two
+ * rename-by-name operations and `tag_delete` answer with nothing. A tag is
+ * named rather than numbered (the registry says why), so `tag_rename` or
+ * `tag_delete` of a name nobody uses is an ordinary no-op and not a dangling
+ * reference; and a create is what brings its own entity into being.
  */
 function referentsOf(record: JournalRecord): readonly Referent[] {
   const asset = (id: AssetId): readonly Referent[] => [{ kind: "asset", asset: id }];
@@ -58,6 +58,7 @@ function referentsOf(record: JournalRecord): readonly Referent[] {
     case "smart_folder_create":
     case "tag_group_create":
     case "tag_rename":
+    case "tag_delete":
     case "watch_add":
       return [];
     case "remove":
@@ -247,6 +248,9 @@ export class IndexSink implements ReplaySink {
         return;
       case "tag_rename":
         repo.applyTagRename(record.from, record.to);
+        return;
+      case "tag_delete":
+        repo.applyTagDelete(record.tag);
         return;
       case "rate":
         repo.applyRate(record.asset, record.rating);

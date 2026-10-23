@@ -37,6 +37,8 @@ import type {
   WireSidebar,
   WireSort,
   WireStars,
+  WireTagEntry,
+  WireTagList,
   WireTagRule,
   WireThumbnailChosen,
   WireTransferReport,
@@ -189,6 +191,8 @@ export interface FakeEngineOptions {
    * a folder, which is the engine's `null` (ADR-0035 §8).
    */
   readonly vocabularies?: Readonly<Record<string, WireFacetVocabulary>>;
+  /** The tags page's lists, which its edits change (ADR-0061). */
+  readonly tagList?: WireTagList;
   /** What `derive:status` and `derive:retry` answer with. */
   readonly deriveStatus?: WireDeriveStatus;
   /** What `derive:failures` answers with for `failed`, over an empty list. */
@@ -415,6 +419,11 @@ export class FakeEngine {
   settings: WireSettings;
   /** What `folder:find` answers with, by query; a test may change it midway. */
   foundFolders: Readonly<Record<string, readonly number[]>>;
+  /**
+   * Mutable: the tags page's lists (ADR-0061). Modelled, as the folders are,
+   * because the page reads them again after every edit it makes.
+   */
+  tagList: WireTagList;
   #nextFolderId: number;
   #open: LibrarySummary | undefined;
   #recent: readonly WireRecentLibrary[];
@@ -424,6 +433,7 @@ export class FakeEngine {
     this.#options = options;
     this.folders = options.sidebar?.folders ?? [];
     this.foundFolders = options.foundFolders ?? {};
+    this.tagList = options.tagList ?? { groups: [], tags: [] };
     this.settings = options.settings ?? {
       showSubfolderContents: false,
       fitVideoToWindow: false,
@@ -471,6 +481,19 @@ export class FakeEngine {
       },
       ...kept,
     ];
+  }
+
+  /**
+   * Puts the tags back in the engine's order, recounts every group's tags, and
+   * says the library changed, as the engine does after a tag edit.
+   */
+  #setTags(tags: readonly WireTagEntry[]): void {
+    const sorted = [...tags].sort((a, b) => a.name.localeCompare(b.name));
+    const groups = [...this.tagList.groups]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((group) => ({ ...group, tags: sorted.filter((tag) => tag.group === group.id).length }));
+    this.tagList = { groups, tags: sorted };
+    this.emit({ type: "library:changed" });
   }
 
   /** The bridge the renderer will find on `window`. */
@@ -942,6 +965,103 @@ export class FakeEngine {
           ...detail,
           folders: detail.folders.filter((held) => held.id !== request.folder),
         }));
+
+      case "tags:list":
+        return ok(this.tagList);
+
+      case "tag:rename": {
+        const fold = (name: string) => name.toLowerCase();
+        const from = this.tagList.tags.find((tag) => fold(tag.name) === fold(request.from));
+        if (from === undefined) return ok(null);
+        const into = this.tagList.tags.find(
+          (tag) => fold(tag.name) === fold(request.to) && tag !== from,
+        );
+        const rest = this.tagList.tags.filter((tag) => tag !== from && tag !== into);
+        const renamed =
+          into === undefined
+            ? { ...from, name: request.to, query: `tag:${quote(request.to)}` }
+            : { ...into, count: into.count + from.count };
+        this.#setTags([...rest, renamed]);
+        return ok(null);
+      }
+
+      case "tag:delete": {
+        const doomed = new Set(request.tags.map((name) => name.toLowerCase()));
+        this.#setTags(this.tagList.tags.filter((tag) => !doomed.has(tag.name.toLowerCase())));
+        return ok(null);
+      }
+
+      case "tag:create": {
+        if (
+          this.tagList.tags.some((tag) => tag.name.toLowerCase() === request.name.toLowerCase())
+        ) {
+          return problem("duplicate_tag", `A tag called "${request.name}" already exists`, {
+            name: request.name,
+          });
+        }
+        this.#setTags([
+          ...this.tagList.tags,
+          {
+            name: request.name,
+            query: `tag:${quote(request.name)}`,
+            group: request.group,
+            count: 0,
+          },
+        ]);
+        return ok(null);
+      }
+
+      case "tag:group": {
+        const moved = new Set(request.tags.map((name) => name.toLowerCase()));
+        this.#setTags(
+          this.tagList.tags.map((tag) =>
+            moved.has(tag.name.toLowerCase()) ? { ...tag, group: request.group } : tag,
+          ),
+        );
+        return ok(null);
+      }
+
+      case "tagGroup:create": {
+        const taken = this.tagList.groups.some(
+          (group) => group.name.toLowerCase() === request.name.toLowerCase(),
+        );
+        if (taken) {
+          return problem(
+            "duplicate_tag_group_name",
+            `A tag group called "${request.name}" already exists`,
+            { name: request.name },
+          );
+        }
+        const id = Math.max(0, ...this.tagList.groups.map((group) => group.id)) + 1;
+        this.tagList = {
+          ...this.tagList,
+          groups: [...this.tagList.groups, { id, name: request.name, tags: 0 }],
+        };
+        this.#setTags(this.tagList.tags);
+        return ok(id);
+      }
+
+      case "tagGroup:rename":
+        this.tagList = {
+          ...this.tagList,
+          groups: this.tagList.groups.map((group) =>
+            group.id === request.group ? { ...group, name: request.name } : group,
+          ),
+        };
+        this.#setTags(this.tagList.tags);
+        return ok(null);
+
+      case "tagGroup:delete":
+        this.tagList = {
+          ...this.tagList,
+          groups: this.tagList.groups.filter((group) => group.id !== request.group),
+        };
+        this.#setTags(
+          this.tagList.tags.map((tag) =>
+            tag.group === request.group ? { ...tag, group: null } : tag,
+          ),
+        );
+        return ok(null);
 
       case "folder:create": {
         const folder = this.#nextFolderId;

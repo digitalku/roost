@@ -357,6 +357,30 @@ export class FolderCycleError extends RoostError {
   }
 }
 
+/**
+ * A tag group name another group already has (ADR-0061).
+ *
+ * Checked before the line is journalled, as a folder's name is. Replay does not
+ * check it: since schema v3 the index takes whatever the journal holds, so a
+ * library that reached the journal with two of one name still rebuilds.
+ */
+export class DuplicateTagGroupNameError extends RoostError {
+  readonly code = "duplicate_tag_group_name";
+
+  constructor(name: string) {
+    super(`A tag group called "${name}" already exists`, { name });
+  }
+}
+
+/** A new tag whose name the library already has, in any case (ADR-0061). */
+export class DuplicateTagError extends RoostError {
+  readonly code = "duplicate_tag";
+
+  constructor(name: string) {
+    super(`A tag called "${name}" already exists`, { name });
+  }
+}
+
 export class UnknownTagGroupError extends RoostError {
   readonly code = "unknown_tag_group";
 

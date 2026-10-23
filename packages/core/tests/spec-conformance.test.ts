@@ -99,9 +99,10 @@ describe("the schema on disk against the schema in the documents", () => {
     // The fourteen before it described a schema keyed on a column that no
     // longer exists, and no index at that schema can reach this build — so
     // there was nothing to migrate forward from (ADR-0046 §2.3).
-    // 0002 is this build's own, and moves the thumbnails out (ADR-0051).
-    expect(allMigrations().map((m) => m.version)).toEqual([1, 2]);
-    expect(latestSchemaVersion()).toBe(2);
+    // 0002 is this build's own, and moves the thumbnails out (ADR-0051); 0003
+    // lets two tag groups share a name the journal gave them (ADR-0061).
+    expect(allMigrations().map((m) => m.version)).toEqual([1, 2, 3]);
+    expect(latestSchemaVersion()).toBe(3);
   });
 });
 

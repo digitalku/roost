@@ -9,6 +9,7 @@ to extend, in the same commit as the requirement a new case checks.
 | [`library.roost/`](library.roost/) | A Roost library, carrying the cases that are easy to get wrong |
 | [`expected.json`](expected.json) | The state a correct replay produces |
 | [`made-before-the-rule/`](made-before-the-rule/) | A library whose folder has no `.roost` suffix, which must open anyway |
+| [`revision-2.4/`](revision-2.4/) | `tag_delete`: its own library and `expected.json`, required from revision 2.4 |
 
 **The suite is layered by revision (RL-54).** `library.roost` is required of every implementation.
 Each revision that adds operations adds a library of its own, and an implementation passes the ones
@@ -84,3 +85,18 @@ height for every asset.
 | A smart folder whose query names `color:` | RL-47. Stored byte for byte and presented as **unavailable** |
 | `watch_add` carries `take` | `move` or `copy`, decided when the root is registered |
 | A tag left with no assets | **Not asserted.** `docs/FORMAT.md` §11.4 is open |
+
+## Revision 2.4 — `tag_delete`
+
+[`revision-2.4/library.roost`](revision-2.4/library.roost/) is replayed on its own, one month file,
+and compared with [`revision-2.4/expected.json`](revision-2.4/expected.json). Required of an
+implementation stating revision 2.4 or later (RL-54); one at 2.3 skips the two `tag_delete` lines and
+says so (RL-37, RL-40).
+
+| Case | Checks |
+|---|---|
+| `wood` and `Wood` on two assets, deleted as `WOOD` | A tag name compares case-insensitively, and the delete takes it off both |
+| `tag_delete` of `never-was` | A no-op, **not** a dangling reference: a tag is named, never numbered |
+| `wood` added again after the delete | A new tag, in no group: the old one's place in `Material` went with it |
+| `glass` in `Material`, untouched | Deleting one tag of a group leaves the group and the others |
+

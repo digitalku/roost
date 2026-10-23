@@ -220,6 +220,58 @@ describe("migrations", () => {
   });
 });
 
+describe("tag group names (ADR-0061)", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "roost-groups-"));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("brings a schema v2 index forward with every tag still in its group", () => {
+    const path = join(dir, "index.db");
+    const before = Db.open(path);
+    try {
+      before.repo.applyTagGroupCreate(1, "Material");
+      before.repo.applyTagGroupSet("wood", 1);
+      before.repo.applyTagGroupSet("loose", null);
+    } finally {
+      before.close();
+    }
+    // Back to what schema v2 had: the UNIQUE name. Outside a transaction, so
+    // the foreign key can be turned off and the groups survive the rebuild.
+    const raw = new BetterSqlite3(path);
+    raw.pragma("foreign_keys = OFF");
+    raw.exec(`
+      CREATE TABLE old_groups (id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE COLLATE NOCASE, sort_order INTEGER NOT NULL DEFAULT 0);
+      INSERT INTO old_groups SELECT id, name, sort_order FROM tag_groups;
+      DROP TABLE tag_groups;
+      ALTER TABLE old_groups RENAME TO tag_groups;
+      UPDATE meta SET value = '2' WHERE key = 'schema_version';
+    `);
+    raw.close();
+
+    const db = Db.open(path);
+    try {
+      expect(db.schemaVersion()).toBe(latestSchemaVersion());
+      // The migration drops the table a foreign key with ON DELETE SET NULL
+      // refers to, inside a transaction: what it kept aside has to come back.
+      expect(db.repo.tags()).toEqual([
+        { name: "loose", count: 0, group: null },
+        { name: "wood", count: 0, group: "Material" },
+      ]);
+      // And a second group of one name is now a row, as the journal can say.
+      db.repo.applyTagGroupCreate(2, "material");
+      expect(db.repo.tagGroups().map((group) => group.id)).toEqual([1, 2]);
+      expect(db.repo.findTagGroupByName("MATERIAL")?.id).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("the thumbnail database (ADR-0051)", () => {
   const ONE = parseAssetId("AAAAAAAAAAAA");
   const TWO = parseAssetId("BBBBBBBBBBBB");
@@ -285,7 +337,7 @@ describe("the thumbnail database (ADR-0051)", () => {
 
     const db = Db.open(path);
     try {
-      expect(db.schemaVersion()).toBe(2);
+      expect(db.schemaVersion()).toBe(latestSchemaVersion());
       expect(db.repo.thumbnail(ONE, 256)?.toString()).toBe("carried");
       expect(db.repo.pictureSource(ONE)).toEqual({
         size: 42,

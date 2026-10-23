@@ -1189,6 +1189,7 @@ PLACES
   All assets                     everything, newest first
   Recent                         imported in the last 7 days
   Untagged                       the pile that needs work — the reason this is here
+  Tags                     42    ADR-0061. Not a query: the tags page, in the grid's place (§4.5)
   Trash                     3    ADR-0022. The only place with a count, and the count is what
                                  makes it worth a row — an empty trash and one holding four
                                  hundred assets look identical without it. Right-click it for
@@ -1567,6 +1568,51 @@ tag while watching the count move is the ordinary way this is used.
 functions of a string: the renderer sends the values it holds and puts back the query it is given.
 It never parses and never concatenates, which is §4.1's rule holding under the one feature that
 would most have tempted a renderer-side parser.
+
+### 4.5 The tags page
+
+ADR-0061. **Tags** in Places, under *Untagged*, opens a page in the grid's place, as Eagle's tag
+manager does: the filter bar, the grid and the inspector go, and any other row in the pane, a query
+applied, Back or `Backspace` brings the grid back where it was. The row is the window's rather than
+the engine's, since it opens a page and carries no query, and its count is how many tags there are.
+
+```
+☰ ‹ › ↑  Tags   [Search tags…]   [Name|Most used]                 + New tag
+┌ groups ──────────┬ tags ───────────────────────────────────────────────┐
+│ All tags      42 │ ● olahraga        Sports                       128  │
+│ Ungrouped     12 │ ● traveling       Sports                        40  │
+│ ● Materials    8 │   wip                                           12  │
+│ ● Sports       5 │ …                                                   │
+│ + New group      │                                                     │
+└──────────────────┴─────────────────────────────────────────────────────┘
+```
+
+**The groups on the left**, the sidebar's rows at the sidebar's width: *All tags*, *Ungrouped*, then
+every group alphabetically with a dot of its colour and how many **tags** it holds. A group's colour
+is derived from its id, one of eight `--tag-hue-*` tokens, and stored nowhere. Right-click a group for
+**Rename…** and **Delete…**; deleting one says its tags stay, in no group. **+ New group** makes one
+and goes to it. A group is also a drop target: tags dragged onto it go into it, onto *Ungrouped* out
+of every group.
+
+**The tags on the right**, those of the group chosen, each with its group's dot, its group's name on
+*All tags*, and how many live assets carry it. A field filters them by name and two buttons order
+them by **Name** or **Most used**. **+ New tag** makes one nothing carries yet, in the group on screen.
+
+A tag is chosen as a file is — a click, `Ctrl`+click, `Shift`+click, `Ctrl+A` — and the menu acts on
+what is chosen: **Show assets** (one tag; also a double-click and `Enter`) leaves for the grid with
+that tag's query; **Rename…** (one tag; also `F2`) reads **Merge** and says so when the name is
+another tag's; **Move to group ▸** lists the groups, *No group* and **New group…**; **Delete…** (also
+`Delete`) asks once, with the number of assets only when it is true — one tag's count, never a sum
+over several, which would count an asset twice.
+
+**The page asks the engine for its lists**, `tags:list`, when it opens and whenever the library
+changes, so a tag added in the inspector is here without a reopen. Opening it **empties the grid's
+selection**, and the keys it handles are stopped: the window's own `Delete` trashes the selection,
+and on this page a `Delete` is about tags.
+
+**A menu item that opens a dialog keeps the focus from going back.** Radix returns the focus to a
+menu's trigger as it closes, and a modal dialog that loses the focus it has just taken closes itself;
+*New group…* did exactly that until a window check drove it.
 
 ## 5. Search
 
@@ -2346,7 +2392,8 @@ becomes a preference in M6.
 | `0`–`5` | Set rating on the selection (`0` clears to unrated) |
 | `T` | Focus the tag editor for the selection |
 | `Ctrl+C` | **Copy file** on the selection, or on the asset the preview is showing (ADR-0034 §5). Not while typing, and not over text somebody has selected — a name or a note in the inspector is text first |
-| `Delete` | Move the selection to the trash — and, inside the Trash place, delete it permanently after confirming (ADR-0022) |
+| `Delete` | Move the selection to the trash — and, inside the Trash place, delete it permanently after confirming (ADR-0022). On the tags page, delete the chosen tags after confirming (§4.5) |
+| `F2` | On the tags page, rename the chosen tag (§4.5) |
 | `Alt+←` / `Backspace` | Back, through the **places** this window has been (ADR-0044). A filter is not a place, so Back is not an undo for the filter bar — and travelling keeps the chips standing, exactly as clicking a folder does |
 | `Alt+→` | Forward, until something new is chosen and the way ahead is dropped |
 | `Alt+↑` | Up one folder, and from a top-level folder to the library itself. Nothing outside a folder. **Not `Backspace`**: that one is *back* — history — and this one is *up* — hierarchy. Explorer draws the same line (ADR-0043 §8, ADR-0044 §6) |

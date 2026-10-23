@@ -10,6 +10,8 @@ export const ERROR_CODES = [
   "ambiguous_id",
   "dangling_reference",
   "duplicate_folder_name",
+  "duplicate_tag",
+  "duplicate_tag_group_name",
   "edit_too_large",
   "empty_comment",
   "empty_name",

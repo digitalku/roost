@@ -1,6 +1,6 @@
 # Roost Library Format
 
-**Format version 2 · Document revision 2.3 · Status: DRAFT**
+**Format version 2 · Document revision 2.4 · Status: DRAFT**
 
 **This document belongs to this repository** (ADR-0052). It was written in the `roost-library`
 repository and copied here unchanged at revision 2.0 on 2026-09-26. From then on it is kept here, it
@@ -9,7 +9,9 @@ implements the change (§12). **Revision 2.1** (2026-09-26, ADR-0053) rewrote RL
 is not a library, and version 1 is no longer named. **Revision 2.2** (2026-10-01, ADR-0056) made
 the folder the library's name: RL-5 rewords `name`, and RL-7b is new. **Revision 2.3** (2026-10-05,
 ADR-0060) corrected what RL-2 says of `thumbs/`: an implementation may keep there pictures somebody
-chose, and those are lost with it. `docs/STORAGE_SPEC.md` maps each requirement to the code that meets it,
+chose, and those are lost with it. **Revision 2.4** (2026-10-24, ADR-0061) added the operation
+`tag_delete` to `OPS.md`, and with it the suite's first library of a revision (RL-54).
+`docs/STORAGE_SPEC.md` maps each requirement to the code that meets it,
 `OPS.md` beside this file is the operation registry, and `conformance/` at the repository root is
 the suite.
 
@@ -536,6 +538,10 @@ a sidebar; a build that does not makes the tag reappear the next time anybody ty
 defensible and they are visibly different, which is the combination that makes this worth listing.
 
 Carried over unanswered from version 1, where it was §11.4.
+
+Since revision 2.4 a tag can be **deleted** (`tag_delete` in `OPS.md`), which takes it off every
+asset and out of the library at once. That answers what a person does to get rid of a tag; it does
+not answer this question, which is what happens when nobody does.
 
 ### 11.5 Reserved names
 

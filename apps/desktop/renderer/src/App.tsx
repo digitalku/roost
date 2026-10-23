@@ -67,6 +67,7 @@ import { SearchField } from "./search/SearchField.js";
 import { useExpansion } from "./sidebar/expansion.js";
 import { FolderDialog, type FolderDialogProps } from "./sidebar/FolderDialog.js";
 import { Sidebar } from "./sidebar/Sidebar.js";
+import { TagsPage } from "./tags/TagsPage.js";
 import { canTravel, NO_TRAIL, record, type Source, type Trail, travel } from "./trail.js";
 
 /**
@@ -1090,6 +1091,12 @@ function LibraryView({
   // `applyQuery` closes the preview and a `useState` below it would be read
   // before it exists.
   const [previewing, setPreviewing] = useState(false);
+  /**
+   * Whether the tags page is where the grid would be (ADR-0061). Declared here
+   * for the preview's reason: `applyQuery` leaves it, because a query applied is
+   * a request to look at the grid.
+   */
+  const [tagsPage, setTagsPage] = useState(false);
   const paging = useAssetPages(query, generation, sort);
   const dropRows = paging.drop;
   const redraw = paging.redraw;
@@ -1221,10 +1228,25 @@ function LibraryView({
       // asset that is not in it — behind a head with no way back to the grid
       // but Escape (`UI_SPEC.md` §7).
       setPreviewing(false);
+      setTagsPage(false);
       setQuery(picked);
     },
     [selection],
   );
+
+  /**
+   * Opens the tags page (ADR-0061).
+   *
+   * **The selection goes first.** The window's own shortcuts act on it —
+   * `Delete` trashes it, `Ctrl+C` copies it — and on the page a `Delete` meant
+   * for a tag must not reach assets nobody can see. The page stops the keys it
+   * handles too; an empty selection is what makes a miss harmless.
+   */
+  const openTags = useCallback(() => {
+    selection.reset();
+    setPreviewing(false);
+    setTagsPage(true);
+  }, [selection]);
 
   /**
    * What the query is, without the callbacks below re-forming on every change.
@@ -1893,12 +1915,19 @@ function LibraryView({
       const target = event.target;
       if (target instanceof HTMLElement && isTyping(target)) return;
       event.preventDefault();
+      // On the tags page Back leaves it for the grid, which was not left
+      // anywhere a trail would remember (ADR-0061); forward and up have
+      // nowhere to go from a page that is not a place.
+      if (tagsPage) {
+        if (back) setTagsPage(false);
+        return;
+      }
       if (up) goUp();
       else journey(back ? -1 : 1);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [goUp, journey]);
+  }, [goUp, journey, tagsPage]);
 
   /**
    * `Ctrl+C` puts the files on the clipboard: **Copy file**, the menu's first
@@ -1995,6 +2024,8 @@ function LibraryView({
       if (event.key !== "Delete" || event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target;
       if (target instanceof HTMLElement && isTyping(target)) return;
+      // The tags page's `Delete` is about tags (ADR-0061).
+      if (tagsPage) return;
       if (selected.length === 0) return;
       event.preventDefault();
       if (inTrash) trashing.deletePermanently();
@@ -2002,7 +2033,7 @@ function LibraryView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [inTrash, selected, trashing]);
+  }, [inTrash, selected, trashing, tagsPage]);
 
   // An import changes the counts, the sidebar, and what the grid holds, so it
   // is the one thing in the window that has to reset the paging as well.
@@ -2286,6 +2317,9 @@ function LibraryView({
                 onDropAssets={dropOnFolder}
                 onMoveFolder={moveFolder}
                 onEmptyTrash={trashing.emptyTrash}
+                tagsOpen={tagsPage}
+                tagCount={sidebar.tags.length}
+                onOpenTags={openTags}
               />
             )}
           </div>
@@ -2305,6 +2339,28 @@ function LibraryView({
         )}
 
         <div className="pane-content">
+          {tagsPage && (
+            <TagsPage
+              generation={revision}
+              lead={
+                <>
+                  {!settings.showSidebar && appMenu}
+                  <NavButtons
+                    canBack
+                    canForward={false}
+                    canUp={false}
+                    onBack={() => setTagsPage(false)}
+                    onForward={() => {}}
+                    onUp={() => {}}
+                  />
+                </>
+              }
+              onShowAssets={(tagQuery) => applyQuery(tagQuery)}
+              onConfirm={setConfirming}
+              onNote={noteResult}
+              onProblem={setActed}
+            />
+          )}
           {/*
             Not while a file is open. Every control in this head is the grid's —
             the search field, the view menu, the import — and the grid is not on
@@ -2312,7 +2368,7 @@ function LibraryView({
             the way out. A bar of controls for something you cannot see is one
             more thing to read past (`UI_SPEC.md` §7).
           */}
-          {!showingPreview && (
+          {!tagsPage && !showingPreview && (
             <>
               <header className="bar">
                 {/* The `☰` moves here while the sidebar is away, because it is
@@ -2397,7 +2453,7 @@ function LibraryView({
             </>
           )}
 
-          {showingPreview ? (
+          {tagsPage ? null : showingPreview ? (
             /* Over the asset on screen, not over the selection: "export…" while
              looking at one picture cannot sensibly mean the other eleven. */
             <AssetContextMenu
@@ -2502,7 +2558,8 @@ function LibraryView({
             Unmounted rather than hidden when it is off: it fetches a detail or
             a summary for whatever is selected, and a panel nobody can see has
             no business asking the engine about every click in the grid. */}
-        {settings.showInspector && (
+        {/* Not beside the tags page either: there is no selection for it to show. */}
+        {settings.showInspector && !tagsPage && (
           <>
             <PaneResizer
               pane="Inspector"

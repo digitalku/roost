@@ -106,12 +106,13 @@ scheme. It answers a question rather than being an address this format vouches f
 
 ## Tags
 
-### `tag_add` · `tag_remove` · `tag_rename`
+### `tag_add` · `tag_remove` · `tag_rename` · `tag_delete`
 
 ```json
 {"ts":1755648100,"op":"tag_add","asset":"K7QM4X2AJH9F","tags":["client","2026"]}
 {"ts":1755648200,"op":"tag_remove","asset":"K7QM4X2AJH9F","tags":["2026"]}
 {"ts":1755648450,"op":"tag_rename","from":"client","to":"clients"}
+{"ts":1755648480,"op":"tag_delete","tag":"draft"}
 ```
 
 **Tags are named, never numbered.** A tag id is assigned by an implementation's own cache, which is
@@ -119,6 +120,15 @@ derived, so a journal record depending on one would not survive a rebuild.
 
 **`tag_rename` onto a name that already exists merges into it.** Not a convenience: tag names are
 unique and case-insensitive, so no other outcome both succeeds and replays to the same state.
+
+**`tag_delete` takes the tag off every asset and out of the library**, in one line however many
+assets carried it (revision 2.4). The name compares case-insensitively, as every tag name does, and
+a name nobody has is an ordinary no-op rather than a dangling reference: a tag is named, never
+numbered. Its place in a group goes with it, so a tag of the same name added afterwards is new and
+in no group. Nothing else about the assets changes.
+
+*An implementation at revision 2.3 or earlier meeting this line* skips it and says so (RL-37,
+RL-40): it reads the library incompletely, still showing the tag, and never wrongly.
 
 ### `tag_group_create` · `tag_group_rename` · `tag_group_set` · `tag_group_delete`
 
@@ -287,6 +297,7 @@ conforming. These operations record *which* directories are watched, never *when
 | `smart_folder_create` · `smart_folder_update` · `smart_folder_delete` | 2026-09-20 | 2.0 |
 | `comment_add` · `comment_set` · `comment_remove` · `poster_set` · `subtitle_attach` · `subtitle_detach` | 2026-09-20 | 2.0 |
 | `watch_add` · `watch_remove` | 2026-09-20 | 2.0 |
+| `tag_delete` | 2026-10-24 | 2.4 |
 
 ### What version 1 had and this does not
 

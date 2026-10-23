@@ -17,9 +17,13 @@ import {
   count,
   createFolder,
   createSmartFolder,
+  createTag,
   createTagGroup,
   DuplicateFolderNameError,
+  DuplicateTagError,
+  DuplicateTagGroupNameError,
   deleteFolder,
+  deleteTags,
   EmptyCommentError,
   EmptyNameError,
   emptyTrash,
@@ -42,6 +46,7 @@ import {
   removeComment,
   renameAsset,
   renameFolder,
+  renameTagGroup,
   resolveAsset,
   resolveFolder,
   resolveTagGroup,
@@ -132,6 +137,70 @@ describe("organizing a library", () => {
 
     await tagRemove(library, [ids[0] as AssetId], ["only-one"]);
     expect(count(library, "tag:only-one")).toBe(0);
+  });
+
+  it("deletes a tag from every asset and from the library (ADR-0061)", async () => {
+    await tagAdd(library, ids, ["draft"]);
+    await tagAdd(library, [ids[0] as AssetId], ["keep"]);
+    expect(count(library, "draft")).toBe(3);
+
+    // In another case, because a tag's name compares that way.
+    await deleteTags(library, ["DRAFT"]);
+    expect(count(library, "tag:draft")).toBe(0);
+    expect(library.db.repo.hasTag("draft")).toBe(false);
+    // The words a search finds go with it: a tag is part of an asset's text.
+    expect(count(library, "draft")).toBe(0);
+    expect(count(library, "tag:keep")).toBe(1);
+    // One line, however many assets carried it.
+    const lines = (await journalLines()).filter((line) => line.op === "tag_delete");
+    expect(lines.map((line) => line.tag)).toEqual(["DRAFT"]);
+    // A name nobody has is nothing to delete, not a fault.
+    await deleteTags(library, ["never-was"]);
+  });
+
+  it("makes a tag nothing carries yet, and refuses one the library has", async () => {
+    const group = await createTagGroup(library, "Material");
+    await createTag(library, "linen", group);
+    await createTag(library, "loose", null);
+    expect(library.db.repo.tags().map((tag) => [tag.name, tag.count, tag.group])).toEqual([
+      ["linen", 0, "Material"],
+      ["loose", 0, null],
+    ]);
+    await expect(createTag(library, "LINEN", null)).rejects.toBeInstanceOf(DuplicateTagError);
+  });
+
+  it("refuses a tag group name another group has, before it is journalled (ADR-0061)", async () => {
+    // Found on 2026-10-24: the line was journalled, the index refused it on its
+    // UNIQUE name, and the next group was handed the refused group's id.
+    const material = await createTagGroup(library, "Material");
+    await expect(createTagGroup(library, "material")).rejects.toBeInstanceOf(
+      DuplicateTagGroupNameError,
+    );
+    const other = await createTagGroup(library, "Other");
+    await expect(renameTagGroup(library, other, "MATERIAL")).rejects.toBeInstanceOf(
+      DuplicateTagGroupNameError,
+    );
+    // Its own name in another case is a rename, not a clash.
+    await renameTagGroup(library, material, "MATERIAL");
+    expect(other).toBe(material + 1);
+    const created = (await journalLines()).filter((line) => line.op === "tag_group_create");
+    expect(created.map((line) => line.id)).toEqual([material, other]);
+  });
+
+  it("rebuilds a journal that already holds two groups of one name (ADR-0061)", async () => {
+    // What the bug above left behind, written straight into the journal: the
+    // index has to take it, or every rebuild of that library stops here.
+    await apply(library, [
+      { op: "tag_group_create", id: 1, name: "Material" },
+      { op: "tag_group_create", id: 2, name: "material" },
+      { op: "tag_group_set", tag: "wood", group: 2 },
+    ]);
+    await library.rebuild();
+    expect(library.db.repo.tagGroups().map((group) => [group.id, group.name])).toEqual([
+      [1, "Material"],
+      [2, "material"],
+    ]);
+    expect(library.db.repo.tags()).toEqual([{ name: "wood", count: 0, group: "material" }]);
   });
 
   it("merges a rename onto an existing tag rather than failing", async () => {
@@ -1027,6 +1096,9 @@ describe("organizing a library", () => {
     await tagAdd(library, ids, ["wood"]);
     await setTagGroup(library, ["wood"], group);
     await tagRename(library, "wood", "timber");
+    await tagAdd(library, ids, ["doomed"]);
+    await deleteTags(library, ["doomed"]);
+    await createTag(library, "waiting", group);
     await rate(library, [ids[0] as AssetId], 5);
     await apply(library, [{ op: "favorite_set", asset: ids[1] as AssetId, favorite: true }]);
     await setNote(library, [ids[2] as AssetId], "a note");
@@ -1052,6 +1124,13 @@ describe("organizing a library", () => {
     expect(withoutDerived(library.stats())).toEqual(before);
     expect(names(search(library, "tag:timber", PAGE))).toEqual(found);
     expect(count(library, "rating:5")).toBe(1);
+    // A deleted tag stays deleted, and a tag made with nothing on it stays made.
+    expect(library.db.repo.hasTag("doomed")).toBe(false);
+    expect(library.db.repo.tags().find((tag) => tag.name === "waiting")).toEqual({
+      name: "waiting",
+      count: 0,
+      group: "Material",
+    });
     // `renamed.jpg` is the asset that was trashed, so the query that found it
     // before the rebuild must still find nothing after one — a `trash` that
     // replayed as a no-op would pass every other assertion here.

@@ -50,11 +50,13 @@ export {
   createAsset,
   createFolder,
   createSmartFolder,
+  createTag,
   createTagGroup,
   deleteFolder,
   deleteSmartFolder,
   deleteSubtitle,
   deleteTagGroup,
+  deleteTags,
   detachSubtitle,
   emptyTrash,
   type FolderDeletion,
@@ -93,6 +95,8 @@ export {
   AmbiguousFolderNameError,
   AmbiguousIdError,
   DuplicateFolderNameError,
+  DuplicateTagError,
+  DuplicateTagGroupNameError,
   EditTooLargeError,
   EmptyCommentError,
   EmptyNameError,
@@ -242,6 +246,12 @@ export {
   languageFrom,
   type SubtitlesAdded,
 } from "./subtitles.js";
+export {
+  readTagList,
+  type TagGroupEntry,
+  type TagList,
+  type TagListEntry,
+} from "./tag-list.js";
 export {
   ensurePreview,
   generateMissing,

@@ -46,6 +46,7 @@ const KEYS = {
   End: { code: "End", keyCode: 35 },
   Enter: { code: "Enter", keyCode: 13, text: "\r" },
   Escape: { code: "Escape", keyCode: 27 },
+  F2: { code: "F2", keyCode: 113 },
   F4: { code: "F4", keyCode: 115 },
   F9: { code: "F9", keyCode: 120 },
   Home: { code: "Home", keyCode: 36 },

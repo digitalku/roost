@@ -1,0 +1,169 @@
+/*
+ * The tags page (ADR-0061, UI_SPEC.md §4.5). It takes the grid's place in the
+ * middle column, so it fills what the grid would: the bar, then two columns,
+ * the groups at the sidebar's width and the tags in the rest.
+ */
+.pane-content > .tags-page {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.tags-page > .bar {
+  margin-bottom: var(--space-2);
+}
+
+.tags-search {
+  flex: 0 1 260px;
+  min-width: 120px;
+  height: var(--bar-control-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.tags-search::placeholder {
+  color: var(--text-subtle);
+}
+
+.tags-search:focus-visible {
+  border-color: var(--border-focus);
+  outline: none;
+}
+
+.tags-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The groups: the sidebar's rows, so a group reads as a place to look. */
+.tags-groups {
+  display: flex;
+  flex: 0 0 var(--sidebar-width);
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+
+.tags-groups .sidebar-row[data-drop] {
+  outline: 2px solid var(--border-focus);
+  outline-offset: -2px;
+}
+
+.tags-new-group {
+  margin: var(--space-2) var(--space-3);
+  align-self: flex-start;
+}
+
+/* The tags: one row each, chosen as a file is. */
+.tags-list {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--space-1) 0;
+}
+
+.tags-list:focus-visible {
+  outline: none;
+}
+
+.tags-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  height: var(--row-height);
+  padding: 0 var(--space-4);
+  color: var(--text);
+  cursor: default;
+  user-select: none;
+}
+
+.tags-row:hover {
+  background: var(--surface-raised);
+}
+
+.tags-row[data-on] {
+  background: var(--select-bg);
+  color: var(--select-text);
+}
+
+.tags-list:focus-visible .tags-row[data-on] {
+  box-shadow: inset 0 0 0 1px var(--select-border);
+}
+
+.tags-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tags-group-name {
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tags-row[data-on] .tags-group-name {
+  color: inherit;
+}
+
+.tags-empty {
+  margin: var(--space-6) var(--space-4);
+  color: var(--text-muted);
+}
+
+/*
+ * A group's colour, derived from its id (ADR-0061 §2). The dot keeps its room
+ * when there is no group, so names line up down the list whatever is coloured.
+ */
+.tag-dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-full);
+}
+
+.tag-dot[data-hue="1"] {
+  background: var(--tag-hue-1);
+}
+
+.tag-dot[data-hue="2"] {
+  background: var(--tag-hue-2);
+}
+
+.tag-dot[data-hue="3"] {
+  background: var(--tag-hue-3);
+}
+
+.tag-dot[data-hue="4"] {
+  background: var(--tag-hue-4);
+}
+
+.tag-dot[data-hue="5"] {
+  background: var(--tag-hue-5);
+}
+
+.tag-dot[data-hue="6"] {
+  background: var(--tag-hue-6);
+}
+
+.tag-dot[data-hue="7"] {
+  background: var(--tag-hue-7);
+}
+
+.tag-dot[data-hue="8"] {
+  background: var(--tag-hue-8);
+}

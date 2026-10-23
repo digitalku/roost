@@ -69,6 +69,20 @@
   --on-image-bg: rgb(0 0 0 / 55%);
   --on-image-text: rgb(255 255 255 / 92%);
 
+  /* A tag group's colour, derived from its id and never stored (ADR-0061, and
+     `OPS.md` on tag groups). Data rather than chrome, which is why these are the
+     one set of hues besides the accent: a dot that names a group, the same on
+     either theme, as a label printed on a file is the same in any light. Eight,
+     because a ninth would be the first two that cannot be told apart. */
+  --tag-hue-1: #d0694f;
+  --tag-hue-2: #d9a03f;
+  --tag-hue-3: #8fae4a;
+  --tag-hue-4: #3f9e86;
+  --tag-hue-5: #4d8fc7;
+  --tag-hue-6: #7b6fcf;
+  --tag-hue-7: #c062a8;
+  --tag-hue-8: #8a8174;
+
   /* No webfont: invariant 7 forbids the request, and chrome does not need one. */
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;

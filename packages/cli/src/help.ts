@@ -239,11 +239,12 @@ Options:
 ${LIBRARY_FLAG}
 ${GLOBAL}`,
 
-  tag: `Add, remove, rename, or list tags.
+  tag: `Add, remove, rename, delete, or list tags.
 
 Usage: roost tag add    --tag <TAG>... <ASSET>...
        roost tag remove --tag <TAG>... <ASSET>...
        roost tag rename <FROM> <TO>
+       roost tag delete <TAG>...
        roost tag list
        roost tag group create <NAME>
        roost tag group rename <NAME> <NEW_NAME>
@@ -254,6 +255,9 @@ Usage: roost tag add    --tag <TAG>... <ASSET>...
 
 Renaming onto an existing tag merges into it: tag names are unique, so there is
 no other outcome that both succeeds and replays to the same state.
+
+Deleting a tag takes it off every asset that carries it and out of the library.
+The assets are otherwise untouched.
 
 Groups arrange tags for the sidebar. They do not nest them, so \`tag:\` still
 names exactly one tag.

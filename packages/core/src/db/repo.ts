@@ -873,6 +873,25 @@ export class Repo {
     for (const id of affected) this.#refreshFts(id);
   }
 
+  /**
+   * Takes a tag off every asset and out of the vocabulary (ADR-0061).
+   *
+   * Its memberships go with it by cascade, and the full-text index of every
+   * asset that carried it is refreshed, because a tag is part of what a search
+   * word finds. `tags.name` compares case-insensitively, so `Wood` deletes
+   * `wood`. A name nobody uses is a no-op.
+   */
+  applyTagDelete(name: string): void {
+    const tag = this.#s("SELECT id FROM tags WHERE name = ?").get(name) as
+      | { id: number }
+      | undefined;
+    if (tag === undefined) return;
+    // Gathered first: once the row is gone there is no way back to who had it.
+    const affected = this.#assetsWithTag(tag.id);
+    this.#s("DELETE FROM tags WHERE id = ?").run(tag.id);
+    for (const id of affected) this.#refreshFts(id);
+  }
+
   /** `null` clears the rating, which the schema distinguishes from one star. */
   applyRate(id: AssetId, rating: number | null): void {
     this.#s("UPDATE assets SET rating = ? WHERE id = ?").run(rating, id);
@@ -1130,11 +1149,14 @@ export class Repo {
   }
 
   applyTagGroupCreate(id: number, name: string): void {
+    // Noted first: an id the journal has used is used, whatever happens to the
+    // row (RL-17). It was noted after, and a create the index refused handed
+    // its id to the next group.
+    this.noteIdUsed("tag_groups", id);
     this.#s(
       `INSERT INTO tag_groups (id, name) VALUES (?, ?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name`,
     ).run(id, name);
-    this.noteIdUsed("tag_groups", id);
   }
 
   applyTagGroupRename(id: number, name: string): void {
@@ -2575,6 +2597,44 @@ export class Repo {
    * share.
    */
   tags(): TagRow[] {
+    const counts = this.#liveTagCounts();
+    const rows = this.#s(
+      `SELECT t.id AS id, t.name AS name, g.name AS "group"
+         FROM tags t
+         LEFT JOIN tag_groups g ON g.id = t.group_id
+        ORDER BY t.name`,
+    ).all() as { id: number; name: string; group: string | null }[];
+    return rows.map((row) => ({
+      name: row.name,
+      count: counts.get(row.id) ?? 0,
+      group: row.group,
+    }));
+  }
+
+  /**
+   * Every tag with its group's **id** and its live asset count, for the page
+   * that arranges them (ADR-0061).
+   *
+   * {@link Repo.tags} names the group, which is what a menu draws; this numbers
+   * it, because two groups may share a name since schema v3 and an edit has to
+   * say which one it means.
+   */
+  tagList(): { name: string; groupId: number | null; count: number }[] {
+    const counts = this.#liveTagCounts();
+    const rows = this.#s("SELECT id, name, group_id AS groupId FROM tags ORDER BY name").all() as {
+      id: number;
+      name: string;
+      groupId: number | null;
+    }[];
+    return rows.map((row) => ({
+      name: row.name,
+      groupId: row.groupId,
+      count: counts.get(row.id) ?? 0,
+    }));
+  }
+
+  /** Live assets per tag id: every link, less the trashed ones (see {@link Repo.tags}). */
+  #liveTagCounts(): Map<number, number> {
     const counts = new Map<number, number>();
     const all = this.#s(
       "SELECT tag_id AS tagId, count(*) AS n FROM asset_tags GROUP BY tag_id",
@@ -2590,18 +2650,7 @@ export class Repo {
         GROUP BY at.tag_id`,
     ).all() as { tagId: number; n: number }[];
     for (const row of trashed) counts.set(row.tagId, (counts.get(row.tagId) ?? 0) - row.n);
-
-    const rows = this.#s(
-      `SELECT t.id AS id, t.name AS name, g.name AS "group"
-         FROM tags t
-         LEFT JOIN tag_groups g ON g.id = t.group_id
-        ORDER BY t.name`,
-    ).all() as { id: number; name: string; group: string | null }[];
-    return rows.map((row) => ({
-      name: row.name,
-      count: counts.get(row.id) ?? 0,
-      group: row.group,
-    }));
+    return counts;
   }
 
   /**
@@ -2752,17 +2801,27 @@ export class Repo {
     }) as TagRow[];
   }
 
+  /** Whether the library has a tag of this name, in any case. */
+  hasTag(name: string): boolean {
+    return this.#s("SELECT 1 FROM tags WHERE name = ?").get(name) !== undefined;
+  }
+
   tagGroups(): TagGroupRow[] {
     return this.#s(
       "SELECT id, name FROM tag_groups ORDER BY sort_order, name, id",
     ).all() as TagGroupRow[];
   }
 
-  /** `tag_groups.name` is UNIQUE COLLATE NOCASE, so this matches case-insensitively. */
+  /**
+   * The group called `name`, case-insensitively, or the oldest of them.
+   *
+   * New names are unique (`DuplicateTagGroupNameError`), but replay accepts
+   * whatever the journal holds since schema v3, so two may share one (ADR-0061).
+   */
   findTagGroupByName(name: string): TagGroupRow | undefined {
-    return this.#s("SELECT id, name FROM tag_groups WHERE name = ?").get(name) as
-      | TagGroupRow
-      | undefined;
+    return this.#s("SELECT id, name FROM tag_groups WHERE name = ? ORDER BY id LIMIT 1").get(
+      name,
+    ) as TagGroupRow | undefined;
   }
 
   smartFolders(): SmartFolderRow[] {

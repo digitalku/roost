@@ -102,6 +102,14 @@ describe("the organize commands", () => {
     expect(await ok("query", 'tag:"oak wood"', "--count")).toEqual(["1"]);
   });
 
+  it("deletes a tag from every asset and from the library (ADR-0061)", async () => {
+    await ok("tag", "add", "--tag", "draft", hashes[0] as string, hashes[1] as string);
+    expect(await ok("tag", "delete", "DRAFT")).toEqual(["Deleted draft, from 2 assets"]);
+    expect(await ok("query", "tag:draft", "--count")).toEqual(["0"]);
+    expect((await ok("tag", "list")).join("\n")).not.toContain("draft");
+    expect(await ok("tag", "delete", "never-was")).toEqual(["No tag called never-was"]);
+  });
+
   it("puts assets in a folder and finds them through the subtree", async () => {
     await ok("folder", "create", "Design");
     await ok("folder", "create", "Icons", "--parent", "Design");

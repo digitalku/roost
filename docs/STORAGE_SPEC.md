@@ -1,6 +1,6 @@
 # Storage — how this build meets the library format
 
-**Roost Library Format 2, revision 2.3.** The normative document is [`FORMAT.md`](FORMAT.md),
+**Roost Library Format 2, revision 2.4.** The normative document is [`FORMAT.md`](FORMAT.md),
 beside this file, with [`OPS.md`](OPS.md) for the journal operations and `conformance/` at the
 repository root for the suite. This file is **not** a specification and binds nothing on its own:
 it is the map from that document's numbered requirements to the code here, plus the notes that

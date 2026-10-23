@@ -443,6 +443,47 @@ the primary key, run after every fold and by *Reclaim space…*.
 `derived_at IS NULL`. After a rebuild the second is true of every asset and the first of almost
 none, and a sweep that asked only about pictures would leave the derived columns empty for ever.
 
+### 2.3 Migration 0003 — a tag group's name need not be unique (schema v3)
+
+ADR-0061. `tag_groups.name` loses its `UNIQUE`, and gains an ordinary index for the lookup by name.
+**The rule did not go away; it moved.** A new name is refused before it is journalled
+(`DuplicateTagGroupNameError`), as a folder's name is, and replay applies whatever the journal
+holds. With the constraint in the index, a duplicate that reached the journal was refused by the
+index after the line was written, the refused id was handed to the next group, and every later
+rebuild of that library stopped at the line.
+
+```sql
+CREATE TEMP TABLE kept_groups AS
+  SELECT id, group_id FROM main.tags WHERE group_id IS NOT NULL;
+
+CREATE TABLE main.tag_groups_next (
+  id         INTEGER PRIMARY KEY,
+  name       TEXT NOT NULL COLLATE NOCASE,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT INTO main.tag_groups_next (id, name, sort_order)
+  SELECT id, name, sort_order FROM main.tag_groups;
+
+DROP TABLE main.tag_groups;
+
+ALTER TABLE main.tag_groups_next RENAME TO tag_groups;
+
+CREATE INDEX main.idx_tag_groups_name ON tag_groups(name);
+
+UPDATE main.tags
+   SET group_id = (SELECT k.group_id FROM kept_groups k WHERE k.id = tags.id)
+ WHERE id IN (SELECT id FROM kept_groups);
+
+DROP TABLE kept_groups;
+```
+
+**The tags' groups are kept aside, because the drop empties them.** `tags.group_id` refers to this
+table with `ON DELETE SET NULL`, and a migration runs inside a transaction, where
+`PRAGMA foreign_keys` cannot be turned off; so dropping the old table sets every tag's group to
+`NULL`, and the temporary table puts them back. `findTagGroupByName` answers the oldest group of a
+name, since two may now share one.
+
 ## 3. Roost Query Language (RQL)
 
 The search bar and smart folders share one grammar. It compiles to SQL with **bound

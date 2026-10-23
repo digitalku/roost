@@ -19,6 +19,9 @@ export const ASSET_DRAG_TYPE = "application/x-roost-assets";
 /** One folder id, as text. A folder is dragged alone; there is no multi-select. */
 export const FOLDER_DRAG_TYPE = "application/x-roost-folder";
 
+/** Tag names, as JSON: the tags chosen on the tags page, onto a group (ADR-0061). */
+export const TAG_DRAG_TYPE = "application/x-roost-tags";
+
 /**
  * The assets this window is dragging **out**, while it is (ADR-0034 §4).
  *

@@ -1,6 +1,7 @@
 import {
   createTagGroup,
   deleteTagGroup,
+  deleteTags,
   type Library,
   renameTagGroup,
   resolveTagGroup,
@@ -14,7 +15,7 @@ import { EXIT, type Streams, usage } from "../io.js";
 import { withLibrary } from "../open.js";
 
 /**
- * `roost tag <add|remove|rename|list|group>`.
+ * `roost tag <add|remove|rename|delete|list|group>`.
  *
  * Argument shapes and printing only. Every mutation goes through
  * `@roost/library`'s edit service, which journals before it indexes — the CLI
@@ -63,6 +64,24 @@ export async function tag(
       });
     }
 
+    case "delete": {
+      if (rest.length === 0) return usage(streams, "tag", "tag delete needs at least one tag");
+      return withLibrary(root, async (library) => {
+        // Counted before: afterwards there is nothing left to count.
+        const carried = new Map(library.db.repo.tags().map((row) => [row.name.toLowerCase(), row]));
+        await deleteTags(library, rest);
+        for (const name of rest) {
+          const row = carried.get(name.toLowerCase());
+          streams.out(
+            row === undefined
+              ? `No tag called ${name}`
+              : `Deleted ${row.name}, from ${assets(row.count)}`,
+          );
+        }
+        return EXIT.ok;
+      });
+    }
+
     case "list":
       return withLibrary(root, async (library) => {
         const rows = library.db.repo.tags();
@@ -84,7 +103,7 @@ export async function tag(
       return group(root, rest, streams);
 
     default:
-      return usage(streams, "tag", "tag needs add, remove, rename, list, or group");
+      return usage(streams, "tag", "tag needs add, remove, rename, delete, list, or group");
   }
 }
 

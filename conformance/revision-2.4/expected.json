@@ -1,0 +1,28 @@
+{
+  "_": "The state a correct replay of conformance/revision-2.4/library.roost produces. Normative; see ../README.md. Required of an implementation stating revision 2.4 or later (RL-54).",
+  "format_version": 2,
+  "document_revision": "2.4",
+
+  "replay": {
+    "records_total": 10,
+    "records_unrecognised": 0,
+    "records_dangling": 0,
+    "records_effective": 10
+  },
+
+  "_assets": "Both carried wood, written in two cases. `tag_delete` names it in a third, and takes it off both: names compare case-insensitively. The tag added again afterwards is a new tag, and is in no group.",
+
+  "assets": [
+    { "id": "R7C2M8PQ5ZHV", "tags": ["wood"] },
+    { "id": "T4G9D3XKW2NB", "tags": ["glass"] }
+  ],
+
+  "_tags_in_use": "Whether a tag with no assets survives is open (FORMAT.md §11.4), so only the tags carried are asserted. Deleting `never-was` is a no-op and is not dangling: a tag is named, never numbered.",
+
+  "tags_in_use": [
+    { "name": "glass", "group": 1 },
+    { "name": "wood", "group": null }
+  ],
+
+  "tag_groups": [{ "id": 1, "name": "Material" }]
+}

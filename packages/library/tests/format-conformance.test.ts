@@ -380,3 +380,69 @@ describe("identifying a library", () => {
 function sortById<T extends { readonly name: string }>(rows: readonly T[]): T[] {
   return [...rows].sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * Revision 2.4 (ADR-0061): `tag_delete`, the first operation a revision has
+ * added, and so the first library of its own (RL-54).
+ */
+describe("replaying the revision 2.4 library", () => {
+  interface Expected24 {
+    readonly replay: {
+      readonly records_total: number;
+      readonly records_unrecognised: number;
+      readonly records_dangling: number;
+      readonly records_effective: number;
+    };
+    readonly assets: readonly { readonly id: string; readonly tags: readonly string[] }[];
+    readonly tags_in_use: readonly { readonly name: string; readonly group: number | null }[];
+    readonly tag_groups: readonly { readonly id: number; readonly name: string }[];
+  }
+
+  const REVISION = join(CONFORMANCE, "revision-2.4");
+  let work24: string;
+  let db24: Db;
+  let report24: Awaited<ReturnType<typeof replay>>;
+  let expected24: Expected24;
+
+  beforeAll(async () => {
+    expected24 = JSON.parse(await readFile(join(REVISION, "expected.json"), "utf8")) as Expected24;
+    work24 = await mkdtemp(join(tmpdir(), "roost-conformance-2.4-"));
+    const copy = join(work24, `library${LIBRARY_SUFFIX}`);
+    await cp(join(REVISION, "library.roost"), copy, { recursive: true });
+    db24 = Db.openInMemory();
+    report24 = await replay(join(copy, "journal"), new IndexSink(db24));
+  });
+
+  afterAll(async () => {
+    db24?.close();
+    if (work24 !== undefined) await rm(work24, { recursive: true, force: true });
+  });
+
+  it("applies every record, and finds nothing dangling in a deleted name", () => {
+    expect(report24.applied).toBe(expected24.replay.records_effective);
+    expect(report24.unknownOps.size).toBe(expected24.replay.records_unrecognised);
+    expect(report24.dangling).toHaveLength(expected24.replay.records_dangling);
+    expect(report24.applied + report24.malformed.length).toBe(expected24.replay.records_total);
+  });
+
+  it("takes a deleted tag off every asset, in any case, and adds it back as new", () => {
+    for (const want of expected24.assets) {
+      expect(db24.repo.assetDetail(parseAssetId(want.id))?.tags, want.id).toEqual(want.tags);
+    }
+    const groups = new Map(db24.repo.tagGroups().map((group) => [group.name, group.id]));
+    expect(
+      db24.repo
+        .tags()
+        .filter((tag) => tag.count > 0)
+        .map((tag) => ({
+          name: tag.name,
+          group: tag.group === null ? null : groups.get(tag.group),
+        })),
+    ).toEqual(expected24.tags_in_use.map((tag) => ({ ...tag })));
+    expect(db24.repo.tagGroups()).toEqual(expected24.tag_groups.map((group) => ({ ...group })));
+  });
+
+  it("leaves no cache inside the fixture it was handed", () => {
+    expect(existsSync(join(REVISION, "library.roost", "index.db"))).toBe(false);
+  });
+});

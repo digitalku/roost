@@ -596,6 +596,33 @@ export interface WireFacetVocabulary {
   readonly types: readonly SidebarTypeRow[] | null;
 }
 
+/** One tag group on the tags page (ADR-0061). */
+export interface WireTagGroup {
+  readonly id: number;
+  readonly name: string;
+  /** How many tags it holds; not how many assets. */
+  readonly tags: number;
+}
+
+/** One tag on the tags page (ADR-0061). */
+export interface WireTagEntry {
+  readonly name: string;
+  /** The query that shows what carries it; the renderer writes no RQL. */
+  readonly query: string;
+  /** The group's id, or `null` for a tag in none. */
+  readonly group: number | null;
+  /** Live assets carrying it. */
+  readonly count: number;
+}
+
+/** Every tag and every group, for the page that arranges them (ADR-0061). */
+export interface WireTagList {
+  /** Alphabetical, as the page draws them (ADR-0061 §2). */
+  readonly groups: readonly WireTagGroup[];
+  /** Alphabetical; the page sorts them as it is asked to. */
+  readonly tags: readonly WireTagEntry[];
+}
+
 /** The five ratings a filter can select. Unrated is not one of them. */
 export const STARS = [1, 2, 3, 4, 5] as const;
 

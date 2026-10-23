@@ -36,6 +36,7 @@ export const OP_NAMES = [
   "subtitle_attach",
   "subtitle_detach",
   "tag_add",
+  "tag_delete",
   "tag_group_create",
   "tag_group_delete",
   "tag_group_rename",
@@ -178,6 +179,12 @@ export type Op =
    */
   | { readonly op: "asset_rename"; readonly asset: AssetId; readonly name: string }
   | { readonly op: "tag_rename"; readonly from: string; readonly to: string }
+  /**
+   * A tag taken out of the library: off every asset that carries it, and out
+   * of the vocabulary (ADR-0061). Named, as every tag operation is. Deleting a
+   * tag nobody has is an ordinary no-op.
+   */
+  | { readonly op: "tag_delete"; readonly tag: string }
   | { readonly op: "rate"; readonly asset: AssetId; readonly rating: number | null }
   | { readonly op: "note_set"; readonly asset: AssetId; readonly note: string | null }
   /**
@@ -467,6 +474,8 @@ export function toRecord(source: Raw): JournalRecord {
       return { ts, op, asset: assetId(source, "asset"), name: str(source, "name") };
     case "tag_rename":
       return { ts, op, from: str(source, "from"), to: str(source, "to") };
+    case "tag_delete":
+      return { ts, op, tag: str(source, "tag") };
     case "rate": {
       const rating = nullableInt(source, "rating");
       if (rating !== null && (rating < 0 || rating > 255)) {

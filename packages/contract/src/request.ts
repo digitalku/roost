@@ -47,6 +47,7 @@ import type {
   WireSplitQuery,
   WireStars,
   WireSubtitlesAdded,
+  WireTagList,
   WireTagRule,
   WireThumbnailChosen,
   WireTransferReport,
@@ -463,6 +464,23 @@ export type Request =
       readonly folder: number;
       readonly trashContents: boolean;
     }
+  /**
+   * Every tag and every tag group, for the page that arranges them
+   * (ADR-0061). Groups are numbered here, because two may share a name.
+   */
+  | { readonly type: "tags:list" }
+  /** Renames a tag, merging into one that has the new name already. */
+  | { readonly type: "tag:rename"; readonly from: string; readonly to: string }
+  /** Takes tags off every asset and out of the library (`tag_delete`). */
+  | { readonly type: "tag:delete"; readonly tags: readonly string[] }
+  /** A tag nothing carries yet, in a group or in none. */
+  | { readonly type: "tag:create"; readonly name: string; readonly group: number | null }
+  /** Puts tags in a group, or takes them out with `null`. */
+  | { readonly type: "tag:group"; readonly tags: readonly string[]; readonly group: number | null }
+  | { readonly type: "tagGroup:create"; readonly name: string }
+  | { readonly type: "tagGroup:rename"; readonly group: number; readonly name: string }
+  /** Deletes the group and leaves its tags, ungrouped. */
+  | { readonly type: "tagGroup:delete"; readonly group: number }
   /**
    * Add a comment to one asset, at a moment or about the whole of it (ADR-0023).
    *
@@ -915,6 +933,15 @@ export interface Responses {
    */
   "folder:find": readonly number[] | null;
   "folder:delete": WireFolderDeleted;
+  "tags:list": WireTagList;
+  "tag:rename": null;
+  "tag:delete": null;
+  "tag:create": null;
+  "tag:group": null;
+  /** The new group's id, so the page can go straight to it. */
+  "tagGroup:create": number;
+  "tagGroup:rename": null;
+  "tagGroup:delete": null;
   "comment:add": null;
   "comment:set": null;
   "comment:remove": null;
@@ -1400,6 +1427,51 @@ export const REQUEST_VALIDATORS: {
     });
   },
 
+  "tags:list": () => ok({ type: "tags:list" }),
+
+  "tag:rename": (source) => {
+    const from = readNonEmpty(source, "from");
+    if (!from.ok) return from;
+    const to = readNonEmpty(source, "to");
+    return to.ok ? ok({ type: "tag:rename", from: from.value, to: to.value }) : to;
+  },
+
+  "tag:delete": (source) => {
+    const tags = readStringArray(source, "tags");
+    return tags.ok ? ok({ type: "tag:delete", tags: tags.value }) : tags;
+  },
+
+  "tag:create": (source) => {
+    const name = readNonEmpty(source, "name");
+    if (!name.ok) return name;
+    const group = readNullable(source, "group", readGroupIn);
+    return group.ok ? ok({ type: "tag:create", name: name.value, group: group.value }) : group;
+  },
+
+  "tag:group": (source) => {
+    const tags = readStringArray(source, "tags");
+    if (!tags.ok) return tags;
+    const group = readNullable(source, "group", readGroupIn);
+    return group.ok ? ok({ type: "tag:group", tags: tags.value, group: group.value }) : group;
+  },
+
+  "tagGroup:create": (source) => {
+    const name = readNonEmpty(source, "name");
+    return name.ok ? ok({ type: "tagGroup:create", name: name.value }) : name;
+  },
+
+  "tagGroup:rename": (source) => {
+    const group = readGroupIn(source, "group");
+    if (!group.ok) return group;
+    const name = readNonEmpty(source, "name");
+    return name.ok ? ok({ type: "tagGroup:rename", group: group.value, name: name.value }) : name;
+  },
+
+  "tagGroup:delete": (source) => {
+    const group = readGroupIn(source, "group");
+    return group.ok ? ok({ type: "tagGroup:delete", group: group.value }) : group;
+  },
+
   "comment:add": (source) => {
     const asset = readAssetId(source, "asset");
     if (!asset.ok) return asset;
@@ -1616,6 +1688,14 @@ export const MAX_PAGE_LIMIT = 10_000;
  */
 function readFolder(source: Record<string, unknown>): Checked<number> {
   return readFolderIn(source, "folder");
+}
+
+/** A tag group id: an integer from one, as every id the journal mints (RL-17). */
+function readGroupIn(source: Record<string, unknown>, key: string): Checked<number> {
+  const group = readInteger(source, key);
+  if (!group.ok) return group;
+  if (group.value < 1) return bad(`${key}: expected a tag group id`);
+  return group;
 }
 
 /** The same check under whatever key names the folder. */

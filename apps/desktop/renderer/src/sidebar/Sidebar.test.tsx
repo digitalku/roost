@@ -114,6 +114,9 @@ function Pane({
   onDropAssets = () => {},
   onMoveFolder = () => {},
   onEmptyTrash = () => {},
+  tagsOpen = false,
+  tagCount = 0,
+  onOpenTags = () => {},
 }: Partial<Omit<SidebarProps, "expansion">>): React.JSX.Element {
   const expansion = useExpansion();
   return (
@@ -128,6 +131,9 @@ function Pane({
       onDropAssets={onDropAssets}
       onMoveFolder={onMoveFolder}
       onEmptyTrash={onEmptyTrash}
+      tagsOpen={tagsOpen}
+      tagCount={tagCount}
+      onOpenTags={onOpenTags}
     />
   );
 }

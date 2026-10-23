@@ -1062,6 +1062,45 @@ describe("the engine's message loop", () => {
     });
   });
 
+  it("arranges the tags from the tags page, and says why it refuses (ADR-0061)", async () => {
+    const root = join(dir, `Tags${LIBRARY_SUFFIX}`);
+    await (await Library.create(root, "Tags")).close();
+    await ask(100, { type: "library:open", path: root });
+
+    const created = await ask(1, { type: "tagGroup:create", name: "Material" });
+    expect(created).toEqual({ id: 1, ok: true, value: 1 });
+    await ask(2, { type: "tag:create", name: "wood", group: 1 });
+    await ask(3, { type: "tag:create", name: "draft", group: null });
+    await ask(4, { type: "tag:rename", from: "draft", to: "sketch" });
+
+    expect(await ask(5, { type: "tags:list" })).toEqual({
+      id: 5,
+      ok: true,
+      value: {
+        groups: [{ id: 1, name: "Material", tags: 1 }],
+        tags: [
+          { name: "sketch", query: "tag:sketch", group: null, count: 0 },
+          { name: "wood", query: "tag:wood", group: 1, count: 0 },
+        ],
+      },
+    });
+
+    // A second group of one name is refused with its own code, before
+    // anything is journalled, so the page can say so beside the field.
+    expect(await ask(6, { type: "tagGroup:create", name: "material" })).toMatchObject({
+      ok: false,
+      problem: { code: "duplicate_tag_group_name" },
+    });
+
+    await ask(7, { type: "tag:group", tags: ["sketch"], group: 1 });
+    await ask(8, { type: "tag:delete", tags: ["wood"] });
+    await ask(9, { type: "tagGroup:delete", group: 1 });
+    expect(await ask(10, { type: "tags:list" })).toMatchObject({
+      ok: true,
+      value: { groups: [], tags: [{ name: "sketch", group: null, count: 0 }] },
+    });
+  });
+
   it("files an asset and unfiles it, naming the folder by id", async () => {
     // The pair the inspector's chips send. By id and never by path: folder
     // names are unique only among siblings, and a library written before the

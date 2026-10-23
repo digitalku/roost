@@ -7,6 +7,7 @@ import "./grid/grid.css";
 import "./sidebar/sidebar.css";
 import "./search/search.css";
 import "./filter/filter.css";
+import "./tags/tags.css";
 import "./inspector/inspector.css";
 import "./preview/preview.css";
 

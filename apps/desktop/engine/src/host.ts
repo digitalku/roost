@@ -50,9 +50,13 @@ import {
   compileFor,
   createAsset,
   createFolder,
+  createTag,
+  createTagGroup,
   type DeriveReport,
   deleteFolder,
   deleteSubtitle,
+  deleteTagGroup,
+  deleteTags,
   deriveFailures,
   type EagleProgress,
   type EagleReport,
@@ -84,6 +88,7 @@ import {
   rate,
   readFacetVocabulary,
   readSidebar,
+  readTagList,
   reclaim,
   reclaimableBytes,
   releaseNowSupported,
@@ -94,6 +99,7 @@ import {
   renameAsset,
   renameFolder,
   renameLibrary,
+  renameTagGroup,
   renameTarget,
   restoreAssets,
   retryBlocked,
@@ -104,6 +110,7 @@ import {
   setNote,
   setPoster,
   setSource,
+  setTagGroup,
   surveyEagle,
   type TagEntry,
   type TransferProgress,
@@ -111,6 +118,7 @@ import {
   TransferRunningError,
   tagAdd,
   tagRemove,
+  tagRename,
   transferToLibrary,
   trashAssets,
   unsoundForReclaim,
@@ -428,6 +436,32 @@ export class EngineHost {
             trashContents: request.trashContents,
           }),
         );
+
+      // The tags page (ADR-0061). Each edit is announced as any other is, so the
+      // page, the sidebar and the filter bar all read again.
+      case "tags:list":
+        return readTagList(this.#require());
+
+      case "tag:rename":
+        return this.#edit(() => tagRename(this.#require(), request.from, request.to));
+
+      case "tag:delete":
+        return this.#edit(() => deleteTags(this.#require(), request.tags));
+
+      case "tag:create":
+        return this.#edit(() => createTag(this.#require(), request.name, request.group));
+
+      case "tag:group":
+        return this.#edit(() => setTagGroup(this.#require(), request.tags, request.group));
+
+      case "tagGroup:create":
+        return this.#editReporting(() => createTagGroup(this.#require(), request.name));
+
+      case "tagGroup:rename":
+        return this.#edit(() => renameTagGroup(this.#require(), request.group, request.name));
+
+      case "tagGroup:delete":
+        return this.#edit(() => deleteTagGroup(this.#require(), request.group));
 
       // The id `addComment` mints is deliberately dropped: the caller re-reads
       // the asset like every other edit, and an id held in the renderer would
