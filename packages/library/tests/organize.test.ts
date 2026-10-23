@@ -36,6 +36,7 @@ import {
   poster,
   queueStatus,
   rate,
+  readFacetVocabulary,
   readSidebar,
   removeAssets,
   removeComment,
@@ -541,12 +542,15 @@ describe("organizing a library", () => {
     const folder = await createFolder(library, "Moodboards", null);
     await addToFolder(library, ids, folder);
     await tagAdd(library, ids, ["shared"]);
+    await tagAdd(library, [first], ["solo"]);
 
     await trashAssets(library, [first]);
 
     const sidebar = readSidebar(library);
     expect(sidebar.folders.find((row) => row.name === "Moodboards")?.count).toBe(2);
     expect(sidebar.tags.find((row) => row.name === "shared")?.count).toBe(2);
+    // Every asset it is on is in the trash, and the tag is still a tag.
+    expect(sidebar.tags.find((row) => row.name === "solo")?.count).toBe(0);
     expect(sidebar.places.find((place) => place.id === "trash")?.count).toBe(1);
   });
 
@@ -572,6 +576,111 @@ describe("organizing a library", () => {
     await trashAssets(library, [first]);
     const after = new Map(readSidebar(library).folders.map((row) => [row.name, row.count]));
     expect([after.get("Design"), after.get("Icons"), after.get("Logos")]).toEqual([1, 0, 1]);
+  });
+
+  it("lists what a folder holds in the filter bar's menus, counted there (ADR-0035 §8)", async () => {
+    // By name: `allIds()` is ordered by id, which says nothing about the file.
+    const named = (name: string) => search(library, name, PAGE)[0]?.id as AssetId;
+    const [alpha, beta, gamma] = [named("alpha"), named("beta"), named("gamma")];
+    const design = await createFolder(library, "Design", null);
+    const icons = await createFolder(library, "Icons", design);
+    await addToFolder(library, [alpha, beta], design);
+    await addToFolder(library, [alpha, gamma], icons);
+    await tagAdd(library, [alpha, beta], ["wood"]);
+    await tagAdd(library, [gamma], ["glass"]);
+    await trashAssets(library, [beta]);
+
+    const vocabulary = (place: string) => {
+      const read = readFacetVocabulary(library, place);
+      return read === null
+        ? null
+        : {
+            tags: read.tags?.map((tag) => [tag.name, tag.count]),
+            types: read.types?.map((type) => [type.ext, type.count]),
+          };
+    };
+
+    // The folder alone: beta is in the trash, so wood is alpha's alone, and a
+    // tag none of its assets carries is not offered.
+    expect(vocabulary("infolder:Design")).toEqual({ tags: [["wood", 1]], types: [["png", 1]] });
+    // With its subfolder, alpha counted once although it is in both.
+    expect(vocabulary("folder:Design")).toEqual({
+      tags: [
+        ["glass", 1],
+        ["wood", 1],
+      ],
+      types: [
+        ["jpg", 1],
+        ["png", 1],
+      ],
+    });
+    expect(vocabulary("infolder:Design/Icons")).toEqual(vocabulary("infolder:Icons"));
+
+    // Any other place keeps the library's vocabulary, which the sidebar carries.
+    for (const place of ["", "tag:wood", "folder:Design tag:wood", "is:trashed"]) {
+      expect(vocabulary(place), place).toBeNull();
+    }
+    // A folder nobody made holds nothing, which is an answer rather than a fault.
+    expect(vocabulary("folder:Nowhere")).toEqual({ tags: [], types: [] });
+  });
+
+  it("counts the tags among what passes every filter under the All rule (ADR-0035 §9)", async () => {
+    const named = (name: string) => search(library, name, PAGE)[0]?.id as AssetId;
+    const [alpha, beta, gamma] = [named("alpha"), named("beta"), named("gamma")];
+    await tagAdd(library, [alpha, beta, gamma], ["wood"]);
+    await tagAdd(library, [alpha, gamma], ["glass"]);
+    await tagAdd(library, [beta], ["metal"]);
+    await rate(library, [alpha], 5);
+    const design = await createFolder(library, "Design", null);
+    await addToFolder(library, [alpha, beta], design);
+
+    const all = { tags: [], tagRule: "all", stars: [], unrated: false, exts: [] } as const;
+    const tags = (place: string, facets: Parameters<typeof readFacetVocabulary>[2]) =>
+      readFacetVocabulary(library, place, facets)?.tags?.map((tag) => [tag.name, tag.count]);
+
+    // Each count is what the grid would hold with that tag ticked as well, and
+    // a tag none of them carries is not offered.
+    expect(tags("", { ...all, tags: ["glass"] })).toEqual([
+      ["glass", 2],
+      ["wood", 2],
+    ]);
+    expect(count(library, "tag:glass tag:wood")).toBe(2);
+    expect(tags("", { ...all, tags: ["wood"] })).toEqual([
+      ["glass", 2],
+      ["metal", 1],
+      ["wood", 3],
+    ]);
+    // The rating and the type ticked beside it narrow the count too.
+    expect(tags("", { ...all, tags: ["glass"], exts: ["png"] })).toEqual([
+      ["glass", 1],
+      ["wood", 1],
+    ]);
+    expect(tags("", { ...all, stars: [5] })).toEqual([
+      ["glass", 1],
+      ["wood", 1],
+    ]);
+    // Inside a folder, among its assets; its types are not narrowed by tags.
+    const inFolder = readFacetVocabulary(library, "infolder:Design", { ...all, tags: ["metal"] });
+    expect(inFolder?.tags?.map((tag) => [tag.name, tag.count])).toEqual([
+      ["metal", 1],
+      ["wood", 1],
+    ]);
+    expect(inFolder?.types?.map((type) => [type.ext, type.count])).toEqual([["png", 2]]);
+
+    // Any widens with every tag, so its counts stay the place's own: the
+    // library's lists, which the sidebar carries.
+    expect(
+      readFacetVocabulary(library, "", { ...all, tagRule: "any", tags: ["glass"] }),
+    ).toBeNull();
+    // Nothing ticked narrows nothing.
+    expect(readFacetVocabulary(library, "", all)).toBeNull();
+
+    // The trash leaves every count.
+    await trashAssets(library, [gamma]);
+    expect(tags("", { ...all, tags: ["glass"] })).toEqual([
+      ["glass", 1],
+      ["wood", 1],
+    ]);
   });
 
   it("finds folders by whole words of their names (ADR-0057)", async () => {

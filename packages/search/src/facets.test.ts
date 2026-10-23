@@ -3,6 +3,7 @@ import {
   type Facets,
   joinQuery,
   NO_FACETS,
+  placeFolder,
   splitQuery,
   subfolderSections,
   withSubfolders,
@@ -266,6 +267,33 @@ describe("the depth a query names", () => {
     for (const query of ["tag:wood   rating:4", "", "-folder:Design", "a OR b"]) {
       expect(withSubfolders(query, false)).toBe(query);
       expect(withSubfolders(query, true)).toBe(query);
+    }
+  });
+});
+
+describe("placeFolder (ADR-0035 §8)", () => {
+  it("reads a place that is one folder term, at either depth", () => {
+    expect(placeFolder("infolder:Design")).toEqual({ field: "infolder", value: "Design" });
+    expect(placeFolder('folder:"Trip 2024/Day 1"')).toEqual({
+      field: "folder",
+      value: "Trip 2024/Day 1",
+    });
+    expect(placeFolder("  folder:Design  ")).toEqual({ field: "folder", value: "Design" });
+    // The same term, fenced: it asks for the same place.
+    expect(placeFolder("(folder:Design)")).toEqual({ field: "folder", value: "Design" });
+  });
+
+  it("reads no other place as a folder", () => {
+    for (const place of [
+      "",
+      "tag:wood",
+      "folder:Design tag:wood",
+      "folder:A folder:B",
+      "folder:A OR folder:B",
+      "-folder:Design",
+      "folder:",
+    ]) {
+      expect(placeFolder(place), place).toBeUndefined();
     }
   });
 });

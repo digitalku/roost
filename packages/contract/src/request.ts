@@ -30,6 +30,7 @@ import type {
   WireEagleSurvey,
   WireExportReport,
   WireFacets,
+  WireFacetVocabulary,
   WireFiled,
   WireFolderCover,
   WireFolderDeleted,
@@ -201,6 +202,17 @@ export type Request =
    * and the sandbox is not the place for a second.
    */
   | { readonly type: "query:subfolders"; readonly query: string; readonly on: boolean }
+  /**
+   * What the filter bar's Tags and Types menus offer over a place, given what
+   * is ticked (ADR-0035 §8, §9): a folder's own lists, and under the *All* rule
+   * the tags among the assets that pass every ticked filter.
+   *
+   * `place` is the split's own, and the engine decides whether it is a folder:
+   * reading that takes the grammar, and the renderer has none. Asked while a
+   * menu is open rather than at every change of place, because its cost is the
+   * size of what it counts.
+   */
+  | { readonly type: "facets:vocabulary"; readonly place: string; readonly facets: WireFacets }
   /** This library's preferences (ADR-0019). */
   | { readonly type: "settings:read" }
   /**
@@ -861,6 +873,8 @@ export interface Responses {
   "query:join": string;
   /** The rewritten query text, or the one that came in when it named no folder. */
   "query:subfolders": string;
+  /** `null` when there is nothing to narrow: the menus keep the library's lists. */
+  "facets:vocabulary": WireFacetVocabulary | null;
   "settings:read": WireSettings;
   "settings:write": WireSettings;
   "asset:detail": WireAssetDetail | null;
@@ -1070,6 +1084,16 @@ export const REQUEST_VALIDATORS: {
     if (!query.ok) return query;
     const on = readBoolean(source, "on");
     return on.ok ? ok({ type: "query:subfolders", query: query.value, on: on.value }) : on;
+  },
+
+  "facets:vocabulary": (source) => {
+    // Empty is the whole library, which is a place and not a fault.
+    const place = readString(source, "place");
+    if (!place.ok) return place;
+    const facets = readFacets(source["facets"]);
+    return facets.ok
+      ? ok({ type: "facets:vocabulary", place: place.value, facets: facets.value })
+      : facets;
   },
 
   "settings:read": () => ok({ type: "settings:read" }),

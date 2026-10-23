@@ -169,11 +169,6 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
 
 ### Folder counts, tiles and a search for folders (ADR-0036 §6, ADR-0043 §12, ADR-0057) — built 2026-10-01
 
-- 🟡 **The tag counts have the join the folder counts lost.** `repo.tags()` reaches every live
-  asset of every tag through `assets` to leave out the trash, which for folders was 3.7 s at a
-  million (`BENCHMARKS.md`, 2026-10-01) and is now 45 ms by subtracting the trash instead. Not
-  measured for tags; a library tagged as heavily as that one was filed would pay the same, on every
-  re-read of the sidebar.
 - 🟢 **A move under *Show subfolder contents* still takes the asset out of the open folder only.**
   An asset on screen may be in a subfolder rather than in the open folder itself, and a move then
   adds it to the target and takes it out of nothing. ADR-0043 §12 left it, unasked; it was already so

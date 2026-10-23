@@ -269,6 +269,16 @@ monthly archive under [`sessions/`](sessions/), and what shipped is in
 
 ## 3. To build — the working list
 
+### Folder counts, tiles and a search for folders (ADR-0036 §6, ADR-0043 §12, ADR-0057) — built 2026-10-01
+
+- ☑ ~~**The tag counts have the join the folder counts lost.**~~ `repo.tags()` reaches every live
+  asset of every tag through `assets` to leave out the trash, which for folders was 3.7 s at a
+  million (`BENCHMARKS.md`, 2026-10-01) and is now 45 ms by subtracting the trash instead. Not
+  measured for tags; a library tagged as heavily as that one was filed would pay the same, on every
+  re-read of the sidebar. **Measured and fixed 2026-10-23** (ADR-0035 §8): 9.2 s at a million
+  assets with three tags each, now 0.12 s by subtracting the trash as `folderCounts` does, with the
+  same answer tag by tag.
+
 ### Foundation (M0) — done 2026-08-24
 
 - ☑ ~~The renderer import-restriction lint rule.~~ In place, and **verified by violating it**: a

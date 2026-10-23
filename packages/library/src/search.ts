@@ -36,7 +36,7 @@ const log = logger("search");
  * Two depths over one resolution (ADR-0036): `folder:` descends and `infolder:`
  * does not, and both name the same place.
  */
-class LibraryFolders implements Folders {
+export class LibraryFolders implements Folders {
   readonly #library: Library;
 
   constructor(library: Library) {

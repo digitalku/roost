@@ -1,7 +1,8 @@
 import type { FolderRow } from "@roost/core";
-import { quoteValue } from "@roost/search";
+import { type Facets, NO_FACETS, placeFolder, quoteValue } from "@roost/search";
 import { childrenById, descendants, orderTree } from "./folder-tree.js";
 import { type Library, nowUnix } from "./library.js";
+import { LibraryFolders } from "./search.js";
 
 /**
  * Everything a navigation pane shows, in one read.
@@ -141,12 +142,7 @@ export function readSidebar(library: Library): Sidebar {
     };
   });
 
-  const tags = repo.tags().map((tag) => ({
-    name: tag.name,
-    group: tag.group,
-    query: `tag:${quoteValue(tag.name)}`,
-    count: tag.count,
-  }));
+  const tags = repo.tags().map(tagEntry);
 
   return {
     places: places(repo.trashedCount()),
@@ -155,6 +151,83 @@ export function readSidebar(library: Library): Sidebar {
     tags,
     types: repo.extCounts(),
     smartFolders: repo.smartFolders(),
+  };
+}
+
+/**
+ * The two vocabularies of the filter bar over one place (ADR-0035 §8, §9).
+ *
+ * `null` in either is the library's own list, from {@link readSidebar}.
+ */
+export interface FacetVocabulary {
+  readonly tags: TagEntry[] | null;
+  readonly types: TypeEntry[] | null;
+}
+
+/**
+ * What the Tags and Types menus offer over `place`, given what is ticked, or
+ * `null` when both are the library's lists.
+ *
+ * `place` is what the bar does not own, as `query:split` hands it over.
+ *
+ * - **A folder** (§8): both menus list what its live assets hold, counted
+ *   there, at the place's own depth — `folder:` the subtree, each asset once,
+ *   `infolder:` the folder alone — with the path resolved as the grid's query
+ *   resolves it.
+ * - **The *All* rule with anything ticked** (§9), in a folder or over the whole
+ *   library: Tags counts only the assets that pass every ticked filter, so the
+ *   number beside a tag is what the grid would hold with it ticked too, and a
+ *   tag none of them carries is not listed. Types is not narrowed by it.
+ *
+ * Every other place — a smart folder, a search — keeps the library's lists: it
+ * can be any query, and counting under one costs whatever that query costs.
+ */
+export function readFacetVocabulary(
+  library: Library,
+  place: string,
+  facets: Facets = NO_FACETS,
+): FacetVocabulary | null {
+  const whole = place.trim() === "";
+  const folder = placeFolder(place);
+  if (!whole && folder === undefined) return null;
+
+  const narrowed =
+    facets.tagRule === "all" &&
+    (facets.tags.length > 0 || facets.stars.length > 0 || facets.unrated || facets.exts.length > 0);
+  if (whole && !narrowed) return null;
+
+  const resolver = new LibraryFolders(library);
+  const folders =
+    folder === undefined
+      ? null
+      : folder.field === "folder"
+        ? resolver.subtree(folder.value)
+        : resolver.only(folder.value);
+  const repo = library.db.repo;
+
+  const tags = narrowed
+    ? repo.tagsAmong({
+        folders,
+        tags: facets.tags,
+        stars: facets.stars,
+        unrated: facets.unrated,
+        exts: facets.exts,
+      })
+    : folders === null
+      ? null
+      : repo.tagsIn(folders);
+  return {
+    tags: tags === null ? null : tags.map(tagEntry),
+    types: folders === null ? null : repo.extCountsIn(folders),
+  };
+}
+
+function tagEntry(tag: { name: string; group: string | null; count: number }): TagEntry {
+  return {
+    name: tag.name,
+    group: tag.group,
+    query: `tag:${quoteValue(tag.name)}`,
+    count: tag.count,
   };
 }
 

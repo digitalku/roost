@@ -465,6 +465,34 @@ export interface CommentRow {
 }
 
 /** A tag, how many assets carry it, and the group it is arranged under. */
+/**
+ * The assets in a JSON array of folder ids, each once.
+ *
+ * Walked from the ids, through the folder index: `CROSS JOIN` fixes that order,
+ * and with an `IN (SELECT … json_each)` instead the planner scanned every
+ * membership in the library to answer a folder of a thousand (`BENCHMARKS.md`,
+ * 2026-10-23).
+ */
+const MEMBERS_OF_FOLDERS = `SELECT DISTINCT af.asset_id
+     FROM json_each(?) f
+    CROSS JOIN asset_folders af ON af.folder_id = f.value`;
+
+/**
+ * The filters a {@link Repo.tagsAmong} count passes through (ADR-0035 §9):
+ * what the filter bar has ticked over a place, read as the grid reads it.
+ */
+export interface Narrowing {
+  /** The folders the place is, at its depth; `null` for the whole library. */
+  readonly folders: readonly number[] | null;
+  /** Every one of these must be carried (the *All* rule). */
+  readonly tags: readonly string[];
+  /** Any of these ratings, or unrated when `unrated`; neither is no filter. */
+  readonly stars: readonly number[];
+  readonly unrated: boolean;
+  /** Any of these extensions, as the schema stores them; none is no filter. */
+  readonly exts: readonly string[];
+}
+
 export interface TagRow {
   readonly name: string;
   readonly count: number;
@@ -694,6 +722,23 @@ export class Repo {
         GROUP BY ext
         ORDER BY count DESC, ext`,
     ).all() as { ext: string; count: number }[];
+  }
+
+  /**
+   * {@link Repo.extCounts}, over the live assets in `folders` alone
+   * (ADR-0035 §8): the Types facet inside a folder. An asset in two of them is
+   * counted once, as {@link Repo.tagsIn} counts it.
+   */
+  extCountsIn(folders: readonly number[]): { ext: string; count: number }[] {
+    return this.#s(
+      `WITH members(id) AS MATERIALIZED (${MEMBERS_OF_FOLDERS})
+       SELECT a.ext AS ext, count(*) AS count
+         FROM members m
+        CROSS JOIN assets a ON a.id = m.id
+        WHERE a.trashed_at IS NULL
+        GROUP BY a.ext
+        ORDER BY count DESC, a.ext`,
+    ).all(JSON.stringify(folders)) as { ext: string; count: number }[];
   }
 
   /**
@@ -1401,8 +1446,8 @@ export class Repo {
     };
   }
 
-  #count(sql: string): number {
-    return (this.#s(sql).get() as { n: number }).n;
+  #count(sql: string, ...params: (string | number)[]): number {
+    return (this.#s(sql).get(...params) as { n: number }).n;
   }
 
   /**
@@ -2518,25 +2563,193 @@ export class Repo {
    * Every tag, with its live asset count and its group.
    *
    * The count excludes trashed assets, for the reason {@link Repo.folderCounts}
-   * gives. The joins stay `LEFT` so that a tag every one of whose assets is in
-   * the trash is still listed, at zero — the tag has not been deleted, and a
-   * row vanishing from the sidebar is a different statement from a count
-   * falling to nothing.
+   * gives, and the same way: every link counted, then the trashed ones taken
+   * away. One join that filtered looked up the asset behind every link, 9.2 s at
+   * a million assets with three tags each, where this is about 0.1 s
+   * (`BENCHMARKS.md`, 2026-10-23). A tag every one of whose assets is in the
+   * trash is still listed, at zero — the tag has not been deleted, and a row
+   * vanishing is a different statement from a count falling to nothing.
    *
    * That a tag outlives its last asset is **this build's** answer to a question
    * the format lists as open (`SPEC.md` §11.4) and requires nobody else to
    * share.
    */
   tags(): TagRow[] {
-    return this.#s(
-      `SELECT t.name AS name, count(a.id) AS count, g.name AS "group"
+    const counts = new Map<number, number>();
+    const all = this.#s(
+      "SELECT tag_id AS tagId, count(*) AS n FROM asset_tags GROUP BY tag_id",
+    ).all() as { tagId: number; n: number }[];
+    for (const row of all) counts.set(row.tagId, row.n);
+    // `CROSS JOIN` fixes the order, from the trash's own partial index, for the
+    // reason `folderCounts` gives.
+    const trashed = this.#s(
+      `SELECT at.tag_id AS tagId, count(*) AS n
+         FROM assets a
+        CROSS JOIN asset_tags at ON at.asset_id = a.id
+        WHERE a.trashed_at IS NOT NULL
+        GROUP BY at.tag_id`,
+    ).all() as { tagId: number; n: number }[];
+    for (const row of trashed) counts.set(row.tagId, (counts.get(row.tagId) ?? 0) - row.n);
+
+    const rows = this.#s(
+      `SELECT t.id AS id, t.name AS name, g.name AS "group"
          FROM tags t
-         LEFT JOIN asset_tags at ON at.tag_id = t.id
-         LEFT JOIN assets a ON a.id = at.asset_id AND a.trashed_at IS NULL
          LEFT JOIN tag_groups g ON g.id = t.group_id
-        GROUP BY t.id
         ORDER BY t.name`,
-    ).all() as TagRow[];
+    ).all() as { id: number; name: string; group: string | null }[];
+    return rows.map((row) => ({
+      name: row.name,
+      count: counts.get(row.id) ?? 0,
+      group: row.group,
+    }));
+  }
+
+  /**
+   * The tags the live assets in `folders` carry, each with how many of those
+   * assets carry it (ADR-0035 §8).
+   *
+   * The filter bar's Tags facet inside a folder: only what is there, counted
+   * there. An asset in two of the folders is counted once, because `folder:`
+   * finds it once — never sum per-folder counts (`folderCounts`). A tag none of
+   * them carries is not listed, unlike {@link Repo.tags}: the question is what
+   * is in this folder, not whether the tag exists.
+   *
+   * The cost is the folder's size, not the library's: about 50 ms for ten
+   * thousand assets and a quarter of a second for a hundred thousand
+   * (`BENCHMARKS.md`, 2026-10-23), which is why the window asks only when the
+   * menu opens.
+   */
+  tagsIn(folders: readonly number[]): TagRow[] {
+    return this.#s(
+      `WITH members(id) AS MATERIALIZED (${MEMBERS_OF_FOLDERS})
+       SELECT t.name AS name, c.n AS count, g.name AS "group"
+         FROM (SELECT at.tag_id AS tagId, count(*) AS n
+                 FROM members m
+                CROSS JOIN assets a ON a.id = m.id
+                CROSS JOIN asset_tags at ON at.asset_id = m.id
+                WHERE a.trashed_at IS NULL
+                GROUP BY at.tag_id) c
+         JOIN tags t ON t.id = c.tagId
+         LEFT JOIN tag_groups g ON g.id = t.group_id
+        ORDER BY t.name`,
+    ).all(JSON.stringify(folders)) as TagRow[];
+  }
+
+  /**
+   * The tags carried by the live assets that pass every filter in `among`,
+   * each with how many of those assets carry it (ADR-0035 §9).
+   *
+   * The Tags facet under the *All* rule: ticking one more tag narrows the grid
+   * to the assets carrying it as well, so the number beside it is what the grid
+   * would then hold, and a tag none of them carries is not listed. An asset in
+   * two of the folders is counted once.
+   *
+   * **Walked from the smallest set**: the folder's members, one ticked tag's
+   * assets, the ticked ratings or the ticked extensions, whichever holds fewest,
+   * each measured through its own index first. Every other filter is then a
+   * probe per asset. So the cost is the smallest of them rather than the
+   * library: a millisecond from a tag on three hundred assets, half a second
+   * from one on a quarter of a million (`BENCHMARKS.md`, 2026-10-23).
+   */
+  tagsAmong(among: Narrowing): TagRow[] {
+    const tagIds = among.tags.map(
+      (name) =>
+        (this.#s("SELECT id FROM tags WHERE name = ?").get(name) as { id: number } | undefined)?.id,
+    );
+    // A tag nobody has made is carried by nothing, so nothing passes.
+    if (tagIds.some((id) => id === undefined)) return [];
+
+    const folders = among.folders === null ? null : JSON.stringify(among.folders);
+    const stars = JSON.stringify(among.stars);
+    const unrated = among.unrated ? 1 : 0;
+    const exts = JSON.stringify(among.exts);
+    const rated = among.stars.length > 0 || among.unrated;
+
+    const seeds: { size: number; sql: string; seed: string | number }[] = [];
+    if (folders !== null) {
+      seeds.push({
+        // Memberships rather than assets, so an asset in two of them is
+        // measured twice: a bound to choose by, not an answer.
+        size: this.#count(
+          `SELECT count(*) AS n FROM json_each(?) f
+            CROSS JOIN asset_folders af ON af.folder_id = f.value`,
+          folders,
+        ),
+        sql: MEMBERS_OF_FOLDERS.replace("?", "@seed"),
+        seed: folders,
+      });
+    }
+    for (const id of tagIds as number[]) {
+      seeds.push({
+        size: this.#count("SELECT count(*) AS n FROM asset_tags WHERE tag_id = ?", id),
+        sql: "SELECT asset_id FROM asset_tags WHERE tag_id = @seed",
+        seed: id,
+      });
+    }
+    if (rated) {
+      seeds.push({
+        size:
+          this.#count(
+            "SELECT count(*) AS n FROM assets WHERE rating IN (SELECT value FROM json_each(?))",
+            stars,
+          ) +
+          (among.unrated
+            ? this.#count("SELECT count(*) AS n FROM assets WHERE rating IS NULL")
+            : 0),
+        sql: `SELECT id FROM assets WHERE rating IN (SELECT value FROM json_each(@seed))
+              UNION ALL
+              SELECT id FROM assets WHERE @unrated = 1 AND rating IS NULL`,
+        seed: stars,
+      });
+    }
+    if (among.exts.length > 0) {
+      seeds.push({
+        size: this.#count(
+          "SELECT count(*) AS n FROM assets WHERE ext IN (SELECT value FROM json_each(?))",
+          exts,
+        ),
+        sql: "SELECT id FROM assets WHERE ext IN (SELECT value FROM json_each(@seed))",
+        seed: exts,
+      });
+    }
+    const smallest = seeds.reduce<(typeof seeds)[number] | undefined>(
+      (best, seed) => (best === undefined || seed.size < best.size ? seed : best),
+      undefined,
+    );
+
+    // Named parameters, so one counting statement takes whichever seed was
+    // chosen: five statements in all, each prepared once.
+    return this.#s(
+      `WITH members(id) AS MATERIALIZED (${smallest?.sql ?? "SELECT id FROM assets"})
+       SELECT t.name AS name, c.n AS count, g.name AS "group"
+         FROM (SELECT at.tag_id AS tagId, count(*) AS n
+                 FROM members m
+                CROSS JOIN assets a ON a.id = m.id
+                CROSS JOIN asset_tags at ON at.asset_id = m.id
+                WHERE a.trashed_at IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM json_each(@tags) o
+                                   WHERE NOT EXISTS (SELECT 1 FROM asset_tags x
+                                                      WHERE x.asset_id = m.id AND x.tag_id = o.value))
+                  AND (@folders IS NULL OR EXISTS (SELECT 1 FROM json_each(@folders) f
+                                                    JOIN asset_folders y
+                                                      ON y.asset_id = m.id AND y.folder_id = f.value))
+                  AND (@rated = 0 OR a.rating IN (SELECT value FROM json_each(@stars))
+                                  OR (@unrated = 1 AND a.rating IS NULL))
+                  AND (@typed = 0 OR a.ext IN (SELECT value FROM json_each(@exts)))
+                GROUP BY at.tag_id) c
+         JOIN tags t ON t.id = c.tagId
+         LEFT JOIN tag_groups g ON g.id = t.group_id
+        ORDER BY t.name`,
+    ).all({
+      seed: smallest?.seed ?? null,
+      unrated,
+      tags: JSON.stringify(tagIds),
+      folders,
+      rated: rated ? 1 : 0,
+      stars,
+      typed: among.exts.length > 0 ? 1 : 0,
+      exts,
+    }) as TagRow[];
   }
 
   tagGroups(): TagGroupRow[] {

@@ -226,8 +226,10 @@ export {
   sectionedPage,
 } from "./search.js";
 export {
+  type FacetVocabulary,
   type FolderEntry,
   type PlaceEntry,
+  readFacetVocabulary,
   readSidebar,
   type Sidebar,
   type SmartFolderEntry,

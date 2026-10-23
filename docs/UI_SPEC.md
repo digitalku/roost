@@ -1489,6 +1489,20 @@ moves the toggle to *All*.
 **Clearing the filters does not touch the rule.** It is how the *next* two tags will be joined, and
 clearing has said nothing about that.
 
+**Inside a folder, Tags and Types offer what the folder holds** (ADR-0035 §8), each value counted
+there, at the depth the place asks: the subtree with *Show subfolder contents*, each asset once,
+and the folder alone without it. Anywhere else, including a smart folder or a search, they offer the
+library's lists. A value already ticked stays in the menu at the count it has here, so it can always
+be unticked. The lists are read **when the menu opens**, never on a change of place, and until they
+arrive the menu reads *Counting…*. An empty folder's menus say *No tags here* and *Nothing here*.
+Rating is the same six rows everywhere.
+
+**Under *All*, Tags counts among what is on screen** (ADR-0035 §9). With anything ticked, the number
+beside each tag is how many assets the grid would hold with that tag ticked too, through every
+ticked tag, rating and type over the place, and a tag none of them carries is not offered unless it
+is ticked. Under *Any* the counts are the place's own, because one more tag widens the grid. Over the
+whole library the sidebar's counts stand in until the narrowed ones arrive.
+
 **To the right of Types sits one checkbox, and it is not a facet** (ADR-0036). *Show subfolder
 contents* says how deep the **place** reaches, where the three chips to its left narrow what is
 inside it — a different question, which is why it has no menu, no count, and no part in *Clear

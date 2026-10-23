@@ -30,6 +30,7 @@ export {
   type JobCount,
   type JobReason,
   lastCursor,
+  type Narrowing,
   type PictureSource,
   Repo,
   type SelectionSummary,

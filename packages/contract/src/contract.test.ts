@@ -91,6 +91,7 @@ describe("validating a request", () => {
       "query:split",
       "query:join",
       "query:subfolders",
+      "facets:vocabulary",
       "settings:read",
       "settings:write",
       "asset:detail",

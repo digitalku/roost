@@ -38,6 +38,8 @@ export {
   type Facets,
   joinQuery,
   NO_FACETS,
+  type PlaceFolder,
+  placeFolder,
   type SplitQuery,
   type Stars,
   type SubfolderSections,

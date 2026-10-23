@@ -10,22 +10,32 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ImportProgress, ReplyEnvelope, Request, WireCursor } from "@roost/contract";
+import type {
+  ImportProgress,
+  ReplyEnvelope,
+  Request,
+  WireCursor,
+  WireFacets,
+} from "@roost/contract";
 import { ASSET_KINDS as WIRE_KINDS, LIBRARY_SUFFIX as WIRE_SUFFIX } from "@roost/contract";
-import { KINDS, latestSchemaVersion } from "@roost/core";
+import { type AssetId, KINDS, latestSchemaVersion } from "@roost/core";
 import {
+  addToFolder,
   check,
   createFolder,
   importInto,
   LIBRARY_SUFFIX,
   Library,
   runDerives,
+  tagAdd,
 } from "@roost/library";
 import { GRID_SIZE, gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngineHost } from "./host.js";
 import type { Port } from "./port.js";
 import { serve } from "./serve.js";
+
+const NO_FACETS: WireFacets = { tags: [], tagRule: "any", stars: [], unrated: false, exts: [] };
 
 /**
  * A port that is a plain object.
@@ -989,6 +999,67 @@ describe("the engine's message loop", () => {
 
     await ask(10, { type: "asset:rename", id, name: "  Renamed.txt  " });
     expect((await detail())["name"]).toBe("Renamed.txt");
+  });
+
+  it("lists a folder's own tags and types for the filter bar, and nothing elsewhere (ADR-0035 §8)", async () => {
+    const source = join(dir, "vocabulary");
+    await mkdir(source, { recursive: true });
+    await writeFile(join(source, "inside.txt"), "inside");
+    await writeFile(join(source, "outside.md"), "outside");
+    const root = join(dir, `Vocabulary${LIBRARY_SUFFIX}`);
+    const library = await Library.create(root, "Vocabulary");
+    try {
+      await importInto(library, [join(source, "inside.txt"), join(source, "outside.md")]);
+      const [inside, outside] = ["inside", "outside"].map(
+        (name) =>
+          library.db.repo.allIds().find((id) => library.db.repo.findAsset(id)?.name === name) ?? "",
+      ) as [AssetId, AssetId];
+      const design = await createFolder(library, "Design", null);
+      await addToFolder(library, [inside], design);
+      await tagAdd(library, [inside], ["wood"]);
+      await tagAdd(library, [outside], ["glass"]);
+    } finally {
+      await library.close();
+    }
+    await ask(100, { type: "library:open", path: root });
+
+    expect(
+      await ask(1, { type: "facets:vocabulary", place: "infolder:Design", facets: NO_FACETS }),
+    ).toEqual({
+      id: 1,
+      ok: true,
+      value: {
+        tags: [
+          {
+            id: "tag:wood",
+            name: "wood",
+            query: "tag:wood",
+            count: 1,
+            depth: 0,
+            group: null,
+            stars: null,
+          },
+        ],
+        types: [{ ext: "txt", count: 1 }],
+      },
+    });
+    // Not a folder: the window keeps the lists the sidebar carries.
+    expect(await ask(2, { type: "facets:vocabulary", place: "", facets: NO_FACETS })).toEqual({
+      id: 2,
+      ok: true,
+      value: null,
+    });
+    // Under All with a tag ticked, the library's tags among what carries it,
+    // and the library's own types.
+    const narrowed = await ask(3, {
+      type: "facets:vocabulary",
+      place: "",
+      facets: { ...NO_FACETS, tagRule: "all", tags: ["glass"] },
+    });
+    expect(narrowed).toMatchObject({
+      ok: true,
+      value: { tags: [{ name: "glass", count: 1 }], types: null },
+    });
   });
 
   it("files an asset and unfiles it, naming the folder by id", async () => {

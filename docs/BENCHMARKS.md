@@ -57,6 +57,62 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-10-23 — a folder's own tags and types, and the library's tags (ADR-0035 §8)
+
+Machine: Fedora 44 host, Intel Core Ultra 7 155H, NVMe. Node 22.23.1. A throwaway script, not kept,
+against a synthetic index on the real schema: **1,000,000 assets**, 2 % in the trash, **three tags
+each** from 2,000, skewed so a few are common, and four folders of 1,000, 10,000, 100,000 and
+500,000 assets spread evenly across the library. That is heavier tagging than an ordinary library,
+on purpose. Each figure is the best of five warm runs, through the repository's own methods.
+
+| A folder's lists, `tagsIn` / `extCountsIn` | Tags | Types |
+| --- | --- | --- |
+| 1,000 assets | 7.4 ms | 1.9 ms |
+| 10,000 | 50 ms | 29 ms |
+| 100,000 | 224 ms | 99 ms |
+| 100,000, and a subfolder holding half of them again | 238 ms | 109 ms |
+| 500,000 | 1.10 s | 0.33 s |
+
+| The library's tag counts, `tags()` | |
+| --- | --- |
+| One join from every link to its asset, to leave out the trash (before) | 9.2 s |
+| Every link `GROUP BY tag_id`, less the trashed links through `idx_assets_trashed` | **0.12 s** |
+
+**What it revealed.** The member set has to be **walked from the folder ids**: written as
+`folder_id IN (SELECT value FROM json_each(?))`, the planner scanned all 1.1 million memberships to
+answer the folder of a thousand (24 ms), and `CROSS JOIN` from `json_each` to the folder index is
+what brings it to 7 ms. Beyond that the cost is linear in the folder, about 2 µs an asset for three
+tag links, which is why the window asks only while the menu is open. The second table is the one
+`TODO.md` had carried since 2026-10-01 unmeasured: the sidebar's tag counts had the join the folder
+counts lost, and paid **9.2 s** on every re-read at this size. Subtracting the trash gives the same
+answer, checked tag by tag against the old query.
+
+### 2026-10-23 — the tags among what the All rule leaves (ADR-0035 §9)
+
+The same synthetic index and script as the entry below, with every seventh asset rated five stars
+and a third of the rest turned to `png`. Best of five warm runs through `Repo.tagsAmong`, each
+checked tag by tag against counting over the grid's own compiled query.
+
+| Ticked under All | `tagsAmong` | Over the compiled query |
+| --- | --- | --- |
+| a tag on 284 assets | 1.3 ms | 475 ms |
+| a tag on 2,963 | 15 ms | 501 ms |
+| a tag on 30,196 | 110 ms | 630 ms |
+| a tag on 230,563 | 551 ms | 943 ms |
+| the 30,196 and the 230,563 together | 76 ms | 582 ms |
+| the 30,196, and five stars | 128 ms | — |
+| five stars alone | 365 ms | — |
+| a folder of 10,000, and the 230,563 | 39 ms | 570 ms |
+| a folder of 100,000, and the 284 | 2.5 ms | 600 ms |
+
+**What it revealed.** Starting from the smallest set is what makes this affordable: its own
+index measures each candidate (`count(*)` over the folder's memberships, a tag's links, a range of
+ratings or extensions), and the rest are probes per asset, so the cost follows the rarest filter
+ticked rather than the library. Counting over the compiled query instead costs about half a second
+whatever is ticked, and so does **the match count the window already runs at every query change**:
+a `tag:` term is a correlated `EXISTS`, evaluated once for each of the million assets. That is a
+finding about search rather than about this menu, and it was handed to work of its own the same day.
+
 ### 2026-10-05 — a shuffle that ties, so a resume is a walk (ADR-0039 §11)
 
 Machine: Fedora 44 host, Intel Core Ultra 7 155H, NVMe, the library on tmpfs. Node 22.23.1. 95,001
@@ -124,7 +180,7 @@ which is a fifth of them here and few in a real library; one ordered pass over t
 with `group_concat` hands them over in 0.25 s, against 0.74 s for a window function over the same
 rows and 0.6 s just to stream every membership to JavaScript. In total the sidebar's folder counts
 went from 3.7 s and wrong to about 0.3 s and right. **`tags()` has the same join** and was not
-measured; it is on `TODO.md`.
+measured; it is on `TODO.md`. (Measured and fixed on 2026-10-23: 9.2 s to 0.12 s, above.)
 
 ### 2026-09-27 — counting an import before it starts (ADR-0055 §3.1)
 

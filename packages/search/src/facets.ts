@@ -249,10 +249,28 @@ export function subfolderSections(query: string): SubfolderSections | undefined 
   };
 }
 
+/** The folder a place names, at the depth it names it. */
+export interface PlaceFolder {
+  readonly field: "folder" | "infolder";
+  readonly value: string;
+}
+
+/**
+ * The folder a place **is**, or `undefined` for any other place (ADR-0035 §8).
+ *
+ * Only a place that is one folder term and nothing else: what a folder's row
+ * carries, at either depth, and what typing that row's query gives. A place
+ * with anything beside the folder — a search word, a smart folder's query — is
+ * not a folder, and the filter bar offers the library's whole vocabulary there.
+ */
+export function placeFolder(place: string): PlaceFolder | undefined {
+  const conjuncts = topLevelConjuncts(place);
+  const [only] = conjuncts ?? [];
+  return conjuncts?.length === 1 && only !== undefined ? folderTerm(only) : undefined;
+}
+
 /** A conjunct that is one plain folder term, at whichever depth it names. */
-function folderTerm(
-  slice: string,
-): { readonly field: "folder" | "infolder"; readonly value: string } | undefined {
+function folderTerm(slice: string): PlaceFolder | undefined {
   let expr: Expr;
   try {
     expr = parse(slice);

@@ -7,8 +7,9 @@ import type {
 } from "@roost/contract";
 import { STARS } from "@roost/contract";
 import { DropdownMenu } from "radix-ui";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { counted } from "../format.js";
+import type { FacetScope } from "./vocabulary.js";
 
 /**
  * The three filters over the grid: tags, rating, file type (ADR-0035).
@@ -25,7 +26,8 @@ import { counted } from "../format.js";
  * the values are `OR`ed — except tags, which carry a rule (§7).
  *
  * The counts are the ones the pane used to draw, from the same read — what moved
- * is where they are shown, not what the engine answers.
+ * is where they are shown, not what the engine answers. Inside a folder, Tags
+ * and Types offer only what the folder holds, counted there (§8): `scope`.
  */
 
 /** Past this many values, a facet's menu is searched rather than read (§7.3). */
@@ -47,6 +49,16 @@ export interface FilterBarProps {
   /** The six rating rows, five stars then unrated, as the engine sends them. */
   readonly ratings: readonly SidebarRow[];
   readonly types: readonly SidebarTypeRow[];
+  /**
+   * What Tags and Types offer over the place on screen (ADR-0035 §8): a
+   * folder's own lists, `null` for the library's above, or `"counting"`.
+   */
+  readonly scope?: FacetScope;
+  /**
+   * Whether the Tags or the Types menu is open, which is when `scope` is
+   * worth asking for: a folder's count costs its size.
+   */
+  readonly onScopeWanted?: (wanted: boolean) => void;
   readonly onChange: (facets: WireFacets) => void;
   /**
    * Whether the query on screen reaches into subfolders (ADR-0036).
@@ -79,6 +91,8 @@ export function FilterBar({
   tags,
   ratings,
   types,
+  scope = null,
+  onScopeWanted,
   onChange,
   subfolders,
   onSubfolders,
@@ -87,7 +101,17 @@ export function FilterBar({
   const anything =
     chosen.tags.length > 0 || chosen.stars.length > 0 || chosen.unrated || chosen.exts.length > 0;
 
-  const tagValues: readonly Value[] = tags.map((tag) => ({
+  // Either menu, as one flag: moving from Tags to Types closes one and opens
+  // the other, and the order the two arrive in must not read as neither.
+  const [tagsOpen, setTagsOpen] = useState(false);
+  const [typesOpen, setTypesOpen] = useState(false);
+  const wanted = tagsOpen || typesOpen;
+  useEffect(() => {
+    onScopeWanted?.(wanted);
+  }, [wanted, onScopeWanted]);
+
+  const offered = offeredIn(scope, tags, types, chosen);
+  const tagValues: readonly Value[] = offered.tags.map((tag) => ({
     key: tag.id,
     label: tag.name,
     stars: null,
@@ -115,7 +139,7 @@ export function FilterBar({
     },
   }));
 
-  const typeValues: readonly Value[] = types.map((type) => ({
+  const typeValues: readonly Value[] = offered.types.map((type) => ({
     key: type.ext === "" ? "(none)" : type.ext,
     label: spellExt(type.ext),
     stars: null,
@@ -131,11 +155,18 @@ export function FilterBar({
         label="Tags"
         summary={summarise(chosen.tags)}
         count={chosen.tags.length}
-        empty="No tags yet"
+        empty={
+          scope === "counting"
+            ? COUNTING
+            : scope === null || scope.tags === null
+              ? "No tags yet"
+              : "No tags here"
+        }
         values={tagValues}
         searchLabel="Search tags"
         rule={chosen.tagRule}
         onRule={(next) => onChange({ ...chosen, tagRule: next })}
+        onOpen={setTagsOpen}
       />
       <Facet
         label="Rating"
@@ -149,9 +180,16 @@ export function FilterBar({
         label="Types"
         summary={summarise(chosen.exts.map(spellExt))}
         count={chosen.exts.length}
-        empty="Nothing imported yet"
+        empty={
+          scope === "counting"
+            ? COUNTING
+            : scope === null || scope.types === null
+              ? "Nothing imported yet"
+              : "Nothing here"
+        }
         values={typeValues}
         searchLabel="Search types"
+        onOpen={setTypesOpen}
       />
 
       {/*
@@ -200,6 +238,60 @@ export function FilterBar({
 
 const EMPTY: WireFacets = { tags: [], tagRule: "any", stars: [], unrated: false, exts: [] };
 
+const COUNTING = "Counting…";
+
+/**
+ * The two lists the menus draw over `scope` (ADR-0035 §8, §9).
+ *
+ * A narrowed list keeps **every value that is ticked**: a tag chosen before
+ * walking into a folder that holds none of it is still a filter on the grid,
+ * and a menu without it would leave no way to untick it. It is drawn at the
+ * count it has here, which is nothing. While a folder is being counted, only
+ * the ticked values are offered, for the same reason. A list the answer leaves
+ * `null` is the library's.
+ */
+function offeredIn(
+  scope: FacetScope,
+  tags: readonly SidebarRow[],
+  types: readonly SidebarTypeRow[],
+  chosen: WireFacets,
+): { readonly tags: readonly SidebarRow[]; readonly types: readonly SidebarTypeRow[] } {
+  if (scope === null) return { tags, types };
+  const held =
+    scope === "counting"
+      ? { tags: [], types: [] }
+      : { tags: scope.tags ?? tags, types: scope.types ?? types };
+  const heldTags = new Set(held.tags.map((tag) => tag.name.toLowerCase()));
+  const heldTypes = new Set(held.types.map((type) => type.ext));
+  const missingTags = chosen.tags
+    .filter((name) => !heldTags.has(name.toLowerCase()))
+    .map((name): SidebarRow => {
+      const known = tags.find((tag) => tag.name.toLowerCase() === name.toLowerCase());
+      return { ...(known ?? EMPTY_TAG), id: known?.id ?? `tag:${name}`, name, count: 0 };
+    });
+  const missingTypes = chosen.exts
+    .filter((ext) => !heldTypes.has(ext))
+    .map((ext): SidebarTypeRow => ({ ext, count: 0 }));
+  return {
+    // The engine's order where nothing was added to it.
+    tags:
+      missingTags.length === 0
+        ? held.tags
+        : [...held.tags, ...missingTags].sort((a, b) => a.name.localeCompare(b.name)),
+    types: [...held.types, ...missingTypes],
+  };
+}
+
+const EMPTY_TAG: SidebarRow = {
+  id: "",
+  name: "",
+  query: "",
+  count: 0,
+  depth: 0,
+  group: null,
+  stars: null,
+};
+
 /** One facet's button and menu. */
 function Facet({
   label,
@@ -210,6 +302,7 @@ function Facet({
   searchLabel,
   rule,
   onRule,
+  onOpen,
 }: {
   readonly label: string;
   readonly summary: string | undefined;
@@ -220,6 +313,8 @@ function Facet({
   /** Only the tag facet has one; an asset has one rating and one extension. */
   readonly rule?: WireTagRule;
   readonly onRule?: (rule: WireTagRule) => void;
+  /** Told when the menu opens and closes. */
+  readonly onOpen?: (open: boolean) => void;
 }): React.JSX.Element {
   const [needle, setNeedle] = useState("");
   const [open, setOpen] = useState(false);
@@ -264,6 +359,7 @@ function Facet({
       onOpenChange={(next) => {
         if (!next && ticking.current) return;
         setOpen(next);
+        onOpen?.(next);
         if (next) setNeedle("");
       }}
     >

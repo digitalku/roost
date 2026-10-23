@@ -131,6 +131,31 @@ async function pickRow(name) {
   await sleep(400);
 }
 
+/**
+ * What one facet's menu offers once it has finished counting (ADR-0035 §8),
+ * and the menu closed again.
+ */
+async function menuOf(facet) {
+  const trigger = await triggerAt(facet);
+  await cdp.mouse.click(trigger.x, trigger.y);
+  const read = await cdp.settle(
+    `(() => {
+      const menu = document.querySelector('[role="menu"]');
+      if (menu === null || menu.textContent.includes("Counting…")) return null;
+      return {
+        items: [...menu.querySelectorAll('[role="menuitemcheckbox"]')].map((item) =>
+          item.textContent.trim(),
+        ),
+        text: menu.textContent,
+      };
+    })()`,
+    (found) => found !== null,
+  );
+  await cdp.keyboard.press("Escape");
+  await sleep(200);
+  return read;
+}
+
 /** Ticks one value in one facet, and closes the menu again. */
 async function tick(facet, value) {
   const trigger = await triggerAt(facet);
@@ -292,6 +317,15 @@ try {
     const all = await state();
     check("All writes a term each", all.query === `tag:${TAG} tag:${OTHER}`, all.query);
     check("and the grid shows only both", all.cells === BOTH, `${all.cells} cells`);
+
+    // Under All the menu counts among what is on screen (ADR-0035 §9): the two
+    // assets carrying both tags carry no filler tag, so none is offered.
+    const among = await menuOf("Tags");
+    check(
+      "under All, Tags offers only what the assets on screen carry, counted among them",
+      among.items.length === 2 && among.items.every((item) => item.endsWith(String(BOTH))),
+      among.items.join(", "),
+    );
   }
 
   section("The rule is remembered where the query cannot hold it");
@@ -301,6 +335,14 @@ try {
     await tick("Tags", OTHER);
     const one = await state();
     check("one tag spells the same query either way", one.query === `tag:${TAG}`, one.query);
+    // Still All, remembered: the other tag is counted among the tagged five.
+    const remembered = await menuOf("Tags");
+    const other = remembered.items.find((item) => item.includes(OTHER));
+    check(
+      "and the menu still counts among what the remembered rule leaves",
+      other?.endsWith(String(BOTH)) === true && remembered.items.length === 2 + FILLER.length,
+      remembered.items.join(", "),
+    );
 
     await tick("Tags", OTHER);
     const back = await state();
@@ -313,6 +355,10 @@ try {
 
   section("A long facet is searched");
   {
+    // Down to one tag first: under All with both ticked the menu offers only
+    // the two the assets on screen carry (ADR-0035 §9), and a list of two
+    // gets no field. With one, the other eight are among the tagged five.
+    await tick("Tags", OTHER);
     const trigger = await triggerAt("Tags");
     await cdp.mouse.click(trigger.x, trigger.y);
     const field = await cdp.settle(
@@ -345,7 +391,7 @@ try {
     await cdp.keyboard.press("Escape");
     await sleep(200);
     const after = await state();
-    check("nothing was chosen by typing", after.query === `tag:${TAG} tag:${OTHER}`, after.query);
+    check("nothing was chosen by typing", after.query === `tag:${TAG}`, after.query);
   }
   section("Show subfolder contents (ADR-0036)");
   await typeQuery("");
@@ -364,6 +410,15 @@ try {
     `${shallow.query} → ${shallow.cells} cells`,
   );
 
+  // A folder offers what it holds (ADR-0035 §8), and `Design` holds nothing
+  // directly: the library's tags would be a menu of values that empty the grid.
+  const shallowTags = await menuOf("Tags");
+  check(
+    "inside a folder holding nothing, Tags says so rather than listing the library's",
+    shallowTags.items.length === 0 && shallowTags.text.includes("No tags here"),
+    shallowTags.items.join(", ") || shallowTags.text,
+  );
+
   const at = await cdp.box(".filter-check input");
   await cdp.mouse.click(at.x, at.y);
   await sleep(500);
@@ -372,6 +427,24 @@ try {
     "ticking it rewrites the query on screen rather than changing what a term means",
     deep.query === "folder:Design" && deep.cells === NESTED,
     `${deep.query} → ${deep.cells} cells`,
+  );
+
+  // With its subfolder, `Design` is `Alpha`'s three: the first five carry the
+  // tag, and the other tag starts at the fourth asset, so it is not here.
+  const deepTags = await menuOf("Tags");
+  const tagged = deepTags.items.find((item) => item.includes(TAG));
+  check(
+    "with its subfolders, Tags lists what the subtree holds, counted there",
+    tagged?.includes(String(NESTED)) === true &&
+      !deepTags.items.some((item) => item.includes(OTHER)) &&
+      deepTags.items.length === 1 + FILLER.length,
+    deepTags.items.join(", "),
+  );
+  const deepTypes = await menuOf("Types");
+  check(
+    "and Types counts the subtree too",
+    deepTypes.items.length === 1 && deepTypes.items[0]?.includes(String(NESTED)) === true,
+    deepTypes.items.join(", "),
   );
 
   // The pane has to be re-read, and nothing in the library changed — which is
@@ -412,6 +485,12 @@ try {
 
   await typeQuery("infolder:Design");
   check("typing the other term by hand unticks it", (await checkbox()) === false);
+  const typedTags = await menuOf("Tags");
+  check(
+    "a folder typed into the field is the same folder to the menus",
+    typedTags.items.length === 0 && typedTags.text.includes("No tags here"),
+    typedTags.items.join(", ") || typedTags.text,
+  );
   await typeQuery("folder:Design");
   check("and typing this one ticks it", (await checkbox()) === true);
 

@@ -1876,6 +1876,130 @@ describe("Show subfolder contents, in the window (ADR-0036)", () => {
 
   const box = (): HTMLElement => screen.getByRole("checkbox", { name: "Show subfolder contents" });
 
+  it("counts the other tags among what carries the ticked one under All (ADR-0035 §9)", async () => {
+    const tag = (name: string, count: number) => ({
+      id: `tag:${name}`,
+      name,
+      query: `tag:${name}`,
+      count,
+      depth: 0,
+      group: null,
+      stars: null,
+    });
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 4 },
+      assets: Array.from({ length: 4 }, (_, i) => fakeAsset(i)),
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [DESIGN],
+        smartFolders: [],
+        tags: [tag("glass", 9), tag("metal", 9), tag("wood", 9)],
+        types: [],
+      },
+      vocabularies: { "": { tags: [tag("glass", 2), tag("wood", 3)], types: null } },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+    const asked = () => engine.seen.filter((request) => request.type === "facets:vocabulary");
+
+    await user.click(screen.getByRole("button", { name: /^Tags/ }));
+    // Nothing ticked: the library's three, and nothing asked.
+    expect(screen.getAllByRole("menuitemcheckbox")).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: "Rule: All" }));
+    await user.click(screen.getByRole("menuitemcheckbox", { name: /wood/ }));
+
+    // With wood ticked under All, metal carries none of it and is gone, and
+    // glass says how many would remain with it ticked too.
+    await waitFor(() =>
+      expect(screen.getAllByRole("menuitemcheckbox").map((item) => item.textContent)).toEqual([
+        expect.stringContaining("glass"),
+        expect.stringContaining("wood"),
+      ]),
+    );
+    expect(screen.getAllByRole("menuitemcheckbox")[0]?.textContent).toContain("2");
+    expect(asked().at(-1)).toMatchObject({
+      place: "",
+      facets: { tagRule: "all", tags: ["wood"] },
+    });
+  });
+
+  it("offers a folder's own tags in the bar, asked for when the menu opens (ADR-0035 §8)", async () => {
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 4 },
+      assets: Array.from({ length: 4 }, (_, i) => fakeAsset(i)),
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [DESIGN],
+        smartFolders: [],
+        tags: ["wood", "glass"].map((name) => ({
+          id: `tag:${name}`,
+          name,
+          query: `tag:${name}`,
+          count: 9,
+          depth: 0,
+          group: null,
+          stars: null,
+        })),
+        types: [],
+      },
+      vocabularies: {
+        "infolder:Design": {
+          tags: [
+            {
+              id: "tag:wood",
+              name: "wood",
+              query: "tag:wood",
+              count: 2,
+              depth: 0,
+              group: null,
+              stars: null,
+            },
+          ],
+          types: [{ ext: "png", count: 2 }],
+        },
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+    const asked = () =>
+      engine.seen.filter((request) => request.type === "facets:vocabulary").map((r) => r.place);
+
+    // The whole library: the sidebar's lists, and nothing asked.
+    await user.click(screen.getByRole("button", { name: /^Tags/ }));
+    expect(screen.getAllByRole("menuitemcheckbox")).toHaveLength(2);
+    await user.keyboard("{Escape}");
+
+    await user.click(await screen.findByRole("button", { name: /^Design/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("searchbox", { name: /Search/ })).toHaveProperty(
+        "value",
+        "infolder:Design",
+      ),
+    );
+    // Walking into the folder costs nothing until a menu is open.
+    expect(asked()).toEqual([]);
+
+    await user.click(screen.getByRole("button", { name: /^Tags/ }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("menuitemcheckbox").map((item) => item.textContent)).toEqual([
+        expect.stringContaining("wood"),
+      ]),
+    );
+    expect(asked()).toEqual(["infolder:Design"]);
+  });
+
   it("starts from the library's setting while no folder is on screen", async () => {
     await open();
     // Nothing to reflect: the query names no folder, so the checkbox says what

@@ -18,6 +18,8 @@ import type {
   WireDeriveStatus,
   WireEagleReport,
   WireEagleSurvey,
+  WireFacets,
+  WireFacetVocabulary,
   WireFiled,
   WireImportReport,
   WireSidebar,
@@ -80,6 +82,7 @@ import {
   Requested,
   type RootWatcher,
   rate,
+  readFacetVocabulary,
   readSidebar,
   reclaim,
   reclaimableBytes,
@@ -102,6 +105,7 @@ import {
   setPoster,
   setSource,
   surveyEagle,
+  type TagEntry,
   type TransferProgress,
   type TransferReport,
   TransferRunningError,
@@ -221,6 +225,9 @@ export class EngineHost {
 
       case "query:subfolders":
         return withSubfolders(request.query, request.on);
+
+      case "facets:vocabulary":
+        return facetVocabularyOf(this.#require(), request.place, request.facets);
 
       case "settings:read":
         return this.#require().settings;
@@ -1509,20 +1516,34 @@ function sidebarOf(library: Library): WireSidebar {
         stars: null,
       }),
     ),
-    tags: sidebar.tags.map(
-      (tag): SidebarRow => ({
-        id: `tag:${tag.name}`,
-        name: tag.name,
-        query: tag.query,
-        count: tag.count,
-        depth: 0,
-        group: tag.group,
-        stars: null,
-      }),
-    ),
+    tags: sidebar.tags.map(tagRow),
     // Straight across: the one vocabulary here that is not a row, because a
     // facet value carries no query of its own (ADR-0035).
     types: sidebar.types,
+  };
+}
+
+/** The filter bar's two lists over a place, as the sidebar's are sent (ADR-0035 §8, §9). */
+function facetVocabularyOf(
+  library: Library,
+  place: string,
+  facets: WireFacets,
+): WireFacetVocabulary | null {
+  const vocabulary = readFacetVocabulary(library, place, facets);
+  return vocabulary === null
+    ? null
+    : { tags: vocabulary.tags?.map(tagRow) ?? null, types: vocabulary.types };
+}
+
+function tagRow(tag: TagEntry): SidebarRow {
+  return {
+    id: `tag:${tag.name}`,
+    name: tag.name,
+    query: tag.query,
+    count: tag.count,
+    depth: 0,
+    group: tag.group,
+    stars: null,
   };
 }
 

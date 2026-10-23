@@ -582,6 +582,20 @@ export interface WireSidebar {
   readonly types: readonly SidebarTypeRow[];
 }
 
+/**
+ * What the filter bar's Tags and Types menus offer over a place (ADR-0035 §8,
+ * §9): inside a folder, only what it holds; under the *All* rule, only the tags
+ * among what passes every ticked filter. Each counted there.
+ *
+ * The same shapes as {@link WireSidebar}'s two lists, so a menu draws either
+ * without knowing which one it was handed. `null` in either is the library's
+ * own list.
+ */
+export interface WireFacetVocabulary {
+  readonly tags: readonly SidebarRow[] | null;
+  readonly types: readonly SidebarTypeRow[] | null;
+}
+
 /** The five ratings a filter can select. Unrated is not one of them. */
 export const STARS = [1, 2, 3, 4, 5] as const;
 

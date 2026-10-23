@@ -20,6 +20,7 @@ import type {
   WireEagleReport,
   WireEagleSurvey,
   WireExportReport,
+  WireFacetVocabulary,
   WireFiled,
   WireFolderCover,
   WireFolderRef,
@@ -183,6 +184,11 @@ export interface FakeEngineOptions {
    * search a folder can answer, which is what the engine says of most of them.
    */
   readonly foundFolders?: Readonly<Record<string, readonly number[]>>;
+  /**
+   * What `facets:vocabulary` answers with, by place. A place not listed is not
+   * a folder, which is the engine's `null` (ADR-0035 §8).
+   */
+  readonly vocabularies?: Readonly<Record<string, WireFacetVocabulary>>;
   /** What `derive:status` and `derive:retry` answer with. */
   readonly deriveStatus?: WireDeriveStatus;
   /** What `derive:failures` answers with for `failed`, over an empty list. */
@@ -1194,6 +1200,9 @@ export class FakeEngine {
 
       case "folder:find":
         return ok(this.foundFolders[request.query] ?? null);
+
+      case "facets:vocabulary":
+        return ok(this.#options.vocabularies?.[request.place] ?? null);
 
       case "folder:covers":
         return ok(

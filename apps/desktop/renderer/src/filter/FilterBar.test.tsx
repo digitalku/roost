@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { FilterBar } from "./FilterBar.js";
+import type { FacetScope } from "./vocabulary.js";
 
 /**
  * The bar over the grid (ADR-0035).
@@ -44,9 +45,15 @@ const TYPES: readonly SidebarTypeRow[] = [
   { ext: "", count: 2 },
 ];
 
-function show(facets: WireFacets = NONE, representable = true, subfolders = false) {
+function show(
+  facets: WireFacets = NONE,
+  representable = true,
+  subfolders = false,
+  scope: FacetScope = null,
+) {
   const sent: WireFacets[] = [];
   const depths: boolean[] = [];
+  const wanted: boolean[] = [];
   render(
     <FilterBar
       facets={facets}
@@ -54,17 +61,86 @@ function show(facets: WireFacets = NONE, representable = true, subfolders = fals
       tags={TAGS}
       ratings={RATINGS}
       types={TYPES}
+      scope={scope}
+      onScopeWanted={(on) => wanted.push(on)}
       onChange={(next) => sent.push(next)}
       subfolders={subfolders}
       onSubfolders={(on) => depths.push(on)}
     />,
   );
-  return { user: userEvent.setup(), sent, depths };
+  return { user: userEvent.setup(), sent, depths, wanted };
 }
 
 const open = async (user: ReturnType<typeof userEvent.setup>, facet: RegExp): Promise<void> => {
   await user.click(screen.getByRole("button", { name: facet }));
 };
+
+describe("inside a folder (ADR-0035 §8)", () => {
+  const FOLDER: FacetScope = {
+    tags: [row({ id: "tag:wood", name: "wood", count: 3, group: "Materials" })],
+    types: [{ ext: "png", count: 3 }],
+  };
+  const items = (): (string | null)[] =>
+    screen.getAllByRole("menuitemcheckbox").map((item) => item.textContent);
+
+  it("offers only what the folder holds, at the folder's counts", async () => {
+    const { user } = show(NONE, true, false, FOLDER);
+    await open(user, /^Tags/);
+    expect(items()).toEqual([expect.stringContaining("wood")]);
+    expect(items()[0]).toContain("3");
+    await user.keyboard("{Escape}");
+    await open(user, /^Types/);
+    expect(items()).toEqual([expect.stringContaining("PNG")]);
+  });
+
+  it("keeps a ticked value the folder does not hold, so it can be unticked", async () => {
+    const { user, sent } = show({ ...NONE, tags: ["wip"], exts: ["mp4"] }, true, false, FOLDER);
+    await open(user, /^Tags/);
+    const wip = await screen.findByRole("menuitemcheckbox", { name: /wip/ });
+    expect(wip.getAttribute("aria-checked")).toBe("true");
+    await user.click(wip);
+    expect(sent.at(-1)?.tags).toEqual([]);
+  });
+
+  it("draws the library's list for a menu the answer leaves alone (§9)", async () => {
+    // Under All over the whole library only Tags is narrowed; Types is the
+    // library's, and the answer says so with a null rather than a copy.
+    const { user } = show(NONE, true, false, {
+      tags: [row({ id: "tag:wood", name: "wood", count: 3 })],
+      types: null,
+    });
+    await open(user, /^Tags/);
+    expect(items()).toEqual([expect.stringContaining("wood")]);
+    await user.keyboard("{Escape}");
+    await open(user, /^Types/);
+    expect(items()).toHaveLength(TYPES.length);
+  });
+
+  it("says it is counting rather than showing the library's list first", async () => {
+    const { user } = show(NONE, true, false, "counting");
+    await open(user, /^Tags/);
+    expect(screen.queryAllByRole("menuitemcheckbox")).toEqual([]);
+    expect((await screen.findByRole("menu")).textContent).toContain("Counting…");
+  });
+
+  it("says a folder holds no tags in its own words", async () => {
+    const { user } = show(NONE, true, false, { tags: [], types: [] });
+    await open(user, /^Tags/);
+    expect((await screen.findByRole("menu")).textContent).toContain("No tags here");
+  });
+
+  it("asks for the folder's lists while Tags or Types is open, and not for Rating", async () => {
+    const { user, wanted } = show();
+    expect(wanted).toEqual([false]);
+    await open(user, /^Rating/);
+    expect(wanted).toEqual([false]);
+    await user.keyboard("{Escape}");
+    await open(user, /^Tags/);
+    expect(wanted).toEqual([false, true]);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(wanted).toEqual([false, true, false]));
+  });
+});
 
 describe("the filter bar", () => {
   it("offers three facets and nothing else", () => {

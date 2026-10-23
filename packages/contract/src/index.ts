@@ -76,6 +76,7 @@ export {
   type WireEagleSurvey,
   type WireExportReport,
   type WireFacets,
+  type WireFacetVocabulary,
   type WireFiled,
   type WireFolderCover,
   type WireFolderDeleted,

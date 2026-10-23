@@ -31,6 +31,7 @@ import { Credit } from "./Credit.js";
 import { DeriveStatus, derivesLeft, useDeriveStatus } from "./DeriveStatus.js";
 import { dragGoesOut, dragOutEnded, dragOutStarted } from "./dnd.js";
 import { FilterBar } from "./filter/FilterBar.js";
+import { useFacetScope } from "./filter/vocabulary.js";
 import { childrenOf, parentOf } from "./folders.js";
 import { bytes, counted } from "./format.js";
 import { AssetContextMenu, copiedLine } from "./grid/AssetContextMenu.js";
@@ -1190,6 +1191,13 @@ function LibraryView({
     () => (ruleIsInTheQuery(split.facets) ? split.facets : { ...split.facets, tagRule }),
     [split.facets, tagRule],
   );
+
+  /**
+   * What Tags and Types offer over the place (ADR-0035 §8, §9), asked for only
+   * while one of them is open.
+   */
+  const [scopeWanted, setScopeWanted] = useState(false);
+  const scope = useFacetScope(split.place, facets, revision, scopeWanted);
 
   /**
    * Where the last apply came from (ADR-0044 §3).
@@ -2378,6 +2386,8 @@ function LibraryView({
                 tags={sidebar?.tags ?? NO_TAGS}
                 ratings={sidebar?.ratings ?? NO_TAGS}
                 types={sidebar?.types ?? NO_TYPES}
+                scope={scope}
+                onScopeWanted={setScopeWanted}
                 onChange={applyFacets}
                 // The query wins where it says anything, and the library's
                 // setting stands in where it does not (ADR-0036).
