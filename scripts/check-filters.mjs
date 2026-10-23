@@ -45,8 +45,24 @@ const STARS = 3;
  */
 const BOTH = 2;
 
-/** Enough tags that the menu is searched rather than read (§7.3 wants > 8). */
-const FILLER = ["comedy", "school", "gym", "studio", "draft", "final", "print", "web"];
+/**
+ * Enough tags that the menu is searched rather than read (§7.3 wants > 8), and
+ * enough that it scrolls inside its 60vh, which is where a focus that moves to
+ * the field shows as a jump back to the head.
+ */
+const FILLER = [
+  "comedy",
+  "school",
+  "gym",
+  "studio",
+  "draft",
+  "final",
+  "print",
+  "web",
+  // Named to sort after every tag a check clicks, so those stay in the part of
+  // the menu that is on screen without scrolling.
+  ...Array.from({ length: 24 }, (_, i) => `zine-${String(i).padStart(2, "0")}`),
+];
 
 const { dir, dispose } = await scratch("check-filters");
 const root = await imageLibrary(dir, { count: ASSETS });
@@ -393,6 +409,46 @@ try {
     const after = await state();
     check("nothing was chosen by typing", after.query === `tag:${TAG}`, after.query);
   }
+  section("A long menu keeps its scroll under the pointer");
+  {
+    // Found on 2026-10-24: the menu focuses its own content whenever the
+    // pointer leaves a value, and that focus was handed to the field at the
+    // head, which scrolled the menu back up under somebody scrolling down it.
+    const trigger = await triggerAt("Tags");
+    await cdp.mouse.click(trigger.x, trigger.y);
+    await cdp.settle(
+      `document.querySelector(".menu-search-input") === null ? null : true`,
+      (f) => f,
+    );
+    const menu = await cdp.box(".filter-menu");
+    await cdp.mouse.wheel(menu.x, menu.y, 2000);
+    await sleep(300);
+    const scrolled = await cdp.evaluate('document.querySelector(".filter-menu").scrollTop');
+    // Onto the last value, and then off the menu altogether: the move Radix
+    // answers by focusing its content.
+    const last = await cdp.evaluate(`(() => {
+      const items = [...document.querySelectorAll('[role="menuitemcheckbox"]')];
+      const box = items[items.length - 1].getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2, right: box.right };
+    })()`);
+    await cdp.mouse.move(last.x, last.y);
+    await sleep(100);
+    await cdp.mouse.move(last.right + 60, last.y);
+    await sleep(300);
+    const after = await cdp.evaluate(`({
+      top: document.querySelector(".filter-menu").scrollTop,
+      field: document.activeElement?.classList.contains("menu-search-input") === true,
+    })`);
+    check("the menu is long enough to scroll", scrolled > 0, `scrollTop=${scrolled}`);
+    check(
+      "leaving a value does not send the caret back to the field",
+      after.field === false && after.top === scrolled,
+      `scrollTop ${scrolled} → ${after.top}, field=${after.field}`,
+    );
+    await cdp.keyboard.press("Escape");
+    await sleep(200);
+  }
+
   section("Show subfolder contents (ADR-0036)");
   await typeQuery("");
   check(

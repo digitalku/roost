@@ -66,10 +66,18 @@ export function FolderField({
   );
 
   const field = useRef<HTMLInputElement>(null);
+  /**
+   * Whether the next focus of the content is the one the menu opens with, the
+   * only one handed to the field: the menu also focuses its content whenever
+   * the pointer leaves an item, and handing that on scrolled a long list back
+   * to its head under the pointer (2026-10-24, found in the filter bar).
+   */
+  const opening = useRef(false);
 
   return (
     <DropdownMenu.Root
       onOpenChange={(open) => {
+        opening.current = open;
         if (open) setNeedle("");
       }}
     >
@@ -107,11 +115,13 @@ export function FolderField({
            * field was drawn, the letters went to the menu's own typeahead, and
            * every component test passed. So the content's own focus is what
            * moves it, whenever that lands. Only the content's: a focus that
-           * reaches an item is somebody walking the list with the arrows.
+           * reaches an item is somebody walking the list with the arrows. And
+           * only the first: see `opening`.
            */
           onFocus={(event) => {
-            if (event.target !== event.currentTarget) return;
-            field.current?.focus();
+            if (event.target !== event.currentTarget || !opening.current) return;
+            opening.current = false;
+            field.current?.focus({ preventScroll: true });
           }}
         >
           {searchable && (

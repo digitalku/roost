@@ -1,5 +1,5 @@
 import type { SidebarFolderRow } from "@roost/contract";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { FolderField } from "./FolderField.js";
@@ -63,6 +63,21 @@ describe("searching the folder menu", () => {
   it("is drawn past a listful of folders", async () => {
     await show();
     expect(screen.getByLabelText("Search folders")).toBeDefined();
+  });
+
+  it("takes the caret once, not each time the pointer leaves a folder", async () => {
+    // The menu focuses its own content whenever the pointer leaves an item, and
+    // handing that on scrolled a long list back to the field (2026-10-24).
+    await show();
+    // The menu is modal, so `body` carries `pointer-events: none` and only the
+    // menu takes the pointer; happy-dom does not see that override.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const field = screen.getByLabelText("Search folders");
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    const item = screen.getByRole("menuitem", { name: /kucing/ });
+    await user.hover(item);
+    await user.unhover(item);
+    expect(document.activeElement).not.toBe(field);
   });
 
   it("keeps the tree's shape, so two folders of one name stay apart", async () => {

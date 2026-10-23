@@ -329,6 +329,35 @@ describe("the filter bar", () => {
     expect(screen.getByRole("menuitemcheckbox").textContent).toContain("olahraga");
   });
 
+  it("gives the field the caret once, not each time the pointer leaves a value", async () => {
+    // Found on 2026-10-24: a menu focuses its own content whenever the pointer
+    // leaves an item, and handing that on to the field scrolled a long menu
+    // back to its head under the hand of somebody scrolling down it.
+    const many = Array.from({ length: 12 }, (_, i) => row({ id: `tag:${i}`, name: `tag-${i}` }));
+    render(
+      <FilterBar
+        facets={NONE}
+        representable
+        tags={many}
+        ratings={RATINGS}
+        types={TYPES}
+        onChange={() => {}}
+        subfolders={false}
+        onSubfolders={() => {}}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^Tags/ }));
+    const field = await screen.findByRole("searchbox", { name: "Search tags" });
+    await waitFor(() => expect(document.activeElement).toBe(field));
+
+    const item = screen.getByRole("menuitemcheckbox", { name: /tag-9/ });
+    await user.hover(item);
+    expect(document.activeElement).toBe(item);
+    await user.unhover(item);
+    expect(document.activeElement).not.toBe(field);
+  });
+
   it("says when a search matches nothing, rather than opening onto a blank", async () => {
     const many = Array.from({ length: 12 }, (_, i) => row({ id: `tag:${i}`, name: `tag-${i}` }));
     render(

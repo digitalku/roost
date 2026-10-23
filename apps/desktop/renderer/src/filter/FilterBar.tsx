@@ -345,6 +345,16 @@ function Facet({
   const matching = searchable ? values.filter((value) => matches(value, needle)) : values;
 
   const field = useRef<HTMLInputElement>(null);
+  /**
+   * Whether the next focus of the content is the one the menu opens with.
+   *
+   * That one is handed to the field, and no other: a `radix-ui` menu also
+   * focuses its content whenever the pointer leaves an item, and handing that
+   * one on scrolled a long menu back to the field at its head every time the
+   * pointer crossed a heading or a gap — under the hand of somebody scrolling
+   * down to tick a tag (2026-10-24).
+   */
+  const opening = useRef(false);
 
   return (
     /*
@@ -360,6 +370,7 @@ function Facet({
         if (!next && ticking.current) return;
         setOpen(next);
         onOpen?.(next);
+        opening.current = next;
         if (next) setNeedle("");
       }}
     >
@@ -394,11 +405,12 @@ function Facet({
            * focus is taken: a focus that reaches an item is somebody walking
            * the list with the arrows, and `ArrowDown` still gets there, because
            * the field is inside the content and the key reaches the menu's own
-           * handler by bubbling.
+           * handler by bubbling. And only the first: see `opening`.
            */
           onFocus={(event) => {
-            if (event.target !== event.currentTarget) return;
-            field.current?.focus();
+            if (event.target !== event.currentTarget || !opening.current) return;
+            opening.current = false;
+            field.current?.focus({ preventScroll: true });
           }}
         >
           {rule !== undefined && onRule !== undefined && <Rule rule={rule} onRule={onRule} />}
