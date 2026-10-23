@@ -1,6 +1,6 @@
 # Roost — Benchmarks
 
-Status: **first results in** · Last updated: 2026-10-01
+Status: **first results in** · Last updated: 2026-10-23
 
 Nothing has been measured in this implementation, because nothing has been built. What this
 file holds today is the **baseline**: the numbers the Rust implementation at `../roost-old`
@@ -56,6 +56,52 @@ target now under pressure — and it is measured from M3, the first milestone th
 rather than assumed until someone complains.
 
 ## 3. Results
+
+### 2026-10-23 — what a `tag:` and a `folder:` term cost at a million assets
+
+Machine: Fedora 44 host, Intel Core Ultra 7 155H, the index on tmpfs. Node 22.23.1. A throwaway
+script, not kept, against a synthetic index built from `packages/core/migrations/`:
+**1,000,000 assets**, 2 % in the trash, three tags each from 2,000 on a Zipf curve (the commonest
+on 317,480 assets, the rarest on under 200), 300 folders, 70 % of assets in one and 20 % in two.
+No `ANALYZE`, as in a library. The filter is `buildQuery`'s, run through `searchSql` and the
+statement `Repo.count` runs. Medians of seven warm runs; *page 5* is the mean of pages 2–5.
+
+| Query | Matches | Count, before | Count, after | Page 1, before | Page 1, after |
+| --- | --- | --- | --- | --- | --- |
+| `tag:t1` | 317,480 | 522 ms | **368 ms** | 0.8 ms | 0.8 ms |
+| `tag:t10` | 35,540 | 512 ms | **376 ms** | 4.3 ms | 4.0 ms |
+| `tag:t100` | 3,682 | 514 ms | **372 ms** | 34 ms | 30 ms |
+| `tag:t2000` | 175 | 517 ms | **364 ms** | 728 ms | 611 ms |
+| `tag:t10 tag:t100` | 98 | 543 ms | **392 ms** | 1,281 ms | 1,103 ms |
+| `tag:t1 OR tag:t2000` | 317,615 | 803 ms | **568 ms** | 0.9 ms | 0.8 ms |
+| `infolder:f2 tag:t10` | 1,613 | 551 ms | **335 ms** | 85 ms | 66 ms |
+| `folder:f1`, 16 folders | 105,017 | 2,491 ms | **358 ms** | 3.9 ms | 1.5 ms |
+| `folder:f300`, one | 774 | 286 ms | 293 ms | 101 ms | 100 ms |
+
+Two spellings were tried and not kept, each of them measured over the whole table:
+
+| Spelling | Rare tag, page 1 | Common tag, page 1 | Common tag, count |
+| --- | --- | --- | --- |
+| `a.id IN (SELECT asset_id … WHERE tag_id = (…))` | **0.5 ms** | 629 ms | 619 ms |
+| the same, with an index on `(tag_id, asset_id)` | **0.3 ms** | 389 ms | 379 ms |
+| `+a.id IN (…)`, the set built and probed, with that index | 81 ms | 38 ms | 302 ms |
+
+**What it revealed.** Both terms are a probe per asset, so a count walks the whole library
+whatever the term matches, and the floor of that walk is about **95 ms** (`group:none`, a probe
+that fails at once). Two things had made each probe dearer than it needed to be. The tag was
+joined to `tags`, and SQLite turned the join into a **correlated** lookup of the name, made again
+for every asset; resolved in a scalar subquery of its own it is read once, and the probe is one
+seek of `(asset_id, tag_id)`. And a folder list went into the primary key's seek, which is **one
+seek per folder per asset**: sixteen folders made a count seven times dearer than one. With a
+`+` the seek is the asset's own row or two and the list is checked on them. Neither changes a
+result, and neither is slower anywhere in the table.
+
+What is left is the shape, not the probe. A rare tag pages slowly because the grid walks
+`idx_assets_imported` to fill a page, and a page of a tag on 175 assets walks most of the library.
+Driving from the tag fixes that and breaks the common one, whose first page goes from 0.8 ms to
+0.4–0.6 s, because the whole set is then built and sorted. No single spelling wins both: the fix
+is to choose per term from the tag's size, and with no statistics SQLite cannot. That is on
+`TODO.md`, and is not built (2026-10-23).
 
 ### 2026-10-05 — a shuffle that ties, so a resume is a walk (ADR-0039 §11)
 

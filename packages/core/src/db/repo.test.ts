@@ -534,6 +534,33 @@ describe("the plan a grid query actually gets", () => {
     expect(beyondKey).toContain("TEMP B-TREE");
     expect(sameKey).not.toContain("TEMP B-TREE");
   });
+
+  it("reads a tag's name once per query, not once per asset", () => {
+    // Spelled as `@roost/search` compiles `tag:` (its `query.test.ts` holds the
+    // string). Joined to `tags` instead, SQLite looked the name up in a
+    // correlated subquery, again for every asset the seek returned: 515 ms
+    // against 370 ms for a count at a million assets (`docs/BENCHMARKS.md`).
+    const tag =
+      "EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id" +
+      " AND at.tag_id = (SELECT t.id FROM tags t WHERE t.name = ?))";
+    const lines = planFor(`(${tag}) AND ${MATCH_LIVE.sql}`, DEFAULT_SORT, "wood").split("\n");
+    const name = lines.findIndex((line) => line.includes("SEARCH t "));
+    expect(name).toBeGreaterThan(0);
+    expect(lines[name - 1]).toMatch(/^SCALAR SUBQUERY/);
+    expect(lines.join("\n")).toContain("(asset_id=? AND tag_id=?)");
+  });
+
+  it("seeks an asset's folders once, whatever the length of the folder list", () => {
+    // `folder:` over a subtree: given the list, the seek was one per folder per
+    // asset, 2.5 s for a count over sixteen folders at a million assets, where
+    // reading the asset's own row or two is one seek: 0.36 s.
+    const folders =
+      "EXISTS (SELECT 1 FROM asset_folders af WHERE af.asset_id = a.id" +
+      " AND +af.folder_id IN (?, ?, ?))";
+    const detail = planFor(`(${folders}) AND ${MATCH_LIVE.sql}`, DEFAULT_SORT, 1, 2, 3);
+    expect(detail).toContain("sqlite_autoindex_asset_folders_1 (asset_id=?)");
+    expect(detail).not.toContain("folder_id=?");
+  });
 });
 
 describe("every order pages without repeating or skipping a row", () => {
