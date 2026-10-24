@@ -232,6 +232,27 @@ describe("compiling", () => {
     expect(filter.params).toEqual([3, 4, 5]);
   });
 
+  it("spells a tag and a folder list as the plans in repo.test.ts are tested", () => {
+    // Both spellings are performance, not meaning: the tag's name is resolved
+    // once rather than per asset, and a list of folders is not given to the
+    // primary key's seek, which would make it one seek per folder per asset.
+    // `repo.test.ts` asserts the plans for exactly these strings.
+    const flat = (sql: string): string => sql.replace(/\s+/g, " ");
+    expect(flat(buildQuery("tag:wood").sql)).toContain(
+      "EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id" +
+        " AND at.tag_id = (SELECT t.id FROM tags t WHERE t.name = ?))",
+    );
+    const folders = { subtree: () => [3, 4, 5], only: () => [3] };
+    expect(flat(buildQuery("folder:Design", folders).sql)).toContain(
+      "EXISTS (SELECT 1 FROM asset_folders af WHERE af.asset_id = a.id" +
+        " AND +af.folder_id IN (?, ?, ?))",
+    );
+    expect(flat(buildQuery("infolder:Design", folders).sql)).toContain(
+      "EXISTS (SELECT 1 FROM asset_folders af WHERE af.asset_id = a.id" +
+        " AND af.folder_id IN (?))",
+    );
+  });
+
   it("takes infolder through the resolver that does not descend", () => {
     // One shape, two depths (ADR-0036). The SQL is the same `EXISTS` either
     // way; which method expands the path is the whole difference, which is why

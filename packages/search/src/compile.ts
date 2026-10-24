@@ -157,8 +157,15 @@ function termSql(term: Term, folders: Folders, params: Param[]): string {
       params.push(term.value);
       // `tags.name` is UNIQUE COLLATE NOCASE, so equality here is already
       // case-insensitive and matches what tagging does.
-      return `EXISTS (SELECT 1 FROM asset_tags at JOIN tags t ON t.id = at.tag_id
-                       WHERE at.asset_id = a.id AND t.name = ?)`;
+      //
+      // The name is resolved in a subquery of its own rather than joined,
+      // because SQLite turned the join into a lookup of the name **per asset**;
+      // uncorrelated, it is read once and the probe is one primary-key seek.
+      // 515 ms against 370 ms for a count at a million assets
+      // (`docs/BENCHMARKS.md`).
+      return `EXISTS (SELECT 1 FROM asset_tags at
+                       WHERE at.asset_id = a.id
+                         AND at.tag_id = (SELECT t.id FROM tags t WHERE t.name = ?))`;
 
     // One shape, two depths. `folder:` is the folder and everything beneath it,
     // `infolder:` is the folder alone (ADR-0036) — the difference is which
@@ -170,8 +177,14 @@ function termSql(term: Term, folders: Folders, params: Param[]): string {
       if (ids.length === 0) return "0";
       const placeholders = ids.map(() => "?").join(", ");
       for (const id of ids) params.push(id);
+      // Over several folders the unary `+` keeps `folder_id` out of the seek:
+      // given the list, SQLite seeks the primary key once per folder per asset,
+      // where an asset is in a folder or two and reading its row is one seek.
+      // A subtree of 16 folders counted in 2.5 s and counts in 0.36 s now
+      // (`docs/BENCHMARKS.md`). One folder is an equality and keeps it.
+      const column = ids.length > 1 ? "+af.folder_id" : "af.folder_id";
       return `EXISTS (SELECT 1 FROM asset_folders af
-                       WHERE af.asset_id = a.id AND af.folder_id IN (${placeholders}))`;
+                       WHERE af.asset_id = a.id AND ${column} IN (${placeholders}))`;
     }
 
     case "group":

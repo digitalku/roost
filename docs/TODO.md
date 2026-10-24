@@ -431,6 +431,15 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   fix at this size — see `BENCHMARKS.md` — but the shape of the fix is pushing the limit into the
   FTS side, and 1M assets is where it may start to matter.
 
+- 🟢 **A rare `tag:` pages slowly, and a `tag:` or `folder:` count costs 0.3–0.4 s, at a million
+  assets** (`BENCHMARKS.md`, 2026-10-23). Both terms are a probe per asset, so a count walks the
+  library and a page of a tag on 175 assets walks most of it: 0.6 s, and 1.1 s for two tags that
+  meet on 98. Driving from the tag instead (`a.id IN (SELECT asset_id …)`) makes a rare one's
+  page 0.3–10 ms and a common one's first page 0.8 ms → 0.4–0.6 s, so no single spelling wins: the fix
+  is choosing the spelling per term from the tag's size, plus an index on `(tag_id, asset_id)`
+  for the driven one. The user said on 2026-10-23 that this is worth doing only if it is light,
+  and it is not, so it waits until a library feels it.
+
 - 🟢 **A query that matches nothing is the worst case, not the best**: proving an empty answer
   means walking every row. Worth saying in the UI eventually, because "searching for something
   that is not there is slow" will otherwise be reported as a bug.
