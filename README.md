@@ -228,7 +228,6 @@ but recovering from a bad build means going forward to a fixed one, not back to 
 | [Setup](docs/SETUP.md) | Development environment |
 | [Benchmarks](docs/BENCHMARKS.md) | Measured performance, and what each run revealed |
 | [TODO](docs/TODO.md) | The working list, in priority order — [closed items](docs/todo-done.md) are kept beside it |
-| [Decisions](docs/adr/) | Architecture decision records |
 
 ## Licence
 
