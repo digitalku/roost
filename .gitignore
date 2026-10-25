@@ -44,3 +44,11 @@ index.db-shm
 .tmp-test/
 dist-tests/
 dist-scripts/
+
+# Notes kept for and by AI assistants. They stay on this machine and are never
+# published: the assistant's instructions, its settings, and its session log.
+/CLAUDE.md
+CLAUDE.local.md
+/.claude/
+/docs/SESSION_LOG.md
+/docs/sessions/

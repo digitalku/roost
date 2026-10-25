@@ -12,8 +12,7 @@ Electron shell, TypeScript engine, React interface. Your files stay yours.
 > [docs/SETUP.md](docs/SETUP.md); `pnpm dev` opens the window and `pnpm --filter @roost/cli start
 > -- --help` lists the CLI. What is left is M5 (discovery: colour, near-duplicates, watched
 > folders) and M6 (packaging, preferences, undo, onboarding), both deferred while the feature set
-> settles. [docs/ROADMAP.md](docs/ROADMAP.md) has the milestone detail and
-> [docs/SESSION_LOG.md](docs/SESSION_LOG.md) is the running work log.
+> settles. [docs/ROADMAP.md](docs/ROADMAP.md) has the milestone detail.
 >
 > This is a rewrite. An earlier Roost exists in Rust and Tauri, complete through its desktop
 > shell; this repository re-implements the engine in TypeScript on Electron and rebuilds the
@@ -229,7 +228,6 @@ but recovering from a bad build means going forward to a fixed one, not back to 
 | [Setup](docs/SETUP.md) | Development environment |
 | [Benchmarks](docs/BENCHMARKS.md) | Measured performance, and what each run revealed |
 | [TODO](docs/TODO.md) | The working list, in priority order — [closed items](docs/todo-done.md) are kept beside it |
-| [Session log](docs/SESSION_LOG.md) | What each working session did, decided, and deferred — recent sessions, with [the rest](docs/sessions/) archived by month |
 | [Decisions](docs/adr/) | Architecture decision records |
 
 ## Licence
