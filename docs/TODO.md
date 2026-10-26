@@ -191,10 +191,9 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
   `appstreamcli`'s pedantic note is gone (ADR-0063 §2).
 - ☑ ~~**x86_64 only for now**~~, at the user's choice, 2026-10-26: `packaging/flatpak/flathub.json`
   says `only-arches`. aarch64 waits until somebody can build and run it.
-- 🟡 **The source becomes the GitHub tag.** `packaging/flatpak/build-local.sh` builds from a copy of
-  this checkout's working tree (`git ls-files`, plus untracked files git does not ignore) in
-  `scratch/flatpak/src`, and installs the result as `roost-local`.
-  Flathub builds `x86_64` and `aarch64`; only `x86_64` has been built.
+- ☑ ~~**The source becomes the GitHub tag.**~~ Done 2026-10-26: `v0.1.0` (`49ff1b8`) is pushed. The
+  Flathub copy of the manifest differs from `packaging/flatpak/`'s in the one source: `type: git`,
+  that tag and that commit.
 - ☑ ~~**The install offer says no command when `FLATPAK_ID` is set** (§7), with a test.~~ Done
   2026-10-26. `carriesTools()` reads `FLATPAK_ID`. The capability gains `bundled`, which is always
   true for the three in-process backends and true for ffmpeg and libheif inside a Flatpak, and
@@ -229,8 +228,15 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
 - 🟢 **Two log lines to understand:**
   - `Request cancelled by user` from `components/dbus/xdg/request.cc` at the first launch;
   - Chromium's *`--ozone-platform=wayland` is not compatible with Vulkan*.
-- 🟡 **`flatpak-builder-lint`** passes on the manifest and on the repository, the build completes
-  under `org.flatpak.Builder --sandbox`, and then the pull request goes to `flathub/flathub`.
+- ☑ ~~**`flatpak-builder-lint`** passes on the manifest and on the repository, and the build
+  completes under `org.flatpak.Builder --sandbox`.~~ Done 2026-10-26, from the tag, with no errors.
+  The flags are exact. `--mirror-screenshots-url=https://dl.flathub.org/media` must have **no
+  trailing slash**, and it goes with `--compose-url-policy=full` and a repository named `repo`.
+  With the slash, the catalogue kept relative paths, and the lint reported
+  `appstream-external-screenshot-url` and `appstream-remote-icon-not-mirrored`.
+- 🟡 **The pull request to `flathub/flathub`**, from a fork, on a branch from `new-pr`. It carries
+  `com.digitalku.roost.yml`, `generated-sources.json` and `flathub.json`. The files and the
+  description are ready in `scratch/flatpak/fh/`. `gh` is not installed here, so the user opens it.
 
 ### Foundation (M0) — done 2026-08-24
 
