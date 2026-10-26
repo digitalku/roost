@@ -434,7 +434,8 @@ is listed here, so the order stays visible instead of becoming folklore.
   bundled as a shared object, `appId: com.digitalku.roost`, and a version that is not `0.0.0`.
   **The Flatpak comes first** (ADR-0063, 2026-10-25): version `0.1.0`, ffmpeg and libheif the
   runtime's with only `heif-dec` built, the other three targets not decided there. The offline
-  build was prototyped on 2026-10-26 and opens a library (`TODO.md` *Flathub first*)
+  build was prototyped on 2026-10-26 and opens a library (`TODO.md` *Flathub first*). It is **not
+  on Flathub** (ADR-0063 §10, its AI policy): 0.1.0 ships as a `.flatpak` bundle on GitHub Releases
 - ☑ ~~**About Roost…** in the `☰` and a credit line under the picker~~ — ADR-0038 §5.1–5.2, built 2026-09-08 ahead of this milestone, because a proprietary build owes its licences and its build identity to the window rather than to the repository
 - ☐ First-run onboarding and a sample library
 - ☐ Documentation: user guide, and the library format spec published for other implementers

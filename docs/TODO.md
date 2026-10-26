@@ -234,9 +234,20 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
   trailing slash**, and it goes with `--compose-url-policy=full` and a repository named `repo`.
   With the slash, the catalogue kept relative paths, and the lint reported
   `appstream-external-screenshot-url` and `appstream-remote-icon-not-mirrored`.
-- 🟡 **The pull request to `flathub/flathub`**, from a fork, on a branch from `new-pr`. It carries
-  `com.digitalku.roost.yml`, `generated-sources.json` and `flathub.json`. The files and the
-  description are ready in `scratch/flatpak/fh/`. `gh` is not installed here, so the user opens it.
+- ✗ ~~**The pull request to `flathub/flathub`**~~, not opened, 2026-10-26 (ADR-0063 §10). Flathub's
+  Generative AI policy forbids an AI-written manifest and PR, and wants AI-written code disclosed.
+  The user chose a bundle on GitHub Releases instead.
+- ☑ ~~**The bundle**, `roost-0.1.0-x86_64.flatpak`~~, built 2026-10-26 from the tag with
+  `--runtime-repo` pointing at Flathub and **without** `--mirror-screenshots-url`. It is 105 MB, and
+  was installed from the file, run, and installed again with `--reinstall`. An empty user
+  installation added the `flathub` remote by itself; it did not fetch the runtime, because the
+  system installation already holds 26.08.
+- 🟡 **Install the bundle on a machine without runtime 26.08**, a VM or another laptop, to see the
+  runtime and codecs-extra arrive from Flathub. Nothing here has proved that step.
+- 🟡 **The GitHub release `v0.1.0`**, with the bundle attached, and `roost.digitalku.com` linking to
+  it. The user creates the release; `gh` is not installed here.
+- 🟢 **Updates without a reinstall**: a Flatpak repository of our own on `roost.digitalku.com`
+  with a `.flatpakref`, signed with a GPG key. Not decided.
 
 ### Foundation (M0) — done 2026-08-24
 

@@ -6,20 +6,12 @@
 A local-first digital asset manager — a Linux-first alternative to Eagle.cool.
 Electron shell, TypeScript engine, React interface. Your files stay yours.
 
-> **Status: M0 through M4 are done; it runs from source and is not packaged yet.** The engine, the
-> headless CLI, the desktop window, and the format backends — images, video, audio, PDF, SVG,
-> fonts — all work. Import, organize, search, preview, and edit a library today by following
-> [docs/SETUP.md](docs/SETUP.md); `pnpm dev` opens the window and `pnpm --filter @roost/cli start
-> -- --help` lists the CLI. What is left is M5 (discovery: colour, near-duplicates, watched
-> folders) and M6 (packaging, preferences, undo, onboarding), both deferred while the feature set
-> settles. [docs/ROADMAP.md](docs/ROADMAP.md) has the milestone detail.
->
-> This is a rewrite. An earlier Roost exists in Rust and Tauri, complete through its desktop
-> shell; this repository re-implements the engine in TypeScript on Electron and rebuilds the
-> interface from scratch. **The library format is carried over** — a library that
-> implementation wrote opens here, and a test proves it. The reverse stopped being a requirement
-> on 2026-08-29, when that project was discontinued: the schema has moved on since (it is at v14),
-> and nothing here is traded away to keep an abandoned build's approval.
+> **Status: 0.1.0, the first release — a Flatpak for Linux on x86_64.** The engine, the headless
+> CLI, the desktop window, and the format backends — images, video, audio, PDF, SVG, fonts — all
+> work. Import, organize, search, preview, and edit a library today, from the
+> [Flatpak](#flatpak) or from source. What is left is M5 (discovery: colour, near-duplicates,
+> watched folders) and the rest of M6 (preferences, undo, onboarding, the other platforms).
+> [docs/ROADMAP.md](docs/ROADMAP.md) has the milestone detail.
 
 ## Why
 
@@ -34,18 +26,47 @@ format your metadata is kept in.
 - **Your data outlives the app.** Every change is appended to a plain JSONL journal; the database
   is a rebuildable cache you can delete at any time.
 - **Fast at scale.** 1M assets, 60fps grid, sub-100ms search — treated as requirements.
-- **Non-destructive.** Originals are never modified in place; existing folders can be indexed
-  without copying.
+- **A workspace, not an archive.** A file in a library opens in the application that owns it and
+  is saved where it is; Roost notices the save and redraws it.
 - **Scriptable.** The engine ships as a headless CLI too, and the interface may not do anything
   the CLI cannot.
 
 ## Install
 
-There is no package yet — packaging is M6 — so Roost is installed by building this repository,
-and updated by pulling it. Linux is the platform Roost is *for* and the only one tested end to
-end; Windows builds and runs the same checkout, with the differences its own section names.
+On Linux, the Flatpak is the way in. Building this repository is the other, and the only one on
+Windows: Linux is the platform Roost is *for* and the only one tested end to end, and Windows
+builds and runs the same checkout, with the differences its own section names.
 
-### On Fedora
+### Flatpak
+
+Download `roost-<version>-x86_64.flatpak` from the
+[latest release](https://github.com/digitalku/roost/releases/latest), then:
+
+```bash
+flatpak install --user roost-0.1.0-x86_64.flatpak
+flatpak run com.digitalku.roost
+```
+
+Roost then appears in the application menu. It runs on the Freedesktop runtime 26.08, which the
+install fetches from [Flathub](https://flathub.org/setup) if the machine does not have it yet.
+Only x86_64 is built for now.
+
+**Nothing else to install.** The Flatpak draws HEIC photographs and HEVC video with the runtime's
+own libheif and ffmpeg, so the decoder section below is for a build from source. HEVC video gets a
+thumbnail but does not play yet: playback is Chromium's, and Chromium has no HEVC decoder here.
+
+**What it can reach** is your home folder and `/run/media`, where removable drives are mounted —
+a library is a folder that can sit anywhere you keep files. It has no network access at all.
+
+To update, download the newer file and install it over the old one; to remove it, uninstall it.
+Your libraries are folders of your own and stay where they are either way.
+
+```bash
+flatpak install --user --reinstall roost-<version>-x86_64.flatpak
+flatpak uninstall --user com.digitalku.roost
+```
+
+### From source on Fedora
 
 ```bash
 sudo dnf install -y nodejs npm gcc-c++ make python3 vips-devel \
@@ -65,7 +86,7 @@ thumbnailed, and `roost thumb --retry-blocked` picks that work up once it arrive
 `ffmpeg-free` is Fedora's build and covers everything except HEVC; the section below is about the
 formats it and libvips deliberately leave out.
 
-### On Windows
+### From source on Windows
 
 ```powershell
 winget install Git.Git
@@ -202,11 +223,10 @@ It is one command on both platforms and does the platform's extra work itself: o
 skips the build scripts the install cannot run and then fetches Electron's binary deliberately,
 which is the step that would otherwise be silently missing after a version bump.
 
-**It pulls, so the machine needs to be able to reach the repository.** This one is private, and a
-clone that was copied onto a machine rather than made on it usually cannot: `git pull` answers
-*"Host key verification failed"* or asks for a password nobody has. Cloning over HTTPS lets Git
-for Windows' credential manager hold the token; cloning over SSH wants a key on each machine.
-Either is a one-time setup per computer, and `pnpm refresh` is the only command afterwards.
+**It pulls, so the machine needs to be able to reach the repository.** The repository is public,
+so a clone made over HTTPS pulls with no credentials at all. A clone made over SSH wants a key on
+each machine, and one copied onto a machine rather than made on it answers *"Host key
+verification failed"* until it has one.
 
 **An update migrates the library forward and there is no way back.** The newer build applies its
 migrations to `index.db`; the older one then refuses that library rather than migrating it down. No
@@ -221,7 +241,8 @@ but recovering from a bad build means going forward to a fixed one, not back to 
 | --- | --- |
 | [Concept](docs/CONCEPT.md) | Vision, scope, feature map, non-goals |
 | [Architecture](docs/ARCHITECTURE.md) | Packages, processes, IPC, invariants |
-| [Storage](docs/STORAGE_SPEC.md) | How this build meets *Roost Library Format 1* — the map from each `RL-n` to the code |
+| [Format](docs/FORMAT.md) | *Roost Library Format 2*, the normative specification of a library on disk |
+| [Storage](docs/STORAGE_SPEC.md) | How this build meets the format — the map from each `RL-n` to the code |
 | [Data model](docs/DATA_MODEL.md) | Query language, schema growth plan |
 | [UI spec](docs/UI_SPEC.md) | Layout, tokens, components, interaction, keyboard map |
 | [Roadmap](docs/ROADMAP.md) | Milestones and acceptance criteria |
