@@ -431,7 +431,10 @@ is listed here, so the order stays visible instead of becoming folklore.
 - ☐ Packaging: AppImage, Flatpak, .rpm, .deb, with native modules bundled;
   `.desktop` and MIME registration. Carries the licensing obligations ADR-0038 §4 lists:
   `THIRD-PARTY-NOTICES.md` and the generated full licence texts in every artifact, libvips
-  bundled as a shared object, `appId: com.digitalku.roost`, and a version that is not `0.0.0`
+  bundled as a shared object, `appId: com.digitalku.roost`, and a version that is not `0.0.0`.
+  **The Flatpak comes first** (ADR-0063, 2026-10-25): version `0.1.0`, ffmpeg and libheif the
+  runtime's with only `heif-dec` built, the other three targets not decided there. The offline
+  build was prototyped on 2026-10-26 and opens a library (`TODO.md` *Flathub first*)
 - ☑ ~~**About Roost…** in the `☰` and a credit line under the picker~~ — ADR-0038 §5.1–5.2, built 2026-09-08 ahead of this milestone, because a proprietary build owes its licences and its build identity to the window rather than to the repository
 - ☐ First-run onboarding and a sample library
 - ☐ Documentation: user guide, and the library format spec published for other implementers
@@ -704,7 +707,7 @@ not draw, all settled before any of them was written against:
 | --- | --- | --- |
 | SVG and font specimens | resvg compiled to WebAssembly, which has no filesystem and no sockets to follow a reference with; fontkit reads the font and supplies the outlines a specimen is drawn from | ADR-0015 |
 | PDF | pdfium compiled to WebAssembly. One instance per process, and a page is single-use — `render()` closes it | ADR-0016 |
-| Video and audio | The system's `ffmpeg` and `ffprobe`, probed once per session. Bundling stays open for M6, where packaging is decided | ADR-0017 |
+| Video and audio | The system's `ffmpeg` and `ffprobe`, probed once per session. The Flatpak uses the runtime's, its decoders from codecs-extra | ADR-0017, ADR-0063 |
 
 **One more on 2026-08-30, from using the window rather than from planning it:**
 

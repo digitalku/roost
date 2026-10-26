@@ -137,6 +137,101 @@ Two things that are no longer blocked, but are still easy to get wrong:
 
 Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a second copy of it.
 
+### Flathub first (ADR-0063, decided 2026-10-25)
+
+Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the manifest, and
+`scratch/flatpak/` (ignored) the builder's state.
+
+- ☑ ~~**Prototype the offline build.**~~ Done 2026-10-26. The Flatpak builds with no network,
+  installs, opens a library and draws all five of a JPEG, a PNG, a HEIC, an H.264 clip and an HEVC
+  clip. The three questions:
+  - **pnpm 11:** `flatpak-node-generator pnpm pnpm-lock.yaml --pnpm-store-version v11
+    --electron-node-headers` reads the lockfile: 332 packages, 349 sources.
+  - **Native modules:** `sharp` builds offline against the manifest's libvips 8.18.3, and
+    `build-sharp.mjs`'s own check sees it load. `better-sqlite3` 13 is Node-API with a prebuild in its
+    tarball, so it needs no Electron build. `@napi-rs/blake-hash` loads.
+  - **ffmpeg:** the runtime ships the programs, and codecs-extra the decoders (ADR-0063 §5.2, revised).
+    libheif is the runtime's too, and only `heif-dec` is built (§6).
+- 🟡 **Three things the build needed and the manifest now says:**
+  - `--trust-lockfile`, because pnpm 11's supply-chain check re-reads registry metadata an offline
+    build cannot reach;
+  - `node node_modules/electron/install.js` by hand, because pnpm ran no Electron postinstall,
+    `allowBuilds` or not;
+  - `CHROME_DESKTOP` in the wrapper, so the window's `app_id` is the app ID.
+
+  The second one is a pnpm behaviour worth understanding rather than working around for ever.
+- ☑ ~~**The app is 977 MB and should be about a third of that.**~~ Done 2026-10-26: **390 MB**,
+  of which Electron is 311 MB and `/app/roost` 54 MB (it was 632 MB).
+  - `install --prod` over a full tree unlinks the dev packages (`Packages: -137`) and leaves every one
+    of them in `node_modules/.pnpm`. `pnpm prune --prod` hangs offline. So the built tree goes to
+    `/app/roost` without `node_modules`, a production install is made there from scratch, and sharp's
+    source build is copied across. 245 packages became 27.
+  - The renderer's `react`, `react-dom`, `radix-ui` and `@roost/contract` moved to its
+    `devDependencies`: Vite bundles them, and nothing loads them from `node_modules` at run time.
+  - sharp's prebuilt `@img/sharp-linux-x64` and `@img/sharp-libvips-linux-x64` are deleted, as are
+    better-sqlite3's SQLite source and its other platforms' binaries. `*.map`, `scripts/` and
+    `docs/` are not copied.
+  - Still open: the sources fetch every platform's optional binaries (TypeScript for netbsd and
+    openbsd). An `only-arches` filter or a trimmed lockfile run would cut the download. The download
+    is the builder's, not the user's.
+- ☑ ~~**The process is called `electron`, and so is the profile.**~~ Done 2026-10-26: the manifest
+  renames the binary to `roost`, and `main.ts` calls `app.setName("Roost")` before the
+  single-instance lock. Seen in a process list and in `~/.var/app/com.digitalku.roost/config/Roost`.
+  Asked by the user on 2026-10-26, from a system monitor.
+  - The name a process list shows is the executable's file name, and the Flatpak runs
+    `/app/electron/electron` unchanged. A packager renames it to the product's name, and the
+    manifest has to do the same: `electron` → `roost`.
+  - Separately, `main.ts` never calls `app.setName`. Run as `electron main.js`, the application is
+    named *Electron*, so Chromium's profile is `~/.config/Electron`, and in the Flatpak
+    `~/.var/app/com.digitalku.roost/config/Electron`. A `setName("Roost")` before `ready` moves it.
+    Roost's own settings are unaffected, because they live in `platform/dirs.ts`'s directories and in
+    the library. The checkout's single-instance lock moves with the profile.
+- ☑ ~~**The app ID is lowercase.**~~ Done 2026-10-26: `com.digitalku.roost`, at the user's choice, to
+  match the wordmark. The name shown stays "Roost". The packaging files were renamed after it, and
+  `appstreamcli`'s pedantic note is gone (ADR-0063 §2).
+- ☑ ~~**x86_64 only for now**~~, at the user's choice, 2026-10-26: `packaging/flatpak/flathub.json`
+  says `only-arches`. aarch64 waits until somebody can build and run it.
+- 🟡 **The source becomes the GitHub tag.** `packaging/flatpak/build-local.sh` builds from a copy of
+  this checkout's working tree (`git ls-files`, plus untracked files git does not ignore) in
+  `scratch/flatpak/src`, and installs the result as `roost-local`.
+  Flathub builds `x86_64` and `aarch64`; only `x86_64` has been built.
+- ☑ ~~**The install offer says no command when `FLATPAK_ID` is set** (§7), with a test.~~ Done
+  2026-10-26. `carriesTools()` reads `FLATPAK_ID`. The capability gains `bundled`, which is always
+  true for the three in-process backends and true for ffmpeg and libheif inside a Flatpak, and
+  there it has no `install` and no `installable`. `explainFailure(reason, bundled)` keeps the line
+  and says the build lacks the tool. Tests are in `heif.test.ts`, `derive.test.ts`,
+  `deriveReason.test.ts` and `FileProblem.test.tsx`. `UI_SPEC.md` §3.13.
+- ☑ ~~**The metainfo grows screenshots at a tagged path, branding colours and a fuller
+  description.**~~ Done 2026-10-26. `appstreamcli validate --pedantic` passes; its one pedantic
+  note is the capital in the ID, which Flathub's convention wants.
+  - Three screenshots are in `docs/screenshots/` at 1920×1200: `library`, `masonry` and `tags`.
+    They come from an *Inspiration* library of procedurally drawn pictures, made with ffmpeg, so
+    there is no licence question.
+  - They were taken from the Flatpak over the debugger, with the library in the sandbox's
+    `/var/tmp`, so no home path shows in the status bar.
+  - The metainfo points at `raw.githubusercontent.com/digitalku/roost/v0.1.0/docs/screenshots/`.
+    The repository lint's `appstream-screenshots-not-mirrored-in-ostree` can only pass once that
+    tag is pushed.
+- 🟢 **The sample library and the screenshot script live in `scratch/` only.** They should become
+  a script under `scripts/`, so that the next release's screenshots are one command. An emulated
+  viewport (`Emulation.setDeviceMetricsOverride`) moves the page and not the input, so a click
+  lands elsewhere. Take the window's own size, and scale afterwards.
+- 🟡 **Electron's desktop name is checked against the compositor, not only set.**
+- ☑ ~~**Version `0.1.0`** in the manifests. `THIRD-PARTY-NOTICES.md` gains `heif-dec` and libvips
+  as bundled.~~ Done 2026-10-26. All eleven `package.json` files are at 0.1.0.
+  - **About said *Development build* inside the Flatpak**, because `electron main.js` is never
+    `isPackaged`. Roost is now Electron's own app: `/app/electron/resources/app` links to
+    `/app/roost`, and the root `package.json` names the `main`. About reads *Version 0.1.0*.
+  - The tag `v0.1.0` is pushed with the release (below).
+- 🟡 **Run the packaged build once before anything ships.** The packaged CSP refuses
+  `'unsafe-inline'` scripts where `pnpm dev` allows them (§ Shell and UI). The prototype's window drew
+  the picker and a grid with no CSP error, which is a first answer but not a check.
+- 🟢 **Two log lines to understand:**
+  - `Request cancelled by user` from `components/dbus/xdg/request.cc` at the first launch;
+  - Chromium's *`--ozone-platform=wayland` is not compatible with Vulkan*.
+- 🟡 **`flatpak-builder-lint`** passes on the manifest and on the repository, the build completes
+  under `org.flatpak.Builder --sandbox`, and then the pull request goes to `flathub/flathub`.
+
 ### Foundation (M0) — done 2026-08-24
 
 - 🟡 **The per-platform native-module CI job is deferred to M1**, where the modules it
