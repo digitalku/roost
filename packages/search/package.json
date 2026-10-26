@@ -1,6 +1,6 @@
 {
   "name": "@roost/search",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "The Roost Query Language: grammar, parser, and its compiler to a bound SQL fragment.",

@@ -1,6 +1,6 @@
 {
   "name": "@roost/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "The `roost` binary. A first-class frontend over the same services the desktop app uses.",

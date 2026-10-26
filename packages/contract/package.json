@@ -1,6 +1,6 @@
 {
   "name": "@roost/contract",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "The IPC surface as data: message shapes and their validators. Imported by every process; depends on nothing.",

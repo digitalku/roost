@@ -1,6 +1,6 @@
 {
   "name": "roost",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "apps/desktop/main/dist/main.js",

@@ -1,6 +1,6 @@
 {
   "name": "@roost/desktop-main",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Electron main: the window, the menus, the roost:// protocol, and the route to the engine.",
