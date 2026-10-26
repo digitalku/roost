@@ -93,6 +93,13 @@ protocol.registerSchemesAsPrivileged([
   { scheme: ROOST_SCHEME, privileges: { ...ROOST_SCHEME_PRIVILEGES } },
 ]);
 
+/*
+ * Run as `electron main.js`, the application is named after Electron, and so
+ * is Chromium's profile: `~/.config/Electron`, shared with any other unnamed
+ * Electron. Named before the lock below, because the lock lives in the profile.
+ */
+app.setName("Roost");
+
 /**
  * A second launch raises the first window rather than opening a second one.
  *
