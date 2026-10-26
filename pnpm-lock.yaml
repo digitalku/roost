@@ -93,20 +93,10 @@ importers:
         version: 43.4.1
 
   apps/desktop/renderer:
-    dependencies:
+    devDependencies:
       '@roost/contract':
         specifier: workspace:*
         version: link:../../../packages/contract
-      radix-ui:
-        specifier: 1.6.7
-        version: 1.6.7(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      react:
-        specifier: 19.2.0
-        version: 19.2.0
-      react-dom:
-        specifier: 19.2.0
-        version: 19.2.0(react@19.2.0)
-    devDependencies:
       '@testing-library/react':
         specifier: 16.3.0
         version: 16.3.0(@testing-library/dom@10.4.1)(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -125,6 +115,15 @@ importers:
       happy-dom:
         specifier: 20.0.10
         version: 20.0.10
+      radix-ui:
+        specifier: 1.6.7
+        version: 1.6.7(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      react:
+        specifier: 19.2.0
+        version: 19.2.0
+      react-dom:
+        specifier: 19.2.0
+        version: 19.2.0(react@19.2.0)
       vite:
         specifier: 8.2.2
         version: 8.2.2(@types/node@22.20.1)
