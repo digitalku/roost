@@ -149,6 +149,17 @@ export interface InstallOffer {
   readonly argv: readonly string[] | null;
 }
 
+/**
+ * Whether this build carries its own ffmpeg and libheif, so that nothing
+ * installed on the machine can reach it: a Flatpak (ADR-0063 §7).
+ *
+ * Flatpak sets `FLATPAK_ID` for every process in the sandbox. A command there
+ * would name the host's package manager, whose packages the sandbox never sees.
+ */
+export function carriesTools(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env["FLATPAK_ID"] !== undefined;
+}
+
 /** What to show, and what a button may do, for a backend that is missing. */
 export function installOffer(
   what: Installable,

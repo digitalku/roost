@@ -24,6 +24,7 @@ function heifMissing(): ConstructorParameters<typeof FakeEngine>[0] {
           detail: "install libheif for HEIC photographs",
           install: "sudo dnf install libheif-tools",
           installable: false,
+          bundled: false,
         },
       ],
     },
@@ -31,6 +32,39 @@ function heifMissing(): ConstructorParameters<typeof FakeEngine>[0] {
 }
 
 describe("why one file has no preview, and what to do about it", () => {
+  it("offers no command inside a Flatpak, and says the build lacks the tool", async () => {
+    // ADR-0063 §7: a command names the host's package manager, and nothing it
+    // installs reaches the sandbox.
+    const engine = new FakeEngine({
+      deriveStatus: {
+        paused: false,
+        ready: 0,
+        running: 0,
+        blocked: 8,
+        failed: 0,
+        reasons: [{ reason: "missing:libheif", count: 8 }],
+        capabilities: [
+          {
+            name: "heif",
+            available: false,
+            version: null,
+            detail: "this build of Roost carries no working libheif",
+            install: null,
+            installable: false,
+            bundled: true,
+          },
+        ],
+      },
+    });
+    install(engine);
+    render(<FileProblem detail={{ id: ID, undrawn: "missing:libheif" }} />);
+
+    expect(await screen.findByText(/carries its own decoders/)).toBeDefined();
+    expect(screen.getByText(/Report it at/)).toBeDefined();
+    expect(screen.queryByText(/command below/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy command" })).toBeNull();
+  });
+
   it("says nothing for a file with a picture, or one nothing draws", () => {
     install(new FakeEngine());
     const { container, rerender } = render(<FileProblem detail={{ id: ID, undrawn: null }} />);

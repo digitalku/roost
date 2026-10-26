@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hasHeicDecoder, primaryIn } from "./heif.js";
-import { installCommand, installOffer, repositoryEnabled } from "./install.js";
+import { carriesTools, installCommand, installOffer, repositoryEnabled } from "./install.js";
 
 /**
  * Telling a libheif that can decode a photograph from one that cannot.
@@ -33,6 +33,11 @@ JPEG decoders:
 `;
 
 describe("whether a libheif can decode HEIC", () => {
+  it("knows a Flatpak carries its own tools, from FLATPAK_ID", () => {
+    expect(carriesTools({ FLATPAK_ID: "com.digitalku.roost" })).toBe(true);
+    expect(carriesTools({})).toBe(false);
+  });
+
   it("believes a listing that names a decoder", () => {
     expect(hasHeicDecoder(WITH_PLUGIN)).toBe(true);
   });

@@ -264,12 +264,34 @@ const UNRECOGNISED: Explanation = {
 };
 
 /**
+ * Why a tool this build carries is missing, where nothing on the machine can
+ * supply it: a Flatpak (ADR-0063 §7). The line stays the table's, because
+ * what the file needs has not changed; what to do about it has.
+ */
+const CARRIED: Omit<Explanation, "line"> = {
+  hint: "This build of Roost carries its own decoders, so nothing installed on the computer reaches it. One missing is a fault in the build.",
+  steps: [
+    "Report it at github.com/digitalku/roost/issues, with the line below.",
+    "Then press Try again after the next update: every file waiting for it is drawn.",
+  ],
+};
+
+/**
  * Turns a stored failure message into a sentence.
  *
  * Matched case-insensitively against the whole message, because the same fault
- * reaches here prefixed by whichever tool reported it.
+ * reaches here prefixed by whichever tool reported it. `bundled` is the
+ * capability's (ADR-0063 §7): where this build carries the tool, a waiting
+ * file is told that the build lacks it rather than given a command to run.
  */
-export function explainFailure(reason: string): Explanation {
+export function explainFailure(reason: string, bundled = false): Explanation {
+  const explained = explainReason(reason);
+  return bundled && (capabilityOfReason(reason) !== undefined || decoderOf(reason) !== undefined)
+    ? { line: explained.line, ...CARRIED }
+    : explained;
+}
+
+function explainReason(reason: string): Explanation {
   // Ahead of the table, because the line names the codec and a pattern's line
   // is a constant.
   const codec = decoderOf(reason);

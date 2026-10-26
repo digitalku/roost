@@ -59,7 +59,9 @@ export function FileProblem({
   }, [reason, tool]);
 
   if (reason === null || badgeOf(reason) === undefined) return null;
-  const explained = explainFailure(reason);
+  const backend =
+    tool === undefined ? undefined : capabilities.find((entry) => entry.name === tool);
+  const explained = explainFailure(reason, backend?.bundled === true);
 
   const tryAgain = (): void => {
     setTrying(true);

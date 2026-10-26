@@ -1800,6 +1800,7 @@ async function wireCapabilities(): Promise<WireDeriveStatus["capabilities"]> {
     detail: capability.detail,
     install: capability.install,
     installable: capability.installable,
+    bundled: capability.bundled,
   }));
 }
 

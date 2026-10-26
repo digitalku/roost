@@ -943,6 +943,13 @@ export interface WireCapability {
    * renderer (invariant 11) from reaching a program, a flag, or a path.
    */
   readonly installable: boolean;
+  /**
+   * Whether this build carries the backend itself, so that nothing installed on
+   * the machine changes the answer: always for the three in WebAssembly or in
+   * process, and for ffmpeg and libheif inside a Flatpak (ADR-0063 §7). The
+   * window then explains a missing one as a fault in the build, with no command.
+   */
+  readonly bundled: boolean;
 }
 
 /** What running the install said, and what this machine can do now. */

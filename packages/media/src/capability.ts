@@ -3,7 +3,7 @@ import { documentVersion } from "./document.js";
 import { ffmpegDecoders, ffmpegVersion, ffprobeVersion } from "./ffmpeg.js";
 import type { Format } from "./format.js";
 import { heifVersion } from "./heif.js";
-import { installCommand, installOffer } from "./install.js";
+import { carriesTools, installCommand, installOffer } from "./install.js";
 import { vectorVersion } from "./vector.js";
 
 /**
@@ -54,6 +54,15 @@ export interface Capability {
    * anything it could turn into a command.
    */
   readonly installable: boolean;
+  /**
+   * Whether this build carries the backend itself, so that nothing installed on
+   * the machine changes the answer.
+   *
+   * Always for the three in WebAssembly or in-process. For ffmpeg and libheif,
+   * only inside a Flatpak (ADR-0063 §7), where a missing one is a fault in the
+   * build, and `install` is `null` because no command reaches the sandbox.
+   */
+  readonly bundled: boolean;
   /** The formats this backend is responsible for. */
   readonly formats: readonly Format[];
 }
@@ -150,6 +159,7 @@ async function probe(): Promise<Probed> {
   const decoders = hasMedia ? listed : null;
   const lacking =
     decoders === null ? [] : EXPECTED_DECODERS.filter((codec) => !decoders.has(codec));
+  const carried = carriesTools();
 
   const capabilities: readonly Capability[] = [
     {
@@ -159,6 +169,7 @@ async function probe(): Promise<Probed> {
       detail: `sharp ${decoder.sharp}, ${decoder.build} build`,
       install: null,
       installable: false,
+      bundled: true,
       formats: CAPABILITY_FORMATS.images,
     },
     {
@@ -168,6 +179,7 @@ async function probe(): Promise<Probed> {
       detail: "resvg in WebAssembly, with no filesystem access",
       install: null,
       installable: false,
+      bundled: true,
       formats: CAPABILITY_FORMATS.vectors,
     },
     {
@@ -177,6 +189,7 @@ async function probe(): Promise<Probed> {
       detail: "pdfium in WebAssembly, with no filesystem access",
       install: null,
       installable: false,
+      bundled: true,
       formats: CAPABILITY_FORMATS.documents,
     },
     {
@@ -186,19 +199,24 @@ async function probe(): Promise<Probed> {
       available: hasMedia,
       version: ffmpeg,
       detail: !hasMedia
-        ? "install ffmpeg for video and audio previews"
+        ? carried
+          ? "this build of Roost carries no working ffmpeg"
+          : "install ffmpeg for video and audio previews"
         : lacking.length > 0
           ? `ffmpeg ${ffmpeg}, ffprobe ${ffprobe}, without ${lacking.join(", ")}`
           : `ffmpeg ${ffmpeg}, ffprobe ${ffprobe}`,
       // A command while it is still available, where it lacks what a phone
       // records: replacing it is the one thing that draws those files, and the
       // window shows this beside them (ADR-0017, amended 2026-09-24).
-      install: !hasMedia
-        ? installCommand("media")
-        : lacking.length > 0
-          ? installCommand("decoders")
-          : null,
-      installable: !hasMedia && installOffer("media").argv !== null,
+      install: carried
+        ? null
+        : !hasMedia
+          ? installCommand("media")
+          : lacking.length > 0
+            ? installCommand("decoders")
+            : null,
+      installable: !carried && !hasMedia && installOffer("media").argv !== null,
+      bundled: carried,
       formats: CAPABILITY_FORMATS.media,
     },
     {
@@ -208,9 +226,15 @@ async function probe(): Promise<Probed> {
       // refusal. `heifVersion` reports one only when a decoder is listed too.
       available: heif !== null,
       version: heif,
-      detail: heif !== null ? `libheif ${heif}` : "install libheif for HEIC photographs",
-      install: heif !== null ? null : installCommand("heif"),
-      installable: heif === null && installOffer("heif").argv !== null,
+      detail:
+        heif !== null
+          ? `libheif ${heif}`
+          : carried
+            ? "this build of Roost carries no working libheif"
+            : "install libheif for HEIC photographs",
+      install: heif !== null || carried ? null : installCommand("heif"),
+      installable: !carried && heif === null && installOffer("heif").argv !== null,
+      bundled: carried,
       formats: CAPABILITY_FORMATS.heif,
     },
   ];

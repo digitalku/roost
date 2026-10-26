@@ -10,6 +10,23 @@ import { badgeOf, capabilityOfReason, explainFailure, isParked } from "./deriveR
  * could not be drawn" meant.
  */
 describe("saying what a backend's complaint means", () => {
+  it("tells a build that carries the tool to report it, not to install it", () => {
+    // ADR-0063 §7: inside a Flatpak, nothing on the computer reaches the sandbox.
+    for (const reason of [
+      "missing:libheif",
+      "missing:ffmpeg",
+      "missing:decoder:hevc",
+      "ffmpeg: Decoding requested, but no decoder found for: eac3",
+    ]) {
+      const carried = explainFailure(reason, true);
+      expect(carried.line).toBe(explainFailure(reason).line);
+      expect(carried.steps?.join(" ")).not.toMatch(/command below/);
+      expect(carried.hint).toMatch(/carries its own decoders/);
+    }
+    // A fault in the file is the file's, wherever Roost runs.
+    expect(explainFailure("missing:file", true)).toEqual(explainFailure("missing:file"));
+  });
+
   it("reads sharp's corrupt header as a damaged file", () => {
     const explained = explainFailure(
       "Input file has corrupt header: VipsJpeg: premature end of JPEG image",

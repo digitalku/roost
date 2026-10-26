@@ -1112,6 +1112,11 @@ the button reads *Installing…* and the package manager's latest line is drawn 
 package manager refuses, its words stay. On success nothing is announced: Try again is pressed for
 the person, and the pictures arriving are the answer.
 
+**Inside a Flatpak there is no command** (ADR-0063 §7). The build carries its own ffmpeg and
+libheif, and nothing the host's package manager installs reaches the sandbox. So the capability
+says `bundled`, and the card keeps the line but swaps the hint and steps: the build lacks the tool,
+report it, and press Try again after the next update. There is no command and no button.
+
 **A file of kind `other` gets no card, no badge and no count.** A `.zip`, an `.xcf` and a file
 nothing recognises have no picture by nature. That is the expected outcome, not news (asked for on
 2026-09-24: *"file other langsung tampil saja tidak ada notifikasi"*). Their jobs stay parked, which

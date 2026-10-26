@@ -83,6 +83,7 @@ describe("what the status bar says about derived work", () => {
               detail: "install libheif for HEIC photographs",
               install: "sudo dnf install libheif-tools",
               installable: false,
+              bundled: false,
             },
           ],
         }}

@@ -304,6 +304,28 @@ describe("deriving what a file is worth", () => {
     }
   });
 
+  it("offers no command for a missing libheif inside a Flatpak", async () => {
+    // ADR-0063 §7: the host's package manager never reaches the sandbox, so a
+    // missing tool is the build's fault and the window is told so.
+    vi.resetModules();
+    vi.stubEnv("ROOST_HEIF_DEC", join(dir, "no-such-heif-dec"));
+    vi.stubEnv("FLATPAK_ID", "com.digitalku.roost");
+
+    try {
+      const capability = await import("./capability.js");
+      const heif = (await capability.capabilities()).find((entry) => entry.name === "heif");
+      expect(heif?.available).toBe(false);
+      expect(heif?.bundled).toBe(true);
+      expect(heif?.install).toBeNull();
+      expect(heif?.installable).toBe(false);
+      expect(heif?.detail).toBe("this build of Roost carries no working libheif");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      await refreshCapabilities();
+    }
+  });
+
   it.runIf(hasFfmpeg && process.platform !== "win32")(
     "parks a video whose codec this ffmpeg cannot decode, and keeps what ffprobe read",
     async () => {
