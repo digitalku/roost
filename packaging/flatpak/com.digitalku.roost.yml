@@ -1,0 +1,131 @@
+# The Flatpak of Roost (ADR-0063). This copy builds the working tree, through
+# `build-local.sh`. The copy in flathub/com.digitalku.roost differs in one
+# source only: the git tag of a release instead of the `dir` below.
+app-id: com.digitalku.roost
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+base: org.electronjs.Electron2.BaseApp
+base-version: '26.08'
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node22
+command: roost
+separate-locales: false
+
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # A library is edited in place, watched and reflinked; a portal path breaks
+  # all three (ADR-0063 §4).
+  - --filesystem=home
+  - --filesystem=/run/media
+  - --talk-name=org.freedesktop.FileManager1
+
+modules:
+  # The runtime has no libvips, and sharp is built from source against one
+  # (ADR-0013). Dynamically linked, for LGPL-3.0's relinking.
+  - name: libvips
+    buildsystem: meson
+    config-opts:
+      - -Dintrospection=disabled
+      - -Dmodules=disabled
+      - -Ddocs=false
+      - -Dcpp-docs=false
+      - -Dexamples=false
+    cleanup:
+      - /bin
+    sources:
+      - type: archive
+        url: https://github.com/libvips/libvips/releases/download/v8.18.3/vips-8.18.3.tar.xz
+        sha256: f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146
+
+  # The runtime carries libheif, and codecs-extra its HEVC plugin, but not the
+  # `heif-dec` program ADR-0040 decodes through. Only that program is built,
+  # with no build-tree rpath, so it loads the runtime's libheif of the same
+  # version.
+  - name: heif-dec
+    buildsystem: simple
+    build-commands:
+      - >-
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_SKIP_BUILD_RPATH=ON -DBUILD_TESTING=OFF -DBUILD_DOCUMENTATION=OFF
+        -DWITH_EXAMPLE_HEIF_THUMB=OFF -DWITH_EXAMPLE_HEIF_VIEW=OFF -DWITH_GDK_PIXBUF=OFF
+        -DWITH_LIBDE265=OFF -DWITH_X265=OFF -DWITH_DAV1D=OFF -DWITH_AOM_DECODER=OFF
+        -DWITH_AOM_ENCODER=OFF -DWITH_RAV1E=OFF -DWITH_SvtEnc=OFF -DWITH_KVAZAAR=OFF
+        -DWITH_JPEG_DECODER=OFF -DWITH_JPEG_ENCODER=OFF -DWITH_OpenJPEG_DECODER=OFF
+        -DWITH_OpenJPEG_ENCODER=OFF -DWITH_FFMPEG_DECODER=OFF
+      - cmake --build build --target heif-dec
+      - install -Dm755 build/examples/heif-dec /app/bin/heif-dec
+    sources:
+      - type: archive
+        url: https://github.com/strukturag/libheif/releases/download/v1.23.1/libheif-1.23.1.tar.gz
+        sha256: 0de0327f60fcd47de90d5654c6fe152232738d60d84fe084ec3e0f35e03b166a
+
+  - name: roost
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/node22/bin
+      env:
+        XDG_CACHE_HOME: /run/build/roost/flatpak-node/cache
+        ELECTRON_CACHE: /run/build/roost/flatpak-node/cache/electron
+        npm_config_offline: 'true'
+        CI: 'true'
+    build-commands:
+      # The supply-chain check re-reads registry metadata an offline build cannot
+      # reach. Every entry is pinned by hash already, in the lockfile and here.
+      - node flatpak-node/pnpm/bin/pnpm.mjs install --offline --frozen-lockfile --trust-lockfile
+      - node flatpak-node/pnpm/bin/pnpm.mjs build
+      - node flatpak-node/pnpm/bin/pnpm.mjs --filter @roost/desktop-renderer build
+      # Electron's binary, unpacked from the offline cache. Its postinstall is
+      # run by hand: pnpm did not run it here although `allowBuilds` names it.
+      # Renamed, because a process list shows the executable's file name.
+      - node node_modules/electron/install.js
+      - cp -a node_modules/electron/dist /app/electron
+      - mv /app/electron/electron /app/electron/roost
+      # Roost as Electron's own app, so it runs packaged: `app.isPackaged`, and
+      # the version About shows from the root package.json (ADR-0038 §5.1).
+      - ln -s /app/roost /app/electron/resources/app
+      # Nothing that only builds or tests is shipped. The built tree goes to /app
+      # without its node_modules, and a production install is made there from
+      # scratch: one over the full tree unlinks the dev packages and leaves them
+      # in node_modules/.pnpm.
+      - mkdir -p /app/roost
+      - >-
+        tar --exclude=node_modules --exclude=./flatpak-node --exclude=./docs
+        --exclude=./conformance --exclude=./scripts --exclude=./dist-scripts
+        --exclude=./packaging --exclude=./.github --exclude='*.map' --exclude='*.tsbuildinfo'
+        -cf - . | tar -xf - -C /app/roost
+      - >-
+        cd /app/roost && node "$FLATPAK_BUILDER_BUILDDIR/flatpak-node/pnpm/bin/pnpm.mjs" install
+        --prod --offline --frozen-lockfile --ignore-scripts --trust-lockfile
+        --config.package-import-method=copy
+      # The install ran no scripts, so sharp's source build comes across from
+      # the full tree.
+      - >-
+        for built in node_modules/.pnpm/sharp@*/node_modules/sharp/src/build; do
+        mkdir -p "/app/roost/$built" && cp -a "$built/Release" "/app/roost/$built/";
+        done
+      # sharp's prebuilt, which ADR-0013 exists to keep from loading, and
+      # better-sqlite3's SQLite source and other platforms' binaries.
+      - rm -rf /app/roost/node_modules/.pnpm/@img+sharp-linux-* /app/roost/node_modules/.pnpm/@img+sharp-libvips-linux-*
+      - >-
+        for dir in deps src build; do
+        rm -rf /app/roost/node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3/$dir;
+        done
+      - find /app/roost/node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3/prebuilds -type f ! -name 'linux-*' -delete
+      - echo "shipped $(ls /app/roost/node_modules/.pnpm | wc -l) packages, $(du -sh /app/roost | cut -f1)"
+      - install -Dm755 packaging/flatpak/roost.sh /app/bin/roost
+      - install -Dm644 packaging/flatpak/com.digitalku.roost.desktop /app/share/applications/com.digitalku.roost.desktop
+      - install -Dm644 packaging/flatpak/com.digitalku.roost.metainfo.xml /app/share/metainfo/com.digitalku.roost.metainfo.xml
+      - install -Dm644 assets/brand/roost-icon.svg /app/share/icons/hicolor/scalable/apps/com.digitalku.roost.svg
+      - for size in 128 256 512; do install -Dm644 assets/brand/icon-$size.png /app/share/icons/hicolor/${size}x${size}/apps/com.digitalku.roost.png; done
+    sources:
+      - type: dir
+        path: ../../scratch/flatpak/src
+      - type: archive
+        url: https://registry.npmjs.org/pnpm/-/pnpm-11.22.0.tgz
+        sha256: 57a97e6f23a3faffc03153a4ef8c770a0552612b8640aebe39bfdd5754d0ebdc
+        dest: flatpak-node/pnpm
+      - generated-sources.json

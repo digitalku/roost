@@ -37,6 +37,18 @@ are never distributed with Roost, never linked against, and their licence — wh
 distribution build is frequently GPL — never reaches this product. **Do not bundle an ffmpeg
 build**; if one is ever wanted, it needs an ADR that starts from the build's configure flags.
 
+**The Flatpak is the same in kind** (ADR-0063 §5). There, `ffmpeg` and `ffprobe` are the
+freedesktop runtime's, and their H.264 and HEVC decoders come from the runtime's `codecs-extra`
+extension. Flathub distributes both for every application on the runtime, and Roost's Flatpak
+carries neither.
+
+### heif-dec — MIT
+
+libheif's sample program, which Roost decodes HEIC photographs through (ADR-0040). The Flatpak
+builds it from libheif 1.23.1's source, and it is the only part of libheif the Flatpak carries
+(ADR-0063 §6). libheif's sample applications are MIT and the library is LGPL-3.0. `heif-dec`
+links the runtime's own `libheif.so.1` dynamically, so no LGPL code is shipped with it.
+
 ## 2. Components that oblige more than attribution
 
 ### sharp — Apache-2.0
@@ -53,6 +65,13 @@ libvips (ADR-0013), so a development install links a library it does not ship.
 that the library's source be offered and that the user be able to relink Roost against their own
 build of it — which means bundling it as a **shared** object, never statically. The prebuilt
 `@img/sharp-libvips-linux-x64` in the dependency tree is the package that carries it.
+
+**The Flatpak meets it as follows** (ADR-0063 §3):
+- It builds libvips 8.18.3 from its released source,
+  `https://github.com/libvips/libvips/releases/download/v8.18.3/vips-8.18.3.tar.xz`, and that
+  manifest entry is the offer of the source.
+- It ships `/app/lib/libvips.so.42` and `libvips-cpp.so.42` as shared objects.
+- It deletes the prebuilt `@img/sharp-libvips-linux-x64`, so that is not shipped.
 
 ### @resvg/resvg-wasm — MPL-2.0
 

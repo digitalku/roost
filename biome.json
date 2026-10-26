@@ -13,7 +13,8 @@
       "**/*.json",
       "**/*.css",
       "!**/dist",
-      "!conformance"
+      "!conformance",
+      "!packaging/flatpak/generated-sources.json"
     ]
   },
   "formatter": {

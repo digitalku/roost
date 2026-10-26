@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Roost
+GenericName=Digital Asset Manager
+Comment=Organise, tag and find your images, videos and design files
+Exec=roost %U
+Icon=com.digitalku.roost
+Terminal=false
+Categories=Graphics;Viewer;
+Keywords=assets;library;images;photos;tags;eagle;
+StartupWMClass=com.digitalku.roost

@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "apps/desktop/main/dist/main.js",
   "description": "A local-first digital asset manager",
   "license": "MIT",
   "author": "Digitalku",
