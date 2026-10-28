@@ -529,7 +529,9 @@ is:favorite                   retired (ADR-0029) and still in the grammar: nothi
 is:trashed                    in the trash; also `is:trash`
 is:subtitle                   attached as somebody's caption track; also `is:subtitles`
 is:captioned                  has at least one caption track
-"free text"                   FTS5 over the name, tags, note, and comments
+olahrag                       FTS5 over the name, tags, note, and comments; a bare word
+                              is the start of a word (ADR-0057 §7)
+"free text"                   the same, its words whole
 ```
 
 Implicit `AND` between adjacent terms; `OR` and parentheses are explicit; a leading `-`
@@ -546,6 +548,8 @@ Four behaviours are worth stating because they are decisions, not accidents:
 - **Free text is searched as a phrase.** FTS5's `MATCH` argument is a query language of its
   own, so raw text would let `AND`, `NEAR`, `*`, or a stray quote change or break the
   search. Quoting the whole input is what a person typing into a search box means.
+  **A bare term's last word is a prefix** — `olahrag` binds `"olahrag"*` — and a quoted term
+  binds the phrase alone, so `"olahrag"` finds only the whole word (ADR-0057 §7).
 - **Negation is total.** `-tag:wip` is `NOT (…)` over the whole library, so it includes
   assets with no tags at all.
 - **Every query is scoped by two rules, and naming a flag opts out of that rule only.** Not in

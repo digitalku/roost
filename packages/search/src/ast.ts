@@ -72,8 +72,12 @@ export type Term =
   | { readonly field: NameField; readonly value: string }
   | { readonly field: NumericField; readonly compare: Compare }
   | { readonly field: "flag"; readonly flag: Flag }
-  /** Free text, matched against the full-text index over name and tags. */
-  | { readonly field: "text"; readonly value: string };
+  /**
+   * Free text, matched against the full-text index over what a person wrote
+   * (ADR-0027). A bare word is matched as the **start** of a word, so `olahrag`
+   * finds *olahraga*; a quoted phrase is `exact`, its words whole (ADR-0057 §7).
+   */
+  | { readonly field: "text"; readonly value: string; readonly exact: boolean };
 
 /** A query tree. */
 export type Expr =

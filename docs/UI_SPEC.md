@@ -1629,7 +1629,8 @@ while empty bar sat beside it.
 
 - **Typing words is a search, and needs no syntax** (ADR-0027). Bare words are free-text terms,
   and free text reaches everything a person wrote about an asset: its name, its tags, its note,
-  and its comments. **Not its source** — a URL is an address rather than prose about the asset,
+  and its comments. A bare word matches **the start of a word**, so `olahrag` finds *olahraga*;
+  quotes keep it whole, and the middle of a word finds nothing (ADR-0057 §7). **Not its source** — a URL is an address rather than prose about the asset,
   and the user ruled it out on the day it was proposed (ADR-0030 §4). The placeholder says what
   is reached rather than teaching a field prefix — RQL is discovered from the sidebar, which
   writes `tag:wood` into this field when a tag is clicked.
@@ -1816,9 +1817,9 @@ negotiable:
   when the subtree's assets are around it. An asset moved onto a subfolder's tile from there stays
   drawn, because it is still beneath the folder on screen.
 - **A typed search draws the folders it finds by name** (ADR-0057), ahead of the assets it finds,
-  while the query is words and at most one folder. Every word must be a **whole word** of the
-  folder's name, split as the full-text index splits an asset's, so a word finds a folder exactly
-  when it would find a file of the same name. Typed inside a folder, the words look through the
+  while the query is words and at most one folder. Every word must **start a word** of the
+  folder's name, or be one whole when quoted (ADR-0057 §7), split as the full-text index splits an
+  asset's, so a word finds a folder exactly when it would find a file of the same name. Typed inside a folder, the words look through the
   whole subtree beneath it. Each such tile says **where it is**: the parent's path, quieted, before
   the name, giving way first when the caption is short, because names repeat. Any other term — a
   tag, a rating, a type — draws none. A drop of assets onto one adds, since a search is not a

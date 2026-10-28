@@ -13,13 +13,19 @@ import { parse } from "./parser.js";
  */
 export interface FolderSearch {
   /** The free-text terms, as the grammar read them. A quoted phrase is one. */
-  readonly words: readonly string[];
+  readonly words: readonly FolderWord[];
   /**
    * The path of the folder the words were typed inside, or `null` for the whole
    * library. `folder:` and `infolder:` both give one: the checkbox says how deep
    * the grid draws assets, not how deep a search looks (ADR-0057 §3.3).
    */
   readonly within: string | null;
+}
+
+/** One free-text term, and whether its last word may be a prefix (ADR-0057 §7). */
+export interface FolderWord {
+  readonly value: string;
+  readonly exact: boolean;
 }
 
 /**
@@ -37,12 +43,12 @@ export function folderSearch(input: string): FolderSearch | undefined {
     return undefined;
   }
 
-  const words: string[] = [];
+  const words: FolderWord[] = [];
   const folders: string[] = [];
   for (const branch of conjuncts(expr)) {
     if (branch.kind !== "term") return undefined;
     const { term } = branch;
-    if (term.field === "text") words.push(term.value);
+    if (term.field === "text") words.push({ value: term.value, exact: term.exact });
     else if (term.field === "folder" || term.field === "infolder") folders.push(term.value);
     else return undefined;
   }

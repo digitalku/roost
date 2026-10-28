@@ -133,7 +133,7 @@ class Parser {
       case "close":
         throw queryError("unmatched-paren", "A closing parenthesis has nothing to close", token.at);
       case "word":
-        return { kind: "term", term: toTerm(token.field, token.value, token.at) };
+        return { kind: "term", term: toTerm(token.field, token.value, token.at, token.quoted) };
       default:
         // A keyword with no term before it.
         throw queryError("expected-term", "An operator needs a term before it", token.at);
@@ -142,11 +142,11 @@ class Parser {
 }
 
 /** Builds one term, resolving its field and normalising its value. */
-function toTerm(field: string | undefined, value: string, at: number): Term {
+function toTerm(field: string | undefined, value: string, at: number, quoted: boolean): Term {
   if (field === undefined) {
-    // No field: free text. A quoted phrase stays whole, and so does a bare
-    // word, which is the same thing with one word in it.
-    return { field: "text", value };
+    // No field: free text, one phrase either way. Quotes are what keep its
+    // last word whole rather than a prefix (ADR-0057 §7).
+    return { field: "text", value, exact: quoted };
   }
 
   if (value === "") {

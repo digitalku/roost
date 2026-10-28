@@ -259,12 +259,29 @@ try {
   }
   const found = await cdp.evaluate(`document.querySelectorAll(".cell:not(.cell-folder)").length`);
   check("ahead of the pictures the same word finds", found === 3, `${found} pictures`);
+  // From the empty grid, so a tile and three pictures left over from `kid`
+  // cannot pass for what `ki` found.
+  await typeQuery('"ki"');
+  await cdp.settle(`document.querySelector(".grid-empty") !== null`, (empty) => empty === true);
   await typeQuery("ki");
+  const start = await cdp.settle(
+    `({ folders: ${located}, pictures: document.querySelectorAll(".cell:not(.cell-folder)").length })`,
+    (found) => found.folders.length === 1 && found.pictures === 3,
+  );
+  check(
+    "the start of a word finds the folder, as it finds the pictures (ADR-0057 §7)",
+    start.folders[0]?.name === "Kid" && start.pictures === 3,
+    JSON.stringify(start),
+  );
+  await typeQuery('"ki"');
   await cdp.settle(`document.querySelector(".grid-empty") !== null`, (empty) => empty === true);
   check(
-    "a part of a word finds no folder, as it finds no picture",
+    "in quotes it is a whole word, and finds neither",
     (await cdp.evaluate(located)).length === 0,
   );
+  await typeQuery("id");
+  await cdp.settle(`document.querySelector(".grid-empty") !== null`, (empty) => empty === true);
+  check("the middle of a word finds neither", (await cdp.evaluate(located)).length === 0);
   await typeQuery("kid rating:5");
   await cdp.settle(`document.querySelector(".grid-empty") !== null`, (empty) => empty === true);
   check("a filter as well draws none", (await cdp.evaluate(located)).length === 0);

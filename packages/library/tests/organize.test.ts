@@ -752,7 +752,7 @@ describe("organizing a library", () => {
     ]);
   });
 
-  it("finds folders by whole words of their names (ADR-0057)", async () => {
+  it("finds folders by the starts of words in their names (ADR-0057 §7)", async () => {
     const design = await createFolder(library, "Design", null);
     const inside = await createFolder(library, "Highlights 2024", design);
     const archive = await createFolder(library, "Archive", null);
@@ -761,9 +761,13 @@ describe("organizing a library", () => {
 
     const found = (query: string) => findFolders(library, query)?.sort();
     expect(found("highlights")).toEqual([inside, elsewhere].sort());
-    // Whole words, as an asset's name is matched: a prefix finds nothing.
-    expect(found("highl")).toEqual([]);
+    // The start of a word, as an asset's name is matched; quotes keep it whole.
+    const highlighted = (findFolders(library, '"highlighted"') ?? [])[0];
+    expect(found("highl")).toEqual([inside, elsewhere, highlighted].sort());
+    expect(found('"highl"')).toEqual([]);
+    expect(found("ighl")).toEqual([]);
     expect(found("2024 highlights")).toEqual([inside]);
+    expect(found("20 high")).toEqual([inside]);
 
     // Inside a folder, everything beneath it and not the folder itself, at
     // either depth.
@@ -782,10 +786,13 @@ describe("organizing a library", () => {
     const [first] = ids as [AssetId, AssetId, AssetId];
     const folder = await createFolder(library, "placeholder", null);
     const cases: [string, string[]][] = [
-      ["Café Mood", ["cafe", "café", "CAFE", "mood", "caf"]],
-      ["IMG_2024 trip", ["img", "2024", "img_2024", "trip", "IMG_2024"]],
-      ["oak-wood", ['"oak wood"', "oak-wood", "wood", '"wood oak"']],
-      ["naïve ÉCOLE", ["naive", "ecole", "école", "naïve"]],
+      ["Café Mood", ["cafe", "café", "CAFE", "mood", "caf", '"caf"', "afe", "cafes"]],
+      [
+        "IMG_2024 trip",
+        ["img", "2024", "img_2024", "trip", "IMG_2024", "img_20", '"img_20"', "tr"],
+      ],
+      ["oak-wood", ['"oak wood"', "oak-wood", "wood", '"wood oak"', '"oak wo"', "oa-wo"]],
+      ["naïve ÉCOLE", ["naive", "ecole", "école", "naïve", "naï", "éco", '"éco"']],
     ];
     for (const [name, words] of cases) {
       await renameAsset(library, first, name);

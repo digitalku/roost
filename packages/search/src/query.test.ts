@@ -57,7 +57,7 @@ describe("structure", () => {
   it("negates on a leading dash, but not on one inside a word", () => {
     expect(parse("-tag:wip").kind).toBe("not");
     // Filenames are full of hyphens, and `logo-v2` is one search term.
-    expect(term("logo-v2")).toEqual({ field: "text", value: "logo-v2" });
+    expect(term("logo-v2")).toEqual({ field: "text", value: "logo-v2", exact: false });
   });
 
   it("treats an explicit AND and adjacency as the same thing", () => {
@@ -69,8 +69,8 @@ describe("values", () => {
   it("keeps quoted spaces and never reads a quoted word as a keyword", () => {
     expect(term('tag:"brand assets"')).toEqual({ field: "tag", value: "brand assets" });
     // Bare `or` is an operator; quoted, it is what the user is looking for.
-    expect(term('"or"')).toEqual({ field: "text", value: "or" });
-    expect(term('"say ""hi"""')).toEqual({ field: "text", value: 'say "hi"' });
+    expect(term('"or"')).toEqual({ field: "text", value: "or", exact: true });
+    expect(term('"say ""hi"""')).toEqual({ field: "text", value: 'say "hi"', exact: true });
   });
 
   it("keeps a colon inside a value, so a path or a URL survives", () => {
@@ -270,7 +270,14 @@ describe("compiling", () => {
     // FTS5's MATCH argument is a query language of its own, so raw text would
     // let AND, NEAR, or `*` change the search into something else.
     const filter = buildQuery("beach OR sunset");
-    expect(filter.params).toEqual(['"beach"', '"sunset"']);
+    expect(filter.params).toEqual(['"beach"*', '"sunset"*']);
+  });
+
+  it("searches a bare word as a prefix and a quoted one whole (ADR-0057 §7)", () => {
+    expect(buildQuery("olahrag").params).toEqual(['"olahrag"*']);
+    expect(buildQuery('"olahraga"').params).toEqual(['"olahraga"']);
+    // The escape stays inside the quotes, and the `*` outside them.
+    expect(buildQuery('say"hi').params).toEqual(['"say""hi"*']);
   });
 
   it("makes negation total", () => {

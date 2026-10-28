@@ -94,10 +94,11 @@ function foldAscii(value: string): string {
  * The folders a typed search finds by name, or `null` when the query is not a
  * search a folder can answer (ADR-0057).
  *
- * A folder is found when **every word is a whole word of its name**, as an
- * asset's name is matched: `highl` finds neither the folder *highlights* nor
- * the file. Words typed inside a folder look through everything beneath it,
- * and not at the folder itself, which is the place rather than a result.
+ * A folder is found when **every word starts a word of its name**, as an
+ * asset's name is matched: `highl` finds the folder *highlights* and the file,
+ * and `"highl"` in quotes finds neither (ADR-0057 §7). Words typed inside a
+ * folder look through everything beneath it, and not at the folder itself,
+ * which is the place rather than a result.
  *
  * Ids, in no promised order: the window draws them in its own tree's order.
  */
@@ -105,9 +106,9 @@ export function findFolders(library: Library, query: string): number[] | null {
   const wanted = folderSearch(query);
   if (wanted === undefined) return null;
 
-  const phrases = wanted.words.map(wordsOf);
+  const phrases = wanted.words.map((word) => ({ words: wordsOf(word.value), exact: word.exact }));
   // A word with nothing in it to match, `--` say, finds no asset either.
-  if (phrases.some((phrase) => phrase.length === 0)) return [];
+  if (phrases.some((phrase) => phrase.words.length === 0)) return [];
 
   const rows = library.db.repo.folders();
   let candidates: readonly FolderRow[] = rows;
@@ -149,10 +150,21 @@ function wordsOf(text: string): string[] {
   );
 }
 
-/** Whether `phrase` appears in `words` as a run, which is what a phrase match is. */
-function holds(words: readonly string[], phrase: readonly string[]): boolean {
-  for (let start = 0; start + phrase.length <= words.length; start += 1) {
-    if (phrase.every((word, offset) => words[start + offset] === word)) return true;
+/**
+ * Whether `phrase` appears in `words` as a run, which is what a phrase match is.
+ *
+ * Unless it is exact, the run's last word need only start the word it meets,
+ * as FTS5 reads `"..."*`: the earlier words of a prefix phrase stay whole.
+ */
+function holds(
+  words: readonly string[],
+  phrase: { readonly words: readonly string[]; readonly exact: boolean },
+): boolean {
+  const last = phrase.words.length - 1;
+  const meets = (word: string, wanted: string, at: number): boolean =>
+    at === last && !phrase.exact ? word.startsWith(wanted) : word === wanted;
+  for (let start = 0; start + phrase.words.length <= words.length; start += 1) {
+    if (phrase.words.every((wanted, at) => meets(words[start + at] ?? "", wanted, at))) return true;
   }
   return false;
 }

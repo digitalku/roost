@@ -57,6 +57,50 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-10-28 — the start of a word, at a million assets (ADR-0057 §7)
+
+Machine: Fedora 44 host, the index on tmpfs. Node 22.23.1. A throwaway script, not kept, against a
+synthetic index built from `packages/core/migrations/`: **1,000,000 assets**, 2 % in the trash, names
+half camera-shaped (`IMG_1234` a quarter of them, `DSC01234`, `PXL_…`, `Screenshot 2024-…`) and half
+one to four words from a 20,000-word vocabulary on a Zipf curve, three tags each from 2,000. The
+filter is `buildQuery`'s, with `*` added to the phrase for the prefix rows, run through
+`Repo.search` (a page of 100, default order) and `Repo.count`. Twenty warm runs a page, five a count.
+The same corpus twice: the schema as it is, and `assets_fts` recreated with `prefix = '2 3'`.
+
+| Query | Matches | Page p50 | Page p95 | Count | Page p95, `prefix='2 3'` |
+| --- | --- | --- | --- | --- | --- |
+| `olahraga`, whole | 338 | 0.55 ms | 0.71 ms | 0.2 ms | 0.43 ms |
+| `olahrag*` | 338 | 0.40 ms | **0.48 ms** | 0.1 ms | 0.56 ms |
+| `olah*` | 374 | 0.42 ms | 0.45 ms | 0.2 ms | 0.53 ms |
+| `ol*` | 7,251 | 12.0 ms | 12.2 ms | 8.8 ms | 15.0 ms |
+| `ka*` | 70,830 | 71.4 ms | 72.8 ms | 44.1 ms | 81.3 ms |
+| `scr*` | 97,773 | 86.9 ms | 97.8 ms | 50.2 ms | 99.6 ms |
+| `o*` | 183,016 | 150 ms | 167 ms | 85 ms | 186 ms |
+| `img`, whole | 244,993 | 158 ms | **169 ms** | 85 ms | 173 ms |
+| `img*` | 244,993 | 165 ms | 167 ms | 92 ms | 213 ms |
+| `sepak bola`, whole | 15 | 6.3 ms | 6.7 ms | 6.1 ms | 8.5 ms |
+| `sep* bol*` | 118 | 29.7 ms | 33.4 ms | 25.9 ms | 32.2 ms |
+| `zzqx*`, nothing | 0 | 0.05 ms | 0.07 ms | 0.0 ms | 0.06 ms |
+| `name LIKE '%ahrag%'` | 338 | 63.5 ms | 64.7 ms | 106 ms | 83.9 ms |
+| `name LIKE '%zzqx%'`, nothing | 0 | 207 ms | 270 ms | 83 ms | 224 ms |
+
+The `prefix='2 3'` index made `index.db` 469 MiB against 414 MiB, and the FTS inserts 7.0 s against
+4.7 s for the million.
+
+**What this revealed.**
+
+- **A prefix costs what a whole word costs.** The price of a free-text term is set by how many rows
+  it matches, exactly as at 95k (the M2 entry below), and not by whether its last word is a prefix.
+- **FTS5's prefix index is not worth having here.** It speeds up finding the words a prefix
+  matches, which was never the cost: collecting every matching rowid before the order and the limit
+  apply is. So ADR-0057 §7 needed no migration.
+- **The common word is over budget already, prefix or not.** A whole word on a quarter of the
+  library is 169 ms, and the count is 85 ms on top. A one- or two-letter prefix only makes that case
+  easier to reach. `TODO.md` carries the fix, stopping the FTS side at a page.
+- **A substring is not cheap without an index and not small with one.** `LIKE` over the names alone
+  is 65 ms when it finds something and 270 ms when it finds nothing, which is the case that has to
+  walk all of them.
+
 ### 2026-10-23 — a folder's own tags and types, and the library's tags (ADR-0035 §8)
 
 Machine: Fedora 44 host, Intel Core Ultra 7 155H, NVMe. Node 22.23.1. A throwaway script, not kept,

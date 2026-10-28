@@ -219,7 +219,7 @@ function termSql(term: Term, folders: Folders, params: Param[]): string {
       return flagSql(term.flag);
 
     case "text":
-      params.push(ftsPhrase(term.value));
+      params.push(ftsPhrase(term.value, term.exact));
       // The full-text rowid is kept aligned with `assets.rowid`, so this is a
       // rowid lookup rather than a join on an UNINDEXED column.
       return "a.rowid IN (SELECT rowid FROM assets_fts WHERE assets_fts MATCH ?)";
@@ -273,7 +273,11 @@ function flagSql(flag: Flag): string {
  * search. Not a SQL injection — the value is bound — but a confusing failure
  * all the same. Quoting turns the whole input into one phrase, which is what
  * someone typing into a search box means.
+ *
+ * The `*` after the closing quote is FTS5's own prefix phrase: the phrase's
+ * last word may be the start of a longer one. It costs what a whole word costs
+ * (`BENCHMARKS.md`, 2026-10-28), and no `prefix=` index made it cheaper.
  */
-function ftsPhrase(text: string): string {
-  return `"${text.replaceAll('"', '""')}"`;
+function ftsPhrase(text: string, exact: boolean): string {
+  return `"${text.replaceAll('"', '""')}"${exact ? "" : "*"}`;
 }

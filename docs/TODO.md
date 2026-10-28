@@ -537,11 +537,13 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
   at the wrong character from the first non-ASCII character onward. `DATA_MODEL.md` §3 says
   "byte offset" and should be reworded when the search field lands in M3.
 
-- 🟡 **Free text that matches almost everything costs 22 ms at 95k assets**, against 0.16 ms for
-  a selective term. `assets_fts MATCH ?` is compiled as `a.rowid IN (SELECT rowid ...)`, and the
-  subquery materialises every matching rowid before the ordering and the limit apply. Nothing to
-  fix at this size — see `BENCHMARKS.md` — but the shape of the fix is pushing the limit into the
-  FTS side, and 1M assets is where it may start to matter.
+- 🟡 **Free text that matches a quarter of a million assets costs 169 ms a page and 85 ms a
+  count**, over the 100 ms budget, against 0.5 ms for a selective term (`BENCHMARKS.md`,
+  2026-10-28; 22 ms at 95k in M2). `assets_fts MATCH ?` is compiled as
+  `a.rowid IN (SELECT rowid ...)`, and the subquery materialises every matching rowid before the
+  ordering and the limit apply. Since ADR-0057 §7 a one- or two-letter prefix reaches this case as
+  easily as a common word does. The shape of the fix is pushing the limit into the FTS side, for
+  the default order at least; a prefix index does not help, it was measured.
 
 - 🟢 **A rare `tag:` pages slowly, and a `tag:` or `folder:` count costs 0.3–0.4 s, at a million
   assets** (`BENCHMARKS.md`, 2026-10-23). Both terms are a probe per asset, so a count walks the
