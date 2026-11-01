@@ -128,6 +128,10 @@ function decoderBuild(): DecoderBuild {
  * the container holds forty-eight tiles and a rotation, and none of those
  * numbers is the photograph's.
  *
+ * The size the picture is **shown** at, its orientation tag applied: a phone
+ * stores a portrait as landscape pixels and a tag, and a cell laid out from the
+ * stored numbers would be the wrong shape.
+ *
  * `undefined` rather than an error when the header cannot be read: an asset
  * whose dimensions are unknown imports perfectly well and simply has no cell
  * shape to reserve until it has a thumbnail.
@@ -136,9 +140,10 @@ export async function readDimensions(
   source: PixelSource | string,
 ): Promise<{ width: number; height: number } | undefined> {
   try {
-    const { width, height } = await openSource(
+    const { autoOrient } = await openSource(
       typeof source === "string" ? { path: source } : source,
     ).metadata();
+    const { width, height } = autoOrient;
     if (typeof width !== "number" || typeof height !== "number") return undefined;
     return { width, height };
   } catch {
@@ -187,6 +192,10 @@ function openSource(source: PixelSource): ReturnType<typeof sharp> {
  *
  * **Never enlarges.** Upscaling would inflate the stored BLOB while adding no
  * detail, and would make a 64px icon claim to be a 512px thumbnail.
+ *
+ * **Turned to the way up the file says.** WebP carries no orientation tag out
+ * of this, so nothing later could turn it, and the preview, which hands the file
+ * to Chromium, would disagree with its own cell.
  */
 export async function renderThumbnails(
   source: PixelSource,
@@ -196,6 +205,7 @@ export async function renderThumbnails(
 
   for (const size of [...new Set(sizes)].sort((a, b) => b - a)) {
     const { data, info } = await openSource(source)
+      .rotate()
       .resize({ width: size, height: size, fit: "inside", withoutEnlargement: true })
       .webp({ quality: WEBP_QUALITY })
       .toBuffer({ resolveWithObject: true });

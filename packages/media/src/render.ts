@@ -151,6 +151,7 @@ async function toPng(source: string | Buffer): Promise<Buffer> {
 
 async function toJpeg(source: string | Buffer): Promise<Rendition> {
   const bytes = await sharp(source, { failOn: "error" })
+    .rotate()
     .resize({ width: MAX_EDGE, height: MAX_EDGE, fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: QUALITY })
     .toBuffer();

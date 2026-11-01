@@ -46,6 +46,22 @@ describe("rendering one", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("stands a TIFF taken on its side the right way up", async () => {
+    const path = join(dir, "portrait.tiff");
+    await writeFile(
+      path,
+      await sharp(await gradient(320, 240, 4, "png"))
+        .withMetadata({ orientation: 6 })
+        .tiff()
+        .toBuffer(),
+    );
+
+    const { bytes } = await renderForBrowser(path, "tiff");
+    const { width, height } = await sharp(bytes).metadata();
+
+    expect([width, height]).toEqual([240, 320]);
+  });
+
   it("turns a TIFF into a JPEG at its own size", async () => {
     const path = join(dir, "scan.tiff");
     await writeFile(path, await gradient(320, 240, 3, "tiff"));

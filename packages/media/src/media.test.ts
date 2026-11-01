@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import sharp from "sharp";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { decoderVersions, isRenderable, sniff } from "./index.js";
 import { probe } from "./probe.js";
@@ -112,6 +113,35 @@ describe("generating thumbnails", () => {
       expect(sniff(thumb.data)).toBe("webp");
       expect(thumb.data.length).toBeGreaterThan(0);
     }
+  });
+
+  it("draws a photograph taken on its side the right way up, and measures it so", async () => {
+    // Stored landscape with a tag, which is how a phone writes a portrait. The
+    // left half is red, so a turned picture has it on top, where an untouched
+    // one would keep it on the left.
+    const halves = Buffer.alloc(40 * 30 * 3);
+    for (let y = 0; y < 30; y += 1) {
+      for (let x = 0; x < 40; x += 1) {
+        halves.set(x < 20 ? [255, 0, 0] : [0, 0, 255], (y * 40 + x) * 3);
+      }
+    }
+    const path = join(dir, "portrait.jpg");
+    await writeFile(
+      path,
+      await sharp(halves, { raw: { width: 40, height: 30, channels: 3 } })
+        .withMetadata({ orientation: 6 })
+        .jpeg({ quality: 100 })
+        .toBuffer(),
+    );
+
+    const [thumbnail] = await generateThumbnails(path, [GRID_SIZE]);
+    expect([thumbnail?.width, thumbnail?.height]).toEqual([30, 40]);
+    expect((await probe(path)).width).toBe(30);
+    expect((await probe(path)).height).toBe(40);
+
+    const { data } = await sharp(thumbnail?.data).raw().toBuffer({ resolveWithObject: true });
+    const [red = 0, , blue = 0] = data;
+    expect(red).toBeGreaterThan(blue);
   });
 
   it("never enlarges an image smaller than the requested size", async () => {
