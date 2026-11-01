@@ -1036,6 +1036,20 @@ export class Repo {
     this.#s("DELETE FROM pictures.sources WHERE asset_id = ?").run(id);
   }
 
+  /**
+   * Forgets what one asset's pictures were drawn from, so the next derive draws
+   * them instead of keeping them, and says whether it may (ADR-0064).
+   *
+   * The pictures stay until the new ones replace them, so a redraw that fails
+   * takes nothing away. **Not pictures somebody chose** (ADR-0060), which do not
+   * show the file and so cannot be out of date with it.
+   */
+  forgetPictureSource(id: AssetId): boolean {
+    if (this.#isChosen(id)) return false;
+    this.#s("DELETE FROM pictures.sources WHERE asset_id = ?").run(id);
+    return true;
+  }
+
   /** The moment a thumbnail is pinned to, or `null` for the default frame. */
   posterOf(id: AssetId): number | null {
     const row = this.#s("SELECT poster_ms AS posterMs FROM assets WHERE id = ?").get(id) as
@@ -2177,6 +2191,49 @@ export class Repo {
           WHERE kind = ? AND asset_id = ? AND state IN ('blocked', 'failed')`,
       ).run(kind, asset).changes > 0
     );
+  }
+
+  /** How many assets have nothing derived: a full scan, so asked once per pass. */
+  underivedCount(): number {
+    const row = this.#s("SELECT count(*) AS n FROM assets WHERE derived_at IS NULL").get() as {
+      n: number;
+    };
+    return row.n;
+  }
+
+  /**
+   * The next assets with nothing derived, past `after` in id order.
+   *
+   * Keyset on the primary key, so a walk over a library reads each row once.
+   */
+  underivedAfter(after: string, limit: number): AssetId[] {
+    const rows = this.#s(
+      "SELECT id FROM assets WHERE id > ? AND derived_at IS NULL ORDER BY id LIMIT ?",
+    ).all(after, limit) as { id: AssetId }[];
+    return rows.map((row) => row.id);
+  }
+
+  /** Finishes one asset's job, whatever state it is in, because nothing is left to do. */
+  finishJobFor(kind: JobKind, asset: AssetId): void {
+    this.#s("DELETE FROM jobs WHERE kind = ? AND asset_id = ?").run(kind, asset);
+  }
+
+  /**
+   * Which of `ids` have a job waiting to be claimed, in the order given.
+   *
+   * The ids travel as one JSON parameter, as {@link Repo.chosenAmong}'s do: one
+   * lookup per cell of a screen, on the job's unique key.
+   */
+  readyAmong(kind: JobKind, ids: readonly AssetId[]): AssetId[] {
+    if (ids.length === 0) return [];
+    const rows = this.#s(
+      `SELECT j.asset_id AS id
+         FROM json_each(?) e
+         JOIN jobs j ON j.kind = ? AND j.asset_id = e.value
+        WHERE j.state = 'ready'`,
+    ).all(JSON.stringify(ids), kind) as { id: AssetId }[];
+    const ready = new Set(rows.map((row) => row.id));
+    return ids.filter((id) => ready.has(id));
   }
 
   /** Retries jobs that failed, up to `maxAttempts` tries each. */

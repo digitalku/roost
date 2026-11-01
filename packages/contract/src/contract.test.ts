@@ -104,6 +104,7 @@ describe("validating a request", () => {
       "asset:thumbnail",
       "asset:thumbnailSet",
       "asset:thumbnailClear",
+      "asset:thumbnailRefresh",
       "asset:create",
       "clipboard:paste",
       "asset:addSubtitle",
@@ -153,10 +154,8 @@ describe("validating a request", () => {
       "eagle:import",
       "derive:status",
       "derive:retry",
-      "derive:pause",
       "derive:retryAsset",
-      "derive:resume",
-      "derive:wanted",
+      "derive:onScreen",
       "capability:install",
       "derive:failures",
       "clipboard:copyText",
@@ -420,6 +419,29 @@ describe("validating a thumbnail somebody chose (ADR-0060)", () => {
     expect(checkRequest({ type: "asset:thumbnailClear", ids: [ID] })).toEqual({
       ok: true,
       value: { type: "asset:thumbnailClear", ids: [ID] },
+    });
+  });
+
+  it("refreshes by id", () => {
+    expect(checkRequest({ type: "asset:thumbnailRefresh", ids: [ID] })).toEqual({
+      ok: true,
+      value: { type: "asset:thumbnailRefresh", ids: [ID] },
+    });
+    expect(checkRequest({ type: "asset:thumbnailRefresh", ids: ["nope"] })).toMatchObject({
+      ok: false,
+    });
+  });
+
+  it("carries the shape of a redraw, and refuses one that is not a number", () => {
+    const one = { id: ID, derivedAt: 1, undrawn: null, chosen: false };
+    expect(
+      checkEvent({ type: "assets:derived", assets: [{ ...one, width: 3, height: 4 }] }),
+    ).toEqual({
+      ok: true,
+      value: { type: "assets:derived", assets: [{ ...one, width: 3, height: 4 }] },
+    });
+    expect(checkEvent({ type: "assets:derived", assets: [{ ...one, width: "3" }] })).toMatchObject({
+      ok: false,
     });
   });
 });

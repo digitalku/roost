@@ -263,17 +263,9 @@ export function useAssetPages(
       const next = held.map((card) => {
         const one = moved.get(card.id);
         if (one === undefined) return card;
-        // `null` is "nothing about the file was written", not "forget the key".
-        const derivedAt = one.derivedAt ?? card.derivedAt;
-        if (
-          derivedAt === card.derivedAt &&
-          one.undrawn === card.undrawn &&
-          one.chosen === card.chosenThumbnail
-        ) {
-          return card;
-        }
-        changed = true;
-        return { ...card, derivedAt, undrawn: one.undrawn, chosenThumbnail: one.chosen };
+        const patched = redrawnCard(card, one);
+        if (patched !== card) changed = true;
+        return patched;
       });
       // A new array for a batch that touched nothing on screen would re-render
       // the grid on every batch of a hundred-thousand-asset import.
@@ -298,6 +290,29 @@ export function useAssetPages(
     redraw,
     drop,
   };
+}
+
+/**
+ * A card with one redraw applied, or the same card if it says nothing new.
+ *
+ * What a redraw leaves out, the card keeps: `null` for the time is "nothing about
+ * the file was written", not "forget the key", and a shape comes only with a
+ * picture that was drawn (ADR-0064).
+ */
+export function redrawnCard(card: AssetCard, one: WireRedrawn): AssetCard {
+  const derivedAt = one.derivedAt ?? card.derivedAt;
+  const width = one.width ?? card.width;
+  const height = one.height ?? card.height;
+  if (
+    derivedAt === card.derivedAt &&
+    width === card.width &&
+    height === card.height &&
+    one.undrawn === card.undrawn &&
+    one.chosen === card.chosenThumbnail
+  ) {
+    return card;
+  }
+  return { ...card, derivedAt, width, height, undrawn: one.undrawn, chosenThumbnail: one.chosen };
 }
 
 /**

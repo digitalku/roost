@@ -79,6 +79,7 @@ import {
   libraryNameFromPath,
   listRecent,
   matches,
+  measureUnread,
   moveFolder,
   pinLibrary,
   queueStatus,
@@ -91,6 +92,7 @@ import {
   readTagList,
   reclaim,
   reclaimableBytes,
+  refreshThumbnails,
   releaseNowSupported,
   rememberLibrary,
   removeAssets,
@@ -122,7 +124,6 @@ import {
   transferToLibrary,
   trashAssets,
   unsoundForReclaim,
-  Wanted,
   watchFiles,
   watchRoot,
 } from "@roost/library";
@@ -300,13 +301,10 @@ export class EngineHost {
         // a million (`serving.ts`). One asset, and only if it already has a
         // grid thumbnail — proof that something here can draw it.
         await ensurePreview(library, request.id);
-        // Opened while the queue is paused: its thumbnail is made now, and the
-        // rest keeps waiting (ADR-0049). A file with nothing queued is skipped
-        // by the runner, so there is nothing to check here first.
-        if (this.#paused) {
-          this.#requested.open(found.id);
-          void this.#runDerives();
-        }
+        // Opened: its thumbnail is made now (ADR-0065). A file with nothing
+        // queued is skipped by the runner, so there is nothing to check first.
+        this.#requested.open(found.id);
+        void this.#runDerives();
         return detailOf(
           found,
           library.db.repo.commentsFor(found.id),
@@ -332,7 +330,6 @@ export class EngineHost {
         return this.#edit(async () => {
           const pinned = await setPoster(this.#require(), parseAssetId(request.id), request.atMs);
           // A gesture about this one file, so a pause does not hold it back.
-          if (pinned && this.#paused) this.#requested.open(parseAssetId(request.id));
           // The picture is not made here: the service queues the derive at
           // interactive priority and this works the queue in the background,
           // which is the same path a rebuild takes. Nothing to work when the
@@ -357,9 +354,19 @@ export class EngineHost {
           if (cleared.length === 0) return 0;
           this.onDerived?.(cleared);
           // The file's own pictures, drawn now: somebody is looking at the cell.
-          if (this.#paused) for (const one of cleared) this.#requested.open(one.id);
           void this.#runDerives();
           return cleared.length;
+        });
+
+      case "asset:thumbnailRefresh":
+        return this.#editReporting(async () => {
+          const refreshed = refreshThumbnails(this.#require(), ids(request.ids));
+          if (refreshed.length === 0) return 0;
+          for (const id of refreshed) this.#reshaping.add(id);
+          // The cells keep their pictures until the new ones are committed, and
+          // that commit is what announces them.
+          void this.#runDerives();
+          return refreshed.length;
         });
 
       case "asset:create":
@@ -373,7 +380,7 @@ export class EngineHost {
             new TextEncoder().encode(request.text),
           );
           // Always a new asset in version 2, so the derive always has work.
-          if (this.#paused) this.#requested.open(parseAssetId(id));
+          this.#requested.open(parseAssetId(id));
           void this.#runDerives();
           return { id };
         });
@@ -537,16 +544,6 @@ export class EngineHost {
       case "derive:failures":
         return deriveFailures(this.#require(), { state: request.state });
 
-      case "derive:pause": {
-        // Remembered before anything stops, so a crash in between still comes
-        // back paused — which is what was asked for (ADR-0049).
-        await this.#require().updateSettings({ derivePaused: true });
-        this.#paused = true;
-        // What is in flight finishes; nothing new is claimed.
-        this.#stopDeriving?.abort();
-        return this.#deriveStatus();
-      }
-
       case "folder:covers": {
         // Four per folder, at the grid's size: a tile draws a 2×2 of them.
         const covers = this.#require().db.repo.folderCovers(request.folders, GRID_SIZE, 4);
@@ -570,32 +567,16 @@ export class EngineHost {
         // file was waiting for may have been installed a minute ago.
         await refreshCapabilities();
         if (!library.db.repo.requeueJobFor("derive", id)) return false;
-        // Next, whichever way the queue is running: somebody is looking at it.
-        if (this.#paused) this.#requested.open(id);
-        else this.#wanted.add([id]);
+        this.#requested.open(id);
         void this.#runDerives();
         return true;
       }
 
-      case "derive:resume": {
-        await this.#require().updateSettings({ derivePaused: false });
-        this.#paused = false;
-        this.#requested.clear();
-        // A paused run working an opened file may be in flight, and a second
-        // caller joins the run in flight rather than starting one — so it is
-        // stopped, and the whole queue started once it has let go.
-        this.#stopDeriving?.abort();
-        const letting = this.#deriving;
-        if (letting === undefined) void this.#runDerives();
-        else void letting.catch(() => undefined).then(() => this.#runDerives());
-        return this.#deriveStatus();
-      }
-
-      case "derive:wanted":
-        // Nothing is started here. Work is only ever wanted because it is
-        // queued, and a queue with work in it is already being worked: the run
-        // in flight reads this at its next claim.
-        if (this.#library !== undefined) this.#wanted.add(ids(request.ids));
+      case "derive:onScreen":
+        if (this.#library !== undefined) {
+          this.#requested.showing(this.#library.db.repo.readyAmong("derive", ids(request.ids)));
+          void this.#runDerives();
+        }
         return null;
 
       case "derive:retry": {
@@ -607,17 +588,14 @@ export class EngineHost {
         // process still believes is absent. It was never wired until the day
         // libheif arrived and proved it (ADR-0040 §6).
         await refreshCapabilities();
-        // Paused, the button still does what it says — for what it releases,
-        // and not for the rest of the queue (ADR-0049). Read before the release,
-        // which is what turns these rows back into ordinary queued work.
-        if (this.#paused) {
-          const everything = Number.MAX_SAFE_INTEGER;
-          const parked = library.db.repo
-            .jobsIn("derive", "blocked", everything)
-            .filter((row) => request.reason === null || row.reason === request.reason);
-          const failed = library.db.repo.jobsIn("derive", "failed", everything);
-          this.#requested.queue([...parked, ...failed].map((row) => row.assetId));
-        }
+        // By name, since the queue draws nothing else (ADR-0065). Read before
+        // the release, which is what turns these rows back into queued work.
+        const everything = Number.MAX_SAFE_INTEGER;
+        const parked = library.db.repo
+          .jobsIn("derive", "blocked", everything)
+          .filter((row) => request.reason === null || row.reason === request.reason);
+        const failed = library.db.repo.jobsIn("derive", "failed", everything);
+        this.#requested.queue([...parked, ...failed].map((row) => row.assetId));
         retryBlocked(library, request.reason ?? undefined);
         // Every failure, however many times it has already been tried. The
         // attempts cap belongs to the sweep that offers work again on its own;
@@ -802,16 +780,9 @@ export class EngineHost {
     files = report;
     tell(true);
 
-    // Derived work is part of the same run here, unlike the CLI, where `import`
-    // and `thumb` are separate commands. A headless import into a library
-    // nobody is looking at should not pay for pictures; an import someone is
-    // watching produces a screen of placeholders without them.
-    //
     // The importer has already queued the jobs, in the transaction that wrote
-    // the rows — this only works the queue. A paused queue works these and no
-    // others: an import is somebody asking for these files now (ADR-0049).
-    // A stopped import draws what did arrive.
-    if (this.#paused) this.#requested.queue(report.importedIds);
+    // the rows, and they are drawn as they come on screen (ADR-0065). This
+    // waits for nothing but what somebody changed meanwhile.
     const derived = await this.#runDerives((running) => {
       this.onProgress?.(progressOf(report, bytes, running.derived));
     });
@@ -925,7 +896,6 @@ export class EngineHost {
     );
     tell(true);
 
-    if (this.#paused) this.#requested.queue(report.importedIds);
     const derived = await this.#runDerives((running) => {
       this.onProgress?.({
         scanned: report.survey.items,
@@ -959,7 +929,10 @@ export class EngineHost {
     if (library === undefined) return undefined;
 
     const running = this.#deriving;
-    if (running !== undefined) return running;
+    if (running !== undefined) {
+      this.#deriveAgain = true;
+      return running;
+    }
 
     this.#stopDeriving = new AbortController();
     let announcedAt = Number.NEGATIVE_INFINITY;
@@ -971,18 +944,15 @@ export class EngineHost {
         failed: report.failed,
       });
     };
-    // Paused, only what was asked for by name, and nothing when nothing was.
-    const paused = this.#paused;
-    if (paused && this.#requested.size === 0) return undefined;
     const run = runDerives(library, {
       signal: this.#stopDeriving.signal,
-      ...(paused ? { only: this.#requested } : { wanted: this.#wanted }),
+      asked: this.#requested,
       // Per batch, unlike `onChanged` below. A card the window is already
       // holding is patched with its new cache key, so a cell whose file changed
       // redraws while the rest of the run is still going — and nothing re-reads
       // a page (ADR-0047).
       onDerived: (assets) => {
-        this.onDerived?.(assets);
+        this.onDerived?.(assets.map((one) => this.#steady(one)));
       },
       onProgress: (report) => {
         onProgress?.(report);
@@ -1005,15 +975,12 @@ export class EngineHost {
     // changes nothing `onChanged` would announce, and the status line would
     // otherwise go on counting down work that has stopped.
     if (this.#library === library) announce(report);
-    // Announced once at the end: the grid re-reads and the cells that were
-    // placeholders find their thumbnails. Per batch would be a redraw every
-    // hundred assets for a run that can take minutes.
-    if (report.derived > 0) this.onChanged?.();
-    // Asked for while this run was letting go — a file opened just as a pause
-    // stopped the last one — would otherwise wait for the next trigger.
-    if (this.#library === library && this.#paused && this.#requested.size > 0) {
-      void this.#runDerives();
-    }
+    // Asked for while this run was letting go, which is ordinary here: a scroll
+    // comes to rest as the last screen finishes. It would otherwise wait for the
+    // next trigger.
+    const again = this.#deriveAgain;
+    this.#deriveAgain = false;
+    if (again && this.#library === library) void this.#runDerives();
     return report;
   }
 
@@ -1023,10 +990,26 @@ export class EngineHost {
   #catchingUp: Promise<void> | undefined;
   #deriving: Promise<DeriveReport> | undefined;
   #stopDeriving: AbortController | undefined;
-  /** What the window is showing placeholders for. Forgotten with the library. */
-  readonly #wanted = new Wanted();
-  /** Whether the queue is paused, as the library remembers it (ADR-0049). */
-  #paused = false;
+  /** Refreshed by somebody, so their cards may change shape when drawn (ADR-0064 §4). */
+  readonly #reshaping = new Set<AssetId>();
+
+  /**
+   * A redraw as the window should hear it: without a shape, unless asked for.
+   *
+   * A picture arrives while somebody is looking at the grid (ADR-0065), and a
+   * card that took a new shape then would move everything below it. So it keeps
+   * the one it has until its page is next read (ADR-0065 §6).
+   */
+  #steady(one: Redrawn): Redrawn {
+    if (this.#reshaping.delete(one.id)) return one;
+    return { id: one.id, derivedAt: one.derivedAt, undrawn: one.undrawn, chosen: one.chosen };
+  }
+
+  /** Asked for while a run was finishing, which that run may have missed. */
+  #deriveAgain = false;
+  /** How many files {@link measureUnread} has left. */
+  #checking = 0;
+  #measuring: Promise<void> | undefined;
 
   /**
    * The transfer that is running, if one is (ADR-0054 §3.9).
@@ -1156,7 +1139,7 @@ export class EngineHost {
       movedName: movedTo === undefined ? null : libraryNameFromPath(movedTo),
     });
   }
-  /** What a paused queue still works: opened files and new imports. */
+  /** What the window has asked to see drawn, forgotten with the library (ADR-0065). */
   readonly #requested = new Requested();
 
   /**
@@ -1196,8 +1179,8 @@ export class EngineHost {
   async #deriveStatus(): Promise<WireDeriveStatus> {
     const status = queueStatus(this.#require());
     return {
-      paused: this.#paused,
       ready: status.ready,
+      checking: this.#checking,
       running: status.running,
       blocked: status.blocked,
       failed: status.failed,
@@ -1262,9 +1245,8 @@ export class EngineHost {
     // The list names assets in the library that is going: it cannot mean
     // anything about the next one. Nor can what its window was waiting for.
     this.#duplicates = undefined;
-    this.#wanted.clear();
     this.#requested.clear();
-    this.#paused = false;
+    this.#reshaping.clear();
 
     // The watcher goes first of all: a pending refresh landing after the
     // database is closed would throw, and its whole subject is leaving anyway.
@@ -1276,6 +1258,9 @@ export class EngineHost {
     this.#stopWatching = undefined;
     await this.#catchingUp?.catch(() => undefined);
     this.#catchingUp = undefined;
+    await this.#measuring?.catch(() => undefined);
+    this.#measuring = undefined;
+    this.#checking = 0;
 
     // The runner is stopped before the library is: it commits batch by batch,
     // so a run cut short here has already kept everything it finished, and a
@@ -1310,12 +1295,11 @@ export class EngineHost {
     // a parked `unsupported:heic` is a fact about the build that wrote it
     // rather than about the file (ADR-0040 §6).
     releaseNowSupported(library);
-    this.#paused = library.settings.derivePaused;
 
     // Whatever the last session left undone, plus whatever a rebuild dropped.
-    // Queued and worked in the background, so opening a library is not held up
-    // by a hundred thousand thumbnails — the window draws placeholders and they
-    // fill in (`ARCHITECTURE.md` §4.5).
+    // Queued, not worked: these are drawn as they come on screen (ADR-0065),
+    // and what is left of the queue is what the status bar counts. Only what
+    // somebody changed runs without being asked for.
     enqueueMissing(library);
     void this.#runDerives();
 
@@ -1357,6 +1341,23 @@ export class EngineHost {
       })
       .catch((error: unknown) => {
         log.warn("could not watch the library's folder", { error: String(error) });
+      });
+
+    this.#measuring = measureUnread(library, {
+      signal: stopping,
+      onProgress: (left) => {
+        this.#checking = left;
+        this.onJobProgress?.({
+          derived: 0,
+          remaining: queueStatus(library).ready,
+          blocked: 0,
+          failed: 0,
+        });
+      },
+    })
+      .then(() => void this.#runDerives())
+      .catch((error: unknown) => {
+        log.warn("could not read the library's files", { error: String(error) });
       });
 
     this.#catchingUp = catchUp(library, { signal: stopping })

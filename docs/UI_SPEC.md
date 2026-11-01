@@ -458,6 +458,7 @@ the grid's roving ring and the preview's stepping both dead until something is c
 | **Show in file manager** | reveals it, selected | disabled, same reason |
 | **Set thumbnail from clipboard** | an image on the clipboard, or an image file copied in a file manager, drawn as its thumbnail (ADR-0060) | the same picture on every one |
 | **Set thumbnail from file…** | the system's open dialog, offering images first | the same |
+| **Refresh thumbnail** | the file's own picture drawn again (ADR-0064); a custom one is kept | `Refresh N thumbnails` |
 | **Remove custom thumbnail** | only where one is shown; the file's own picture is drawn again | from every one that has one |
 | **Copy file** `Ctrl+C` | the file itself, for pasting into a file manager — a copy under the name the library shows, staged in the library (ADR-0034); the library's own file under its id where **Copy and drag by name** is off (§1, ADR-0034 §8) | `Copy N files` |
 | **Copy image** | the picture, as a full-size PNG, for pasting into a chat, an editor or a slide. Disabled over anything but a picture (ADR-0034 §5) | disabled — a clipboard holds one picture |
@@ -499,6 +500,11 @@ result reads as a gesture that failed. **Use the default frame** is drawn beside
 or not a moment is set — the engine writes nothing when the thumbnail is already on the default
 frame, and a menu whose rows appear and vanish with state nothing on screen shows is a menu people
 misread.
+
+**Refresh thumbnail** (ADR-0064) sits with these rows, always live. An unchanged file's picture is
+otherwise never drawn again, so this is how a picture an older build drew is corrected. The old picture
+stays on screen until the new one arrives, and the status bar says *Drawing the thumbnail again*, or
+*A custom thumbnail is kept — remove it to draw the file's own* when nothing was queued.
 
 **A thumbnail somebody chose** (ADR-0060) is three rows below their own separator, after the two
 frame rows where those are drawn. The first two are always there and always live, over any file and
@@ -1272,7 +1278,8 @@ now, so it is the same shape at both densities, and the turn is the glyph's rath
 a square that rotates with the arrow takes its hover state round with it.
 
 **The tree is editable from the pane.** `+` in the heading makes a top-level folder; right-clicking
-a row offers **New subfolder…**, **Rename…**, and **Delete folder…**. The heading is drawn even when
+a row offers **New folder…**, which makes one inside it as a file manager does and says so in its
+dialog (ADR-0033 §8), **Rename…**, and **Delete folder…**. The heading is drawn even when
 the section is empty, which no other section does — a new library with no folders and no way to make
 one is a dead end, and it was the state of every new library until this changed.
 
@@ -1301,7 +1308,7 @@ there. The expansion state is not consulted and not touched: closing the field g
 the tree that was left, which is why searching costs nothing to undo. `Escape` closes it, and so
 does the magnifier.
 
-**A folder command clears the needle and keeps the field.** All four — `+`, New subfolder, Rename,
+**A folder command clears the needle and keeps the field.** All four — `+`, New folder…, Rename,
 Delete — end in a dialog that changes the tree, and a new folder whose name does not match the
 needle would be made and then not drawn, which reads as the command having failed.
 
@@ -1747,9 +1754,9 @@ first.
 `clientWidth`, which includes the scroller's own padding and made every view one gutter too
 wide, running the last column under the scrollbar with its edge cut off. The zoom target sets
 how wide a column wants to be; the filename is a reserved band under the thumbnail, never an
-overlay on it. An asset with no recorded dimensions is laid out at 1:1 and re-laid out once
-metadata arrives — the only reflow the grid is permitted, and it happens off-screen when the
-derive queue is keeping up.
+overlay on it. An asset with no recorded dimensions is laid out at 1:1, with its picture cropped to fit,
+and **a picture arriving does not change a card's shape** (§2 of this document's rule, ADR-0065 §6). The
+real shape comes when the page is next read, or from **Refresh thumbnail**.
 
 **Cell contract, non-negotiable:**
 - `AssetCell` is `memo`'d and receives only primitives: `id`, `ext`, `kind`, `undrawn`, `width`,
@@ -2306,20 +2313,17 @@ Every surface owes four states, and the empty one is where most applications get
 **A cell with no thumbnail is a state too.** Four things look identical in a grid — work that
 has not been done yet, a format nothing in this build draws, a video waiting for an ffmpeg nobody
 installed, and a file that was tried and would not decode. **The status bar says only the
-first**: *"Deriving… 42 to go"*, or *"Paused · 42 left"*. The other three are told by the cell
+first**: *"42 thumbnails not drawn yet"*. The other three are told by the cell
 itself, in its badge, and by the file when it is opened, with what to do about it (§3.13,
 ADR-0050). On 2026-09-25 the bar went from one line (the first that applied) to three side by side,
 and then, the same day, to progress alone. The user asked for the failures not to be counted there
 at all, only told on the file.
 
-**The running count has a × beside it, and a paused queue says what is left** (ADR-0049). The ×
-is its own button, never the count: the count was not a control while work is going, and a
-click that stopped the work would be a pause nobody meant to make. Pressed, the line reads
-*"Paused · 1,240 left"* with **Resume** beside it, and the ☰ gains *"Resume deriving (1,240
-left)"* at its head for as long as anything is left. The pause is the library's and outlives the
-window until Resume. While paused, an opened file (selected or previewed), a new import, what
-*Try again* releases, a pinned poster and a file made here are still derived **by name**, and
-nothing else is.
+**Thumbnails are drawn as they are looked at** (ADR-0065): what is on screen where the grid comes to
+rest, what is opened, and a file another application saved. Nothing in the window draws a whole library,
+so there is nothing to pause. The line is *"1,240 thumbnails not drawn yet"*, and it is information:
+pressing it opens a note, *Thumbnails are drawn a little at a time as you use Roost*, and starts nothing.
+Beside it, while a rebuild's files are being read, *"Checking files… 1,000 to go"*.
 
 **An import is drawn the way a transfer is** (ADR-0055): counting, then a bar in bytes with a ×.
 A dropped or chosen directory is first walked to be counted, and the line says so with what it has

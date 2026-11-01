@@ -142,6 +142,16 @@ describe("the asset context menu", () => {
     await waitFor(() => expect(notes).toEqual(["Removed the custom thumbnail from 3 assets"]));
   });
 
+  it("refreshes the thumbnail of every selected asset", async () => {
+    const { user } = show();
+    await open();
+    await user.click(screen.getByRole("menuitem", { name: "Refresh 3 thumbnails" }));
+
+    await waitFor(() => expect(sentTo("asset:thumbnailRefresh")).toHaveLength(1));
+    expect(sentTo("asset:thumbnailRefresh")[0]?.ids).toEqual(HASHES);
+    await waitFor(() => expect(notes).toEqual(["Drawing 3 thumbnails again"]));
+  });
+
   it("copies every selected path, not the first one", async () => {
     const { user } = show();
     await open();

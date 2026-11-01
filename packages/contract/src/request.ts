@@ -335,6 +335,11 @@ export type Request =
    */
   | { readonly type: "asset:thumbnailClear"; readonly ids: readonly string[] }
   /**
+   * Draws the file's own thumbnail again for every asset in `ids` (ADR-0064),
+   * passing over one somebody chose. Answers how many were queued.
+   */
+  | { readonly type: "asset:thumbnailRefresh"; readonly ids: readonly string[] }
+  /**
    * Creates an asset from text the window holds, under a name the user chose
    * (ADR-0026 §4).
    *
@@ -762,30 +767,19 @@ export type Request =
    */
   | { readonly type: "derive:retry"; readonly reason: string | null }
   /**
-   * Stop working the queue, and keep it stopped until `derive:resume`
-   * (ADR-0049). Remembered by the library. What is in flight finishes; opened
-   * files and new imports are still derived.
-   */
-  | { readonly type: "derive:pause" }
-  /**
    * *Try again* for one file (ADR-0050): its parked or failed job goes back in
-   * the queue and is derived next, paused or not. `false` when it had none.
+   * the queue and is derived next. `false` when it had none.
    */
   | { readonly type: "derive:retryAsset"; readonly id: string }
-  | { readonly type: "derive:resume" }
   /**
-   * These assets are on screen with no picture: draw them next.
+   * The cells this window has on screen right now, at rest, for the queue to
+   * draw the ones still waiting, in place of the last list (ADR-0065).
    *
-   * **Sent by main, not by the window.** A cell learns its thumbnail is absent
-   * by asking `roost://thumb` for it, and the byte server is what hears the
-   * miss — so the signal costs the grid nothing, and the renderer has no
-   * visible-range bookkeeping to keep in step with a scroll. It is still
-   * validated like any request, and one the renderer sent would be harmless:
-   * it can only reorder work that is already queued.
-   *
-   * A hint, answered with nothing. An id that has no work waiting is dropped.
+   * **The window says so**, because a missed `roost://thumb` cannot tell a cell
+   * on screen from one above or below it, and a short list made from misses
+   * forgot what was being looked at (ADR-0049 §5).
    */
-  | { readonly type: "derive:wanted"; readonly ids: readonly string[] }
+  | { readonly type: "derive:onScreen"; readonly ids: readonly string[] }
   /**
    * Install a backend this machine is missing, from its own package manager
    * (ADR-0042).
@@ -912,6 +906,7 @@ export interface Responses {
   "asset:thumbnail": WireThumbnailChosen;
   "asset:thumbnailSet": number;
   "asset:thumbnailClear": number;
+  "asset:thumbnailRefresh": number;
   "asset:rename": null;
   "asset:create": WireCreated;
   /** How many caption tracks were attached (ADR-0025). */
@@ -978,10 +973,8 @@ export interface Responses {
   "derive:status": WireDeriveStatus;
   /** The status after the retry, so one round trip answers "and now?". */
   "derive:retry": WireDeriveStatus;
-  "derive:pause": WireDeriveStatus;
   "derive:retryAsset": boolean;
-  "derive:resume": WireDeriveStatus;
-  "derive:wanted": null;
+  "derive:onScreen": null;
   "capability:install": WireInstallOutcome;
   "derive:failures": WireDeriveFailures;
   /** `false` when there was nothing to copy. */
@@ -1291,6 +1284,11 @@ export const REQUEST_VALIDATORS: {
   "asset:thumbnailClear": (source) => {
     const ids = readAssetIdArray(source, "ids");
     return ids.ok ? ok({ type: "asset:thumbnailClear", ids: ids.value }) : ids;
+  },
+
+  "asset:thumbnailRefresh": (source) => {
+    const ids = readAssetIdArray(source, "ids");
+    return ids.ok ? ok({ type: "asset:thumbnailRefresh", ids: ids.value }) : ids;
   },
 
   "asset:create": (source) => {
@@ -1625,16 +1623,14 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "derive:retry", reason: reason.value });
   },
 
-  "derive:pause": () => ok({ type: "derive:pause" }),
   "derive:retryAsset": (source) => {
     const id = readAssetId(source, "id");
     return id.ok ? ok({ type: "derive:retryAsset", id: id.value }) : id;
   },
-  "derive:resume": () => ok({ type: "derive:resume" }),
 
-  "derive:wanted": (source) => {
+  "derive:onScreen": (source) => {
     const ids = readAssetIdArray(source, "ids");
-    return ids.ok ? ok({ type: "derive:wanted", ids: ids.value }) : ids;
+    return ids.ok ? ok({ type: "derive:onScreen", ids: ids.value }) : ids;
   },
 
   "capability:install": (source) => {

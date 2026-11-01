@@ -61,14 +61,6 @@ export interface AppMenuProps {
    */
   readonly onReclaim: () => void;
   /**
-   * A paused derive queue with work left, and the way to carry on (ADR-0049).
-   *
-   * Absent otherwise, not disabled: an item that is there only to say "nothing
-   * to resume" is noise in a menu opened for something else. At the head,
-   * because it is the one thing in here that is about work waiting.
-   */
-  readonly resumeDeriving?: { readonly left: number; readonly onResume: () => void };
-  /**
    * Who made this, which build it is, and how to reach support (ADR-0038 §5.1).
    *
    * The clearest case of this menu's own rule: an About box is read once, is
@@ -89,7 +81,6 @@ export function AppMenu({
   onCloseLibrary,
   onRenameLibrary,
   onReclaim,
-  resumeDeriving,
   onAbout,
   onQuit,
 }: AppMenuProps): React.JSX.Element {
@@ -110,17 +101,6 @@ export function AppMenu({
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="menu" sideOffset={4} align="start" collisionPadding={8}>
-          {resumeDeriving !== undefined && (
-            <>
-              <DropdownMenu.Item className="menu-item" onSelect={resumeDeriving.onResume}>
-                <span className="menu-mark" />
-                <span className="menu-label">
-                  Resume deriving ({counted(resumeDeriving.left)} left)
-                </span>
-              </DropdownMenu.Item>
-              <DropdownMenu.Separator className="menu-separator" />
-            </>
-          )}
           {/*
             First, and the only pair in here that is used more than once: the
             accelerators are the ones `UI_SPEC.md` §9 has named since M3 and

@@ -128,9 +128,14 @@ try {
         `document.querySelector(".cell .placeholder-badge")?.textContent ?? null`,
         (text) => text === "Needs libheif",
       );
-      const bar = await window.cdp.evaluate(
-        `[...document.querySelectorAll(".status .status-job")].map((n) => n.textContent).join(" | ")`,
-      );
+      // Settled, because the bar re-reads the queue a beat after the cell hears.
+      const bar = await window.cdp
+        .settle(
+          `[...document.querySelectorAll(".status .status-job")].map((n) => n.textContent).join(" | ")`,
+          (text) => text === "",
+          { attempts: 40 },
+        )
+        .catch(() => "the bar never cleared");
       check("the cell says what it needs, and the status bar does not", bar === "", bar);
 
       const cell = await window.cdp.box(".cell");

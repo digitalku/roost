@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
-import { parseAssetId } from "@roost/core";
+import { type AssetId, JOB_PRIORITY, parseAssetId } from "@roost/core";
 import { derive, EAGER_SIZES, GRID_SIZE, PREVIEW_SIZE, THUMBNAIL_SIZES } from "@roost/media";
-import { type DeriveReport, enqueueMissing, runDerives } from "./jobs.js";
+import { type DeriveReport, enqueueDerives, enqueueMissing, runDerives } from "./jobs.js";
 import type { Library } from "./library.js";
 
 /**
@@ -143,6 +143,27 @@ export async function redrawPoster(library: Library, id: string): Promise<boolea
   } catch {
     return false;
   }
+}
+
+/**
+ * Queues the file's pictures to be drawn again, and answers the assets that
+ * were (ADR-0064).
+ *
+ * Nothing else redraws a picture of an unchanged file (ADR-0051), so a picture
+ * an older build drew stays as it was until somebody asks with this. Ahead of
+ * everything else in the queue, because somebody is looking at the cell. Its
+ * old picture stays on screen until the new one is committed, and a picture
+ * somebody chose is passed over (ADR-0060).
+ */
+export function refreshThumbnails(library: Library, ids: readonly AssetId[]): AssetId[] {
+  const { repo } = library.db;
+  return library.db.transaction(() => {
+    const refreshed = [...new Set(ids)].filter(
+      (id) => repo.findAsset(id) !== undefined && repo.forgetPictureSource(id),
+    );
+    enqueueDerives(library, refreshed, JOB_PRIORITY.interactive);
+    return refreshed;
+  });
 }
 
 export async function ensurePreview(library: Library, id: string): Promise<boolean> {

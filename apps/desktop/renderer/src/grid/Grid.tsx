@@ -28,6 +28,7 @@ import {
   tilesIn,
   visibleTiles,
 } from "./layout.js";
+import { useOnScreen } from "./onScreen.js";
 import { FOCUSED, SELECTED, type SelectionStore } from "./selection.js";
 
 /**
@@ -105,6 +106,8 @@ export interface FolderTiles {
 
 export interface GridProps {
   readonly assets: readonly AssetCard[];
+  /** The cells on screen, once the grid has come to rest (`useOnScreen`). */
+  readonly onOnScreen?: (ids: readonly string[]) => void;
   readonly view: GridView;
   /** Icons take the asset's own shape rather than a square (ADR-0018). */
   readonly proportional: boolean;
@@ -159,6 +162,7 @@ const SKELETON: readonly Shaped[] = Array.from({ length: 160 }, (_, index) => ({
 
 export function Grid({
   assets,
+  onOnScreen,
   view,
   proportional,
   target,
@@ -378,6 +382,16 @@ export function Grid({
     for (const asset of assets) map.set(asset.id, asset);
     return map;
   }, [assets]);
+
+  const onScreen = useMemo(() => {
+    const cards: AssetCard[] = [];
+    for (const tile of visibleTiles(grid, top, top + height, 0)) {
+      const card = byHash.get(tile.id);
+      if (card !== undefined) cards.push(card);
+    }
+    return cards;
+  }, [grid, top, height, byHash]);
+  useOnScreen(onScreen, onOnScreen);
 
   const byFolder = useMemo(() => {
     const map = new Map<string, SidebarFolderRow>();

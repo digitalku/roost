@@ -223,6 +223,26 @@ describe("the grid", () => {
     expect(first?.getAttribute("src")).toContain(`v=${assets[0]?.derivedAt}`);
   });
 
+  it("says which cells are on screen once it has come to rest (ADR-0049 §5)", async () => {
+    const told: (readonly string[])[] = [];
+    const assets = [fakeAsset(0), fakeAsset(1)];
+    render(
+      <Grid
+        assets={assets}
+        view="icons"
+        proportional={false}
+        target={240}
+        selection={selection}
+        onMore={more}
+        onOpen={onOpen}
+        onOnScreen={(ids) => told.push(ids)}
+      />,
+    );
+
+    expect(told).toEqual([]);
+    await waitFor(() => expect(told).toEqual([assets.map((asset) => asset.id)]));
+  });
+
   it("hides a thumbnail that could not be loaded, so the placeholder shows", () => {
     // A zip, a BMP, anything still in the derive queue: the cell asks for a
     // thumbnail and gets a 404, and Chromium draws its own broken icon over the

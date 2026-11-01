@@ -204,6 +204,8 @@ export {
   type CatchUpOptions,
   type CatchUpReport,
   catchUp,
+  type MeasureOptions,
+  measureUnread,
   type RefreshOutcome,
   refreshAsset,
 } from "./refresh.js";
@@ -256,6 +258,7 @@ export {
   ensurePreview,
   generateMissing,
   redrawPoster,
+  refreshThumbnails,
   type ThumbnailReport,
 } from "./thumbnails.js";
 export {
@@ -266,5 +269,5 @@ export {
   transferAssets,
   transferToLibrary,
 } from "./transfer.js";
-export { Requested, Wanted } from "./wanted.js";
+export { ON_SCREEN_LIMIT, Requested } from "./wanted.js";
 export { type FileWatcher, type WatchOptions, watchFiles } from "./watch.js";

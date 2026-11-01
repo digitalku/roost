@@ -11,8 +11,10 @@ import {
   Library,
   NotAPictureError,
   queueStatus,
+  type Redrawn,
   redrawPoster,
   refreshAsset,
+  refreshThumbnails,
   runDerives,
   transferAssets,
   UnknownAssetError,
@@ -142,6 +144,47 @@ describe("a thumbnail somebody chose", () => {
     expect(picture(photo)).toBe(own);
     // Asked again, nothing to give back.
     expect(clearThumbnail(library, [photo])).toEqual([]);
+  });
+
+  it("leaves an old picture alone until somebody asks for it again (ADR-0064)", async () => {
+    const photo = await file(library, "photo.png", await gradient(120, 90, 3, "png"));
+    await runDerives(library, { sizes: [GRID_SIZE] });
+    const own = picture(photo);
+    // What a build before this one drew, as far as the file can tell.
+    const stale = await gradient(32, 32, 7, "webp");
+    library.db.repo.putThumbnail(photo, GRID_SIZE, 32, 32, stale);
+    const old = stale.toString("base64");
+
+    // An unchanged file keeps its pictures through the sweep at open.
+    expect((await refreshAsset(library, photo)).kind).toBe("unchanged");
+    expect(queueStatus(library).ready).toBe(0);
+    expect(picture(photo)).toBe(old);
+
+    expect(refreshThumbnails(library, [photo, photo])).toEqual([photo]);
+    // Still on screen until the new one is committed.
+    expect(picture(photo)).toBe(old);
+    expect(queueStatus(library).ready).toBe(1);
+
+    const told: Redrawn[] = [];
+    await runDerives(library, {
+      sizes: [GRID_SIZE],
+      onDerived: (assets) => told.push(...assets),
+    });
+    expect(picture(photo)).toBe(own);
+    expect(told).toEqual([expect.objectContaining({ id: photo, width: 120, height: 90 })]);
+  });
+
+  it("does not draw over a chosen picture when asked to refresh", async () => {
+    const photo = await file(library, "photo.png", await gradient(120, 90, 3, "png"));
+    await runDerives(library, { sizes: [GRID_SIZE] });
+    await chooseThumbnail(library, [photo], image);
+    const chosen = picture(photo);
+
+    expect(refreshThumbnails(library, [photo])).toEqual([]);
+    await runDerives(library, { sizes: [GRID_SIZE] });
+
+    expect(picture(photo)).toBe(chosen);
+    expect(chosenThumbnails(library, [photo]).has(photo)).toBe(true);
   });
 
   it("outlives a rebuild, which keeps thumbs/ (ADR-0051)", async () => {

@@ -3,20 +3,11 @@ import type { AssetId } from "@roost/core";
 /**
  * The assets somebody is looking at a placeholder for, newest first.
  *
- * The derive queue's own order is by priority and then by arrival, which is
- * right for a queue and wrong for a person: open a library with a hundred
- * thousand thumbnails missing, scroll to the middle, and the cells on screen
- * would wait behind every asset imported after them. This is the order that
- * fixes it — whatever was asked for last is what is being looked at now.
+ * Whatever was asked for last is what is being looked at now.
  *
  * Held in memory and never written down. It is a hint about one window at one
  * moment, and an index that remembered it would remember a screen nobody is
- * looking at any more.
- *
- * Bounded, and the bound is what makes scrolling cheap: flinging through ten
- * thousand cells asks for ten thousand thumbnails, and only the last few
- * screens of them are still on one. The oldest are forgotten, not derived
- * early — they are still queued, in the queue's own order.
+ * looking at any more. Bounded: the oldest are forgotten, and stay queued.
  */
 export class Wanted {
   readonly #capacity: number;
@@ -63,27 +54,46 @@ export class Wanted {
 }
 
 /**
- * What a paused derive queue works, and nothing else (ADR-0049).
+ * How many cells the queue remembers, about one screen (ADR-0065).
  *
- * Two lines, and the first is always served first. **Opened** is a file
- * somebody is looking at right now, newest first, so it is the last one opened
- * and not the first. **Queued** is an import, or what *Try again* released, in
- * the order it was asked for. That list can be a hundred thousand long, which
- * is why it is an array with a head rather than a {@link Wanted}: finding the
- * newest end of a `Map` walks it, and a walk per claim over an import that size
- * is quadratic.
+ * The user's number. A screen holding more is finished by the window, which
+ * says again what is left as each picture arrives.
+ */
+export const ON_SCREEN_LIMIT = 60;
+
+/**
+ * What the window draws: what was asked for, and nothing else (ADR-0065).
+ *
+ * Three lines, each served before the next. **Opened** is a file somebody is
+ * looking at right now, newest first, so it is the last one opened and not the
+ * first. **On screen** is the cells a window has at rest, from the top,
+ * {@link ON_SCREEN_LIMIT} of them at most. **Queued** is what *Try again*
+ * released, in the order it was asked for. That list can be long, which is why
+ * it is an array with a head rather than a {@link Wanted}: finding the newest
+ * end of a `Map` walks it, and a walk per claim over a long list is quadratic.
  *
  * An id handed out that has nothing waiting is simply skipped by the runner, so
  * nothing here has to know what is already drawn.
  */
 export class Requested {
   readonly #opened = new Wanted();
+  readonly #onScreen = new Wanted(ON_SCREEN_LIMIT);
   #queued: AssetId[] = [];
   #head = 0;
 
   /** A file somebody opened: ahead of everything, the latest first. */
   open(id: AssetId): void {
     this.#opened.add([id]);
+  }
+
+  /**
+   * The cells on screen with no picture, from the top, in place of the last
+   * list: what somebody scrolled away from stops being drawn.
+   */
+  showing(ids: readonly AssetId[]): void {
+    this.#onScreen.clear();
+    // Reversed because a `Wanted` hands out, and keeps, its newest.
+    this.#onScreen.add([...ids].reverse());
   }
 
   /** Files asked for together, worked in the order given. */
@@ -94,6 +104,8 @@ export class Requested {
   take(): AssetId | undefined {
     const opened = this.#opened.take();
     if (opened !== undefined) return opened;
+    const onScreen = this.#onScreen.take();
+    if (onScreen !== undefined) return onScreen;
     if (this.#head >= this.#queued.length) {
       this.clear();
       return undefined;
@@ -105,11 +117,12 @@ export class Requested {
 
   clear(): void {
     this.#opened.clear();
+    this.#onScreen.clear();
     this.#queued = [];
     this.#head = 0;
   }
 
   get size(): number {
-    return this.#opened.size + this.#queued.length - this.#head;
+    return this.#opened.size + this.#onScreen.size + this.#queued.length - this.#head;
   }
 }

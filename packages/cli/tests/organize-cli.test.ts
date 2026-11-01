@@ -364,6 +364,15 @@ describe("the organize commands", () => {
 
     expect((await ok("thumbnail", asset, "--clear"))[0]).toContain("roost thumb");
     expect((await ok("thumbnail", asset, "--clear"))[0]).toContain("already");
+
+    // ADR-0064: the file's own drawn again, and a chosen one is not.
+    expect((await ok("thumbnail", asset, "--refresh"))[0]).toContain("roost thumb");
+    await ok("thumbnail", asset, image);
+    expect((await ok("thumbnail", asset, "--refresh"))[0]).toContain("which is kept");
+    const both = capture();
+    expect(
+      await run(["thumbnail", asset, "--refresh", "--clear", "-L", root], both.streams),
+    ).not.toBe(EXIT.ok);
   });
 
   it("writes a file's bytes over an asset's own file", async () => {

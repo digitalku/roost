@@ -159,8 +159,8 @@ try {
     `comments=${eagleReport?.comments}`,
   );
   check(
-    "it drew thumbnails in the same run",
-    (eagleReport?.thumbnails ?? 0) > 0,
+    "it drew nothing by itself, as any import (ADR-0065)",
+    eagleReport?.thumbnails === 0,
     `thumbnails=${eagleReport?.thumbnails}`,
   );
 

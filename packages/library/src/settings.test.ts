@@ -52,15 +52,6 @@ describe("reading settings", () => {
     expect(await readSettings(dir)).toEqual({ ...DEFAULT_SETTINGS, showInspector: false });
   });
 
-  it("derives unless somebody paused it, and remembers the pause", async () => {
-    // ADR-0049: remembered until Resume, at the user's choosing.
-    expect(DEFAULT_SETTINGS.derivePaused).toBe(false);
-    await write('{ "derivePaused": true }');
-    expect((await readSettings(dir)).derivePaused).toBe(true);
-    await write('{ "derivePaused": "yes" }');
-    expect((await readSettings(dir)).derivePaused).toBe(false);
-  });
-
   it("hands a file out by name unless somebody turned it off", async () => {
     // ADR-0034 §8: staging is the default, at the user's choosing, and a
     // library that turned it off keeps it off.

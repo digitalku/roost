@@ -110,7 +110,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
     remove: { type: "string" },
   },
   poster: { at: { type: "string" }, clear: { type: "boolean" } },
-  thumbnail: { clear: { type: "boolean" } },
+  thumbnail: { clear: { type: "boolean" }, refresh: { type: "boolean" } },
   save: { clear: { type: "boolean" } },
   subtitle: { detach: { type: "boolean" }, lang: { type: "string" } },
   rename: {},
@@ -442,7 +442,14 @@ async function dispatch(
     case "thumbnail": {
       const [asset, image] = positionals;
       if (asset === undefined) return usage(streams, command, "thumbnail needs an asset");
-      return thumbnail(await library(), asset, image, flag(values, "clear"), streams);
+      return thumbnail(
+        await library(),
+        asset,
+        image,
+        flag(values, "clear"),
+        flag(values, "refresh"),
+        streams,
+      );
     }
 
     case "save": {

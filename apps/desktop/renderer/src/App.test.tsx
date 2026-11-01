@@ -2793,34 +2793,6 @@ describe("the recent list on the picker", () => {
     expect(engine.seen.some((request) => request.type === "app:quit")).toBe(true);
   });
 
-  it("offers to resume a paused queue from the menu while work is left", async () => {
-    // ADR-0049 §3: the ☰ is where somebody goes looking for commands, so the
-    // reminder is there as well as in the status bar.
-    const engine = new FakeEngine({
-      openLibraryDialog: HOLIDAY,
-      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
-      deriveStatus: {
-        paused: true,
-        ready: 1_240,
-        running: 0,
-        blocked: 0,
-        failed: 0,
-        reasons: [],
-        capabilities: [],
-      },
-    });
-    install(engine);
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole("button", { name: "Open library…" }));
-    expect(await screen.findByText("Paused · 1,240 left")).toBeDefined();
-    await user.click(await screen.findByRole("button", { name: "Menu" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Resume deriving (1,240 left)" }));
-
-    expect(engine.seen.some((request) => request.type === "derive:resume")).toBe(true);
-  });
-
   it("asks again when a missing row is clicked, and opens once the drive is back", async () => {
     // The case this exists for: the list was read while the drive was
     // unplugged, so the row is struck through and says "Missing" — and the

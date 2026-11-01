@@ -445,6 +445,9 @@ export interface WireRedrawn {
   readonly undrawn: string | null;
   /** {@link AssetCard.chosenThumbnail}, as it stands now. */
   readonly chosen: boolean;
+  /** What was drawn measures this, where a backend read it (ADR-0064). */
+  readonly width?: number;
+  readonly height?: number;
 }
 
 /** One page of the grid, and where the next one starts. */
@@ -980,12 +983,10 @@ export interface WireDeriveReason {
  * format nothing draws, or a tool nobody installed (`ROADMAP.md` M4).
  */
 export interface WireDeriveStatus {
-  /**
-   * Whether the queue is paused (ADR-0049). `ready` is then what is left,
-   * not what is being worked: only what is asked for by name is derived.
-   */
-  readonly paused: boolean;
+  /** Files with no picture yet, drawn as they are looked at (ADR-0065). */
   readonly ready: number;
+  /** Files a rebuild left unread, being measured without being drawn (ADR-0065). */
+  readonly checking: number;
   readonly running: number;
   readonly blocked: number;
   readonly failed: number;

@@ -138,9 +138,13 @@ try {
   );
   check("the asset leaves the grid", true, `${doomed?.slice(0, 8)}… gone`);
 
-  const trashRow = await cdp.evaluate(
-    `(${placesExpression}).find((p) => p.name === "Trash")?.count ?? null`,
-  );
+  // Settled, because the pane re-reads after the grid has already dropped the row.
+  const trashRow = await cdp
+    .settle(
+      `(${placesExpression}).find((p) => p.name === "Trash")?.count ?? null`,
+      (count) => count === "1",
+    )
+    .catch(() => null);
   check("the Trash count follows", trashRow === "1", `count=${trashRow}`);
 
   const status = await cdp.evaluate(statusExpression);

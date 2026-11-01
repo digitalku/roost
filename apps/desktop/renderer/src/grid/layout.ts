@@ -264,9 +264,9 @@ function bodyHeight(
 /**
  * An asset with no recorded dimensions lays out square.
  *
- * `UI_SPEC.md` §6 permits exactly one reflow for this: when metadata arrives,
- * the cell takes its real shape. Everything the derive queue has not reached
- * yet, and everything that has no shape at all — a `.zip`, a font — stays here.
+ * Everything nothing has measured yet, and everything that has no shape at all
+ * — a `.zip`, a font — stays here. A picture arriving does not change it: the
+ * real shape comes with the next page read (ADR-0065 §6).
  */
 function ratioOf(item: Shaped): number {
   const { width, height } = item;

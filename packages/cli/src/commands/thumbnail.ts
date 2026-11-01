@@ -1,5 +1,10 @@
 import { resolve } from "node:path";
-import { chooseThumbnail, chosenThumbnails, clearThumbnail } from "@roost/library";
+import {
+  chooseThumbnail,
+  chosenThumbnails,
+  clearThumbnail,
+  refreshThumbnails,
+} from "@roost/library";
 import { resolveAll, short } from "../assets.js";
 import { EXIT, type Streams, usage } from "../io.js";
 import { withLibrary } from "../open.js";
@@ -10,23 +15,38 @@ import { withLibrary } from "../open.js";
  * Drawn here rather than queued, unlike `poster`: there is nothing to journal
  * and nothing a later `roost thumb` could draw it from, because the image is not
  * kept. Its pictures in `thumbs/` are the whole of it, and are lost with that
- * directory. `--clear` queues the file's own, which `roost thumb` draws.
+ * directory. `--clear` queues the file's own, which `roost thumb` draws, and
+ * `--refresh` queues it for a file that has its own already (ADR-0064).
  */
 export async function thumbnail(
   root: string,
   needle: string,
   image: string | undefined,
   clear: boolean,
+  refresh: boolean,
   streams: Streams,
 ): Promise<number> {
   if (clear && image !== undefined) {
     return usage(streams, "thumbnail", "--clear and an image ask for different things");
   }
 
+  if (refresh && (clear || image !== undefined)) {
+    return usage(streams, "thumbnail", "--refresh asks for the file's own picture, on its own");
+  }
+
   return withLibrary(root, async (library) => {
     const ids = resolveAll(library, [needle]);
     const id = ids[0];
     if (id === undefined) throw new Error("resolveAll returned nothing for one argument");
+
+    if (refresh) {
+      streams.out(
+        refreshThumbnails(library, [id]).length === 0
+          ? `${short(id)} has a custom thumbnail, which is kept — --clear goes back to its own`
+          : `${short(id)} queued — run \`roost thumb\` to draw it again`,
+      );
+      return EXIT.ok;
+    }
 
     // Neither is a read: whether the picture is the file's own is not
     // something a look at it can tell.

@@ -118,12 +118,6 @@ if (!app.requestSingleInstanceLock()) {
     if (event.type === "library:lost") assets.detach();
     broadcast(event);
   });
-  // A hint, so a failure is nobody's problem: the queue works everything in
-  // its own order regardless, and this only changes what comes first.
-  assets.onThumbnailsMissing = (ids) => {
-    engine.request({ type: "derive:wanted", ids }).catch(() => undefined);
-  };
-
   app.on("second-instance", () => {
     const [existing] = BrowserWindow.getAllWindows();
     if (existing === undefined) return;

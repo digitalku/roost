@@ -252,11 +252,17 @@ export const EVENT_VALIDATORS: {
       if (!undrawn.ok) return undrawn;
       const chosen = readBoolean(entry, "chosen");
       if (!chosen.ok) return chosen;
+      const width = entry["width"] === undefined ? undefined : readInteger(entry, "width");
+      if (width !== undefined && !width.ok) return width;
+      const height = entry["height"] === undefined ? undefined : readInteger(entry, "height");
+      if (height !== undefined && !height.ok) return height;
       redrawn.push({
         id: id.value,
         derivedAt: derivedAt.value,
         undrawn: undrawn.value,
         chosen: chosen.value,
+        ...(width === undefined ? {} : { width: width.value }),
+        ...(height === undefined ? {} : { height: height.value }),
       });
     }
     return ok({ type: "assets:derived", assets: redrawn });

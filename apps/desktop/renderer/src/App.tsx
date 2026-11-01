@@ -28,7 +28,7 @@ import { markFirstPaint } from "./bench/bench.js";
 import { invoke, onEvent } from "./bridge.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Credit } from "./Credit.js";
-import { DeriveStatus, derivesLeft, useDeriveStatus } from "./DeriveStatus.js";
+import { DeriveStatus, useDeriveStatus } from "./DeriveStatus.js";
 import { dragGoesOut, dragOutEnded, dragOutStarted } from "./dnd.js";
 import { FilterBar } from "./filter/FilterBar.js";
 import { useFacetScope } from "./filter/vocabulary.js";
@@ -178,6 +178,11 @@ interface Opened {
   readonly summary: LibrarySummary;
   readonly stats: LibraryStats;
 }
+
+/** Declared out here so the grid's effect does not start over on every render. */
+const tellOnScreen = (ids: readonly string[]): void => {
+  void invoke({ type: "derive:onScreen", ids });
+};
 
 export function App(): React.JSX.Element {
   const [opened, setOpened] = useState<Opened | undefined>();
@@ -2246,14 +2251,6 @@ function LibraryView({
       onCloseLibrary={onClose}
       onRenameLibrary={() => setRenamingLibrary(true)}
       onReclaim={reclaim}
-      {...(derives.status?.paused === true && derivesLeft(derives.status) > 0
-        ? {
-            resumeDeriving: {
-              left: derivesLeft(derives.status),
-              onResume: () => void derives.resume(),
-            },
-          }
-        : {})}
       onAbout={() => setAbout(true)}
       onQuit={() => {
         void invoke({ type: "app:quit" });
@@ -2535,6 +2532,7 @@ function LibraryView({
             >
               <Grid
                 assets={paging.assets}
+                onOnScreen={tellOnScreen}
                 view={view}
                 proportional={proportional}
                 target={zoom}
@@ -2630,11 +2628,7 @@ function LibraryView({
         )}
         <ImportStatus importing={importing} />
         <TransferStatus transferring={transferring} />
-        <DeriveStatus
-          status={derives.status}
-          onPause={() => void derives.pause()}
-          onResume={() => void derives.resume()}
-        />
+        <DeriveStatus status={derives.status} />
         {/* Quiet and permanent for as long as it is true: another build holds
             meaning this one cannot show, and only the person can act on it. */}
         <JournalNotice notice={opened.summary.journal} />

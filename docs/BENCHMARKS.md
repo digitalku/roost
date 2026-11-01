@@ -57,6 +57,18 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-11-01 — turning a thumbnail the way the file says (ADR-0064)
+
+A 256 px WebP from a 4000×3000 JPEG, the median of 15, with and without `.rotate()`:
+
+| File | Without | With |
+| --- | --- | --- |
+| No orientation tag | 44.6 ms | 43.4 ms |
+| Tagged `orientation: 6` | 59.5 ms | 59.9 ms |
+
+**What it revealed:** nothing to pay for. The difference is inside the noise, tagged or not, because
+libvips shrinks on load and turns the small picture.
+
 ### 2026-10-28 — the start of a word, at a million assets (ADR-0057 §7)
 
 Machine: Fedora 44 host, the index on tmpfs. Node 22.23.1. A throwaway script, not kept, against a

@@ -439,6 +439,7 @@ ${GLOBAL}`,
 
 Usage: roost thumbnail <ASSET> <IMAGE>
        roost thumbnail <ASSET> --clear
+       roost thumbnail <ASSET> --refresh
        roost thumbnail <ASSET>
 
 Without an image it says whether the thumbnail is the file's own. With one,
@@ -452,6 +453,8 @@ nothing is journalled and the image is not copied. Deleting thumbs/ loses it.
 Options:
 ${LIBRARY_FLAG}
       --clear            Go back to the file's own thumbnail
+      --refresh          Queue the file's own thumbnail to be drawn again, which
+                         nothing does for an unchanged file; a custom one is kept
 ${GLOBAL}`,
 
   rename: `Change an asset's display name.

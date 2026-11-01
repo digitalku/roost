@@ -10,7 +10,7 @@ const ID = "ZA23511MJFSW";
 function heifMissing(): ConstructorParameters<typeof FakeEngine>[0] {
   return {
     deriveStatus: {
-      paused: false,
+      checking: 0,
       ready: 0,
       running: 0,
       blocked: 8,
@@ -37,7 +37,7 @@ describe("why one file has no preview, and what to do about it", () => {
     // installs reaches the sandbox.
     const engine = new FakeEngine({
       deriveStatus: {
-        paused: false,
+        checking: 0,
         ready: 0,
         running: 0,
         blocked: 8,

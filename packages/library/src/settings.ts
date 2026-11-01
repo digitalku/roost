@@ -141,16 +141,6 @@ export interface Settings {
   readonly sidebarWidth: number;
   readonly inspectorWidth: number;
   /**
-   * Whether the derive queue is paused (ADR-0049).
-   *
-   * Remembered until somebody presses Resume, at the user's choosing on
-   * 2026-09-25. The recommendation was to resume on the next open. Off by
-   * default, so a library nobody has paused derives as it always has. While on,
-   * only what is asked for by name is derived: an opened file, a new import,
-   * what Try again releases.
-   */
-  readonly derivePaused: boolean;
-  /**
    * Whether a file leaves the window under the name the library shows
    * (ADR-0034 §8).
    *
@@ -198,7 +188,6 @@ export const DEFAULT_SETTINGS: Settings = {
   showInspector: true,
   sidebarWidth: 240,
   inspectorWidth: 280,
-  derivePaused: false,
   handOutByName: true,
 };
 
@@ -236,7 +225,6 @@ export async function readSettings(root: string): Promise<Settings> {
       DEFAULT_SETTINGS.inspectorWidth,
       INSPECTOR_RANGE,
     ),
-    derivePaused: boolish(raw["derivePaused"], DEFAULT_SETTINGS.derivePaused),
     handOutByName: boolish(raw["handOutByName"], DEFAULT_SETTINGS.handOutByName),
   };
 }

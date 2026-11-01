@@ -22,7 +22,6 @@ import {
 } from "@roost/media";
 import type { Library } from "./library.js";
 import { alignExtension, resolveFile } from "./locate.js";
-import type { Wanted } from "./wanted.js";
 
 /**
  * The derive queue: thumbnails and metadata, as background work.
@@ -124,24 +123,16 @@ export interface RunOptions {
    */
   readonly onDerived?: (assets: readonly Redrawn[]) => void;
   /**
-   * What is on screen waiting, worked ahead of the queue's own order.
+   * Work on demand: what was asked for by name, **instead of** the whole queue
+   * (ADR-0065).
    *
-   * Consulted at every claim, so an id added while the run is going is the
-   * next thing started once a worker is free. Interactive work — a file saved
-   * or a poster moved — still goes first: that is a picture somebody changed on
-   * purpose, and this is a picture nobody has seen yet.
+   * Consulted at every claim, so an id added mid-run is picked up. Interactive
+   * work goes first and is always done: that is a file somebody changed or a
+   * poster somebody moved, and a window has no way to ask for it by name. The
+   * run ends when neither has anything left. The CLI leaves this out, which is
+   * what makes `roost thumb` the way to draw a whole library.
    */
-  readonly wanted?: Wanted;
-  /**
-   * The assets to work, **instead of** the queue (ADR-0049).
-   *
-   * A paused queue still derives what is asked for by name — an opened file,
-   * a new import — and nothing else. Consulted at every claim like
-   * {@link RunOptions.wanted}, so an id added mid-run is picked up; the run ends
-   * when it has nothing left to hand out. `wanted` is ignored alongside it,
-   * because the grid's screenful is exactly what a pause is holding back.
-   */
-  readonly only?: { take(): AssetId | undefined };
+  readonly asked?: { take(): AssetId | undefined };
   /** Stops the run: nothing new is started, and what is in flight is kept. */
   readonly signal?: AbortSignal;
 }
@@ -197,6 +188,12 @@ export interface Redrawn {
   readonly undrawn: string | null;
   /** Whether the pictures are ones somebody chose (ADR-0060). */
   readonly chosen: boolean;
+  /**
+   * The shape of what was just drawn, where a backend read one: a card holds
+   * these to lay itself out, and a redraw can change them (ADR-0064).
+   */
+  readonly width?: number;
+  readonly height?: number;
 }
 
 /** What the queue is holding, for a status line or a capability prompt. */
@@ -483,7 +480,7 @@ export function retryFailed(library: Library, maxAttempts = 3): number {
  * Works the queue until it is empty, the limit is reached, or the signal fires.
  *
  * Each worker claims one job, derives it, and claims the next, so the queue's
- * order — and {@link RunOptions.wanted} — is read afresh every time a worker
+ * order — and {@link RunOptions.asked} — is read afresh every time a worker
  * comes free. It used to claim a batch and wait for the whole batch, which
  * started sixteen ffmpeg processes in the same instant once per batch: a spawn
  * is ~5 ms of the event loop, and the grid's page request waited behind all of
@@ -525,9 +522,9 @@ export async function runDerives(
   const claim = (): JobClaim | undefined => {
     if (claimed >= limit || options.signal?.aborted === true) return undefined;
     const next =
-      options.only === undefined
-        ? claimNext(library, options.wanted)
-        : claimOnly(library, options.only);
+      options.asked === undefined
+        ? library.db.repo.claimJob("derive")
+        : claimAsked(library, options.asked);
     if (next !== undefined) claimed += 1;
     return next;
   };
@@ -607,7 +604,15 @@ export async function runDerives(
           }
           library.db.repo.putDerived(id, outcome.metadata, now);
           library.db.repo.completeJob(outcome.claim.id);
-          redrawn.push({ id, derivedAt: now, undrawn: null, chosen });
+          const { width, height } = outcome.metadata;
+          redrawn.push({
+            id,
+            derivedAt: now,
+            undrawn: null,
+            chosen,
+            ...(width === undefined ? {} : { width }),
+            ...(height === undefined ? {} : { height }),
+          });
           report.derived += 1;
         } else if (outcome.kind === "blocked") {
           // What was measured survives the block: a format this build cannot
@@ -669,31 +674,18 @@ export async function runDerives(
 }
 
 /**
- * The next job to start: interactive work, then what is on screen, then the
- * rest of the queue in its own order.
+ * The next job among what somebody changed, then what was asked for by name,
+ * skipping any with nothing waiting: drawn already, parked, or never queued.
  */
-function claimNext(library: Library, wanted: Wanted | undefined): JobClaim | undefined {
+function claimAsked(
+  library: Library,
+  asked: { take(): AssetId | undefined },
+): JobClaim | undefined {
   const { repo } = library.db;
   const urgent = repo.claimJob("derive", JOB_PRIORITY.interactive);
   if (urgent !== undefined) return urgent;
-
-  // An id with nothing waiting — drawn already, parked, or being drawn — is
-  // simply dropped: it was asked for because its cell had no picture, and the
-  // cell will learn why from the same place it always does.
-  for (let id = wanted?.take(); id !== undefined; id = wanted?.take()) {
-    const onScreen = repo.claimJobFor("derive", id);
-    if (onScreen !== undefined) return onScreen;
-  }
-  return repo.claimJob("derive");
-}
-
-/**
- * The next job among the assets asked for by name, skipping any with nothing
- * waiting — drawn already, parked, or never queued.
- */
-function claimOnly(library: Library, only: { take(): AssetId | undefined }): JobClaim | undefined {
-  for (let id = only.take(); id !== undefined; id = only.take()) {
-    const claim = library.db.repo.claimJobFor("derive", id);
+  for (let id = asked.take(); id !== undefined; id = asked.take()) {
+    const claim = repo.claimJobFor("derive", id);
     if (claim !== undefined) return claim;
   }
   return undefined;
@@ -774,7 +766,7 @@ async function deriveOne(
     const path = aligned.path;
 
     const source = library.db.repo.pictureSource(claim.assetId);
-    const kept = await keptPictures(library, claim, path, sizes);
+    const kept = await keptPictures(library, claim.assetId, claim.posterMs, path, sizes);
     if (kept !== undefined) return { kind: "kept", claim, metadata: kept };
 
     if (source?.chosen === true) {
@@ -839,20 +831,21 @@ async function deriveOne(
  * hash. It is what turns the derive pass after a rebuild from hours into
  * seconds.
  */
-async function keptPictures(
+export async function keptPictures(
   library: Library,
-  claim: JobClaim,
+  asset: AssetId,
+  posterMs: number | null,
   path: string,
   sizes: readonly number[],
 ): Promise<DerivedMetadata | undefined> {
   const { repo } = library.db;
-  const source = repo.pictureSource(claim.assetId);
+  const source = repo.pictureSource(asset);
   if (source === undefined) return undefined;
   // Pictures somebody chose show no frame, and are every size there is of
   // them: neither test describes them (ADR-0060).
   if (!source.chosen) {
-    if (source.posterMs !== claim.posterMs) return undefined;
-    if (!repo.hasThumbnails(claim.assetId, sizes)) return undefined;
+    if (source.posterMs !== posterMs) return undefined;
+    if (!repo.hasThumbnails(asset, sizes)) return undefined;
   }
 
   const stats = await stat(path);
@@ -870,7 +863,7 @@ async function keptPictures(
  * and a hash, and a build that only learned those for files it could thumbnail
  * would report half a library as unread.
  */
-async function measure(path: string): Promise<DerivedMetadata> {
+export async function measure(path: string): Promise<DerivedMetadata> {
   const hashed = await hashFile(path);
   return { size: hashed.size, mtime: hashed.mtime, contentHash: hashed.hash };
 }

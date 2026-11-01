@@ -286,6 +286,16 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
   adds it to the target and takes it out of nothing. ADR-0043 §12 left it, unasked; it was already so
   for a drop on the sidebar.
 
+### Window checks found failing on 2026-11-01
+
+It fails the same way on commit `420043b`, before the orientation work. `check-heic.mjs` did too, reading
+the status bar before its re-read, and was settled on 2026-11-01; so was `check-trash.mjs`'s Trash count.
+
+- 🟡 **`check-folders.mjs` stops at *Dragging assets onto a folder***: *no drag was intercepted*, with
+  Chromium logging `Failed to get focused window` under Wayland. What comes after it did not run,
+  including its later *New folder…* step. Possibly the session and not the code; not yet tried under
+  XWayland.
+
 ### Window checks found failing on 2026-09-24
 
 - 🟡 **Two window checks fail on `main`, before and after that day's change.** Found while
@@ -952,7 +962,11 @@ an external one is enough.
   file wins. For every camera measured that is the full-size preview, but a file with an unusual
   layout could hand over the wrong image, and the honest fix is reading `NewSubFileType`.
 
-- 🟢 **No EXIF beyond dimensions.** Orientation, capture date, camera, lens, and GPS are all in
+- 🟡 **A RAW's orientation is not read** (ADR-0064 §5). A RAW is drawn from its embedded JPEG, and
+  many cameras write the tag only in the RAW's own directory, which `raw.ts` does not read, so a
+  portrait may still lie on its side, in the grid and the pane alike.
+
+- 🟢 **No EXIF beyond dimensions and orientation.** Capture date, camera, lens, and GPS are all in
   the files already being parsed for RAW previews. `assets.created_at` is the source file's
   mtime, which is a worse answer than the capture date for a photograph.
 
@@ -997,7 +1011,9 @@ claim and counts made cheap at a million. What is still open:
   Found while building a library to measure opening, not investigated. The report's own stages
   (indexing 4.8 s, walking 0.8 s) add up to a fraction of the wall time, so the time is going
   somewhere they do not count.
-- 🟢 **`check-derive-order.mjs` is not in `pnpm verify`**, like every other window check. It is
+- 🟡 **No window check drives a rebuild's *Checking files…* line** (ADR-0065 §3). `measureUnread` is held by
+  `jobs.test.ts`, and the line by `DeriveStatus.test.tsx`, separately.
+- 🟢 **`check-on-demand.mjs` is not in `pnpm verify`**, like every other window check. It is
   also the only one that needs a threadpool of one to be meaningful, and says why.
 
 ### Thumbnails in a database of their own (ADR-0051, 2026-09-26)

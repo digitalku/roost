@@ -359,14 +359,11 @@ const EMPTY_STATS: LibraryStats = {
 };
 
 export class FakeEngine {
-  /** Whether a test has paused the queue (ADR-0049). */
-  #derivePaused = false;
-
   #deriveStatus(): WireDeriveStatus {
     return (
       this.#options.deriveStatus ?? {
-        paused: this.#derivePaused,
         ready: 0,
+        checking: 0,
         running: 0,
         blocked: 0,
         failed: 0,
@@ -859,6 +856,9 @@ export class FakeEngine {
       case "asset:thumbnailClear":
         return ok(request.ids.length);
 
+      case "asset:thumbnailRefresh":
+        return ok(request.ids.length);
+
       case "asset:addSubtitle": {
         // The engine's list of what counts as a subtitle, as much of it as a
         // fake needs: the window never learns one, so a test that dropped a
@@ -1337,20 +1337,13 @@ export class FakeEngine {
         // stalled job, which a test that cares about sets through `undrawn`.
         return ok(true);
 
-      case "derive:pause":
-      case "derive:resume":
-        this.#derivePaused = request.type === "derive:pause";
-        return ok({ ...this.#deriveStatus(), paused: this.#derivePaused });
-
       case "derive:status":
       case "derive:retry":
         // A fake queue with nothing in it, unless a test taught it otherwise:
         // most of them are about the grid and never look at this.
         return ok(this.#deriveStatus());
 
-      case "derive:wanted":
-        // Main sends this, never the window; answered so the switch stays
-        // exhaustive.
+      case "derive:onScreen":
         return ok(null);
 
       case "capability:install":

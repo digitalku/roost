@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
-import { type AssetId, JOB_PRIORITY, logger } from "@roost/core";
-import { enqueueDerives } from "./jobs.js";
+import { type AssetId, type DerivedMetadata, JOB_PRIORITY, logger } from "@roost/core";
+import { EAGER_SIZES, probe } from "@roost/media";
+import { enqueueDerives, keptPictures, measure } from "./jobs.js";
 import type { Library } from "./library.js";
 import { resolveFile } from "./locate.js";
 
@@ -154,6 +155,105 @@ export async function catchUp(
   log.info("catch-up finished", { ...final });
   options.onProgress?.(final);
   return final;
+}
+
+/** Assets read together, and committed together. */
+const MEASURE_BATCH = 64;
+
+export interface MeasureOptions {
+  readonly signal?: AbortSignal;
+  /** How many are left, after each batch. */
+  readonly onProgress?: (left: number) => void;
+}
+
+/**
+ * Reads what the index does not know about files nobody has drawn (ADR-0065).
+ *
+ * A rebuild and another build's journal lines bring assets in with nothing
+ * derived (RL-23), and with the queue drawing only what is asked for, an asset
+ * nobody looks at would have no size or hash for ever: wrong under every sort
+ * by size, and invisible to an import looking for a duplicate. So this is the
+ * one thing that still walks a library in the background, and **it draws
+ * nothing**. It only ever has work after one of those two events.
+ *
+ * Pictures still true of their file are kept, for one `stat`, and their job is
+ * done with (ADR-0051). A picture of a file that has since changed is queued as
+ * work somebody changed. Everything else is hashed, and read for its dimensions
+ * where a header has them, and stays queued to be drawn when it is seen.
+ */
+export async function measureUnread(library: Library, options: MeasureOptions = {}): Promise<void> {
+  const { repo } = library.db;
+  let left = repo.underivedCount();
+  if (left === 0) return;
+  options.onProgress?.(left);
+
+  let after = "";
+  for (;;) {
+    if (options.signal?.aborted === true) return;
+    const ids = repo.underivedAfter(after, MEASURE_BATCH);
+    const last = ids.at(-1);
+    if (last === undefined) break;
+    after = last;
+
+    const read = await Promise.all(ids.map((id) => readOne(library, id)));
+    library.db.transaction(() => {
+      const now = Math.floor(Date.now() / 1000);
+      for (const one of read) {
+        if (one.kind === "kept" || one.kind === "measured") {
+          repo.putDerived(one.id, one.metadata, now);
+        }
+        if (one.kind === "kept") repo.finishJobFor("derive", one.id);
+      }
+    });
+    enqueueDerives(
+      library,
+      read.filter((one) => one.kind === "changed").map((one) => one.id),
+      JOB_PRIORITY.interactive,
+    );
+
+    left = Math.max(0, left - ids.length);
+    options.onProgress?.(left);
+    // A whole library of these would otherwise hold the engine's event loop
+    // against everything the window asks for while it runs.
+    await new Promise((resume) => setImmediate(resume));
+  }
+  options.onProgress?.(0);
+}
+
+type ReadOne =
+  | { readonly kind: "kept" | "measured"; readonly id: AssetId; readonly metadata: DerivedMetadata }
+  | { readonly kind: "changed" | "absent"; readonly id: AssetId };
+
+async function readOne(library: Library, id: AssetId): Promise<ReadOne> {
+  const { repo } = library.db;
+  const resolved = await resolveFile(library, id);
+  // Counted again at the next open, which costs a directory listing: what is
+  // missing today may be back when the drive is.
+  if (resolved.kind !== "found") return { kind: "absent", id };
+  if (resolved.renamed) repo.noteExt(id, resolved.ext);
+
+  try {
+    const kept = await keptPictures(library, id, repo.posterOf(id), resolved.path, EAGER_SIZES);
+    if (kept !== undefined) return { kind: "kept", id, metadata: kept };
+    if (repo.pictureSource(id) !== undefined) return { kind: "changed", id };
+
+    const [measured, read] = await Promise.all([
+      measure(resolved.path),
+      probe(resolved.path).catch(() => undefined),
+    ]);
+    return {
+      kind: "measured",
+      id,
+      metadata: {
+        ...measured,
+        ...(read?.width === undefined ? {} : { width: read.width }),
+        ...(read?.height === undefined ? {} : { height: read.height }),
+      },
+    };
+  } catch (error) {
+    log.warn("could not read a file", { asset: id, error: String(error) });
+    return { kind: "absent", id };
+  }
 }
 
 /**

@@ -657,7 +657,29 @@ button:disabled {
   transition: width var(--dur-base) linear;
 }
 
-/* The × and Resume beside the derive count (ADR-0049): the same chip, told
+/* What a paused queue has left, which says why when pressed (ADR-0049 §6). */
+.status-job-info {
+  cursor: pointer;
+}
+
+.status-job-info:hover {
+  background: var(--surface-overlay);
+}
+
+.derive-note {
+  max-width: 22rem;
+  padding: var(--space-2) var(--space-3);
+}
+
+.derive-note p {
+  margin: 0;
+}
+
+.derive-note p + p {
+  margin-top: var(--space-2);
+}
+
+/* The × beside the derive count (ADR-0049): the same chip, told
    apart from the count by being the one that reacts to the pointer. */
 .status-job-action {
   margin-left: calc(-1 * var(--space-1));

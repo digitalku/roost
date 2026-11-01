@@ -193,7 +193,7 @@ describe("the preview pane", () => {
       { id: "ZA23511MJFSW", browserDrawable: false, undrawn: "missing:libheif" },
       {
         deriveStatus: {
-          paused: false,
+          checking: 0,
           ready: 0,
           running: 0,
           blocked: 1,

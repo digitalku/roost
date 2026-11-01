@@ -1,6 +1,6 @@
 import { type AssetId, parseAssetId } from "@roost/core";
 import { describe, expect, it } from "vitest";
-import { Requested, Wanted } from "./wanted.js";
+import { ON_SCREEN_LIMIT, Requested, Wanted } from "./wanted.js";
 
 const id = (n: number): AssetId => parseAssetId(`A${String(n).padStart(11, "0")}`);
 
@@ -49,6 +49,40 @@ describe("what a paused queue still works", () => {
     requested.open(id(8));
     expect([requested.take(), requested.take(), requested.take()]).toEqual([id(8), id(2), id(3)]);
     expect(requested.take()).toBeUndefined();
+    expect(requested.size).toBe(0);
+  });
+
+  it("draws what is on screen after what was opened, ahead of an import", () => {
+    const requested = new Requested();
+    requested.queue([id(1)]);
+    requested.showing([id(3), id(2)]);
+    requested.open(id(9));
+
+    expect(requested.size).toBe(4);
+    expect([requested.take(), requested.take(), requested.take(), requested.take()]).toEqual([
+      id(9),
+      id(3),
+      id(2),
+      id(1),
+    ]);
+  });
+
+  it("keeps the top of a screen too big to remember (ADR-0065)", () => {
+    const requested = new Requested();
+    requested.showing(Array.from({ length: 200 }, (_, n) => id(n)));
+
+    expect(requested.size).toBe(ON_SCREEN_LIMIT);
+    expect(requested.take()).toBe(id(0));
+  });
+
+  it("forgets a screen somebody scrolled away from", () => {
+    const requested = new Requested();
+    requested.showing([id(1), id(2)]);
+    requested.showing([id(3)]);
+    expect([requested.take(), requested.take()]).toEqual([id(3), undefined]);
+
+    requested.showing([id(4)]);
+    requested.showing([]);
     expect(requested.size).toBe(0);
   });
 

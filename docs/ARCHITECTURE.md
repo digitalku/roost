@@ -226,8 +226,8 @@ The application service layer and the only public API worth calling:
 - Replay and rebuild (RL-35 to RL-41), and `fixture` for synthetic libraries
 - The **job runner**: a bounded, persisted queue with priorities and backpressure (**M4**).
   Each worker claims **one job at a time**, so the order is re-read whenever a worker comes
-  free: interactive work first, then what a window is showing a placeholder for (`Wanted`,
-  newest first), then the queue's own order. Finished work is committed in batches, or after
+  free: interactive work first, then what the window asked for (`Requested`, ADR-0065), and
+  in the window nothing else; `roost thumb` works the whole queue. Finished work is committed in batches, or after
   250 ms, whichever comes first
 - The **watcher** (`watch.ts`) and the **catch-up sweep** (`refresh.ts`) — what notices that a
   file changed under an asset, which is the whole of the workspace half of version 2 (ADR-0047).
@@ -348,12 +348,8 @@ that a thumbnail is absent by asking for it — which is right, and avoids a `ha
 column duplicating what the object store already answers — but `roost-old` found that scrolling
 back over a folder of videos re-asks every time.
 
-**A miss is also the derive queue's best hint.** It is a cell on screen showing a placeholder,
-so main gathers the misses for 50 ms and sends them to the engine as `derive:wanted`, which puts
-them at the front of the queue. Main is the one process that hears a miss without the grid doing
-anything, so the renderer keeps no visible-range bookkeeping and pays nothing per scroll. On a
-first open of 2,000 undrawn pictures the screen the window opens on is drawn in ~450 ms against
-~11 s without it (`BENCHMARKS.md`, `check-derive-order.mjs`).
+**A miss is not what draws a picture** (ADR-0065). It cannot tell a cell on screen from one above or
+below it, so the window says what it holds at rest, as `derive:onScreen`, and the engine draws those.
 
 ### 4.4 The `Storage` interface — the seam between the index and the bytes
 

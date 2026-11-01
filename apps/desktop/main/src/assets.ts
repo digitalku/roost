@@ -58,19 +58,6 @@ export class AssetServer {
   /** The decoder, once something has asked for it, for the pictures a drag shows. */
   #media: typeof import("@roost/media") | undefined;
 
-  /**
-   * Told which thumbnails were asked for and not there, a few at a time.
-   *
-   * A miss is a cell on screen showing a placeholder, which is precisely what
-   * the derive queue should be working on next — and this is the one place
-   * that hears it without the grid doing anything (`derive:wanted`). Batched,
-   * because a screen of placeholders arrives as a burst of requests and one
-   * message for the burst is enough.
-   */
-  onThumbnailsMissing: ((ids: readonly AssetId[]) => void) | undefined;
-  readonly #missing = new Set<AssetId>();
-  #reporting: NodeJS.Timeout | undefined;
-
   /** Points the handler at a library that has just been opened. */
   attach(root: string): void {
     this.detach();
@@ -145,10 +132,6 @@ export class AssetServer {
     this.#open?.index.close();
     this.#open = undefined;
     this.#handoff = undefined;
-    // Ids from the library that is going mean nothing to the next one.
-    clearTimeout(this.#reporting);
-    this.#reporting = undefined;
-    this.#missing.clear();
   }
 
   /**
@@ -384,10 +367,7 @@ export class AssetServer {
 
   #serveThumb(open: OpenLibrary, route: Extract<Route, { kind: "thumb" }>): Response {
     const bytes = open.index.thumbnail(route.id, route.size);
-    if (bytes === undefined) {
-      this.#reportMissing(route.id);
-      return missingThumbnail();
-    }
+    if (bytes === undefined) return missingThumbnail();
     return new Response(new Uint8Array(bytes), {
       headers: {
         "content-type": "image/webp",
@@ -401,17 +381,6 @@ export class AssetServer {
         "cache-control": "public, max-age=31536000, immutable",
       },
     });
-  }
-
-  #reportMissing(id: AssetId): void {
-    this.#missing.add(id);
-    if (this.#reporting !== undefined) return;
-    this.#reporting = setTimeout(() => {
-      this.#reporting = undefined;
-      const ids = [...this.#missing];
-      this.#missing.clear();
-      this.onThumbnailsMissing?.(ids);
-    }, MISSING_REPORT_MS);
   }
 
   /**
@@ -538,9 +507,6 @@ interface OpenLibrary {
   readonly index: ReadOnlyIndex;
   readonly storage: FileStore;
 }
-
-/** How long misses are gathered before they are passed on as one batch. */
-const MISSING_REPORT_MS = 50;
 
 /**
  * A thumbnail that has not been generated yet.

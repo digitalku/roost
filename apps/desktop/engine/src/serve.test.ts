@@ -530,12 +530,11 @@ describe("the engine's message loop", () => {
     for (const n of [1, 2, 3]) {
       await writeFile(join(source, `picture-${n}.png`), await gradient(64, 48, n, "png"));
     }
-    const root = join(dir, `Paused${LIBRARY_SUFFIX}`);
-    const made = await Library.create(root, "Paused");
+    const root = join(dir, `OnDemand${LIBRARY_SUFFIX}`);
+    const made = await Library.create(root, "OnDemand");
     let ids: string[];
     try {
       ids = (await importInto(made, [source])).importedIds;
-      await made.updateSettings({ derivePaused: true });
     } finally {
       await made.close();
     }
@@ -552,9 +551,9 @@ describe("the engine's message loop", () => {
 
     await ask(1, { type: "library:open", path: root });
     expect(await ask(2, { type: "derive:status" })).toMatchObject({
-      value: { paused: true, ready: 3 },
+      value: { ready: 3 },
     });
-    // Opening a paused library derives nothing on its own.
+    // Opening a library draws nothing on its own (ADR-0065).
     await settle();
     expect(await thumbnails()).toBe(0);
 
@@ -564,22 +563,35 @@ describe("the engine's message loop", () => {
     await settle();
     expect(await thumbnails()).toBe(1);
 
-    expect(await ask(4, { type: "derive:resume" })).toMatchObject({ value: { paused: false } });
-    await until(async () => (await thumbnails()) === 3);
-    expect(await thumbnails()).toBe(3);
-    const settings = async (): Promise<unknown> =>
-      JSON.parse(await readFile(join(root, "settings.json"), "utf8"));
-    expect(await settings()).toMatchObject({ derivePaused: false });
+    // A cell on screen with no picture: that one, and not the rest.
+    await ask(30, { type: "derive:onScreen", ids: [ids[1] ?? ""] });
+    await until(async () => (await thumbnails()) === 2);
+    await settle();
+    expect(await thumbnails()).toBe(2);
 
-    expect(await ask(5, { type: "derive:pause" })).toMatchObject({ value: { paused: true } });
-    expect(await settings()).toMatchObject({ derivePaused: true });
+    // A picture arriving says nothing about the card's shape, or everything
+    // below it would move under whoever is looking (ADR-0065 §6).
+    const drawn = eventsOf("assets:derived").flatMap((event) => event["assets"] as object[]);
+    expect(drawn.length).toBeGreaterThan(0);
+    for (const one of drawn) expect(one).not.toHaveProperty("width");
 
-    // An import is somebody asking for these files now, paused or not.
+    // Somebody asking to see the new picture is told its shape.
+    const sentBefore = eventsOf("assets:derived").length;
+    await ask(31, { type: "asset:thumbnailRefresh", ids: [ids[1] ?? ""] });
+    await until(async () => eventsOf("assets:derived").length > sentBefore);
+    const refreshed = eventsOf("assets:derived")
+      .slice(sentBefore)
+      .flatMap((event) => event["assets"] as object[]);
+    expect(refreshed).toEqual([expect.objectContaining({ id: ids[1], width: 64, height: 48 })]);
+
+    // An import is queued, and drawn as it comes on screen.
     const more = join(dir, "more");
     await mkdir(more);
     await writeFile(join(more, "picture-4.png"), await gradient(64, 48, 4, "png"));
     await ask(6, { type: "import:paths", paths: [more], take: "copy", tags: [], folder: null });
-    expect(await thumbnails()).toBe(4);
+    await settle();
+    expect(await thumbnails()).toBe(2);
+    expect(await ask(7, { type: "derive:status" })).toMatchObject({ value: { ready: 2 } });
   });
 
   it("names the pictures a folder's tile draws, and never sends them", async () => {
@@ -609,7 +621,7 @@ describe("the engine's message loop", () => {
     expect(Object.keys(cover?.assets[0] ?? {}).sort()).toEqual(["derivedAt", "id", "posterMs"]);
   });
 
-  it("tries one file again, even with the queue paused", async () => {
+  it("tries one file again", async () => {
     // ADR-0050: the per-file Try again, from the inspector or the preview.
     const source = join(dir, "torn");
     await mkdir(source, { recursive: true });
@@ -624,13 +636,13 @@ describe("the engine's message loop", () => {
       await made.close();
     }
     await ask(1, { type: "library:open", path: root });
+    await ask(11, { type: "derive:onScreen", ids: [id] });
     const failed = async (): Promise<number> =>
       ((await ask(90, { type: "derive:status" })) as { value: { failed: number } }).value.failed;
     for (let tries = 0; tries < 100 && (await failed()) === 0; tries += 1) {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     expect(await failed()).toBe(1);
-    await ask(2, { type: "derive:pause" });
 
     // Released and tried at once; still damaged, so it fails again — and the
     // attempt is what the answer and the count say happened.

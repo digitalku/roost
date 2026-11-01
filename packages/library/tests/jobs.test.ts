@@ -1,20 +1,21 @@
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AssetId, JOB_PRIORITY } from "@roost/core";
 import {
   deriveFailures,
+  enqueueMissing,
   importInto,
   Library,
+  measureUnread,
   queueStatus,
   type Redrawn,
   Requested,
   releaseNowSupported,
   retryBlocked,
   runDerives,
-  Wanted,
 } from "@roost/library";
-import { GRID_SIZE, gradient } from "@roost/media";
+import { EAGER_SIZES, GRID_SIZE, gradient } from "@roost/media";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 describe("the derive queue", () => {
@@ -315,8 +316,7 @@ describe("the derive queue", () => {
   });
 
   it("works only what was asked for by name, when told to", async () => {
-    // A paused queue (ADR-0049): an opened file and a new import are derived,
-    // and nothing else is touched.
+    // ADR-0065: what was asked for is drawn, and nothing else is touched.
     const report = await importInto(library, [source]);
     expect(report.importedIds).toHaveLength(4);
     const [a, b] = report.importedIds as AssetId[];
@@ -327,7 +327,7 @@ describe("the derive queue", () => {
     const run = await runDerives(library, {
       sizes: [GRID_SIZE],
       concurrency: 1,
-      only: requested,
+      asked: requested,
       onDerived: (assets) => order.push(...assets.map((asset) => asset.id)),
     });
 
@@ -338,58 +338,80 @@ describe("the derive queue", () => {
     expect(queueStatus(library).ready).toBe(2);
   });
 
-  it("works what is on screen first, the latest asked for first", async () => {
-    await importInto(library, [source]);
-    const [a, b, c, d] = library.db.repo.allIds() as AssetId[];
-    const wanted = new Wanted();
-    wanted.add([c as AssetId, a as AssetId]);
-    const order: string[] = [];
-
-    await runDerives(library, {
-      sizes: [GRID_SIZE],
-      concurrency: 1,
-      wanted,
-      onDerived: (assets) => order.push(...assets.map((asset) => asset.id)),
-    });
-
-    // `a` was asked for last, so it is what the window is showing now; the
-    // rest follow in the queue's own order once nothing is waiting on screen.
-    expect(order.slice(0, 2)).toEqual([a, c]);
-    expect(new Set(order.slice(2))).toEqual(new Set([b, d]));
-    expect(wanted.size).toBe(0);
-  });
-
-  it("still puts a picture somebody changed ahead of one nobody has seen", async () => {
+  it("draws what somebody changed ahead of what was asked for", async () => {
     await importInto(library, [source]);
     const [a, b] = library.db.repo.allIds() as AssetId[];
     library.db.repo.enqueueJob("derive", b as AssetId, JOB_PRIORITY.interactive, 1);
-    const wanted = new Wanted();
-    wanted.add([a as AssetId]);
+    const asked = new Requested();
+    asked.open(a as AssetId);
     const order: string[] = [];
 
     await runDerives(library, {
       sizes: [GRID_SIZE],
       concurrency: 1,
-      wanted,
+      asked,
       onDerived: (assets) => order.push(...assets.map((asset) => asset.id)),
     });
 
-    expect(order.slice(0, 2)).toEqual([b, a]);
+    expect(order).toEqual([b, a]);
   });
 
-  it("drops an asked-for id with nothing waiting, rather than deriving it again", async () => {
+  it("skips an asked-for id with nothing waiting, rather than deriving it again", async () => {
     await importInto(library, [source]);
     await runDerives(library, { sizes: [GRID_SIZE] });
     const [a] = library.db.repo.allIds() as AssetId[];
-    const wanted = new Wanted();
-    wanted.add([a as AssetId]);
+    const asked = new Requested();
+    asked.open(a as AssetId);
 
-    const report = await runDerives(library, { sizes: [GRID_SIZE], wanted });
+    const report = await runDerives(library, { sizes: [GRID_SIZE], asked });
 
-    // A cell with no picture asks for one whatever the reason — parked, broken,
-    // or drawn a moment ago — and asking is not a reason to do the work twice.
     expect(report.derived).toBe(0);
-    expect(wanted.size).toBe(0);
+    expect(asked.size).toBe(0);
+  });
+
+  it("reads what a rebuild left unread, and draws nothing (ADR-0065)", async () => {
+    await importInto(library, [source]);
+    const [drawn, undrawn] = library.db.repo.allIds() as AssetId[];
+    const asked = new Requested();
+    asked.open(drawn as AssetId);
+    await runDerives(library, { sizes: EAGER_SIZES, asked });
+    const size = library.db.repo.assetDetail(undrawn as AssetId)?.size;
+    const waiting = queueStatus(library).ready;
+
+    for (const id of [drawn, undrawn] as AssetId[]) library.db.repo.clearDerived(id);
+    enqueueMissing(library);
+    const left: number[] = [];
+    await measureUnread(library, { onProgress: (n) => left.push(n) });
+
+    expect(left[0]).toBe(2);
+    expect(left.at(-1)).toBe(0);
+    expect(library.db.repo.underivedCount()).toBe(0);
+    expect(library.db.repo.assetDetail(undrawn as AssetId)?.size).toBe(size);
+    // Still waiting to be drawn, and the one with a picture still has it.
+    expect(library.db.repo.thumbnail(undrawn as AssetId, GRID_SIZE)).toBeUndefined();
+    expect(library.db.repo.thumbnail(drawn as AssetId, GRID_SIZE)).toBeDefined();
+    expect(queueStatus(library).ready).toBe(waiting);
+  });
+
+  it("queues a picture whose file changed while the index was gone (ADR-0065)", async () => {
+    await importInto(library, [source]);
+    const [a] = library.db.repo.allIds() as AssetId[];
+    const asked = new Requested();
+    asked.open(a as AssetId);
+    await runDerives(library, { sizes: EAGER_SIZES, asked });
+    const detail = library.db.repo.assetDetail(a as AssetId);
+    await appendFile(library.storage.locate(a as AssetId, detail?.ext ?? ""), "edited");
+    library.db.repo.clearDerived(a as AssetId);
+
+    await measureUnread(library);
+
+    const order: string[] = [];
+    await runDerives(library, {
+      sizes: EAGER_SIZES,
+      asked: new Requested(),
+      onDerived: (assets) => order.push(...assets.map((asset) => asset.id)),
+    });
+    expect(order).toEqual([a]);
   });
 
   it("returns work a crashed run left claimed", async () => {

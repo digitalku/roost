@@ -201,6 +201,13 @@ export function AssetContextMenu({
     });
   };
 
+  const refreshThumbnail = (): void => {
+    void invoke({ type: "asset:thumbnailRefresh", ids }).then((outcome) => {
+      if (!outcome.ok) return onProblem(outcome.problem);
+      onNote(refreshLine(outcome.value));
+    });
+  };
+
   const copyPaths = (): void => {
     void invoke({ type: "asset:copyPath", ids }).then((outcome) => {
       if (!outcome.ok) onProblem(outcome.problem);
@@ -413,6 +420,13 @@ export function AssetContextMenu({
                 <span className="menu-label">Set thumbnail from file…</span>
               </ContextMenu.Item>
 
+              <ContextMenu.Item className="menu-item" onSelect={refreshThumbnail}>
+                <span className="menu-mark" />
+                <span className="menu-label">
+                  {count === 1 ? "Refresh thumbnail" : `Refresh ${count} thumbnails`}
+                </span>
+              </ContextMenu.Item>
+
               {chosenThumbnail === true && (
                 <ContextMenu.Item className="menu-item" onSelect={clearThumbnail}>
                   <span className="menu-mark" />
@@ -521,6 +535,12 @@ export function copiedLine(copied: number): string {
   return copied === 0
     ? "Nothing could be copied — those files are not on this machine"
     : `Copied ${assets(copied)} to the clipboard`;
+}
+
+/** What the status bar says after *Refresh thumbnail* (ADR-0064). */
+export function refreshLine(queued: number): string {
+  if (queued === 0) return "A custom thumbnail is kept — remove it to draw the file's own";
+  return queued === 1 ? "Drawing the thumbnail again" : `Drawing ${queued} thumbnails again`;
 }
 
 /**
