@@ -39,7 +39,7 @@ export function FolderContextMenu({
         <ContextMenu.Content className="menu" collisionPadding={8}>
           <ContextMenu.Item className="menu-item" onSelect={() => onNewFolder(row)}>
             <span className="menu-mark" />
-            <span className="menu-label">New subfolder…</span>
+            <span className="menu-label">New folder…</span>
           </ContextMenu.Item>
           <ContextMenu.Item className="menu-item" onSelect={() => onRename(row)}>
             <span className="menu-mark" />

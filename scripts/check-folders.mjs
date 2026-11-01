@@ -395,10 +395,10 @@ try {
   let items = await folderMenu("Logos");
   check(
     "the row's menu offers the three commands",
-    ["New subfolder…", "Rename…", "Delete folder…"].every((label) => items.includes(label)),
+    ["New folder…", "Rename…", "Delete folder…"].every((label) => items.includes(label)),
     items.join(" · "),
   );
-  await cdp.evaluate(clickMenuItem("New subfolder…"));
+  await cdp.evaluate(clickMenuItem("New folder…"));
   await cdp.settle("document.querySelector('[role=dialog]') !== null", (there) => there === true);
   const body = await cdp.evaluate(
     "document.querySelector('[role=dialog] .dialog-body')?.textContent ?? null",
@@ -457,7 +457,7 @@ try {
   // wrong case on purpose: user-authored names are compared without regard to
   // it, so two rows a pane cannot tell apart never both exist.
   await folderMenu("Design");
-  await cdp.evaluate(clickMenuItem("New subfolder…"));
+  await cdp.evaluate(clickMenuItem("New folder…"));
   await cdp.settle("document.querySelector('[role=dialog]') !== null", (there) => there === true);
   await typeInto("ALPHA");
   await cdp.keyboard.press("Enter");
@@ -954,7 +954,7 @@ try {
   // up comes along as context (`UI_SPEC.md` §4.1, the pane's own rule).
   await makeFolder("Akun");
   await folderMenu("Akun");
-  await cdp.evaluate(clickMenuItem("New subfolder…"));
+  await cdp.evaluate(clickMenuItem("New folder…"));
   await cdp.settle("document.querySelector('[role=dialog]') !== null", (there) => there === true);
   await typeInto("sorotan");
   await cdp.keyboard.press("Enter");

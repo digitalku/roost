@@ -348,7 +348,7 @@ describe("the navigation pane", () => {
     design.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
     await screen.findByRole("menu");
 
-    await user.click(screen.getByRole("menuitem", { name: "New subfolder…" }));
+    await user.click(screen.getByRole("menuitem", { name: "New folder…" }));
     expect(made).toEqual([null, "Design"]);
 
     design.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
