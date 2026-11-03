@@ -332,12 +332,14 @@ export function Grid({
    * moved off screen, one scroll — which is the other half of what an arrow key
    * means.
    */
+  const shown = useRef<string | undefined>(undefined);
   useEffect(() => {
     const paint = (): void => {
       const element = viewport.current;
       const id = selection.focused;
       if (element === null) return;
       if (id === undefined) {
+        shown.current = undefined;
         element.removeAttribute("aria-activedescendant");
         element.removeAttribute("data-roving");
         return;
@@ -354,8 +356,17 @@ export function Grid({
       // would drag the grid out from under the drag.
       if (sweeping.current !== undefined) return;
 
+      // Only a ring that has moved is brought into view. This runs again on
+      // every new layout, and the layout is new whenever a card changes — a
+      // thumbnail arriving for the screen somebody scrolled to is one — so
+      // without this the grid hauled itself back to a selection left further
+      // up the moment the pictures under the scroll were drawn (reported
+      // 2026-11-03). Remembered only once the tile is found, so a ring set on
+      // an asset the next page brings is still scrolled to when it arrives.
+      if (shown.current === id) return;
       const tile = grid.order.find((candidate) => candidate.id === id);
       if (tile === undefined) return;
+      shown.current = id;
       const visibleTop = element.scrollTop;
       const visibleBottom = visibleTop + element.clientHeight;
       if (tile.y < visibleTop) element.scrollTop = tile.y;

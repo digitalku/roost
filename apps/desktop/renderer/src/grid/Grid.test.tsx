@@ -419,6 +419,39 @@ describe("the grid", () => {
     expect(grid.scrollTop).toBe(0);
   });
 
+  it("leaves the scroll alone when a card changes under a ring already shown", () => {
+    // Reported 2026-11-03: a file selected near the top, the grid scrolled
+    // down, and every thumbnail drawn for the new screen pulled the grid back
+    // up to the selection — a patched card is a new layout, and the ring was
+    // scrolled into view again on every one.
+    const { assets, rerender } = show(200);
+    const first = assets[0]?.id;
+    if (first === undefined) throw new Error("expected an asset");
+    act(() => selection.click(first));
+
+    const grid = screen.getByRole("listbox");
+    grid.scrollTop = 4000;
+    const drawn = assets.map((asset, i) => (i === 150 ? { ...asset, derivedAt: 1 } : asset));
+    rerender(
+      <Grid
+        assets={drawn}
+        view="icons"
+        proportional={false}
+        target={240}
+        selection={selection}
+        onMore={more}
+        onOpen={onOpen}
+      />,
+    );
+    expect(grid.scrollTop).toBe(4000);
+
+    // A ring that moves is still brought into view.
+    const next = assets[1]?.id;
+    if (next === undefined) throw new Error("expected an asset");
+    act(() => selection.focus(next));
+    expect(grid.scrollTop).toBe(0);
+  });
+
   it("moves focus with the arrows and keeps selection separate under ctrl", async () => {
     const { user, assets } = show(12);
     const grid = screen.getByRole("listbox");
