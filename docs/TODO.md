@@ -246,8 +246,21 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
   runtime and codecs-extra arrive from Flathub. Nothing here has proved that step.
 - 🟡 **The GitHub release `v0.1.0`**, with the bundle attached, and `roost.digitalku.com` linking to
   it. The user creates the release; `gh` is not installed here.
-- 🟢 **Updates without a reinstall**: a Flatpak repository of our own on `roost.digitalku.com`
-  with a `.flatpakref`, signed with a GPG key. Not decided.
+- ☑ ~~**Updates without a reinstall**~~, done 2026-11-05: the remote `digitalku` at
+  `https://flatpak.digitalku.com`, a signed OSTree repository on Cloudflare R2, built and run from a
+  repository of its own, `digitalku/digitalku-flatpak` (its `NEXT.md` and `README.md`). Roost 0.2.0
+  is published there on the branch `stable` and installed from its `.flatpakref` into an empty
+  installation, which trusted only the release key.
+  - 🟡 **Amend ADR-0063 §10**, which still says 0.1.0's bundle on GitHub Releases is how Roost ships.
+    Proposed with the remote, and asked before it is marked Accepted.
+  - 🟡 **`README.md`'s status and install instructions**, and `roost.digitalku.com`'s, still name the
+    0.1.0 bundle. They change with the ADR.
+  - 🟡 **Push `Release 0.2.0` and the tag `v0.2.0`** to GitHub. Both are local; the user pushes or
+    says to.
+  - 🟡 **Move the user's own install** from `roost-origin` (`master`, 0.1.0) to `digitalku`
+    (`stable`): uninstall and install from the `.flatpakref`. Library data stays.
+  - 🟢 **Whether the manifest builds `stable` itself** (`--default-branch=stable`) rather than
+    `master`, which `publish.sh` renames. Nothing is wrong with the rename.
 
 ### Foundation (M0) — done 2026-08-24
 
