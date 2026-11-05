@@ -6,7 +6,7 @@
 A local-first digital asset manager — a Linux-first alternative to Eagle.cool.
 Electron shell, TypeScript engine, React interface. Your files stay yours.
 
-> **Status: 0.1.0, the first release — a Flatpak for Linux on x86_64.** The engine, the headless
+> **Status: 0.2.0 — a Flatpak for Linux on x86_64, updated from the Digitalku Flatpak repository.** The engine, the headless
 > CLI, the desktop window, and the format backends — images, video, audio, PDF, SVG, fonts — all
 > work. Import, organize, search, preview, and edit a library today, from the
 > [Flatpak](#flatpak) or from source. What is left is M5 (discovery: colour, near-duplicates,
@@ -39,17 +39,23 @@ builds and runs the same checkout, with the differences its own section names.
 
 ### Flatpak
 
-Download `roost-<version>-x86_64.flatpak` from the
-[latest release](https://github.com/digitalku/roost/releases/latest), then:
+Roost is installed, and updated, from the Digitalku Flatpak repository at
+[flatpak.digitalku.com](https://flatpak.digitalku.com):
 
 ```bash
-flatpak install --user roost-0.1.0-x86_64.flatpak
+flatpak install https://flatpak.digitalku.com/com.digitalku.roost.flatpakref
 flatpak run com.digitalku.roost
 ```
 
-Roost then appears in the application menu. It runs on the Freedesktop runtime 26.08, which the
-install fetches from [Flathub](https://flathub.org/setup) if the machine does not have it yet.
-Only x86_64 is built for now.
+Opening that link in a browser hands it to Discover or GNOME Software instead. The first install
+adds the repository as the remote `digitalku`, signed with Digitalku's key
+(`61A0 073C A3B4 4892 83A0  7483 7181 9AAD 7FCB 1E2F`), and fetches the Freedesktop runtime 26.08
+from [Flathub](https://flathub.org/setup) if the machine does not have it yet. Without `--user` it
+installs for every account and asks for a password. Only x86_64 is built for now.
+
+**Updates arrive with the rest of your software**, in the software centre or through
+`flatpak update`, and only what changed is downloaded. Flatpak checks for them; Roost itself never
+talks to the network.
 
 **Nothing else to install.** The Flatpak draws HEIC photographs and HEVC video with the runtime's
 own libheif and ffmpeg, so the decoder section below is for a build from source. HEVC video gets a
@@ -58,12 +64,13 @@ thumbnail but does not play yet: playback is Chromium's, and Chromium has no HEV
 **What it can reach** is your home folder and `/run/media`, where removable drives are mounted —
 a library is a folder that can sit anywhere you keep files. It has no network access at all.
 
-To update, download the newer file and install it over the old one; to remove it, uninstall it.
-Your libraries are folders of your own and stay where they are either way.
+**0.1.0 came as a `.flatpak` file**, which never updates. Remove it and install from the
+repository; libraries and settings stay. Removing Roost never touches a library either, since a
+library is a folder of your own.
 
 ```bash
-flatpak install --user --reinstall roost-<version>-x86_64.flatpak
-flatpak uninstall --user com.digitalku.roost
+flatpak uninstall --user com.digitalku.roost        # the 0.1.0 file
+flatpak install https://flatpak.digitalku.com/com.digitalku.roost.flatpakref
 ```
 
 ### From source on Fedora

@@ -253,8 +253,10 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
   installation, which trusted only the release key.
   - 🟡 **Amend ADR-0063 §10**, which still says 0.1.0's bundle on GitHub Releases is how Roost ships.
     Proposed with the remote, and asked before it is marked Accepted.
-  - 🟡 **`README.md`'s status and install instructions**, and `roost.digitalku.com`'s, still name the
-    0.1.0 bundle. They change with the ADR.
+  - ☑ ~~**`README.md`'s status and install instructions**, and `roost.digitalku.com`'s~~, done
+    2026-11-06 at the user's word: both install from the `.flatpakref`, say how updates arrive and
+    whose key signs them, and tell a 0.1.0 install how to move over. The site's commit is in
+    `digitalku/digitalku-roost`; it reaches the server with that README's update steps.
   - ☑ ~~**Push `Release 0.2.0` and the tag `v0.2.0`** to GitHub~~, done 2026-11-06 at the user's
     word.
   - ☑ ~~**Move the user's own install**~~ off `roost-origin` (`master`, 0.1.0), done 2026-11-05: the
