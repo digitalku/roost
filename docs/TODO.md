@@ -255,8 +255,8 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
     Proposed with the remote, and asked before it is marked Accepted.
   - 🟡 **`README.md`'s status and install instructions**, and `roost.digitalku.com`'s, still name the
     0.1.0 bundle. They change with the ADR.
-  - 🟡 **Push `Release 0.2.0` and the tag `v0.2.0`** to GitHub. Both are local; the user pushes or
-    says to.
+  - ☑ ~~**Push `Release 0.2.0` and the tag `v0.2.0`** to GitHub~~, done 2026-11-06 at the user's
+    word.
   - ☑ ~~**Move the user's own install**~~ off `roost-origin` (`master`, 0.1.0), done 2026-11-05: the
     user installation removed, and 0.2.0 installed from the `.flatpakref` into the **system**
     installation, the user's choice, which already held Flathub and runtime 26.08. The remote
