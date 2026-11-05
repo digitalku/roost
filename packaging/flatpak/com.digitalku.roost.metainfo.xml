@@ -60,6 +60,19 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.0" date="2026-11-05">
+      <description>
+        <p>The first release from the Digitalku Flatpak repository, which brings updates through your software centre.</p>
+        <ul>
+          <li>Thumbnails are drawn as you look at them: what is on screen first, and a file opened or saved elsewhere straight away, instead of the whole library at once.</li>
+          <li>A photograph taken on its side is drawn and measured upright, the way its orientation tag says.</li>
+          <li>Refresh thumbnail, in an asset's menu, draws a file's picture again, such as a photograph drawn on its side by 0.1.0.</li>
+          <li>A search word matches the start of a word, so a partly typed word already finds what it begins.</li>
+          <li>A folder's own menu calls it New folder.</li>
+          <li>The grid keeps its place when a selected card changes under it.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-26">
       <description>
         <p>The first release.</p>
