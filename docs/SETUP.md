@@ -378,8 +378,18 @@ writes are append-only and recoverable; a half-written migration is not.
 
 ## 4. Using it as an application
 
-Roost is not packaged yet — that is M6 — so everyday use is this checkout. Two commands make it
-behave like an installed application anyway.
+**The installed application is the Flatpak**, from the Digitalku remote, which is also how it
+updates (Discover, GNOME Software, `flatpak update`):
+
+```bash
+flatpak install https://flatpak.digitalku.com/com.digitalku.roost.flatpakref
+```
+
+A release reaches that remote through `packaging/flatpak/build-release.sh` and then the steps in
+`../digitalku-flatpak/RELEASING.md`.
+
+Running this checkout as an application instead is for development. Two commands make it behave
+like an installed application anyway.
 
 ```bash
 node scripts/install-launcher.mjs    # the platform's menu entry
