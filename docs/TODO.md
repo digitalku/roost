@@ -257,8 +257,11 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
     0.1.0 bundle. They change with the ADR.
   - 🟡 **Push `Release 0.2.0` and the tag `v0.2.0`** to GitHub. Both are local; the user pushes or
     says to.
-  - 🟡 **Move the user's own install** from `roost-origin` (`master`, 0.1.0) to `digitalku`
-    (`stable`): uninstall and install from the `.flatpakref`. Library data stays.
+  - ☑ ~~**Move the user's own install**~~ off `roost-origin` (`master`, 0.1.0), done 2026-11-05: the
+    user installation removed, and 0.2.0 installed from the `.flatpakref` into the **system**
+    installation, the user's choice, which already held Flathub and runtime 26.08. The remote
+    `digitalku` there has `gpg-verify` and `gpg-verify-summary` on. `roost-origin` went with the app,
+    and the leftover `roost-local` remote was deleted.
   - 🟢 **Whether the manifest builds `stable` itself** (`--default-branch=stable`) rather than
     `master`, which `publish.sh` renames. Nothing is wrong with the rename.
 
