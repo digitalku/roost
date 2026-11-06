@@ -16,7 +16,7 @@ import {
   runDerives,
 } from "@roost/library";
 import { EAGER_SIZES, GRID_SIZE, gradient } from "@roost/media";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("the derive queue", () => {
   let dir: string;
@@ -141,6 +141,37 @@ describe("the derive queue", () => {
     const stalled = library.db.repo.stalledReasons("derive", ids);
     expect(stalled.get(gone)).toBe("missing:file");
     expect(stalled.size).toBe(2);
+  });
+
+  it("gives a picture drawn in the second it was imported an address of its own", async () => {
+    // The import writes a derive time before anything is drawn, and the window
+    // asks for the picture under it and is refused. A PNG drawn within the same
+    // second came back under that address, and no `<img>` asked for it again:
+    // the cell kept its placeholder with nothing left in the queue.
+    const second = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(second);
+    try {
+      await importInto(library, [source]);
+      const before = new Map(
+        library.db.repo.allIds().map((id) => [id, library.db.repo.assetDetail(id)?.derivedAt]),
+      );
+      const told: Redrawn[] = [];
+      await runDerives(library, {
+        sizes: [GRID_SIZE],
+        onDerived: (assets) => told.push(...assets),
+      });
+
+      expect(told).toHaveLength(4);
+      for (const one of told) {
+        const imported = before.get(one.id);
+        expect(typeof imported).toBe("number");
+        expect(one.derivedAt).toBeGreaterThan(imported as number);
+        // What the window is told is what a page read later says.
+        expect(library.db.repo.assetDetail(one.id)?.derivedAt).toBe(one.derivedAt);
+      }
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("groups what failed, and names the files it happened to", async () => {

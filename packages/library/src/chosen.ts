@@ -55,10 +55,10 @@ export async function chooseThumbnail(
       // What the queue was stuck on is answered, so its badge goes. A job
       // still waiting stays: it measures the file, and keeps these.
       repo.settleStalled("derive", id, FILE_PROBLEMS);
-      repo.touchPictures(id, now);
+      const derivedAt = repo.touchPictures(id, now);
       return {
         id,
-        derivedAt: now,
+        derivedAt,
         undrawn: repo.stalledReasons("derive", [id]).get(id) ?? null,
         chosen: true,
       };
@@ -85,8 +85,12 @@ export function clearThumbnail(library: Library, ids: readonly AssetId[]): Redra
   return library.db.transaction(() => {
     const cleared = [...new Set(ids)].filter((id) => repo.unchoosePictures(id));
     enqueueDerives(library, cleared, JOB_PRIORITY.interactive);
-    for (const id of cleared) repo.touchPictures(id, now);
-    return cleared.map((id) => ({ id, derivedAt: now, undrawn: null, chosen: false }));
+    return cleared.map((id) => ({
+      id,
+      derivedAt: repo.touchPictures(id, now),
+      undrawn: null,
+      chosen: false,
+    }));
   });
 }
 

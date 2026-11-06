@@ -12,7 +12,8 @@
  * the grid says where it came to rest, the engine draws those and no others, and
  * the cell redraws when the derive event arrives. It also proves the one thing
  * that still runs unasked: a file another application saved is drawn while
- * somebody watches its cell.
+ * somebody watches its cell. And files dropped on the grid arrive with their
+ * pictures, however quickly they are drawn.
  */
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -24,6 +25,8 @@ import { scratch } from "./lib/fixtures.mjs";
 import { launch } from "./lib/window.mjs";
 
 const COUNT = 2000;
+/** Brought in from outside while the window is open. */
+const DROPPED = 5;
 /** What the queue may have started before a list changed under it. */
 const WORKERS = 16;
 const ENV = { UV_THREADPOOL_SIZE: "1" };
@@ -202,6 +205,44 @@ try {
     )
     .catch(() => null);
   check("its cell is drawn again, unasked", moved !== null, String(moved));
+
+  section("files dropped on the grid");
+  // Small, so each is drawn within the second it was imported in. The import
+  // writes a derive time before anything is drawn, the cell asks under it and
+  // is refused, and a picture committed under the same time was never asked for
+  // again: three runs in four left every new cell blank with nothing queued.
+  const dropped = join(dir, "dropped");
+  await mkdir(dropped);
+  for (let n = 0; n < DROPPED; n += 1) {
+    await writeFile(join(dropped, `dropped-${n}.png`), await gradient(400, 680, n + 7, "png"));
+  }
+  await scrollTo(0);
+  const grid = await cdp.box(".grid");
+  for (const type of ["dragEnter", "dragOver", "drop"]) {
+    await cdp.send("Input.dispatchDragEvent", {
+      type,
+      x: grid.x,
+      y: grid.y,
+      data: { items: [], files: [dropped], dragOperationsMask: 1 },
+    });
+  }
+  const arrivals = `
+    (() => {
+      const cells = [...document.querySelectorAll(".cell")]
+        .filter((c) => (c.getAttribute("aria-label") ?? "").startsWith("dropped-"));
+      return {
+        cells: cells.length,
+        undrawn: cells.filter((c) => !(c.querySelector(".cell-image")?.naturalWidth > 0)).length,
+      };
+    })()`;
+  const arrived = await cdp
+    .settle(arrivals, (seen) => seen?.cells === DROPPED && seen.undrawn === 0, { attempts: 100 })
+    .catch(() => null);
+  check(
+    "each arrives with its picture",
+    arrived !== null,
+    JSON.stringify(arrived ?? (await cdp.evaluate(arrivals))),
+  );
 } catch (error) {
   console.error(error);
   process.exitCode = 2;

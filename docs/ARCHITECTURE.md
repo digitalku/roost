@@ -319,7 +319,11 @@ Two routes:
   frame (`at`, ADR-0024) *and* the derive time (`v`, ADR-0047), and the response is still served
   `immutable` for a year because a re-derive produces a **new address** rather than new bytes at
   an old one. Without that an `<img>` whose `src` did not change is one Chromium never asks about
-  again, and a perfect watcher would still leave last week's thumbnail on screen.
+  again, and a perfect watcher would still leave last week's thumbnail on screen. **The derive
+  time therefore only moves forward**, one past the last when the clock, in seconds, has not:
+  an import writes it before anything is drawn, the cell asks under it and is refused, and a
+  picture drawn in that same second would otherwise arrive under the address already refused
+  (`Repo.putDerived`, found 2026-11-06).
 - `roost://file/<id>` — the asset's own bytes, from `files/` and nowhere else (RL-19). Returned
   as a **stream**, with byte-range support, so a 4 GB video costs a chunk rather than its size.
   The size is read from the file rather than from the index, because a range answered against a

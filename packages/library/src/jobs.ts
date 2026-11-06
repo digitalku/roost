@@ -549,9 +549,9 @@ export async function runDerives(
         // drawn, and a drawing committed now would replace them (ADR-0060).
         const chosen = library.db.repo.pictureSource(id)?.chosen === true;
         if (outcome.kind === "kept") {
-          library.db.repo.putDerived(id, outcome.metadata, now);
+          const derivedAt = library.db.repo.putDerived(id, outcome.metadata, now);
           library.db.repo.completeJob(outcome.claim.id);
-          redrawn.push({ id, derivedAt: now, undrawn: null, chosen });
+          redrawn.push({ id, derivedAt, undrawn: null, chosen });
           report.derived += 1;
           report.kept += 1;
         } else if (chosen && (outcome.kind === "ok" || outcome.kind === "measured")) {
@@ -566,9 +566,9 @@ export async function runDerives(
               metadata: outcome.metadata,
             });
           }
-          library.db.repo.putDerived(id, outcome.metadata, now);
+          const derivedAt = library.db.repo.putDerived(id, outcome.metadata, now);
           library.db.repo.completeJob(outcome.claim.id);
-          redrawn.push({ id, derivedAt: now, undrawn: null, chosen });
+          redrawn.push({ id, derivedAt, undrawn: null, chosen });
           report.derived += 1;
           report.kept += 1;
         } else if (outcome.kind === "measured") {
@@ -602,12 +602,12 @@ export async function runDerives(
               metadata: outcome.metadata,
             });
           }
-          library.db.repo.putDerived(id, outcome.metadata, now);
+          const derivedAt = library.db.repo.putDerived(id, outcome.metadata, now);
           library.db.repo.completeJob(outcome.claim.id);
           const { width, height } = outcome.metadata;
           redrawn.push({
             id,
-            derivedAt: now,
+            derivedAt,
             undrawn: null,
             chosen,
             ...(width === undefined ? {} : { width }),
@@ -618,15 +618,16 @@ export async function runDerives(
           // What was measured survives the block: a format this build cannot
           // draw still has a size and a hash, and a library that knew neither
           // would report every one of those assets as never read.
-          if (outcome.measured !== undefined) {
-            library.db.repo.putDerived(id, outcome.measured, now);
-          }
+          const measuredAt =
+            outcome.measured === undefined
+              ? null
+              : library.db.repo.putDerived(id, outcome.measured, now);
           // A blocked asset draws a placeholder rather than a picture, and
           // the placeholder says why; its *size* is on screen in the details
           // view either way.
           redrawn.push({
             id,
-            derivedAt: outcome.measured === undefined ? null : now,
+            derivedAt: measuredAt,
             undrawn: outcome.reason,
             chosen,
           });

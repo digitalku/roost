@@ -260,6 +260,12 @@ const COVER_SORT_MAX = 20_000;
 /** How far that walk goes before it gives up and sorts after all. */
 const COVER_WALK = 50_000;
 
+/**
+ * The derive time to write for the `?` it takes: `now`, or one past the last
+ * one when the clock has not moved past it. See `Repo.putDerived` for why.
+ */
+const NEXT_DERIVED_AT = "max(?, coalesce(derived_at + 1, 0))";
+
 /** One picture on a folder's tile, and the parts of its thumbnail's address. */
 export interface CoverAsset {
   readonly id: AssetId;
@@ -1659,10 +1665,16 @@ export class Repo {
    * new about the file (ADR-0060, ADR-0047).
    *
    * For pictures that changed without a derive: an `<img>` whose address did
-   * not move is one Chromium never asks about again.
+   * not move is one Chromium never asks about again. Moved forward even within
+   * the second, as {@link Repo.putDerived} explains.
+   *
+   * @returns The key written, which is what the window must be told.
    */
-  touchPictures(id: AssetId, now: number): void {
-    this.#s("UPDATE assets SET derived_at = ? WHERE id = ?").run(now, id);
+  touchPictures(id: AssetId, now: number): number {
+    const row = this.#s(
+      `UPDATE assets SET derived_at = ${NEXT_DERIVED_AT} WHERE id = ? RETURNING derived_at AS at`,
+    ).get(now, id) as { at: number } | undefined;
+    return row?.at ?? now;
   }
 
   /**
@@ -1747,9 +1759,18 @@ export class Repo {
    * `derived_at` is written whenever anything is, because it is what
    * {@link Repo.stats} counts and what a sweep compares against. Together with
    * `size` and `mtime` it is how a changed file is noticed without reading it.
+   *
+   * It is also the cache key in a thumbnail's address (ADR-0047), so it only
+   * ever moves forward: one past what it was when `now` has not passed it. An
+   * import writes it in seconds before anything is drawn, a window asks for
+   * the picture and is refused, and a PNG drawn within the same second would
+   * otherwise come back under the address already refused, which no `<img>`
+   * asks for again.
+   *
+   * @returns The derive time written, which is what the window must be told.
    */
-  putDerived(id: AssetId, meta: DerivedMetadata, now: number): void {
-    this.#s(
+  putDerived(id: AssetId, meta: DerivedMetadata, now: number): number {
+    const row = this.#s(
       `UPDATE assets
           SET size         = coalesce(?, size),
               mtime        = coalesce(?, mtime),
@@ -1758,9 +1779,10 @@ export class Repo {
               height       = coalesce(?, height),
               duration_ms  = coalesce(?, duration_ms),
               page_count   = coalesce(?, page_count),
-              derived_at   = ?
-        WHERE id = ?`,
-    ).run(
+              derived_at   = ${NEXT_DERIVED_AT}
+        WHERE id = ?
+    RETURNING derived_at AS at`,
+    ).get(
       meta.size ?? null,
       meta.mtime ?? null,
       meta.contentHash ?? null,
@@ -1770,14 +1792,16 @@ export class Repo {
       meta.pageCount ?? null,
       now,
       id,
-    );
+    ) as { at: number } | undefined;
+    const at = row?.at ?? now;
 
-    if (meta.props === undefined) return;
+    if (meta.props === undefined) return at;
     const put = this.#s(
       `INSERT INTO asset_props (asset_id, key, value) VALUES (?, ?, ?)
        ON CONFLICT(asset_id, key) DO UPDATE SET value = excluded.value`,
     );
     for (const [key, value] of Object.entries(meta.props)) put.run(id, key, value);
+    return at;
   }
 
   /**

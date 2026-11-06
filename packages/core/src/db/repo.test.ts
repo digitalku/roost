@@ -196,6 +196,18 @@ describe("folding one operation at a time", () => {
     });
   });
 
+  it("only ever moves a derive time forward, because it is a thumbnail's address", () => {
+    const a = asset(7);
+    db.repo.applyAdd(10, a);
+    expect(db.repo.putDerived(a.id, { size: 1 }, 50)).toBe(50);
+    // The same second, and a clock that went back: each a new key all the same.
+    expect(db.repo.putDerived(a.id, { size: 1 }, 50)).toBe(51);
+    expect(db.repo.touchPictures(a.id, 40)).toBe(52);
+    expect(db.repo.assetDetail(a.id)?.derivedAt).toBe(52);
+    // A clock ahead of it is simply taken.
+    expect(db.repo.putDerived(a.id, { size: 1 }, 90)).toBe(90);
+  });
+
   it("forgets what it derived when the bytes change under the id", () => {
     // The case version 1 could not have: an edit leaves the asset alone and
     // makes every derived column a description of a file that is gone (RL-20).
