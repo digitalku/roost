@@ -60,6 +60,14 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.1" date="2026-11-06">
+      <description>
+        <p>A fix for thumbnails after an import.</p>
+        <ul>
+          <li>Pictures imported while the window is open are drawn on screen as soon as they are made. A small file could stay a placeholder until you changed folder.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-11-05">
       <description>
         <p>The first release from the Digitalku Flatpak repository, which brings updates through your software centre.</p>
