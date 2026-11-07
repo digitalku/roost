@@ -1,6 +1,6 @@
 {
   "name": "@roost/desktop-renderer",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "description": "React 19 + Vite. The renderer is sandboxed: window.roost is its only door.",
