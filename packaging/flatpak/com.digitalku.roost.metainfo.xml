@@ -60,6 +60,15 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.2" date="2026-11-07">
+      <description>
+        <p>A fix for the grid after looking at a file.</p>
+        <ul>
+          <li>Closing a photograph or a video puts the grid back where you were, instead of near the top. If you stepped to other files while it was open, the grid shows the last one.</li>
+          <li>A file reached with the arrow keys from below the screen is no longer left cut off by the bottom edge.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-11-06">
       <description>
         <p>A fix for thumbnails after an import.</p>
