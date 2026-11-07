@@ -35,7 +35,7 @@ import { useFacetScope } from "./filter/vocabulary.js";
 import { childrenOf, parentOf } from "./folders.js";
 import { bytes, counted } from "./format.js";
 import { AssetContextMenu, copiedLine } from "./grid/AssetContextMenu.js";
-import { type FolderTiles, Grid } from "./grid/Grid.js";
+import { type FolderTiles, Grid, type ScrollMemory } from "./grid/Grid.js";
 import { GRID_VIEWS, type GridView, isGridView, ZOOMS, zoomBy, zoomFor } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
 import { SelectionStore } from "./grid/selection.js";
@@ -1096,6 +1096,8 @@ function LibraryView({
   // `applyQuery` closes the preview and a `useState` below it would be read
   // before it exists.
   const [previewing, setPreviewing] = useState(false);
+  /** The grid's offset, kept here because the preview unmounts the grid. */
+  const [gridScroll] = useState<ScrollMemory>(() => ({ place: "", top: 0 }));
   /**
    * Whether the tags page is where the grid would be (ADR-0061). Declared here
    * for the preview's reason: `applyQuery` leaves it, because a query applied is
@@ -2543,6 +2545,8 @@ function LibraryView({
                 onDragOut={dragOut}
                 {...(folderTiles === undefined ? {} : { folders: folderTiles })}
                 divider={divider}
+                scroll={gridScroll}
+                place={query}
               />
             </AssetContextMenu>
           )}

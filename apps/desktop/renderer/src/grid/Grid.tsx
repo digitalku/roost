@@ -104,6 +104,20 @@ export interface FolderTiles {
   readonly onDropAssets: (row: SidebarFolderRow, ids: readonly string[], copy: boolean) => void;
 }
 
+/**
+ * Where the grid was scrolled to, held by the window across the grid's absence.
+ *
+ * The grid is unmounted while the preview is open, and its scroller with it, so
+ * the offset cannot live here: a fresh element starts at the top. The window
+ * owns one of these for its life and the grid writes into it as it scrolls,
+ * which costs nothing a render could see. `place` is what the offset belongs
+ * to — an offset into one query's results means nothing over another's.
+ */
+export interface ScrollMemory {
+  place: string;
+  top: number;
+}
+
 export interface GridProps {
   readonly assets: readonly AssetCard[];
   /** The cells on screen, once the grid has come to rest (`useOnScreen`). */
@@ -144,6 +158,14 @@ export interface GridProps {
    * way out.
    */
   readonly onDragOut?: (ids: readonly string[]) => boolean;
+  /**
+   * Where to come back to, when the grid is mounted again over the same
+   * `place` it was scrolled in (reported 2026-11-07: closing a preview put the
+   * grid back at the top).
+   */
+  readonly scroll?: ScrollMemory | undefined;
+  /** What `scroll` is kept for: the query on screen. */
+  readonly place?: string;
 }
 
 /**
@@ -173,6 +195,8 @@ export function Grid({
   divider,
   loading = false,
   onDragOut,
+  scroll,
+  place = "",
 }: GridProps): React.JSX.Element {
   const frame = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -306,8 +330,31 @@ export function Grid({
       const element = viewport.current;
       if (element === null) return;
       setTop(element.scrollTop);
+      if (scroll !== undefined) {
+        scroll.place = place;
+        scroll.top = element.scrollTop;
+      }
     });
-  }, []);
+  }, [scroll, place]);
+
+  /*
+   * Back to where the grid was, once, on the first frame it has a width.
+   *
+   * Not before: until the scroller has been measured the layout is one column
+   * of one-pixel tiles, nothing is tall enough to scroll, and the offset would
+   * be clamped to nothing. In a layout effect, so no frame is painted at the
+   * top first, and ahead of the ring's paint below, which then moves the grid
+   * only if stepping through the preview left the focus somewhere else.
+   */
+  const restored = useRef(false);
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (restored.current || element === null || width === 0) return;
+    restored.current = true;
+    if (scroll === undefined || scroll.place !== place || scroll.top === 0) return;
+    element.scrollTop = scroll.top;
+    setTop(element.scrollTop);
+  }, [width, scroll, place]);
 
   useEffect(
     () => () => {
@@ -356,6 +403,11 @@ export function Grid({
       // would drag the grid out from under the drag.
       if (sweeping.current !== undefined) return;
 
+      // Nor before the scroller has been measured. A grid mounted on the way
+      // back from the preview lays out at no width first, the ring's tile is
+      // found in that layout, and the rule below then refused the real one.
+      if (width === 0) return;
+
       // Only a ring that has moved is brought into view. This runs again on
       // every new layout, and the layout is new whenever a card changes — a
       // thumbnail arriving for the screen somebody scrolled to is one — so
@@ -367,11 +419,18 @@ export function Grid({
       const tile = grid.order.find((candidate) => candidate.id === id);
       if (tile === undefined) return;
       shown.current = id;
+      // A tile's `y` is the canvas's, and the canvas sits inside the
+      // scroller's padding. Without it a ring brought up from below stopped a
+      // gutter short and was left clipped by the bottom edge — found by the
+      // check for closing a preview after stepping through it.
+      const style = getComputedStyle(element);
+      const above = px(style.paddingTop);
+      const below = px(style.paddingBottom);
       const visibleTop = element.scrollTop;
       const visibleBottom = visibleTop + element.clientHeight;
-      if (tile.y < visibleTop) element.scrollTop = tile.y;
-      else if (tile.y + tile.height > visibleBottom) {
-        element.scrollTop = tile.y + tile.height - element.clientHeight;
+      if (tile.y + above < visibleTop) element.scrollTop = tile.y;
+      else if (tile.y + above + tile.height > visibleBottom) {
+        element.scrollTop = tile.y + tile.height + above + below - element.clientHeight;
       }
     };
 
@@ -381,7 +440,7 @@ export function Grid({
     // preview leave the grid scrolled to where it ended up.
     paint();
     return selection.subscribeRevision(paint);
-  }, [grid, selection]);
+  }, [grid, selection, width]);
 
   const tiles = useMemo(
     () => visibleTiles(grid, top, top + Math.max(height, 1), OVERSCAN),

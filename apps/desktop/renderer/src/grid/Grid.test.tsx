@@ -5,7 +5,8 @@ import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASSET_DRAG_TYPE } from "../dnd.js";
 import { FakeEngine, fakeAsset, install } from "../testing/fake-engine.js";
-import { Grid } from "./Grid.js";
+import { cellId } from "./AssetCell.js";
+import { Grid, type ScrollMemory } from "./Grid.js";
 import type { GridView } from "./layout.js";
 import { SelectionStore } from "./selection.js";
 
@@ -450,6 +451,59 @@ describe("the grid", () => {
     if (next === undefined) throw new Error("expected an asset");
     act(() => selection.focus(next));
     expect(grid.scrollTop).toBe(0);
+  });
+
+  describe("mounted again, as closing the preview mounts it (reported 2026-11-07)", () => {
+    const mount = (memory: ScrollMemory, place: string) =>
+      render(
+        <Grid
+          assets={Array.from({ length: 200 }, (_, i) => fakeAsset(i))}
+          view="icons"
+          proportional={false}
+          target={240}
+          selection={selection}
+          onMore={more}
+          scroll={memory}
+          place={place}
+        />,
+      );
+
+    it("comes back to where it was scrolled, over the same place and no other", () => {
+      const memory: ScrollMemory = { place: "", top: 0 };
+      const first = mount(memory, "folder:Design");
+      const grid = screen.getByRole("listbox");
+      grid.scrollTop = 4000;
+      fireEvent.scroll(grid);
+      expect(memory).toEqual({ place: "folder:Design", top: 4000 });
+      first.unmount();
+
+      const again = mount(memory, "folder:Design");
+      expect(screen.getByRole("listbox").scrollTop).toBe(4000);
+      again.unmount();
+
+      mount(memory, "tag:red");
+      expect(screen.getByRole("listbox").scrollTop).toBe(0);
+    });
+
+    it("brings the ring into view by the layout it is drawn with", () => {
+      // The first layout of a fresh grid is at no width, one column of
+      // one-pixel tiles. The ring was found there, scrolled to there, and then
+      // counted as shown, so the real layout never brought it into view.
+      const assets = Array.from({ length: 200 }, (_, i) => fakeAsset(i));
+      const far = assets[150]?.id;
+      if (far === undefined) throw new Error("expected an asset");
+      act(() => selection.focus(far));
+      mount({ place: "", top: 0 }, "");
+
+      // happy-dom fires no scroll event for a scroll a script made.
+      const grid = screen.getByRole("listbox");
+      fireEvent.scroll(grid);
+      const cell = document.getElementById(cellId(far));
+      if (cell === null) throw new Error("expected the ring's cell on screen");
+      const y = Number.parseFloat(cell.style.transform.replace(/^.*,\s*/, ""));
+      expect(y).toBeGreaterThanOrEqual(grid.scrollTop);
+      expect(y).toBeLessThan(grid.scrollTop + HEIGHT);
+    });
   });
 
   it("moves focus with the arrows and keeps selection separate under ctrl", async () => {

@@ -2019,6 +2019,13 @@ list, and **stepping changes the selection**, so the inspector follows what is o
 inspector are still live while a file is open, and a click in either is a click on something the
 pane is not showing.
 
+**Closing it gives back the grid as it was left.** The grid is unmounted while the pane is open, so
+the window keeps its scroll offset (`ScrollMemory`, with the query it belongs to) and the grid
+returns to it on its first measured frame. The ring is then brought into view only if stepping moved
+it off that screen. Until 2026-11-07 the grid came back near the top: its first layout is at no
+width, and the ring was scrolled to there and counted as shown. `check-preview-return.mjs` is the
+window check.
+
 | Kind | Renders as |
 | --- | --- |
 | Image | `<img src="roost://file/<id>">`, fit to pane, and zoomable: the wheel, two buttons and a readout, `+`/`-`, click to toggle 1:1, drag to pan |
