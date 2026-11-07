@@ -17,6 +17,9 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
+  # A video's sound. Without it Chromium's audio service falls back to ALSA,
+  # whose default device in the runtime is PulseAudio again, and crashes.
+  - --socket=pulseaudio
   # A library is edited in place, watched and reflinked; a portal path breaks
   # all three (ADR-0063 §4).
   - --filesystem=home
