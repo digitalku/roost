@@ -155,7 +155,9 @@ elsewhere.
 **Window chrome.** The system frame is used in v1 — no client-side decorations. Frameless
 Electron windows are the usual look, and they are also the usual way to break tiling window
 managers, HiDPI scaling, and every GTK theme that draws its own shadows. Revisit only with a
-Linux-desktop argument, not an aesthetic one.
+Linux-desktop argument, not an aesthetic one. The frame takes its colours from the GTK theme, so
+the Flatpak's launcher asks for Adwaita's dark variant, which a sandbox without the desktop's own
+theme would otherwise draw light (ADR-0063 §4).
 
 ## 2. Design tokens
 
