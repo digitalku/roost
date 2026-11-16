@@ -60,6 +60,15 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.4" date="2026-11-17">
+      <description>
+        <p>A view for each kind of place, and a dark title bar.</p>
+        <ul>
+          <li>All assets, Recent and your folders each remember their own view: Icons, Compact or Details, the zoom, Show folders and the sort order. Every folder shares one. A place you have not changed yet starts sorted by date added, newest first.</li>
+          <li>The title bar is dark, matching the window, instead of white on desktops whose theme was not available to Roost.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.3" date="2026-11-07">
       <description>
         <p>Sound for videos.</p>
