@@ -35,10 +35,29 @@ export async function makeHeic(
   return target;
 }
 
-/** Whether this machine can build one, and therefore run those tests. */
+/**
+ * Whether this machine can build one, and therefore run those tests.
+ *
+ * Asks for a HEIC **encoder**, not for `heif-enc`: the encoder is a plugin of
+ * its own, and Ubuntu ships it apart from the program (`libheif-plugin-x265`).
+ * Without it `heif-enc` runs, prints "No HEVC encoder available", and every
+ * test that needs a HEIC failed instead of skipping (2026-11-17). A `heif-enc`
+ * too old to list its encoders counts as unable.
+ */
 export async function canMakeHeic(): Promise<boolean> {
-  return run("heif-enc", ["--version"]).then(
-    () => true,
-    () => false,
+  const listing = await run("heif-enc", ["--list-encoders"]).then(
+    ({ stdout }) => stdout,
+    () => "",
   );
+  return hasHeicEncoder(listing);
+}
+
+/**
+ * Reads `heif-enc --list-encoders`: a heading per format, then one `- name`
+ * line per encoder, so a heading followed straight by the next one is none.
+ */
+export function hasHeicEncoder(listing: string): boolean {
+  const lines = listing.split("\n").map((line) => line.trim());
+  const heading = lines.indexOf("HEIC encoders:");
+  return heading !== -1 && lines[heading + 1]?.startsWith("- ") === true;
 }

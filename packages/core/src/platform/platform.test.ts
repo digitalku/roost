@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, join, win32 } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { UnsupportedPlatformError } from "../model/index.js";
-import { tmpfsDir } from "../testing/mounts.js";
+import { filesystemOf, tmpfsDir } from "../testing/mounts.js";
 import { reflinkSupported } from "./caps.js";
 import {
   APP_NAME,
@@ -19,6 +19,12 @@ import { acquireLockAt, lockPathFor } from "./lock.js";
 
 const onLinux = process.platform === "linux";
 const onWindows = process.platform === "win32";
+/**
+ * Whether the checkout is on Btrfs, which is the one place this suite can know
+ * the answer to a reflink probe is yes. The laptop moved to ext4 on 2026-11-12,
+ * where it is no and the check has nothing to assert.
+ */
+const repoOnBtrfs = onLinux && (await filesystemOf(process.cwd())) === "btrfs";
 
 describe("XDG directories", () => {
   // The rule is the assertion, not the separator: `join` is what the code under
@@ -252,7 +258,7 @@ describe("probing for reflink support", () => {
     }
   });
 
-  it.runIf(onLinux)("says yes on the Btrfs this repository sits on", async () => {
+  it.runIf(repoOnBtrfs)("says yes on the Btrfs this repository sits on", async () => {
     // Inside `.tmp-test/`, which is gitignored, so a crashed run leaves
     // nothing for `git status` to report.
     const { mkdir, mkdtemp: make } = await import("node:fs/promises");

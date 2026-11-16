@@ -1,6 +1,6 @@
 # Roost — Development Setup
 
-Status: **Draft v1** · Last updated: 2026-08-24
+Status: **Draft v1** · Last updated: 2026-11-17
 
 Nothing in this repository is built yet — M0 creates the workspace these commands assume. This
 document is written first so that M0 produces something it describes, rather than the reverse.
@@ -38,6 +38,8 @@ repository, `roost-library`, that had to sit beside this checkout. It no longer 
 
 ### On Fedora
 
+The development laptop ran Fedora until 2026-11-12. This is kept for anybody else on it.
+
 ```bash
 sudo dnf install -y nodejs npm gcc-c++ make python3 \
                     vips-devel \
@@ -46,7 +48,72 @@ sudo dnf install -y nodejs npm gcc-c++ make python3 \
 corepack enable
 ```
 
-### On Ubuntu, and in a container
+### On Ubuntu 26.04
+
+What brought this laptop back on 2026-11-17, after it moved from Fedora 45 to Ubuntu 26.04.1 —
+measured, step by step, ending in `pnpm verify` and `check-grid.mjs` running. Nothing needs a
+container and nothing needs `sudo` except `apt` and the one `ninja install`.
+
+**Node: the tarball, not `apt`.** Resolute does package `nodejs` 22.22.1, which `engines`
+accepts, but its corepack is the separate `node-corepack` 0.24.0, older than npm's 2025 signing
+keys, and pnpm 11 is fetched through it. The tarball carries its own corepack. Unpacked under
+`~/.local` it needs no `sudo`, and `~/.local/bin` is already on Ubuntu's `PATH`:
+
+```bash
+v=22.23.5   # the newest 22 when this was written: https://nodejs.org/dist/latest-v22.x/
+curl -fsSLO https://nodejs.org/dist/v$v/node-v$v-linux-x64.tar.xz
+curl -fsSL https://nodejs.org/dist/v$v/SHASUMS256.txt | grep "node-v$v-linux-x64.tar.xz\$" | sha256sum -c -
+mkdir -p ~/.local/opt && tar -xJf node-v$v-linux-x64.tar.xz -C ~/.local/opt
+ln -sfn node-v$v-linux-x64 ~/.local/opt/node
+for b in node npm npx corepack; do ln -sfn ../opt/node/bin/$b ~/.local/bin/$b; done
+corepack enable --install-directory ~/.local/bin pnpm
+```
+
+**libvips: built, because Resolute's is 8.18.0** and `sharp` 0.35.3 wants 8.18.3. The build
+packages, and the three things the tests and window checks use besides — `ffmpeg`, `heif-dec`
+from `libheif-examples` with `libheif-plugin-libde265` to decode, and `libheif-plugin-x265`,
+without which `heif-enc` prints *"No HEVC encoder available"* and the two tests that make a HEIC
+fail rather than skip. Everything Electron needs to open a window is already on a GNOME desktop,
+`wl-clipboard` included:
+
+```bash
+sudo apt install -y --no-install-recommends meson ninja-build libexpat1-dev libjpeg-turbo8-dev \
+    libpng-dev libwebp-dev libtiff-dev libexif-dev liblcms2-dev libheif-dev librsvg2-dev \
+    libcgif-dev libimagequant-dev liborc-0.4-dev libhwy-dev libfftw3-dev libarchive-dev \
+    libspng-dev ffmpeg libheif-examples libheif-plugin-libde265 libheif-plugin-x265
+```
+
+```bash
+mkdir -p ~/.local/src && cd ~/.local/src
+curl -fsSLO https://github.com/libvips/libvips/releases/download/v8.18.7/vips-8.18.7.tar.xz
+tar -xJf vips-8.18.7.tar.xz && cd vips-8.18.7
+meson setup build --prefix=/usr/local --buildtype=release -Dintrospection=disabled
+ninja -C build
+sudo ninja -C build install && sudo ldconfig
+pkg-config --modversion vips-cpp      # 8.18.7
+```
+
+The `meson setup` summary should say YES for JPEG, PNG, TIFF, HEIC, WebP, SVG and GIF save.
+It installs to `/usr/local/lib/x86_64-linux-gnu`, which `ldconfig` already searches.
+
+**Then `sharp`, which a `node_modules` carried over from another distribution still has built
+against that distribution's libvips.** `build-sharp.mjs` keeps a binary that is already there,
+and `pnpm install` on an unchanged lockfile runs no `postinstall` at all, so the stale build has
+to go by hand. `ldd` on it saying `libvips-cpp.so.42 => not found` is the sign; under
+Electron's Node it segfaults rather than saying anything.
+
+```bash
+command rm -rf node_modules/.pnpm/sharp@*/node_modules/sharp/src/build
+pnpm build:native
+node --experimental-strip-types scripts/probe-native.ts --both   # (source build), twice
+```
+
+The window checks need the renderer built first: `pnpm build && pnpm --filter
+@roost/desktop-renderer build`. **The disk is ext4 now, not Btrfs**, so reflink is not testable
+on this laptop, and `platform.test.ts`'s *"says yes on the Btrfs this repository sits on"* fails
+here (`SESSION_LOG.md`, 2026-11-17).
+
+### On Ubuntu 24.04, and in a container
 
 **Noble's libvips is below the minimum and `apt` has no newer one.** Ubuntu 24.04 packages
 8.15.1 where `sharp` 0.35.3 asks for 8.18.3, so `libvips-dev` is the wrong library however
@@ -76,7 +143,7 @@ backend is needed** in that build: a RAW is drawn from the JPEG its camera embed
 TIFF, HEIF, GIF and SVG are, and the `meson setup` summary lists each one as it finds it — read
 it rather than trusting the package list above.
 
-Ubuntu's own `nodejs` is 18, which `engines` refuses. The tarball from `nodejs.org` unpacked
+Noble's own `nodejs` is 18, which `engines` refuses. The tarball from `nodejs.org` unpacked
 into `/usr/local` is the shortest way to 22, and `corepack enable pnpm` does the rest.
 
 **Electron's binary may not arrive with the install**, and says nothing when it does not:
@@ -211,7 +278,8 @@ If a fresh container ever needs them again:
 sudo dnf install -y gcc-c++ cmake ffmpeg-free gh
 ```
 
-The working directory is on **Btrfs**, so reflink import is testable here.
+The working directory was on **Btrfs**, so reflink import was testable there. Since the move to
+Ubuntu 26.04 it is on ext4, and it is not.
 
 ### Toolchain versions, as pinned and verified 2026-08-24
 
