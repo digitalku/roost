@@ -231,3 +231,52 @@ describe("writing settings", () => {
     },
   );
 });
+
+describe("a view for each kind of place (ADR-0066)", () => {
+  it("reads Recent and the folders as All assets' look, in the default order", async () => {
+    // §3.5: nothing on screen changes on the first open, and every place
+    // starts in Date added, newest first, until it is changed there.
+    await write(
+      '{ "gridView": "details", "gridZooms": { "details": 60 }, "sortKey": "name", "sortDescending": false }',
+    );
+    const read = await readSettings(dir);
+    expect(read.sortKey).toBe("name");
+    for (const set of [read.placeViews.recent, read.placeViews.folders]) {
+      expect(set).toEqual({
+        gridView: "details",
+        matchImageProportions: true,
+        gridZooms: { details: 60 },
+        showFolders: true,
+        sortKey: "added",
+        sortDescending: true,
+      });
+    }
+  });
+
+  it("falls back per key inside a set, and drops only what is damaged", async () => {
+    await write(
+      '{ "gridView": "compact", "placeViews": { "folders": { "sortKey": "size", "showFolders": "no" }, "recent": 7 } }',
+    );
+    const read = await readSettings(dir);
+    expect(read.placeViews.folders).toMatchObject({
+      gridView: "compact",
+      sortKey: "size",
+      showFolders: true,
+    });
+    expect(read.placeViews.recent.gridView).toBe("compact");
+  });
+
+  it("keeps a set and a key a newer build wrote there", async () => {
+    await write(
+      '{ "placeViews": { "smart": { "gridView": "icons" }, "folders": { "tint": "blue" } } }',
+    );
+    const folders = { ...DEFAULT_SETTINGS.placeViews.folders, gridView: "details" };
+    await writeSettings(dir, {
+      placeViews: { recent: DEFAULT_SETTINGS.placeViews.recent, folders },
+    });
+    const raw = JSON.parse(await read());
+    expect(raw.placeViews.smart).toEqual({ gridView: "icons" });
+    expect(raw.placeViews.folders).toEqual({ tint: "blue", ...folders });
+    expect(raw.placeViews.recent).toEqual(DEFAULT_SETTINGS.placeViews.recent);
+  });
+});

@@ -276,6 +276,17 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
+### A view for each kind of place (ADR-0066) — built 2026-11-17
+
+- 🟢 **A query typed by hand that names a folder in the other depth** (`folder:` where the rows
+  carry `infolder:`) is not a row, so it draws All assets' view. The rows are the window's only
+  way to tell a folder, and nobody has typed one.
+- 🟡 **`check-grid.mjs`'s pointer checks are flaky on this laptop**: in four runs on 2026-11-17 one
+  of the marquee checks failed or stalled each time, a different one each run (*it is drawn while the
+  hand is down*, *a press on the background clears on release*, a `clickCell` that never settled),
+  while the rest of the run passed. Not ADR-0066's, which no pointer check touches; not known whether
+  it predates the move to Ubuntu.
+
 ### A thumbnail somebody chose (ADR-0060) — built 2026-10-05
 
 - 🟢 **Dragging an image onto the inspector's picture to set it.** A fourth gesture onto the same

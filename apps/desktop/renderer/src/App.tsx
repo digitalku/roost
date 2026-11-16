@@ -10,6 +10,7 @@ import type {
   SidebarTypeRow,
   WireEagleReport,
   WireFacets,
+  WirePlaceView,
   WireProblem,
   WireRecentLibrary,
   WireSettings,
@@ -38,6 +39,7 @@ import { AssetContextMenu, copiedLine } from "./grid/AssetContextMenu.js";
 import { type FolderTiles, Grid, type ScrollMemory } from "./grid/Grid.js";
 import { GRID_VIEWS, type GridView, isGridView, ZOOMS, zoomBy, zoomFor } from "./grid/layout.js";
 import { useAssetPages } from "./grid/paging.js";
+import { placeOf, seededPlaceViews, viewOf, withView } from "./grid/placeView.js";
 import { SelectionStore } from "./grid/selection.js";
 import { percentOf, TransferStatus, useTransfer } from "./grid/TransferStatus.js";
 import {
@@ -78,7 +80,7 @@ import { canTravel, NO_TRAIL, record, type Source, type Trail, travel } from "./
  * and a ref's, and a fresh one per render would be a fresh dependency too.
  */
 /** What a library has before anything has been changed in it (ADR-0019). */
-const DEFAULT_SETTINGS: WireSettings = {
+const DEFAULT_LOOK: Omit<WireSettings, "placeViews"> = {
   showSubfolderContents: false,
   fitVideoToWindow: false,
   mediaVolume: 100,
@@ -94,6 +96,10 @@ const DEFAULT_SETTINGS: WireSettings = {
   sidebarWidth: SIDEBAR.fallback,
   inspectorWidth: INSPECTOR.fallback,
   handOutByName: true,
+};
+const DEFAULT_SETTINGS: WireSettings = {
+  ...DEFAULT_LOOK,
+  placeViews: seededPlaceViews(DEFAULT_LOOK),
 };
 
 /**
@@ -1011,37 +1017,6 @@ function LibraryView({
   }, []);
 
   /**
-   * The view menu's state, read out of the library's settings.
-   *
-   * `gridView` and `gridZooms` are checked here rather than in the engine: the
-   * vocabulary is the interface's, so a view this build does not know falls
-   * back to Icons and a zoom that is not one of its view's steps snaps to the
-   * nearest (`layout.ts`). An engine that knew what "compact" is would be an
-   * engine holding a copy of the interface. **Each view has its own zoom**
-   * (ADR-0039 §10), so switching views gives back the size that view was left
-   * at.
-   */
-  const view: GridView = isGridView(settings.gridView) ? settings.gridView : "icons";
-  const proportional = settings.matchImageProportions;
-  const zoom = zoomFor(view, settings.gridZooms[view]);
-  /*
-   * Memoised because it is what makes the grid throw its rows away: `useAssetPages`
-   * re-pages when the order changes, and a fresh object every render is a fresh
-   * order every render.
-   */
-  const sort = useMemo<WireSort | undefined>(
-    () =>
-      known
-        ? {
-            key: settings.sortKey,
-            descending: settings.sortDescending,
-            seed: shuffleSeed,
-          }
-        : undefined,
-    [known, settings.sortKey, settings.sortDescending, shuffleSeed],
-  );
-
-  /**
    * What the last action said, if it said anything.
    *
    * The status bar rather than a dialog: an export that worked is not worth
@@ -1075,6 +1050,18 @@ function LibraryView({
    * nothing chosen: the honest state for a query nobody has read yet.
    */
   const [split, setSplit] = useState<WireSplitQuery>(NO_SPLIT);
+  /** Which query `split` is the reading of; it lags the query by a round trip. */
+  const [splitQuery, setSplitQuery] = useState("");
+  /**
+   * The place a control already knew when it applied a query (ADR-0066).
+   *
+   * Every control that joins a place with the bar's facets knows the place
+   * before the engine reads it back, and the view menu a place uses must be
+   * known **before** the grid pages, because the order is in it. Without this a
+   * folder clicked with a tag ticked would page in All assets' order, then
+   * again in the folders' once the split arrived.
+   */
+  const placeHint = useRef({ query: "", place: "" });
   /**
    * How the tag facet joins its values, when the query does not say
    * (ADR-0035 §7.2).
@@ -1104,6 +1091,56 @@ function LibraryView({
    * a request to look at the grid.
    */
   const [tagsPage, setTagsPage] = useState(false);
+  /**
+   * Which view menu is on screen (ADR-0066): All assets', Recent's, or the one
+   * every folder shares.
+   *
+   * Read from the place rather than the query, so a folder with a tag ticked is
+   * still a folder: from the place a control said it was applying, then from
+   * the engine's reading of the query once it has arrived, and until then from
+   * the query itself — which is the place whenever nothing is ticked.
+   */
+  const viewPlace = useMemo(() => {
+    const place =
+      placeHint.current.query === query
+        ? placeHint.current.place
+        : splitQuery === query
+          ? split.place
+          : query;
+    return placeOf(place, sidebar);
+  }, [query, split, splitQuery, sidebar]);
+  const placeView = viewOf(settings, viewPlace);
+
+  /**
+   * The view menu's state, read out of the place's settings.
+   *
+   * `gridView` and `gridZooms` are checked here rather than in the engine: the
+   * vocabulary is the interface's, so a view this build does not know falls
+   * back to Icons and a zoom that is not one of its view's steps snaps to the
+   * nearest (`layout.ts`). An engine that knew what "compact" is would be an
+   * engine holding a copy of the interface. **Each view has its own zoom**
+   * (ADR-0039 §10), so switching views gives back the size that view was left
+   * at.
+   */
+  const view: GridView = isGridView(placeView.gridView) ? placeView.gridView : "icons";
+  const proportional = placeView.matchImageProportions;
+  const zoom = zoomFor(view, placeView.gridZooms[view]);
+  /*
+   * Memoised because it is what makes the grid throw its rows away: `useAssetPages`
+   * re-pages when the order changes, and a fresh object every render is a fresh
+   * order every render.
+   */
+  const sort = useMemo<WireSort | undefined>(
+    () =>
+      known
+        ? {
+            key: placeView.sortKey,
+            descending: placeView.sortDescending,
+            seed: shuffleSeed,
+          }
+        : undefined,
+    [known, placeView.sortKey, placeView.sortDescending, shuffleSeed],
+  );
   const paging = useAssetPages(query, generation, sort);
   const dropRows = paging.drop;
   const redraw = paging.redraw;
@@ -1167,7 +1204,10 @@ function LibraryView({
     let current = true;
     void (async () => {
       const outcome = await invoke({ type: "query:split", query });
-      if (current && outcome.ok) setSplit(outcome.value);
+      if (current && outcome.ok) {
+        setSplit(outcome.value);
+        setSplitQuery(query);
+      }
     })();
     return () => {
       current = false;
@@ -1225,8 +1265,9 @@ function LibraryView({
   const source = useRef<Source>("control");
 
   const applyQuery = useCallback(
-    (picked: string, from: Source = "control") => {
+    (picked: string, from: Source = "control", place?: string) => {
       source.current = from;
+      if (place !== undefined) placeHint.current = { query: picked, place };
       // The selection *and the focus* go with the query: what was selected is
       // no longer on screen (`UI_SPEC.md` §4.2).
       selection.reset();
@@ -1300,7 +1341,7 @@ function LibraryView({
           place: rewritten.value,
           facets: heldFacets.current,
         });
-        if (joined.ok) applyQuery(joined.value);
+        if (joined.ok) applyQuery(joined.value, "control", rewritten.value);
       })();
     },
     [applyQuery],
@@ -1328,9 +1369,10 @@ function LibraryView({
    *
    * Held locally first for the same reason every other preference is: the
    * engine's answer is a round trip away, and a grid that waited for it would
-   * redraw twice. One writer for the view menu's four and the `☰`'s two,
-   * because the difference between them is only which key is named — none of
-   * them asks the library a new question, so none needs anything re-read.
+   * redraw twice. The `☰`'s panes and widths, which are the library's whatever
+   * place is on screen; the view menu's keys belong to a place and go through
+   * `applyPlaceView` below (ADR-0066). Neither asks the library a new question,
+   * so neither needs anything re-read.
    */
   const applyView = useCallback((patch: Partial<WireSettings>) => {
     setSettings((held) => ({ ...held, ...patch }));
@@ -1339,6 +1381,24 @@ function LibraryView({
       if (written.ok) setSettings(written.value);
     })();
   }, []);
+
+  /**
+   * The view menu changed, for the place on screen (ADR-0066).
+   *
+   * Written with the place named, and drawn first for `applyView`'s reason.
+   * The engine writes every place's set on the first change, so one nobody
+   * has touched stops following All assets from then on.
+   */
+  const applyPlaceView = useCallback(
+    (patch: Partial<WirePlaceView>) => {
+      setSettings((held) => withView(held, viewPlace, patch));
+      void (async () => {
+        const written = await invoke({ type: "settings:write", place: viewPlace, ...patch });
+        if (written.ok) setSettings(written.value);
+      })();
+    },
+    [viewPlace],
+  );
 
   /**
    * `F9` and `F4` show and hide the two side panes (`UI_SPEC.md` §9).
@@ -1375,15 +1435,15 @@ function LibraryView({
   const applyShuffle = useCallback(() => {
     setShuffleSeed(rollSeed);
     // A shuffle has no direction, and the menu writes it the one way it has.
-    applyView({ sortKey: "random", sortDescending: false });
-  }, [applyView]);
+    applyPlaceView({ sortKey: "random", sortDescending: false });
+  }, [applyPlaceView]);
 
   const applySort = useCallback(
     (next: WireSort) => {
-      if (next.key === "random" && settings.sortKey !== "random") return applyShuffle();
-      applyView({ sortKey: next.key, sortDescending: next.descending });
+      if (next.key === "random" && placeView.sortKey !== "random") return applyShuffle();
+      applyPlaceView({ sortKey: next.key, sortDescending: next.descending });
     },
-    [applyShuffle, applyView, settings.sortKey],
+    [applyShuffle, applyPlaceView, placeView.sortKey],
   );
 
   /** A facet was ticked: the place stands, the facets are the new ones. */
@@ -1394,12 +1454,9 @@ function LibraryView({
       // flick back for a frame.
       setTagRule(chosen.tagRule);
       void (async () => {
-        const outcome = await invoke({
-          type: "query:join",
-          place: held.current.place,
-          facets: chosen,
-        });
-        if (outcome.ok) applyQuery(outcome.value);
+        const place = held.current.place;
+        const outcome = await invoke({ type: "query:join", place, facets: chosen });
+        if (outcome.ok) applyQuery(outcome.value, "control", place);
       })();
     },
     [applyQuery],
@@ -1430,7 +1487,8 @@ function LibraryView({
           place: read.value.place,
           facets: merged,
         });
-        applyQuery(joined.ok ? joined.value : picked);
+        if (joined.ok) applyQuery(joined.value, "control", read.value.place);
+        else applyQuery(picked);
       })();
     },
     [applyQuery],
@@ -1515,11 +1573,11 @@ function LibraryView({
       const chosen = GRID_VIEWS[at];
       if (chosen === undefined) return;
       event.preventDefault();
-      applyView({ gridView: chosen });
+      applyPlaceView({ gridView: chosen });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [applyView]);
+  }, [applyPlaceView]);
 
   /**
    * Whether what is on screen is the Trash place.
@@ -1810,7 +1868,7 @@ function LibraryView({
     let current = true;
     // The whole library is no search, and not asking keeps opening a library
     // to the requests it made before (`assets:page` last).
-    if (!settings.showFolders || sidebar === undefined || query === "") {
+    if (!placeView.showFolders || sidebar === undefined || query === "") {
       setFound(null);
       return;
     }
@@ -1820,7 +1878,7 @@ function LibraryView({
     return () => {
       current = false;
     };
-  }, [settings.showFolders, sidebar, query]);
+  }, [placeView.showFolders, sidebar, query]);
 
   /**
    * The folders drawn in the grid, and everything one can do (ADR-0043).
@@ -1838,7 +1896,7 @@ function LibraryView({
    * are a slice of it and a search's folders keep the tree's order.
    */
   const folderTiles = useMemo<FolderTiles | undefined>(() => {
-    if (!settings.showFolders) return undefined;
+    if (!placeView.showFolders) return undefined;
     const tree = sidebar?.folders ?? NO_FOLDERS;
     const rows =
       openFolder !== undefined
@@ -1858,7 +1916,7 @@ function LibraryView({
       onDropAssets: dropOnFolder,
     };
   }, [
-    settings.showFolders,
+    placeView.showFolders,
     openFolder,
     found,
     sidebar,
@@ -2405,22 +2463,22 @@ function LibraryView({
                     proportional={proportional}
                     zoom={zoom}
                     sort={sort ?? DEFAULT_ORDER}
-                    onView={(next) => applyView({ gridView: next })}
-                    onProportional={(next) => applyView({ matchImageProportions: next })}
+                    onView={(next) => applyPlaceView({ gridView: next })}
+                    onProportional={(next) => applyPlaceView({ matchImageProportions: next })}
                     onZoom={(steps) =>
-                      applyView({
+                      applyPlaceView({
                         // The whole map, since a write replaces it: the other
                         // views' zooms, and any a newer build left, ride along.
                         gridZooms: {
-                          ...settings.gridZooms,
+                          ...placeView.gridZooms,
                           [view]: steps === 0 ? ZOOMS[view].initial : zoomBy(view, zoom, steps),
                         },
                       })
                     }
                     onSort={applySort}
                     onShuffle={applyShuffle}
-                    showFolders={settings.showFolders}
-                    onShowFolders={(on) => applyView({ showFolders: on })}
+                    showFolders={placeView.showFolders}
+                    onShowFolders={(on) => applyPlaceView({ showFolders: on })}
                   />
                   <AddMenu
                     busy={importing.running}

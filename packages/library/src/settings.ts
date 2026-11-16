@@ -152,7 +152,52 @@ export interface Settings {
    * expensive is the library's.
    */
   readonly handOutByName: boolean;
+  /**
+   * The view menu's settings for Recent and for every folder (ADR-0066).
+   *
+   * The top-level keys above are **All assets'** set, which every other place
+   * shares — Untagged, Trash, a smart folder, a search — and which an older
+   * build goes on reading as the only one. These two are the places that
+   * remember their own.
+   *
+   * A set absent from the file, or a key absent from a set, reads as All
+   * assets' value, **except the order**, which reads as the library's default:
+   * the user's rule on 2026-11-17 was that every place starts in `Date added`
+   * and keeps what it is changed to. And the first change to any set writes
+   * both of these out whole ({@link Library.updateView}), or a set nobody had
+   * touched would go on following All assets — the sharing this removes.
+   */
+  readonly placeViews: Readonly<Record<OwnViewPlace, PlaceView>>;
 }
+
+/**
+ * Where the window is, as far as the view menu cares (ADR-0066).
+ *
+ * The engine knows the three names and nothing about which query is which:
+ * the window compares a query with its sidebar's rows and names the place.
+ */
+export const VIEW_PLACES = ["all", "recent", "folders"] as const;
+export type ViewPlace = (typeof VIEW_PLACES)[number];
+
+/** The places that keep a set of their own, under `placeViews`. */
+export const OWN_VIEW_PLACES = ["recent", "folders"] as const;
+export type OwnViewPlace = (typeof OWN_VIEW_PLACES)[number];
+
+export function isViewPlace(value: string): value is ViewPlace {
+  return (VIEW_PLACES as readonly string[]).includes(value);
+}
+
+/** The view menu's six, which ADR-0066 keeps per place. */
+export const PLACE_VIEW_KEYS = [
+  "gridView",
+  "matchImageProportions",
+  "gridZooms",
+  "showFolders",
+  "sortKey",
+  "sortDescending",
+] as const;
+
+export type PlaceView = Pick<Settings, (typeof PLACE_VIEW_KEYS)[number]>;
 
 /**
  * The zoom this file will believe, in CSS pixels — a cell's width or a row's
@@ -189,7 +234,23 @@ export const DEFAULT_SETTINGS: Settings = {
   sidebarWidth: 240,
   inspectorWidth: 280,
   handOutByName: true,
+  placeViews: {
+    recent: defaultPlaceView(),
+    folders: defaultPlaceView(),
+  },
 };
+
+/** A set nobody has written: the window's defaults, as All assets' are. */
+function defaultPlaceView(): PlaceView {
+  return {
+    gridView: "icons",
+    matchImageProportions: true,
+    gridZooms: {},
+    showFolders: true,
+    sortKey: DEFAULT_SORT.key,
+    sortDescending: DEFAULT_SORT.descending,
+  };
+}
 
 /**
  * Reads `settings.json`, falling back per key.
@@ -200,7 +261,7 @@ export const DEFAULT_SETTINGS: Settings = {
  */
 export async function readSettings(root: string): Promise<Settings> {
   const raw = await readRaw(root);
-  return {
+  const all = {
     showSubfolderContents: boolish(
       raw["showSubfolderContents"],
       DEFAULT_SETTINGS.showSubfolderContents,
@@ -227,6 +288,37 @@ export async function readSettings(root: string): Promise<Settings> {
     ),
     handOutByName: boolish(raw["handOutByName"], DEFAULT_SETTINGS.handOutByName),
   };
+  const sets = isPlainObject(raw["placeViews"]) ? raw["placeViews"] : {};
+  return {
+    ...all,
+    placeViews: {
+      recent: placeViewish(sets["recent"], all),
+      folders: placeViewish(sets["folders"], all),
+    },
+  };
+}
+
+/**
+ * One place's set, falling back per key (ADR-0019, one level down).
+ *
+ * To All assets' value for the look of the grid, so the first open after
+ * ADR-0066 draws every place as it was drawn before; to the library's default
+ * for the order, at the user's asking (ADR-0066 §3.5).
+ */
+function placeViewish(value: unknown, all: PlaceView): PlaceView {
+  const set = isPlainObject(value) ? value : {};
+  return {
+    gridView: typeof set["gridView"] === "string" ? set["gridView"] : all.gridView,
+    matchImageProportions: boolish(set["matchImageProportions"], all.matchImageProportions),
+    gridZooms: set["gridZooms"] === undefined ? all.gridZooms : zoomsish(set["gridZooms"]),
+    showFolders: boolish(set["showFolders"], all.showFolders),
+    sortKey: sortKeyish(set["sortKey"]),
+    sortDescending: boolish(set["sortDescending"], DEFAULT_SETTINGS.sortDescending),
+  };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -268,7 +360,19 @@ export async function writeSettings(root: string, patch: Partial<Settings>): Pro
 /** One read-modify-write. Never throws. */
 async function write(root: string, patch: Partial<Settings>): Promise<boolean> {
   const raw = await readRaw(root);
-  const next = { ...raw, ...patch };
+  const next: Record<string, unknown> = { ...raw, ...patch };
+  // `placeViews` is merged rather than replaced, and each set in it too: a set
+  // or a key a newer build wrote there survives this one writing its own, as
+  // an unknown top-level key does (ADR-0066 §3.6).
+  if (patch.placeViews !== undefined) {
+    const held = isPlainObject(raw["placeViews"]) ? raw["placeViews"] : {};
+    const merged: Record<string, unknown> = { ...held };
+    for (const [place, set] of Object.entries(patch.placeViews)) {
+      const before = held[place];
+      merged[place] = { ...(isPlainObject(before) ? before : {}), ...set };
+    }
+    next["placeViews"] = merged;
+  }
   try {
     await writeFile(join(root, SETTINGS_FILE), `${JSON.stringify(next, null, 2)}\n`, "utf8");
     return true;

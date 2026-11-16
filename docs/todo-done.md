@@ -269,6 +269,22 @@ monthly archive under [`sessions/`](sessions/), and what shipped is in
 
 ## 3. To build — the working list
 
+### A view for each kind of place (ADR-0066) — built 2026-11-17
+
+- ☑ ~~**Not yet run on this machine: the seventeen test files that load `sharp`, and every window
+  check**~~, `check-grid.mjs`'s new section among them. Since the move to Ubuntu 26.04 there is no
+  Node 22 and no system libvips, and the `sharp` in `node_modules` was built against Fedora's
+  (`libvips-cpp.so.42 => not found`). The rest of the suite ran under Electron's own Node
+  (`ELECTRON_RUN_AS_NODE`), where `sharp` segfaults. Run `pnpm verify` and
+  `node scripts/check-grid.mjs` once `SETUP.md`'s Ubuntu steps are done. **Done 2026-11-17**
+  (sessions 113 and 114): `pnpm verify` clean, 1,713 passing, 4 skipped. `check-grid.mjs`'s
+  ADR-0066 section failed four of its checks, and the fault was the check's: it pressed a view key
+  before the click on a sidebar row had moved the query, two round trips later, so the key landed
+  on the place being left. It now waits for the row's mark; all eleven pass, three runs in a row.
+- ☑ ~~**`platform.test.ts` expects reflink on the repository's filesystem**~~, which was Btrfs on
+  Fedora and is ext4 now. It says `no`, correctly; the test's premise is the machine's. **Settled 2026-11-17** (session 113, user decision): the
+  test runs only on Btrfs (`filesystemOf()` in `packages/core/src/testing/mounts.ts`).
+
 ### Folder counts, tiles and a search for folders (ADR-0036 §6, ADR-0043 §12, ADR-0057) — built 2026-10-01
 
 - ☑ ~~**The tag counts have the join the folder counts lost.**~~ `repo.tags()` reaches every live

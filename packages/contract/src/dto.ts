@@ -128,6 +128,24 @@ export function isGridView(value: string): value is GridView {
 }
 
 /**
+ * The places that remember the view menu's settings apart (ADR-0066).
+ *
+ * `all` is All assets and every place that is neither of the others: Untagged,
+ * Trash, a smart folder, a rating, a search. `folders` is every folder, one set
+ * for all of them. Which of the three a query is, the window decides, because
+ * it is the window that holds the sidebar's rows to compare it with.
+ */
+export const VIEW_PLACES = ["all", "recent", "folders"] as const;
+export type ViewPlace = (typeof VIEW_PLACES)[number];
+
+export function isViewPlace(value: string): value is ViewPlace {
+  return (VIEW_PLACES as readonly string[]).includes(value);
+}
+
+/** The places that keep a set of their own; `all`'s is the top level. */
+export type OwnViewPlace = Exclude<ViewPlace, "all">;
+
+/**
  * One journal operation this build could not apply, and whose it is.
  *
  * `platform` is read from the operation's own name: the library format requires
@@ -757,7 +775,18 @@ export interface WireSettings {
    * nothing has no size to wait for.
    */
   readonly handOutByName: boolean;
+  /**
+   * The view menu's six for Recent and for the folders (ADR-0066). The keys
+   * above are All assets' set, which every other place shares.
+   */
+  readonly placeViews: Readonly<Record<OwnViewPlace, WirePlaceView>>;
 }
+
+/** One place's view menu (ADR-0066), in the same words as {@link WireSettings}. */
+export type WirePlaceView = Pick<
+  WireSettings,
+  "gridView" | "matchImageProportions" | "gridZooms" | "showFolders" | "sortKey" | "sortDescending"
+>;
 
 /** A query read as somewhere to look plus what the bar narrowed it to. */
 export interface WireSplitQuery {

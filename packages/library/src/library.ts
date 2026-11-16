@@ -33,7 +33,13 @@ import {
   writeManifest,
 } from "./manifest.js";
 import { libraryNameFromPath } from "./naming.js";
-import { readSettings, type Settings, writeSettings } from "./settings.js";
+import {
+  type PlaceView,
+  readSettings,
+  type Settings,
+  type ViewPlace,
+  writeSettings,
+} from "./settings.js";
 
 const log = logger("library");
 
@@ -209,6 +215,27 @@ export class Library {
   async updateSettings(patch: Partial<Settings>): Promise<boolean> {
     this.#settings = { ...this.#settings, ...patch };
     return writeSettings(this.root, patch);
+  }
+
+  /**
+   * Changes the view menu's settings for one place (ADR-0066), and says whether
+   * the change reached the disk.
+   *
+   * **Every change writes Recent's and the folders' sets out whole**, All
+   * assets' included. A set the file does not hold reads as a copy of All
+   * assets' look, so leaving it unwritten would make it follow All assets from
+   * then on; written on the first change, it is a snapshot of what it was.
+   * Nothing is written by a read, as ADR-0019 requires.
+   */
+  async updateView(place: ViewPlace, patch: Partial<PlaceView>): Promise<boolean> {
+    const held = this.#settings;
+    if (place === "all") {
+      this.#settings = { ...held, ...patch };
+      return writeSettings(this.root, { ...patch, placeViews: held.placeViews });
+    }
+    const placeViews = { ...held.placeViews, [place]: { ...held.placeViews[place], ...patch } };
+    this.#settings = { ...held, placeViews };
+    return writeSettings(this.root, { placeViews });
   }
 
   get journal(): Journal {

@@ -452,6 +452,11 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
+**ADR-0066 — a view for each kind of place** was proposed and **accepted** on 2026-11-17: the view
+menu is remembered for All assets, for Recent, and once for every folder; every other place uses All
+assets'. Each set starts in `Date added`, at the user's asking. No format change: `settings.json`
+only.
+
 **ADR-0062 — open source, under the MIT licence** was proposed and **accepted** on 2026-10-24,
 superseding ADR-0038's licence and keeping its credit. The user called Roost a hobby project, wanted
 others free to take and change it as long as the attribution is written into the licence, and chose

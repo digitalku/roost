@@ -66,6 +66,8 @@ import {
   TAKES,
   THUMBNAIL_SOURCES,
   type ThumbnailSource,
+  VIEW_PLACES,
+  type ViewPlace,
 } from "./dto.js";
 
 /**
@@ -225,6 +227,11 @@ export type Request =
    */
   | {
       readonly type: "settings:write";
+      /**
+       * Whose view menu the six view keys change (ADR-0066): All assets' when
+       * absent. The other keys belong to the library whatever this says.
+       */
+      readonly place?: ViewPlace;
       readonly showSubfolderContents?: boolean;
       readonly fitVideoToWindow?: boolean;
       readonly mediaVolume?: number;
@@ -1124,6 +1131,7 @@ export const REQUEST_VALIDATORS: {
     // A key that is present is still validated: "absent" and "not a boolean"
     // are different answers, and only the first of them is a request.
     const patch: {
+      place?: ViewPlace;
       showSubfolderContents?: boolean;
       fitVideoToWindow?: boolean;
       mediaVolume?: number;
@@ -1156,6 +1164,12 @@ export const REQUEST_VALIDATORS: {
       const on = readBoolean(source, key);
       if (!on.ok) return on;
       patch[key] = on.value;
+    }
+
+    if (source["place"] !== undefined) {
+      const place = readOneOf(source, "place", VIEW_PLACES);
+      if (!place.ok) return place;
+      patch.place = place.value as ViewPlace;
     }
 
     if (source["sortKey"] !== undefined) {

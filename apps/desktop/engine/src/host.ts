@@ -264,7 +264,7 @@ export class EngineHost {
         // file is handed out (ADR-0034 §8, which main asks for itself) — so
         // none of them is announced: no query answers
         // differently, and the window that sent it is already drawing the new
-        // state. The keys are applied in one write rather than one each,
+        // state. Each group below is one write rather than a write per key,
         // because a menu can change two at once (choosing a key sets its own
         // direction) and two writes would be two reads of the file.
         const quiet = {
@@ -273,6 +273,17 @@ export class EngineHost {
           }),
           ...(request.mediaVolume !== undefined && { mediaVolume: request.mediaVolume }),
           ...(request.mediaMuted !== undefined && { mediaMuted: request.mediaMuted }),
+          ...(request.showSidebar !== undefined && { showSidebar: request.showSidebar }),
+          ...(request.showInspector !== undefined && { showInspector: request.showInspector }),
+          ...(request.sidebarWidth !== undefined && { sidebarWidth: request.sidebarWidth }),
+          ...(request.inspectorWidth !== undefined && { inspectorWidth: request.inspectorWidth }),
+          ...(request.handOutByName !== undefined && { handOutByName: request.handOutByName }),
+        };
+        if (Object.keys(quiet).length > 0) await library.updateSettings(quiet);
+        // The view menu's six belong to a place (ADR-0066), All assets' when
+        // the window names none, which is what a window from before the split
+        // meant by them.
+        const view = {
           ...(request.sortKey !== undefined && { sortKey: request.sortKey }),
           ...(request.sortDescending !== undefined && { sortDescending: request.sortDescending }),
           ...(request.gridView !== undefined && { gridView: request.gridView }),
@@ -281,13 +292,8 @@ export class EngineHost {
           }),
           ...(request.gridZooms !== undefined && { gridZooms: request.gridZooms }),
           ...(request.showFolders !== undefined && { showFolders: request.showFolders }),
-          ...(request.showSidebar !== undefined && { showSidebar: request.showSidebar }),
-          ...(request.showInspector !== undefined && { showInspector: request.showInspector }),
-          ...(request.sidebarWidth !== undefined && { sidebarWidth: request.sidebarWidth }),
-          ...(request.inspectorWidth !== undefined && { inspectorWidth: request.inspectorWidth }),
-          ...(request.handOutByName !== undefined && { handOutByName: request.handOutByName }),
         };
-        if (Object.keys(quiet).length > 0) await library.updateSettings(quiet);
+        if (Object.keys(view).length > 0) await library.updateView(request.place ?? "all", view);
         return library.settings;
       }
 

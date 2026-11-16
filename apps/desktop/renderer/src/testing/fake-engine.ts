@@ -44,6 +44,7 @@ import type {
   WireTransferReport,
 } from "@roost/contract";
 import type { WindowBridge } from "../bridge.js";
+import { seededPlaceViews, withView } from "../grid/placeView.js";
 
 /**
  * A `window.roost` a test can control.
@@ -72,8 +73,14 @@ export interface FakeLibrary {
 }
 
 export interface FakeEngineOptions {
-  /** This library's preferences. Defaults to what a new library has. */
-  readonly settings?: WireSettings;
+  /**
+   * This library's preferences. Defaults to what a new library has; Recent's
+   * and the folders' sets are seeded from the rest where they are not given,
+   * as the engine reads a `settings.json` that does not hold them (ADR-0066).
+   */
+  readonly settings?: Omit<WireSettings, "placeViews"> & {
+    readonly placeViews?: WireSettings["placeViews"];
+  };
   /**
    * What `clipboard:paste` finds. Defaults to an empty clipboard.
    *
@@ -431,7 +438,7 @@ export class FakeEngine {
     this.folders = options.sidebar?.folders ?? [];
     this.foundFolders = options.foundFolders ?? {};
     this.tagList = options.tagList ?? { groups: [], tags: [] };
-    this.settings = options.settings ?? {
+    const look = options.settings ?? {
       showSubfolderContents: false,
       fitVideoToWindow: false,
       mediaVolume: 100,
@@ -448,6 +455,7 @@ export class FakeEngine {
       inspectorWidth: 280,
       handOutByName: true,
     };
+    this.settings = { ...look, placeViews: look.placeViews ?? seededPlaceViews(look) };
     this.#nextFolderId = Math.max(0, ...this.folders.map((row) => row.folder)) + 1;
     for (const library of options.existing ?? []) this.#libraries.set(library.root, library);
     for (const detail of options.details ?? []) {
@@ -1451,8 +1459,30 @@ export class FakeEngine {
       case "settings:write": {
         // A patch: every key absent means "leave it alone" (ADR-0019), so the
         // fake takes whatever is present rather than naming each one.
-        const { type: _type, showSubfolderContents, ...rest } = request;
+        const {
+          type: _type,
+          place,
+          showSubfolderContents,
+          gridView,
+          matchImageProportions,
+          gridZooms,
+          showFolders,
+          sortKey,
+          sortDescending,
+          ...rest
+        } = request;
         this.settings = { ...this.settings, ...rest };
+        // The view menu's six go to the place named, All assets' when none is,
+        // as the engine's `updateView` puts them (ADR-0066).
+        const view = {
+          ...(gridView !== undefined && { gridView }),
+          ...(matchImageProportions !== undefined && { matchImageProportions }),
+          ...(gridZooms !== undefined && { gridZooms }),
+          ...(showFolders !== undefined && { showFolders }),
+          ...(sortKey !== undefined && { sortKey }),
+          ...(sortDescending !== undefined && { sortDescending }),
+        };
+        this.settings = withView(this.settings, place ?? "all", view);
         if (showSubfolderContents !== undefined) {
           this.settings = { ...this.settings, showSubfolderContents };
           // The real engine rewrites every folder row's query when this

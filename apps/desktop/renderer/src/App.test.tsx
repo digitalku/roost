@@ -1034,6 +1034,106 @@ describe("the library view", () => {
     expect(asked[0]).toMatchObject({ sort: { key: "name", descending: false } });
   });
 
+  it("keeps a view for All assets, one for Recent and one for every folder (ADR-0066)", async () => {
+    const row = (id: string, name: string, query: string) => ({
+      id,
+      name,
+      query,
+      count: null,
+      depth: 0,
+      group: null,
+      stars: null,
+    });
+    const folder = (id: number, name: string): SidebarFolderRow => ({
+      ...row(`folder:${id}`, name, `infolder:"${name}"`),
+      count: 1,
+      folder: id,
+      path: name,
+    });
+    const look = {
+      showSubfolderContents: false,
+      fitVideoToWindow: false,
+      mediaVolume: 100,
+      mediaMuted: false,
+      sortKey: "added",
+      sortDescending: true,
+      gridView: "icons",
+      matchImageProportions: true,
+      showFolders: true,
+      gridZooms: {},
+      showSidebar: true,
+      showInspector: true,
+      sidebarWidth: 240,
+      inspectorWidth: 280,
+      handOutByName: true,
+    } as const;
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 3 },
+      assets: Array.from({ length: 3 }, (_, i) => fakeAsset(i)),
+      byQuery: {
+        'infolder:"Design"': [fakeAsset(0)],
+        'infolder:"Scans"': [fakeAsset(1)],
+        "imported:>2026-11-10": [fakeAsset(2)],
+      },
+      sidebar: {
+        ratings: [],
+        places: [row("all", "All assets", ""), row("recent", "Recent", "imported:>2026-11-10")],
+        folders: [folder(7, "Design"), folder(8, "Scans")],
+        smartFolders: [],
+        tags: [],
+        types: [],
+      },
+      settings: {
+        ...look,
+        placeViews: {
+          recent: { ...look, gridView: "compact" },
+          folders: { ...look, gridView: "details", sortKey: "name", sortDescending: false },
+        },
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await screen.findByRole("heading", { name: "Holiday Photos" });
+    const drawn = () => screen.getByRole("listbox").getAttribute("data-view");
+    await waitFor(() => expect(drawn()).toBe("icons"));
+
+    await user.click(screen.getByRole("button", { name: /^Design/ }));
+    await waitFor(() => expect(drawn()).toBe("details"));
+    // Paged once, in the folders' order: the place was known before the page.
+    const pages = () => engine.seen.filter((request) => request.type === "assets:page");
+    await waitFor(() =>
+      expect(pages().at(-1)).toMatchObject({ sort: { key: "name", descending: false } }),
+    );
+    expect(pages().filter((request) => request.query === 'infolder:"Design"')).toHaveLength(1);
+
+    // Every folder shares one set.
+    await user.click(screen.getByRole("button", { name: /^Scans/ }));
+    await waitFor(() => expect(pages().at(-1)).toMatchObject({ query: 'infolder:"Scans"' }));
+    expect(drawn()).toBe("details");
+
+    await user.click(screen.getByRole("button", { name: "Recent" }));
+    await waitFor(() => expect(drawn()).toBe("compact"));
+    expect(pages().at(-1)).toMatchObject({ sort: { key: "added", descending: true } });
+
+    // A change made in Recent is Recent's alone.
+    await user.keyboard("{Control>}3{/Control}");
+    await waitFor(() => expect(drawn()).toBe("details"));
+    expect(engine.seen.at(-1)).toMatchObject({
+      type: "settings:write",
+      place: "recent",
+      gridView: "details",
+    });
+    expect(engine.settings.placeViews.recent.gridView).toBe("details");
+    expect(engine.settings.gridView).toBe("icons");
+
+    await user.click(screen.getByRole("button", { name: "All assets" }));
+    await waitFor(() => expect(drawn()).toBe("icons"));
+  });
+
   it("takes a view it has never heard of as Icons", async () => {
     // The vocabulary is the window's, so a `settings.json` from a newer build
     // must not leave the grid drawing nothing.

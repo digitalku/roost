@@ -33,7 +33,9 @@
  * to a `radix-ui` submenu is the half a component test cannot drive — happy-dom
  * decides differently from what a browser does with the same clicks — and
  * "the library opens in the order it was left in" needs a second window to
- * mean anything — and "but in a new shuffle" (ADR-0039 §11) two more.
+ * mean anything — and "but in a new shuffle" (ADR-0039 §11) two more. Last,
+ * the view menu remembered per place (ADR-0066): All assets, Recent and the
+ * folders each draw their own, and a reopened library still does.
  *
  *   node scripts/check-grid.mjs
  *
@@ -43,7 +45,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ledger } from "./lib/checks.mjs";
-import { imageLibrary, scratch } from "./lib/fixtures.mjs";
+import { foldersInto, imageLibrary, scratch } from "./lib/fixtures.mjs";
 import { launch } from "./lib/window.mjs";
 
 /** Enough to overflow the scroller in every view, which is what autoscroll needs. */
@@ -960,6 +962,112 @@ try {
     after.sortKey === "random" && !("shuffleSeed" in after),
     JSON.stringify(after),
   );
+
+  section("A view for All assets, one for Recent, one for every folder (ADR-0066)");
+  // Asked for on 2026-11-17. Two folders, so "every folder shares one" is a
+  // claim about two of them; the library is between windows here, so it can
+  // be opened from the script. All assets is left in Details by name, and
+  // nothing else has a set of its own yet.
+  await foldersInto(root, [
+    { name: "Alpha", assets: 5 },
+    { name: "Beta", assets: 5 },
+  ]);
+  await writeFile(
+    settingsPath,
+    JSON.stringify({ gridView: "details", sortKey: "name", sortDescending: false }),
+  );
+  const viewExpression = 'document.querySelector(".grid")?.getAttribute("data-view") ?? null';
+  const placed = await launch({ library: root });
+  const pick = async (target, name) => {
+    const at = await target.cdp.evaluate(`
+      (() => {
+        const row = [...document.querySelectorAll(".sidebar-row")]
+          .find((r) => r.querySelector(".sidebar-label")?.textContent === ${JSON.stringify(name)});
+        if (row === undefined) return null;
+        row.scrollIntoView({ block: "center" });
+        const r = row.getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      })()`);
+    if (at === null) throw new Error(`no sidebar row called ${name}`);
+    await target.cdp.mouse.click(at.x, at.y);
+    // A click is two round trips before the query moves (`pickQuery`), and a
+    // view key pressed before then lands on the place being left. The mark is
+    // on a place's row and on a folder's branch, so either counts.
+    await target.cdp.settle(
+      `[...document.querySelectorAll(".sidebar-row")]
+        .find((r) => r.querySelector(".sidebar-label")?.textContent === ${JSON.stringify(name)})
+        ?.closest("[data-current]") != null`,
+      (current) => current === true,
+      { attempts: 30 },
+    );
+  };
+  // What is drawn once it has had the time to become `view`: a check that
+  // fails names what it saw rather than stopping the run.
+  const shows = (target, view) =>
+    target.cdp
+      .settle(viewExpression, (seen) => seen === view, { attempts: 30 })
+      .catch(() => target.cdp.evaluate(viewExpression));
+  const press = async (target, view) => {
+    await target.cdp.keyboard.press(String(["icons", "compact", "details"].indexOf(view) + 1), {
+      ctrl: true,
+    });
+    return shows(target, view);
+  };
+  try {
+    await shows(placed, "details");
+    await pick(placed, "Alpha");
+    check(
+      "a folder opens in All assets' look, the first time",
+      (await shows(placed, "details")) === "details",
+    );
+    await press(placed, "compact");
+    await pick(placed, "Beta");
+    check("every folder shares one view", (await shows(placed, "compact")) === "compact");
+    await pick(placed, "Recent");
+    check("Recent keeps its own", (await shows(placed, "details")) === "details");
+    await press(placed, "icons");
+    await pick(placed, "All assets");
+    check("and so does All assets", (await shows(placed, "details")) === "details");
+    const names = await placed.cdp.settle(
+      drawnExpression,
+      (drawn) => Array.isArray(drawn) && drawn.length > 0,
+    );
+    check(
+      "in the order it was left in",
+      JSON.stringify(names) === JSON.stringify([...names].sort()),
+      names.slice(0, 4).join(" "),
+    );
+  } finally {
+    await placed.close();
+  }
+  const sets = JSON.parse(await readFile(settingsPath, "utf8"));
+  check(
+    "each place's view is written under its own name",
+    sets.gridView === "details" &&
+      sets.placeViews?.folders?.gridView === "compact" &&
+      sets.placeViews?.recent?.gridView === "icons",
+    JSON.stringify(sets),
+  );
+  check(
+    "and a place nobody reordered starts in Date added, newest first",
+    sets.placeViews?.folders?.sortKey === "added" &&
+      sets.placeViews?.folders?.sortDescending === true,
+    JSON.stringify(sets.placeViews?.folders),
+  );
+
+  const reopened = await launch({ library: root });
+  try {
+    check(
+      "a reopened library draws All assets as it was left",
+      (await shows(reopened, "details")) === "details",
+    );
+    await pick(reopened, "Alpha");
+    check("a folder as it was left", (await shows(reopened, "compact")) === "compact");
+    await pick(reopened, "Recent");
+    check("and Recent as it was left", (await shows(reopened, "icons")) === "icons");
+  } finally {
+    await reopened.close();
+  }
 
   report();
 } catch (error) {

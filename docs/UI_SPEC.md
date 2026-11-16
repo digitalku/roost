@@ -315,7 +315,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `RenameLibraryDialog` | overlay | the draft name | Rename library…, which renames the folder. §3.15, ADR-0056 |
 | `Toolbar` | toolbar | — | Composes the four below |
 | `SearchField` | toolbar | draft text | RQL input; §5 |
-| `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, and a Sort By submenu of six orders. ADR-0018, ADR-0039 |
+| `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, and a Sort By submenu of six orders. Remembered per kind of place. ADR-0018, ADR-0039, ADR-0066 |
 | `AddMenu` | toolbar | — | One button, one menu: the four ways an asset comes into being. §1 |
 | `AssetContextMenu` | content | — | Right-click on the selection; §3.3. Native menus were considered and rejected; ADR-0021 |
 | `TransferMenu` | `AssetContextMenu` | — | Move to library and Copy to library, two submenus of the recent list; §3.3, ADR-0054 |
@@ -1751,6 +1751,15 @@ nobody should read twice.
 it was left — and the first page of the grid is asked for **after** the preferences arrive, because
 a page fetched in the default order would be a hundred rows thrown away and the wrong order shown
 first.
+
+**Each kind of place remembers its own** (ADR-0066): **All assets**, **Recent**, and **one set
+shared by every folder** — the whole menu, *Show folders* and the order included. Every other place
+(Untagged, Trash, a smart folder, a rating, a search) uses All assets'. The set follows the
+**place**, not the query: a folder with a tag ticked in the filter bar is still a folder. A place
+whose set was never changed draws All assets' look in `Date added`, newest first, and keeps what it
+is changed to from then on. Which shuffle Random shows stays one per window, whichever place is in
+it. The window says which place it is on — it alone holds the sidebar's rows to compare the query
+with — and knows that **before** the grid pages, because the order is in it.
 
 **Common to every view.** Column count derives from the scroller's **content** width — not
 `clientWidth`, which includes the scroller's own padding and made every view one gutter too

@@ -300,6 +300,17 @@ describe("validating a change of preferences", () => {
     });
   });
 
+  it("names the place whose view menu changed (ADR-0066)", () => {
+    expect(checkRequest({ type: "settings:write", place: "folders", gridView: "compact" })).toEqual(
+      { ok: true, value: { type: "settings:write", place: "folders", gridView: "compact" } },
+    );
+    expect(checkRequest({ type: "settings:write", place: "smart", sortKey: "name" })).toMatchObject(
+      {
+        ok: false,
+      },
+    );
+  });
+
   it("carries a zoom per view, whatever the views are called (ADR-0039 §10)", () => {
     // The view's name is the window's vocabulary, so a name this build has not
     // heard of passes; a zoom that is not a positive integer does not.
