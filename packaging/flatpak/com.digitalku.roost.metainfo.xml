@@ -60,6 +60,17 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.6" date="2026-11-23">
+      <description>
+        <p>Dragging files out works on GNOME, and a closed Roost no longer keeps its library locked.</p>
+        <ul>
+          <li>Files dragged out of Roost can be dropped into Files, a browser or a chat app on GNOME. Until now the drop was refused.</li>
+          <li>Opening a library no longer fails with "already open in another Roost process" when Roost was in fact closed.</li>
+          <li>Roost finishes closing the library before it quits, whichever way it is closed.</li>
+          <li>Copies made for Copy file and for dragging no longer pile up on disk: only the latest of each is kept.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.5" date="2026-11-22">
       <description>
         <p>Deleting from a folder keeps what is in another folder too, and a place for files in no folder.</p>
