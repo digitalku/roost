@@ -1,5 +1,5 @@
 import { unlinkSync } from "node:fs";
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Blake3Hasher } from "@napi-rs/blake-hash";
 import { IoError } from "../model/index.js";
@@ -158,18 +158,23 @@ export async function acquireLockAt(path: string): Promise<LockOutcome> {
 interface Holder {
   readonly pid: number;
   readonly started: number | undefined;
+  /** When the file was last written, in milliseconds since the epoch. */
+  readonly writtenAt: number | undefined;
 }
 
 /**
  * The holder recorded in a lock file, if it holds one that parses.
  *
  * `<pid>` or `<pid> <start time>`. The first is what every build before
- * ADR-0069 wrote, and what one writes where there is no start time to read.
+ * ADR-0069 wrote, and what one writes where there is no start time to read;
+ * its age is read with it, for {@link bornAfter}.
  */
 async function holder(path: string): Promise<Holder | undefined> {
   let contents: string;
+  let writtenAt: number | undefined;
   try {
     contents = await readFile(path, "utf8");
+    writtenAt = (await stat(path)).mtimeMs;
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw new IoError("read", path, cause);
@@ -179,23 +184,65 @@ async function holder(path: string): Promise<Holder | undefined> {
   if (rest.length > 0) return undefined;
   const pid = Number(pidText);
   if (!Number.isInteger(pid) || pid <= 0) return undefined;
-  if (startedText === undefined) return { pid, started: undefined };
+  if (startedText === undefined) return { pid, started: undefined, writtenAt };
   const started = Number(startedText);
-  return Number.isSafeInteger(started) && started >= 0 ? { pid, started } : undefined;
+  return Number.isSafeInteger(started) && started >= 0 ? { pid, started, writtenAt } : undefined;
 }
 
 /**
  * Whether the process a lock names is still the one that wrote it: alive, and
- * — where both sides know a start time — started when the file says.
+ * — where both sides know a start time — started when the file says. A file
+ * with no start time names its writer only if that process is older than the
+ * file ({@link bornAfter}).
  *
  * A start time that cannot be read for a live pid is not evidence either way,
  * so the pid alone decides, as it always did.
  */
 async function stillHolds(held: Holder): Promise<boolean> {
   if (!processIsAlive(held.pid)) return false;
-  if (held.started === undefined) return true;
+  if (held.started === undefined) return !(await bornAfter(held));
   const now = await startTimeOf(held.pid);
   return now === undefined || now === held.started;
+}
+
+/**
+ * Whether the live process a pid-only lock names **started after the file was
+ * written**, and so cannot be the process that wrote it.
+ *
+ * A pid-only file is what every build before ADR-0069 wrote, and the Flatpak's
+ * pid namespace hands its pid to a live process of the next launch — so
+ * reading it "as before" kept the very fault ADR-0069 fixed, for as long as a
+ * file from an older build stayed behind (reported 2026-11-23, after 0.2.6).
+ * Its age is the one thing it can still be asked. Two seconds of slack, for a
+ * clock that ticks a hundred times a second and a file written just after its
+ * process began.
+ */
+async function bornAfter(held: Holder): Promise<boolean> {
+  if (held.writtenAt === undefined) return false;
+  const born = await startedAtMs(held.pid);
+  return born !== undefined && born > held.writtenAt + 2_000;
+}
+
+/**
+ * When a process started, in milliseconds since the epoch: the boot time from
+ * `/proc/stat` plus its start in clock ticks. Linux only.
+ *
+ * The tick is taken as a hundredth of a second, which `USER_HZ` is on every
+ * Linux this build runs on; Node cannot ask `sysconf`.
+ */
+async function startedAtMs(pid: number): Promise<number | undefined> {
+  const ticks = await startTimeOf(pid);
+  if (ticks === undefined) return undefined;
+  let boot: number;
+  try {
+    const line = (await readFile("/proc/stat", "utf8"))
+      .split("\n")
+      .find((l) => l.startsWith("btime "));
+    boot = Number(line?.slice(6));
+  } catch {
+    return undefined;
+  }
+  return Number.isFinite(boot) && boot > 0 ? (boot + ticks / 100) * 1000 : undefined;
 }
 
 /**

@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, win32 } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -171,6 +172,34 @@ describe("the instance lock", () => {
     await writeFile(scratch(), `1 ${(init ?? 0) + 1}`);
     expect((await acquireLockAt(scratch())).kind).toBe("acquired");
   });
+
+  it.runIf(onLinux)(
+    "takes over an old-format lock whose live pid is younger than the file",
+    async () => {
+      // Reported after 0.2.6: a file from an older build held a pid alone, and the
+      // next launch's sandbox had given that pid to a live process of its own.
+      // A process that started after the file was written cannot have written it.
+      const child = spawn("sleep", ["30"]);
+      try {
+        await new Promise((resolve) => child.once("spawn", resolve));
+        await writeFile(scratch(), String(child.pid));
+        const minuteAgo = new Date(Date.now() - 60_000);
+        await utimes(scratch(), minuteAgo, minuteAgo);
+        expect((await acquireLockAt(scratch())).kind).toBe("acquired");
+      } finally {
+        child.kill();
+      }
+    },
+  );
+
+  it.runIf(onLinux)(
+    "still trusts an old-format lock whose pid is older than the file",
+    async () => {
+      // Process 1 started at boot, long before a file written now.
+      await writeFile(scratch(), "1");
+      expect(await acquireLockAt(scratch())).toEqual({ kind: "busy", pid: 1 });
+    },
+  );
 
   it.runIf(onLinux)("is still busy when the pid and its start time both match", async () => {
     await writeFile(scratch(), `1 ${await startTimeOf(1)}`);

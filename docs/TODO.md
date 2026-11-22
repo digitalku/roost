@@ -283,6 +283,9 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
   Main now waits in `will-quit` (five seconds at most), and the file records the process's start
   time beside the pid. `platform.test.ts`; in a real window the lock is gone within 100 ms of
   closing it or of `Ctrl+Q`.
+- ☑ ~~**0.2.6 still said `library_busy`.**~~ A lock an older build left held a pid alone, which
+  0.2.6 read as before. A live pid that started after the file was written is now not its holder
+  (ADR-0069 §8). Tested in `platform.test.ts`.
 - ☑ ~~**Nothing could be dropped out of the window on GNOME.**~~ Electron 43 advertises the
   file-transfer portal on Wayland and fills it only with `XdgFileTransferPortal` on; GNOME Files
   took the empty format and refused. Main turns the feature on at start-up on Linux. Tried by hand
