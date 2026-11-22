@@ -100,6 +100,21 @@ protocol.registerSchemesAsPrivileged([
  */
 app.setName("Roost");
 
+/*
+ * A file dragged out of the window is offered to GNOME's file manager, and
+ * every other GTK 4 or portal-aware application, through the desktop's
+ * file-transfer portal (ADR-0034 §4). Chromium advertises that format on
+ * Wayland whatever this switch says, and **fills it only when the feature is
+ * on** — which in Electron 43 it is not. GNOME Files took the empty format,
+ * refused the drop, and never told the compositor, so the drag never ended
+ * and the window could not quit; the `text/uri-list` it skipped was the one
+ * Dolphin used, which is why it worked under KDE. Reported 2026-11-23 on Ubuntu,
+ * and tried in a window with the switch on: the file landed, the drag finished.
+ * Before `ready`, because Chromium reads its features once, at start-up.
+ */
+if (process.platform === "linux")
+  app.commandLine.appendSwitch("enable-features", "XdgFileTransferPortal");
+
 /**
  * A second launch raises the first window rather than opening a second one.
  *
@@ -145,18 +160,38 @@ if (!app.requestSingleInstanceLock()) {
   }, fatal);
 
   app.on("window-all-closed", () => {
-    // The engine holds the library's lock and its buffered journal, so it is
-    // stopped before the process leaves — not left to be killed.
-    engine.stop();
-    // The read-only connection is main's, not the engine's, so stopping the
-    // engine does not close it.
+    if (process.platform !== "darwin") {
+      app.quit();
+      return;
+    }
+    // A Mac application outlives its windows; the engine need not, and the
+    // next request starts it again.
+    void engine.stop();
     assets.detach();
-    if (process.platform !== "darwin") app.quit();
   });
 
-  // The log file holds a descriptor, and JavaScript has no destructor — the
-  // fourth place in this codebase where that becomes part of an API.
-  app.on("will-quit", () => logFile.close());
+  // The engine holds the library's lock and its buffered journal, so the
+  // process does not leave until it has closed them — **whichever way the quit
+  // began**: the last window closing, *Quit* in the menu, or a second launch.
+  // `window-all-closed` is not emitted for an `app.quit()`, which is why this
+  // is here rather than there (ADR-0069).
+  let engineStopped = false;
+  app.on("will-quit", (event) => {
+    if (!engineStopped) {
+      event.preventDefault();
+      void engine.stop().finally(() => {
+        engineStopped = true;
+        // The read-only connection is main's, not the engine's, so stopping
+        // the engine does not close it.
+        assets.detach();
+        app.quit();
+      });
+      return;
+    }
+    // The log file holds a descriptor, and JavaScript has no destructor — the
+    // fourth place in this codebase where that becomes part of an API.
+    logFile.close();
+  });
 }
 
 /**
@@ -571,7 +606,7 @@ async function copyPaths(idList: readonly string[]): Promise<boolean> {
  */
 async function copyFiles(engine: Engine, idList: readonly string[]): Promise<number> {
   const ids = idList.filter(isAssetId);
-  const files = await assets.handOut(ids, await handOutByName(engine));
+  const files = await assets.handOut(ids, await handOutByName(engine), "clipboard");
   if (files.length === 0) return 0;
 
   const uris = files.map((file) => pathToFileURL(file).href);
@@ -637,7 +672,7 @@ async function dragOut(
 ): Promise<number> {
   const ids = idList.filter(isAssetId);
   const [files, picture] = await Promise.all([
-    handOutByName(engine).then((byName) => assets.handOut(ids, byName)),
+    handOutByName(engine).then((byName) => assets.handOut(ids, byName, "drag")),
     ids[0] === undefined ? undefined : assets.dragPicture(ids[0]),
   ]);
   const [first] = files;

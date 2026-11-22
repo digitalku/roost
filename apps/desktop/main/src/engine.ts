@@ -50,6 +50,8 @@ export class Engine {
   #child: UtilityProcess | undefined;
   #nextId = 1;
   #stopping = false;
+  /** Whoever is waiting for the running engine to exit (`stop`). */
+  #exitWaiters: (() => void)[] = [];
 
   constructor(onEvent: (event: Event) => void) {
     this.#onEvent = onEvent;
@@ -109,11 +111,35 @@ export class Engine {
     });
   }
 
-  /** Stops the engine, giving it the chance to close its library first. */
-  stop(): void {
+  /**
+   * Stops the engine, giving it the chance to close its library first, and
+   * resolves once it has exited — or after `graceMs`, so a wedged engine cannot
+   * hold the application open.
+   *
+   * **Waited for, not fired and forgotten.** `kill()` sends `SIGTERM`, and the
+   * engine closes its library on it: the journal's buffer, and the lock file
+   * that keeps a second process off the library. That close is asynchronous.
+   * Quitting without waiting left it unfinished — in the Flatpak, the sandbox
+   * takes every process with it the moment main exits — and the lock file stayed
+   * behind, naming a pid the next launch's sandbox hands to a live process of
+   * its own (`library_busy`, reported 2026-11-22; ADR-0069).
+   */
+  stop(graceMs = 5_000): Promise<void> {
+    const child = this.#child;
+    if (child === undefined) return Promise.resolve();
     this.#stopping = true;
-    this.#child?.kill();
-    this.#child = undefined;
+    const exited = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        log.warn("engine did not exit in time", { graceMs });
+        resolve();
+      }, graceMs);
+      this.#exitWaiters.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    child.kill();
+    return exited;
   }
 
   #receive(message: unknown): void {
@@ -147,6 +173,9 @@ export class Engine {
   #exited(code: number): void {
     log.warn("engine exited", { code, stopping: this.#stopping, pending: this.#pending.size });
     this.#child = undefined;
+    const waiters = this.#exitWaiters;
+    this.#exitWaiters = [];
+    for (const waiter of waiters) waiter();
 
     // Everything outstanding fails now rather than waiting forever for a
     // process that is gone. The next request starts a fresh engine; an import

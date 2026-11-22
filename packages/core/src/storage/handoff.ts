@@ -60,7 +60,31 @@ export function fileNameFor(name: string, ext: string): string {
 }
 
 /**
- * Puts a named copy of `source` in the library's staging directory.
+ * The two gestures that hand files out, and keep one set each (ADR-0034,
+ * amended 2026-11-23): **Copy file** puts them on the clipboard, a **drag**
+ * drops them somewhere.
+ *
+ * One set each rather than one in all, because the clipboard still holds what
+ * was copied after somebody drags something else, and a paste after that drag
+ * must still find its files.
+ */
+export const HANDOFF_KINDS = ["clipboard", "drag"] as const;
+export type HandoffKind = (typeof HANDOFF_KINDS)[number];
+
+/**
+ * A fresh subdirectory of `staging/` for one gesture's copies: `<kind>-<time>`.
+ *
+ * One directory per gesture is what lets the previous gesture's copies be
+ * thrown away whole ({@link pruneHandoffs}), and what keeps two gestures that
+ * hand out the same name from suffixing each other's files.
+ */
+export function handoffName(kind: HandoffKind, now = Date.now()): string {
+  return `${kind}-${now.toString(36)}`;
+}
+
+/**
+ * Puts a named copy of `source` in the library's staging directory, inside
+ * `handoff` when one is given.
  *
  * Returns the path handed over, and whether the bytes were actually copied —
  * which is the number worth reporting: on a copy-on-write filesystem this costs
@@ -70,8 +94,9 @@ export async function stageFile(
   root: string,
   source: string,
   name: string,
+  handoff = "",
 ): Promise<{ path: string; copied: boolean }> {
-  const directory = join(root, STAGING_DIR);
+  const directory = join(root, STAGING_DIR, basename(handoff));
   await makeDirectoryInside(root, directory);
 
   const ext = extname(name);
@@ -99,6 +124,50 @@ export async function stageFile(
     }
   }
   throw new Error(`no free name for ${name} after ${MAX_SUFFIX} tries`);
+}
+
+/**
+ * Throws away every earlier set of `kind`'s copies, keeping `keep` (ADR-0034,
+ * amended 2026-11-23).
+ *
+ * Until then `staging/` was emptied only when a library opened, so every
+ * *Copy file* and every drag of a session stayed on disk beside the last one:
+ * a full copy each on ext4. Only the latest set of each kind can still be asked
+ * for — the clipboard holds one, and a drop that is over has been taken — so
+ * the rest go as soon as a new set is in place. Not sooner: a copy cannot be
+ * deleted when its gesture ends, because a paste, or an upload field a file
+ * was dropped on, reads it later.
+ *
+ * A file that cannot be removed — still open somewhere, on a system that
+ * refuses that — is logged and left for the sweep at the next open.
+ */
+export async function pruneHandoffs(
+  root: string,
+  kind: HandoffKind,
+  keep: string,
+): Promise<number> {
+  const directory = join(root, STAGING_DIR);
+  let entries: string[];
+  try {
+    entries = await readdir(directory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+    throw error;
+  }
+  let pruned = 0;
+  for (const entry of entries) {
+    if (entry === keep || !entry.startsWith(`${kind}-`)) continue;
+    try {
+      await rm(join(directory, entry), { recursive: true, force: true });
+      pruned += 1;
+    } catch (error) {
+      log.warn("an earlier handoff could not be removed", {
+        entry,
+        reason: error instanceof Error ? error.message : "unknown",
+      });
+    }
+  }
+  return pruned;
 }
 
 /**

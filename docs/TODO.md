@@ -276,6 +276,32 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
+### library_busy and dragging out on GNOME (ADR-0069, 2026-11-23)
+
+- ☑ ~~**`library_busy` with Roost closed.**~~ Main quit without waiting for the engine, so the
+  lock file stayed, and inside the Flatpak its pid belonged to a live process of the next launch.
+  Main now waits in `will-quit` (five seconds at most), and the file records the process's start
+  time beside the pid. `platform.test.ts`; in a real window the lock is gone within 100 ms of
+  closing it or of `Ctrl+Q`.
+- ☑ ~~**Nothing could be dropped out of the window on GNOME.**~~ Electron 43 advertises the
+  file-transfer portal on Wayland and fills it only with `XdgFileTransferPortal` on; GNOME Files
+  took the empty format and refused. Main turns the feature on at start-up on Linux. Tried by hand
+  in a window from the checkout: refused without it, landed with it, the drag finished.
+- 🟡 **A drop the target never finishes holds the window open.** `startDrag` returns when the drag
+  ends, and a target that refuses without telling the compositor leaves it running, so main's nested
+  loop never returns and quitting does nothing. Gone with the portal fixed, and still possible with
+  a misbehaving target. Not seen in the Flatpak yet: the fix there needs a release.
+- 🟢 **No window check covers dragging out.** CDP cannot start a native drag (ADR-0037 §4).
+- ☑ ~~**`staging/` kept every copy of a session.**~~ Each gesture stages into a directory of its
+  own and the previous one of the same kind (*clipboard*, *drag*) is removed once the new copies are
+  in place (ADR-0034, amended 2026-11-23). Tested in `handoff.test.ts` and `assets.test.ts`.
+
+### Found releasing 0.2.5 (2026-11-22)
+
+- 🟢 **`roost --version` prints `0.0.0`.** `VERSION` is a constant in `packages/cli/src/help.ts`,
+  and `RELEASING.md` raises the eleven `package.json` files, not it. Read the CLI's own
+  `package.json`, as About reads the root's, or add the file to the release steps.
+
 ### No folder in Places (ADR-0068) — accepted and built 2026-11-22
 
 - ☑ ~~**`is:unfiled` and the *No folder* row.**~~ Between Recent and Untagged, no count, All
@@ -1186,6 +1212,11 @@ claim and counts made cheap at a million. What is still open:
 
 ### Deferred by design
 
+- **Staging a named copy in RAM** (asked 2026-11-23, set aside by the owner). On a filesystem
+  that cannot clone, a tmpfs would spare the disk a full copy per *Copy file* or drag. Declined
+  because a copy cannot be deleted when the gesture ends (the clipboard and an upload field read it
+  later), so the last handout would sit in RAM until the next one or until quit: 2 GB idle after
+  copying one 2 GB file. In the Flatpak it would also be `$XDG_RUNTIME_DIR/app/…`, 3 GB here.
 - 🟢 **Journal compaction.** The journal grows monotonically. ADR-0003 leaves compaction out of
   v1 deliberately; revisit only with measurements, and only as a new rotated file.
 

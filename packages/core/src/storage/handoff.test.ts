@@ -2,7 +2,14 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { fileNameFor, STAGING_DIR, stageFile, sweepStaging } from "./handoff.js";
+import {
+  fileNameFor,
+  handoffName,
+  pruneHandoffs,
+  STAGING_DIR,
+  stageFile,
+  sweepStaging,
+} from "./handoff.js";
 
 /**
  * Handing a file to another application (ADR-0034).
@@ -58,6 +65,29 @@ describe("staging a file for another application", () => {
     expect(path).toBe(join(root, STAGING_DIR, "shot (1).jpg"));
     expect(await readFile(join(root, STAGING_DIR, "shot.jpg"), "utf8")).toBe("one");
     expect(await readFile(path, "utf8")).toBe("two");
+  });
+
+  it("throws away a gesture's earlier copies, and only that gesture's", async () => {
+    // ADR-0034, amended 2026-11-23: one set per gesture, the latest.
+    expect(await pruneHandoffs(root, "drag", "drag-x")).toBe(0);
+    const source = await original("aa.jpg", "bytes");
+    const copied = handoffName("clipboard", 1);
+    const firstDrag = handoffName("drag", 2);
+    const secondDrag = handoffName("drag", 3);
+    await stageFile(root, source, "shot.jpg", copied);
+    await stageFile(root, source, "shot.jpg", firstDrag);
+    const { path } = await stageFile(root, source, "shot.jpg", secondDrag);
+
+    // A name already handed out by another gesture is not suffixed: each has a
+    // directory of its own.
+    expect(path).toBe(join(root, STAGING_DIR, secondDrag, "shot.jpg"));
+    expect(await pruneHandoffs(root, "drag", secondDrag)).toBe(1);
+    expect((await readdir(join(root, STAGING_DIR))).sort()).toEqual([copied, secondDrag].sort());
+  });
+
+  it("keeps a handoff inside staging whatever it is called", async () => {
+    const { path } = await stageFile(root, await original("aa.jpg"), "a.jpg", "../../escape");
+    expect(path).toBe(join(root, STAGING_DIR, "escape", "a.jpg"));
   });
 
   it("empties the staging directory, and does not mind an absent one", async () => {

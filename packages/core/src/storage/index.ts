@@ -1,5 +1,14 @@
 export { FileStore } from "./files.js";
-export { fileNameFor, STAGING_DIR, stageFile, sweepStaging } from "./handoff.js";
+export {
+  fileNameFor,
+  HANDOFF_KINDS,
+  type HandoffKind,
+  handoffName,
+  pruneHandoffs,
+  STAGING_DIR,
+  stageFile,
+  sweepStaging,
+} from "./handoff.js";
 export { makeDirectoryInside, makeDirectoryInsideSync } from "./inside.js";
 export {
   FILES_DIR,

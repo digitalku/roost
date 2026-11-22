@@ -15,7 +15,7 @@ import {
   resolveXdg,
   stateDir,
 } from "./dirs.js";
-import { acquireLockAt, lockPathFor } from "./lock.js";
+import { acquireLockAt, lockPathFor, startTimeFromStat, startTimeOf } from "./lock.js";
 
 const onLinux = process.platform === "linux";
 const onWindows = process.platform === "win32";
@@ -129,7 +129,10 @@ describe("the instance lock", () => {
     expect(outcome.kind).toBe("acquired");
     if (outcome.kind !== "acquired") return;
 
-    expect(await readFile(outcome.lock.path, "utf8")).toBe(String(process.pid));
+    const written = await readFile(outcome.lock.path, "utf8");
+    // The start time beside the pid, where there is one to read (ADR-0069).
+    expect(written.split(" ")[0]).toBe(String(process.pid));
+    if (onLinux) expect(written).toBe(`${process.pid} ${await startTimeOf(process.pid)}`);
     await outcome.lock.release();
 
     // Releasing has to actually free it, not just forget it.
@@ -158,6 +161,38 @@ describe("the instance lock", () => {
     const outcome = await acquireLockAt(scratch());
     expect(outcome).toEqual({ kind: "busy", pid: 1 });
   });
+
+  it.runIf(onLinux)("takes over a live pid that started at another moment (ADR-0069)", async () => {
+    // The Flatpak's case: a lock left by one launch names a pid the next launch's
+    // sandbox has handed to a live process of its own. Process 1 is alive, and it
+    // did not start at tick 1.
+    const init = await startTimeOf(1);
+    expect(init).toBeDefined();
+    await writeFile(scratch(), `1 ${(init ?? 0) + 1}`);
+    expect((await acquireLockAt(scratch())).kind).toBe("acquired");
+  });
+
+  it.runIf(onLinux)("is still busy when the pid and its start time both match", async () => {
+    await writeFile(scratch(), `1 ${await startTimeOf(1)}`);
+    expect(await acquireLockAt(scratch())).toEqual({ kind: "busy", pid: 1 });
+  });
+
+  it("reads a start time past a command name with spaces and parentheses", () => {
+    // Field 2 of /proc/<pid>/stat is the name in parentheses, and a name may
+    // carry both; the fields are counted from the last one.
+    const rest = Array.from({ length: 30 }, (_, i) => String(i + 3)).join(" ");
+    expect(startTimeFromStat(`75 (a) b (c)) ${rest}`)).toBe(22);
+    expect(startTimeFromStat("75 (truncated) S 1 2")).toBeUndefined();
+    expect(startTimeFromStat("no name here")).toBeUndefined();
+  });
+
+  it.runIf(onLinux)(
+    "reads this process's start time, and none for a pid that is not there",
+    async () => {
+      expect(await startTimeOf(process.pid)).toBeGreaterThan(0);
+      expect(await startTimeOf(4294967290)).toBeUndefined();
+    },
+  );
 
   it("does not let a process lock itself out", async () => {
     // Regression from the Rust build: the desktop shell holds the lock for as

@@ -7,8 +7,11 @@ import {
   type AssetId,
   FileStore,
   fileNameFor,
+  type HandoffKind,
+  handoffName,
   logger,
   makeDirectoryInside,
+  pruneHandoffs,
   ReadOnlyIndex,
   reflinkSupported,
   STAGING_DIR,
@@ -162,8 +165,8 @@ export class AssetServer {
    * permits and the watcher notices (ADR-0047). Turning staging off is
    * agreeing to that.
    */
-  async handOut(ids: readonly AssetId[], byName: boolean): Promise<string[]> {
-    if (byName) return this.stage(ids);
+  async handOut(ids: readonly AssetId[], byName: boolean, kind: HandoffKind): Promise<string[]> {
+    if (byName) return this.stage(ids, kind);
     const files: string[] = [];
     for (const id of ids) {
       const path = await this.locate(id);
@@ -184,11 +187,16 @@ export class AssetServer {
    * Assets whose bytes are not on this machine are skipped rather than passed
    * on as a path that resolves to nothing: a handoff with a hole in it is worse
    * than a shorter one, which is the rule `copyPaths` already follows.
+   *
+   * Each gesture's copies go in a directory of their own, and once they are in
+   * place the previous gesture of the same kind loses its: only the latest set
+   * of each can still be asked for (ADR-0034, amended 2026-11-23).
    */
-  async stage(ids: readonly AssetId[]): Promise<string[]> {
+  async stage(ids: readonly AssetId[], kind: HandoffKind): Promise<string[]> {
     const open = this.#open;
     if (open === undefined) return [];
 
+    const handoff = handoffName(kind);
     const files: string[] = [];
     for (const id of ids) {
       const record = open.index.findFile(id);
@@ -198,13 +206,22 @@ export class AssetServer {
       const source = await this.locate(id);
       if (source === undefined) continue;
       try {
-        const { path } = await stageFile(open.root, source, fileNameFor(name, record.ext));
+        const { path } = await stageFile(open.root, source, fileNameFor(name, record.ext), handoff);
         files.push(path);
       } catch (error) {
         log.warn("an asset could not be staged", {
           reason: error instanceof Error ? error.message : "unknown",
         });
       }
+    }
+    // Nothing staged means nothing replaced the last set, which may still be
+    // on the clipboard.
+    if (files.length > 0) {
+      await pruneHandoffs(open.root, kind, handoff).catch((error: unknown) => {
+        log.warn("earlier handoffs could not be pruned", {
+          reason: error instanceof Error ? error.message : "unknown",
+        });
+      });
     }
     return files;
   }

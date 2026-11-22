@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Db, FileStore, INDEX_FILE, IndexSink, parseAssetId } from "@roost/core";
 import { makePdf } from "@roost/media/testing/pdf-fixture";
@@ -422,12 +422,35 @@ describe("handing files out by dragging (ADR-0034 §4)", () => {
     await writeFile(own, "the library's own bytes");
     await server.handoffCost();
 
-    const [named] = await server.handOut([PICTURE, ABSENT], true);
-    expect(named).toBe(join(root, "staging", "logo.png"));
+    const [named] = await server.handOut([PICTURE, ABSENT], true, "clipboard");
+    expect(basename(named ?? "")).toBe("logo.png");
+    expect(dirname(named ?? "")).toMatch(/[/\\]staging[/\\]clipboard-[0-9a-z]+$/);
 
     // Off: the path in `files/`, under the id, and nothing more in staging.
-    expect(await server.handOut([PICTURE, ABSENT], false)).toEqual([own]);
-    expect(await readdir(join(root, "staging"))).toEqual(["logo.png"]);
+    expect(await server.handOut([PICTURE, ABSENT], false, "clipboard")).toEqual([own]);
+    expect(await readdir(join(root, "staging"))).toHaveLength(1);
+  });
+
+  it("keeps only the latest copy of each gesture (ADR-0034, amended 2026-11-23)", async () => {
+    const own = new FileStore(root).locate(PICTURE, "png");
+    await mkdir(dirname(own), { recursive: true });
+    await writeFile(own, "the library's own bytes");
+    await server.handoffCost();
+
+    const [copied] = await server.handOut([PICTURE], true, "clipboard");
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const [dragged] = await server.handOut([PICTURE], true, "drag");
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const [dragAgain] = await server.handOut([PICTURE], true, "drag");
+
+    // The second drag replaced the first; the clipboard's copy is still there
+    // for a paste after both.
+    const left = (await readdir(join(root, "staging"))).sort();
+    expect(left).toEqual(
+      [basename(dirname(copied ?? "")), basename(dirname(dragAgain ?? ""))].sort(),
+    );
+    expect(left).not.toContain(basename(dirname(dragged ?? "")));
+    expect(await readFile(copied ?? "", "utf8")).toBe("the library's own bytes");
   });
 
   it("carries the icon on the first drag and the picture after", async () => {
