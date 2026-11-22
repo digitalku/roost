@@ -60,6 +60,14 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.7" date="2026-11-23">
+      <description>
+        <p>A library left locked by an earlier version opens again.</p>
+        <ul>
+          <li>Opening a library no longer fails with "already open in another Roost process" because of a lock an earlier version of Roost left behind.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.6" date="2026-11-23">
       <description>
         <p>Dragging files out works on GNOME, and a closed Roost no longer keeps its library locked.</p>
