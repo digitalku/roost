@@ -60,6 +60,17 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.5" date="2026-11-22">
+      <description>
+        <p>Deleting from a folder keeps what is in another folder too, and a place for files in no folder.</p>
+        <ul>
+          <li>Pressing Delete inside a folder takes the files out of that folder. Only a file that is then in no folder at all goes to the trash, and the status bar says which happened.</li>
+          <li>Right-clicking a file inside a folder offers Remove from that folder, the same as Ctrl+Delete.</li>
+          <li>Deleting a folder together with its contents leaves alone the files that are also in another folder, and the dialog says how many.</li>
+          <li>No folder in Places lists every file that is not in any folder yet.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.4" date="2026-11-17">
       <description>
         <p>A view for each kind of place, and a dark title bar.</p>
