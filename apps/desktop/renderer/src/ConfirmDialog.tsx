@@ -30,6 +30,8 @@ export interface ConfirmDialogProps {
   /** A second thing to do, chosen before confirming. Absent for most actions. */
   readonly option?: {
     readonly label: string;
+    /** Said under the label, smaller: what the box leaves alone (ADR-0067 §3.2). */
+    readonly note?: string | undefined;
     readonly checked: boolean;
     readonly onChange: (checked: boolean) => void;
   };
@@ -65,7 +67,12 @@ export function ConfirmDialog({
                 checked={option.checked}
                 onChange={(event) => option.onChange(event.target.checked)}
               />
-              <span>{option.label}</span>
+              <span>
+                {option.label}
+                {option.note !== undefined && (
+                  <span className="dialog-option-note">{option.note}</span>
+                )}
+              </span>
             </label>
           )}
           <div className="dialog-actions">

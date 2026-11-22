@@ -19,6 +19,13 @@ export const FLAGS = [
   "rated",
   "unrated",
   /**
+   * In no folder at all (ADR-0068): the sidebar's *No folder* row.
+   *
+   * No `filed` beside it, unlike `tagged`: `-is:unfiled` asks that question,
+   * and a flag nothing would draw is grammar a later build must keep for ever.
+   */
+  "unfiled",
+  /**
    * In the trash (ADR-0022).
    *
    * The one flag that changes the *scope* of a query rather than narrowing it:

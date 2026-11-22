@@ -1559,6 +1559,137 @@ describe("the navigation pane, in the window", () => {
     expect(screen.getByText("Moved 1 asset from Design to Logos")).toBeDefined();
   });
 
+  it("takes a file still in another folder out of this one, and trashes the rest (ADR-0067)", async () => {
+    const inDesign = [fakeAsset(0), fakeAsset(1)];
+    const design: SidebarFolderRow = {
+      id: "folder:7",
+      name: "Design",
+      query: 'folder:"Design"',
+      count: 2,
+      depth: 0,
+      group: null,
+      stars: null,
+      folder: 7,
+      path: "Design",
+    };
+    const portfolio: SidebarFolderRow = {
+      ...design,
+      id: "folder:8",
+      name: "Portfolio",
+      query: 'folder:"Portfolio"',
+      count: 1,
+      folder: 8,
+      path: "Portfolio",
+    };
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      byQuery: { 'folder:"Design"': inDesign },
+      details: [
+        fakeDetail(0, {
+          folders: [
+            { id: 7, path: "Design" },
+            { id: 8, path: "Portfolio" },
+          ],
+        }),
+        fakeDetail(1, { folders: [{ id: 7, path: "Design" }] }),
+      ],
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [design, portfolio],
+        smartFolders: [],
+        tags: [],
+        types: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(9));
+    await user.click(await screen.findByRole("button", { name: "Design 2" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(2));
+
+    // Inside a folder the menu says Delete, and offers the removal beside it.
+    const first = screen.getAllByRole("option")[0] as HTMLElement;
+    await user.click(first);
+    first.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    expect(await screen.findByRole("menuitem", { name: /Remove from Design/ })).toBeDefined();
+    expect(screen.getByRole("menuitem", { name: /^Delete/ })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: /Move to trash/ })).toBeNull();
+    await user.keyboard("{Escape}");
+
+    await user.keyboard("{Delete}");
+    await waitFor(() =>
+      expect(engine.seen.some((request) => request.type === "assets:deleteInFolder")).toBe(true),
+    );
+    expect(
+      [...engine.seen].reverse().find((r) => r.type === "assets:deleteInFolder"),
+    ).toMatchObject({ ids: [inDesign[0]?.id], folder: 7 });
+    expect(engine.seen.some((request) => request.type === "assets:trash")).toBe(false);
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(1));
+    expect(
+      await screen.findByText("Removed 1 asset from Design. It is still in Portfolio"),
+    ).toBeDefined();
+
+    await user.click(screen.getAllByRole("option")[0] as HTMLElement);
+    await user.keyboard("{Delete}");
+    expect(await screen.findByText("Moved 1 asset to the trash")).toBeDefined();
+  });
+
+  it("spares the files a folder shares, and says so under the checkbox (ADR-0067 §3.2)", async () => {
+    const design: SidebarFolderRow = {
+      id: "folder:7",
+      name: "Design",
+      query: 'folder:"Design"',
+      count: 3,
+      depth: 0,
+      group: null,
+      stars: null,
+      folder: 7,
+      path: "Design",
+    };
+    const engine = new FakeEngine({
+      openLibraryDialog: HOLIDAY,
+      existing: [{ root: HOLIDAY, name: "Holiday Photos" }],
+      stats: { assets: 9 },
+      assets: Array.from({ length: 9 }, (_, i) => fakeAsset(i)),
+      sparedOnFolderDelete: 1,
+      sidebar: {
+        ratings: [],
+        places: [],
+        folders: [design],
+        smartFolders: [],
+        tags: [],
+        types: [],
+      },
+    });
+    install(engine);
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open library…" }));
+    await waitFor(() => expect(screen.getAllByRole("option").length).toBe(9));
+
+    const row = screen.getByRole("button", { name: "Design 3" });
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await user.click(await screen.findByRole("menuitem", { name: "Delete folder…" }));
+
+    const box = await screen.findByRole("checkbox", { name: /Also move 2 assets to the trash/ });
+    expect(screen.getByText("1 more is also in another folder, and stays there.")).toBeDefined();
+    await user.click(box);
+    await user.click(screen.getByRole("button", { name: "Delete folder" }));
+    expect(
+      await screen.findByText(
+        "Deleted Design, and moved 2 assets to the trash. 1 stayed in another folder",
+      ),
+    ).toBeDefined();
+  });
+
   it("takes the selection out of the folder on screen, and out of no other", async () => {
     // `UI_SPEC.md` §9. The folder is the one whose query is on screen, matched
     // on the string the engine sent — the renderer assembles no RQL — and the

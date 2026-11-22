@@ -181,6 +181,17 @@ describe("the organize commands", () => {
     expect(kept.join("\n")).toContain("still in the library");
     expect(await ok("query", "", "--count")).toEqual([String(hashes.length)]);
 
+    // The import made a folder of the directory (ADR-0058), so the asset is in
+    // `pictures` as well, and the trash leaves it there (ADR-0067 §3.2).
+    await ok("folder", "create", "Shared");
+    await ok("folder", "add", "Shared", hashes[0] as string);
+    const spared = await ok("folder", "delete", "Shared", "--trash-contents");
+    expect(spared.join("\n")).toContain(
+      "moved 0 assets to the trash. 1 more is in other folders and stayed there.",
+    );
+    expect(await ok("query", "", "--count")).toEqual([String(hashes.length)]);
+
+    await ok("folder", "remove", "pictures", hashes[0] as string);
     await ok("folder", "create", "Gone");
     await ok("folder", "add", "Gone", hashes[0] as string);
     const taken = await ok("folder", "delete", "Gone", "--trash-contents");

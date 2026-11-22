@@ -57,6 +57,44 @@ rather than assumed until someone complains.
 
 ## 3. Results
 
+### 2026-11-22 — what a `Delete` inside a folder reads first (ADR-0067)
+
+Machine and corpus as the entry below, with one more folder of about 150,000 members, two in five
+of them filed elsewhere as well. The median of five runs (three for the last).
+
+| Read | Time |
+| --- | --- |
+| `folder:deletePreview`, an ordinary folder of about 330 | 2.5 ms |
+| `folder:deletePreview`, the folder of 150,000 | 242 ms |
+| `assets:deleteInFolderPreview`, 5 selected | 0.1 ms |
+| `assets:deleteInFolderPreview`, 100,000 selected | 354 ms |
+
+**What it revealed.** Nothing to design around. The dialog for an ordinary folder opens with no
+wait anybody could see, and the two slow rows are the two sizes a person meets rarely: a folder
+holding a seventh of the library, and `Ctrl+A` over a hundred thousand files, whose journal write
+costs more than the read in front of it. The read is one seek per membership; the `NOT IN` list
+of the subtree is built once, because it is not correlated.
+
+### 2026-11-22 — `is:unfiled` at a million assets (ADR-0068)
+
+Machine: Ubuntu 26.04 host, Intel Core Ultra 7 155H, NVMe. Node 22.23.5. A throwaway script, not
+kept, against a synthetic index written through `IndexSink`: **1,000,000 assets**, 2 % in the trash,
+3,330 folders, 70 % of assets in one folder, 20 % in two, 10 % in none. One page of 100 in the
+default order, 30 runs each (10 for the last).
+
+| Query | p50 | p95 | Hits |
+| --- | --- | --- | --- |
+| `is:unfiled`, a tenth unfiled | 0.32 ms | 1.17 ms | 100 |
+| `-is:unfiled` | 0.12 ms | 0.13 ms | 100 |
+| `is:untagged`, nothing tagged | 0.10 ms | 0.15 ms | 100 |
+| `is:unfiled`, **nothing unfiled** | 225 ms | 227 ms | 0 |
+
+**What it revealed.** The same shape as `is:untagged` on 95,001 assets (2026-08-26 below): a page
+that fills from the order index is cheap, and a page that matches nothing walks the library, about
+225 ns an asset. That is over the 100 ms budget at a million, and only when *No folder* is opened in
+a library where everything is filed. `is:untagged` has the same worst case and was never measured at
+this size. Both are in `TODO.md` §3.
+
 ### 2026-11-01 — turning a thumbnail the way the file says (ADR-0064)
 
 A 256 px WebP from a 4000×3000 JPEG, the median of 15, with and without `.rotate()`:

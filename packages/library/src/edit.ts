@@ -702,10 +702,15 @@ export async function moveFolder(
   return apply(library, [{ op: "folder_move", id, parent }]);
 }
 
-/** What deleting a folder did (ADR-0033). */
+/** What deleting a folder did (ADR-0033, ADR-0067 §3.2). */
 export interface FolderDeletion {
   /** How many assets went to the trash with it. Zero unless it was asked for. */
   readonly trashed: number;
+  /**
+   * How many were left out of the trash because they are in a folder outside
+   * the one deleted, and are still there. Zero unless the trash was asked for.
+   */
+  readonly spared: number;
 }
 
 /**
@@ -713,16 +718,19 @@ export interface FolderDeletion {
  *
  * **The assets stay in the library by default** — folders are collections, not
  * locations, so deleting one is a change to the shelf and not to what was on
- * it. `trashContents` is the second, deliberate gesture (ADR-0033): every live
- * asset in the subtree goes to the trash first, in the **same journal batch**,
+ * it. `trashContents` is the second, deliberate gesture (ADR-0033): the live
+ * assets in the subtree go to the trash first, in the **same journal batch**,
  * so a replay cannot land on a state where the folder is gone and its contents
  * were spared, or the reverse.
  *
+ * **Only the ones in no folder outside the subtree** (ADR-0067 §3.2). An asset
+ * that is on another shelf as well was never only this one's to throw away: it
+ * loses the deleted folders' memberships, by the cascade, and stays where else
+ * it is.
+ *
  * Trashed and not removed, because the trash is what reversible means here
  * (ADR-0022) — the folder does not come back, but everything that was in it
- * does. An asset in another folder as well is trashed like any other: what was
- * asked for is the contents of this one, and the trash keeps every membership
- * it had.
+ * does.
  */
 export async function deleteFolder(
   library: Library,
@@ -731,16 +739,118 @@ export async function deleteFolder(
 ): Promise<FolderDeletion> {
   requireFolder(library, id);
 
-  const subtree = trashContents ? descendants(childrenById(library.db.repo.folders()), [id]) : [];
-  const held = subtree.length === 0 ? [] : library.db.repo.assetsInFolders(subtree);
+  const contents = trashContents
+    ? library.db.repo.folderContents(subtreeOf(library, id))
+    : { only: [], shared: 0 };
 
   // Trash before delete, and in one batch: after the folder is gone there is
   // nothing left saying what was in it, so a second call could not find them.
   await apply(library, [
-    ...held.map((hash) => ({ op: "trash", asset: hash }) as const),
+    ...contents.only.map((asset) => ({ op: "trash", asset }) as const),
     { op: "folder_delete", id },
   ]);
-  return { trashed: held.length };
+  return { trashed: contents.only.length, spared: contents.shared };
+}
+
+/**
+ * What {@link deleteFolder} with `trashContents` would trash and spare, for the
+ * dialog that asks (ADR-0067 §3.3). Writes nothing.
+ */
+export function previewFolderDeletion(library: Library, id: number): FolderDeletion {
+  requireFolder(library, id);
+  const contents = library.db.repo.folderContents(subtreeOf(library, id));
+  return { trashed: contents.only.length, spared: contents.shared };
+}
+
+/** What a `Delete` made inside a folder did (ADR-0067 §2). */
+export interface FolderLeaving {
+  /** In no folder but this one, so moved to the trash. */
+  readonly trashed: number;
+  /** In another folder as well, so only taken out of this one. */
+  readonly removed: number;
+  /**
+   * Where the one asset taken out is still filed, when exactly one was, so the
+   * window can name it. Empty otherwise: a line naming the folders of several
+   * assets would be a list, not a sentence.
+   */
+  readonly stillIn: readonly number[];
+}
+
+/**
+ * `Delete` inside a folder (ADR-0067): each asset leaves the folder, and one
+ * left in no folder goes to the trash.
+ *
+ * `subtree` is what the grid on screen draws. With *Show subfolder contents*
+ * on, the place is the folder and everything beneath it (ADR-0036), so an
+ * asset leaves every folder of that subtree it is in — or it would still be on
+ * screen — and only a folder outside it keeps one from the trash.
+ *
+ * **There is no force**: an asset in a folder outside this one is never trashed
+ * from here. One journal batch for the removals and the trash together, and a
+ * trashed asset keeps its memberships (ADR-0022), so restoring it puts it back
+ * in this folder.
+ */
+export async function deleteInFolder(
+  library: Library,
+  assets: readonly AssetId[],
+  folder: number,
+  options: { readonly subtree?: boolean } = {},
+): Promise<FolderLeaving> {
+  const { ops, leaving } = planLeaving(library, assets, folder, options);
+  await apply(library, ops);
+  return leaving;
+}
+
+/**
+ * What {@link deleteInFolder} would do, writing nothing: the window asks
+ * first, so that it can say how far the trash count will move before it moves
+ * (`useTrashActions`).
+ */
+export function previewDeleteInFolder(
+  library: Library,
+  assets: readonly AssetId[],
+  folder: number,
+  options: { readonly subtree?: boolean } = {},
+): FolderLeaving {
+  return planLeaving(library, assets, folder, options).leaving;
+}
+
+function planLeaving(
+  library: Library,
+  assets: readonly AssetId[],
+  folder: number,
+  { subtree = false }: { readonly subtree?: boolean },
+): { ops: Op[]; leaving: FolderLeaving } {
+  requireFolder(library, folder);
+  const here = new Set(subtree ? subtreeOf(library, folder) : [folder]);
+  const memberships = library.db.repo.membershipsOf(assets);
+
+  const ops: Op[] = [];
+  let trashed = 0;
+  let removed = 0;
+  let stillIn: number[] = [];
+  for (const asset of new Set(assets)) {
+    requireAsset(library, asset);
+    const folders = memberships.get(asset) ?? [];
+    const elsewhere = folders.filter((id) => !here.has(id));
+    if (elsewhere.length === 0) {
+      ops.push({ op: "trash", asset });
+      trashed += 1;
+      continue;
+    }
+    const inHere = folders.filter((id) => here.has(id));
+    // Already out of this folder — a window reading a stale grid. Nothing to
+    // take it out of, and nothing to say about it.
+    if (inHere.length === 0) continue;
+    for (const id of inHere) ops.push({ op: "folder_remove", asset, folder: id });
+    removed += 1;
+    stillIn = elsewhere;
+  }
+  return { ops, leaving: { trashed, removed, stillIn: removed === 1 ? stillIn : [] } };
+}
+
+function subtreeOf(library: Library, id: number): number[] {
+  return descendants(childrenById(library.db.repo.folders()), [id]);
 }
 
 export async function addToFolder(

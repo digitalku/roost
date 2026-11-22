@@ -1133,6 +1133,12 @@ button:disabled {
   align-items: flex-start;
 }
 
+.dialog-option-note {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
 .dialog-option input {
   margin: 0;
   /* Lines the box up with the first line of the label rather than with the

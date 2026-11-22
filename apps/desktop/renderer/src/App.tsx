@@ -45,7 +45,9 @@ import { percentOf, TransferStatus, useTransfer } from "./grid/TransferStatus.js
 import {
   assets,
   type ConfirmRequest,
+  deletedFolderLine,
   type RowChange,
+  type TrashFolder,
   useTrashActions,
 } from "./grid/trash-actions.js";
 import { ViewMenu } from "./grid/ViewMenu.js";
@@ -1646,21 +1648,6 @@ function LibraryView({
     [selection, dropRows],
   );
 
-  const trashing = useTrashActions({
-    ids: selected,
-    onNote: noteResult,
-    onProblem: setActed,
-    onConfirm: setConfirming,
-    onGone: leaveRows,
-    onLeaving,
-  });
-
-  const reclaim = useReclaim({
-    onNote: noteResult,
-    onProblem: setActed,
-    onConfirm: setConfirming,
-  });
-
   /**
    * The folder whose contents are on screen, if one is.
    *
@@ -1676,6 +1663,38 @@ function LibraryView({
   );
 
   /**
+   * The folder a `Delete` is made inside, when one is on screen (ADR-0067).
+   * Its subtree is in play when the grid draws it, which the filter bar's
+   * split knows and no term here may be read for (`UI_SPEC.md` §4.1).
+   */
+  const trashFolder = useMemo((): TrashFolder | undefined => {
+    if (openFolder === undefined) return undefined;
+    const paths = new Map(sidebar?.folders.map((row) => [row.folder, row.path]));
+    return {
+      id: openFolder.folder,
+      name: openFolder.name,
+      subtree: split.subfolders === true,
+      pathOf: (folder) => paths.get(folder),
+    };
+  }, [openFolder, sidebar, split.subfolders]);
+
+  const trashing = useTrashActions({
+    ids: selected,
+    onNote: noteResult,
+    onProblem: setActed,
+    onConfirm: setConfirming,
+    onGone: leaveRows,
+    onLeaving,
+    folder: trashFolder,
+  });
+
+  const reclaim = useReclaim({
+    onNote: noteResult,
+    onProblem: setActed,
+    onConfirm: setConfirming,
+  });
+
+  /**
    * `Ctrl+Delete` takes the selection out of the folder being looked at
    * (`UI_SPEC.md` §9).
    *
@@ -1689,15 +1708,11 @@ function LibraryView({
    * and guessing at one — the first the asset happens to be in — would be a
    * removal nobody asked for. The panel's chips are where a folder is named.
    */
-  useEffect(() => {
-    if (openFolder === undefined) return;
+  const removeFromOpenFolder = useMemo(() => {
+    if (openFolder === undefined) return undefined;
     const folder = openFolder.folder;
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key !== "Delete" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
-      const target = event.target;
-      if (target instanceof HTMLElement && isTyping(target)) return;
+    return (): void => {
       if (selected.length === 0) return;
-      event.preventDefault();
       void invoke({ type: "asset:folderRemove", ids: selected, folder }).then((outcome) => {
         if (!outcome.ok) return setActed(outcome.problem);
         // The grid re-pages only when the library's counts move, and this moves
@@ -1711,9 +1726,22 @@ function LibraryView({
         noteResult(`Removed ${assets(selected.length)} from ${openFolder.name}`);
       });
     };
+  }, [openFolder, selected, noteResult, leaveRows]);
+
+  // The key, and the menu's *Remove from* row beside it (ADR-0067 §3.4).
+  useEffect(() => {
+    if (removeFromOpenFolder === undefined) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== "Delete" || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && isTyping(target)) return;
+      if (selected.length === 0) return;
+      event.preventDefault();
+      removeFromOpenFolder();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openFolder, selected, noteResult, leaveRows]);
+  }, [removeFromOpenFolder, selected]);
 
   /**
    * The row the three columns sit in, which is what carries their widths.
@@ -1755,16 +1783,35 @@ function LibraryView({
    * asking the engine keeps the dialog instant.
    */
   const deleteFolder = useCallback(
-    (folder: SidebarFolderRow) => {
+    async (folder: SidebarFolderRow) => {
       const held = folder.count ?? 0;
+      let { trashed, spared } = { trashed: 0, spared: 0 };
+      if (held > 0) {
+        const preview = await invoke({ type: "folder:deletePreview", folder: folder.folder });
+        if (!preview.ok) return setActed(preview.problem);
+        ({ trashed, spared } = preview.value);
+      }
+      const shared =
+        spared === 1
+          ? "1 more is also in another folder, and stays there."
+          : `${counted(spared)} more are also in other folders, and stay there.`;
       setConfirming({
         title: `Delete ${folder.name}?`,
         body:
-          held === 0
+          trashed + spared === 0
             ? "The folder goes. Nothing else changes."
-            : `The folder goes, and its subfolders with it. The ${assets(held)} in it stay in the library unless you say otherwise below.`,
+            : trashed === 0
+              ? `The folder goes, and its subfolders with it. ${spared === 1 ? "The 1 asset in it is also in another folder, and stays there." : `All ${counted(spared)} assets in it are also in other folders, and stay there.`}`
+              : `The folder goes, and its subfolders with it. The ${assets(held)} in it stay in the library unless you say otherwise below.`,
         confirmLabel: "Delete folder",
-        ...(held === 0 ? {} : { option: { label: `Also move ${assets(held)} to the trash` } }),
+        ...(trashed === 0
+          ? {}
+          : {
+              option: {
+                label: `Also move ${assets(trashed)} to the trash`,
+                ...(spared > 0 && { note: shared }),
+              },
+            }),
         run: (trashContents) => {
           void invoke({ type: "folder:delete", folder: folder.folder, trashContents }).then(
             (outcome) => {
@@ -1773,9 +1820,7 @@ function LibraryView({
               // the grid would go on showing rows nothing can ask for again.
               if (query === folder.query) applyQuery("");
               noteResult(
-                outcome.value.trashed === 0
-                  ? `Deleted ${folder.name}. The assets in it are still in the library.`
-                  : `Deleted ${folder.name}, and moved ${assets(outcome.value.trashed)} to the trash`,
+                deletedFolderLine(folder.name, outcome.value.trashed, outcome.value.spared),
               );
             },
           );
@@ -2516,6 +2561,8 @@ function LibraryView({
             <AssetContextMenu
               ids={[focused]}
               inTrash={inTrash}
+              folder={trashFolder}
+              onRemoveFromFolder={removeFromOpenFolder}
               onNote={noteResult}
               onProblem={setActed}
               onConfirm={setConfirming}
@@ -2556,6 +2603,8 @@ function LibraryView({
             <AssetContextMenu
               ids={[]}
               inTrash={inTrash}
+              folder={trashFolder}
+              onRemoveFromFolder={removeFromOpenFolder}
               onNote={noteResult}
               onProblem={setActed}
               onConfirm={setConfirming}
@@ -2572,6 +2621,8 @@ function LibraryView({
             <AssetContextMenu
               ids={selected}
               inTrash={inTrash}
+              folder={trashFolder}
+              onRemoveFromFolder={removeFromOpenFolder}
               onNote={noteResult}
               onProblem={setActed}
               onConfirm={setConfirming}
@@ -2707,6 +2758,7 @@ function LibraryView({
           : {
               option: {
                 label: confirming.option.label,
+                note: confirming.option.note,
                 checked: optionOn,
                 onChange: setOptionOn,
               },

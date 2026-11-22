@@ -262,6 +262,9 @@ function flagSql(flag: Flag): string {
       return "EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id)";
     case "untagged":
       return "NOT EXISTS (SELECT 1 FROM asset_tags at WHERE at.asset_id = a.id)";
+    // A seek on the membership key, whose first column is the asset.
+    case "unfiled":
+      return "NOT EXISTS (SELECT 1 FROM asset_folders af WHERE af.asset_id = a.id)";
   }
 }
 

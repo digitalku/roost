@@ -27,7 +27,11 @@ export interface ConfirmRequest {
    * whether it happens. Its answer reaches `run`, so nothing here has to hold
    * a checkbox's state — the dialog owns it and hands it over on the way out.
    */
-  readonly option?: { readonly label: string };
+  readonly option?: {
+    readonly label: string;
+    /** Said under the checkbox: what it will leave alone, and why (ADR-0067 §3.2). */
+    readonly note?: string;
+  };
   readonly run: (option: boolean) => void;
   /**
    * What declining puts back, for a request made on behalf of something still
@@ -79,6 +83,21 @@ export interface TrashActionsOptions {
    * the top. A guess that turns out wrong costs only that re-fetch.
    */
   readonly onLeaving?: (change: RowChange) => void;
+  /**
+   * The folder on screen, when one is. `Delete` then takes the selection out
+   * of it and trashes only what is in no other folder (ADR-0067).
+   */
+  readonly folder?: TrashFolder | undefined;
+}
+
+/** The folder a `Delete` is made inside (ADR-0067). */
+export interface TrashFolder {
+  readonly id: number;
+  readonly name: string;
+  /** The grid draws its subfolders too (*Show subfolder contents*, ADR-0036). */
+  readonly subtree: boolean;
+  /** A folder's path, for naming where a file taken out of this one still is. */
+  readonly pathOf: (folder: number) => string | undefined;
 }
 
 /** How far an action moves the two counts the grid's pages depend on. */
@@ -103,6 +122,7 @@ export function useTrashActions({
   onConfirm,
   onGone,
   onLeaving,
+  folder,
 }: TrashActionsOptions): TrashActions {
   return useMemo(() => {
     const count = ids.length;
@@ -121,12 +141,39 @@ export function useTrashActions({
     };
 
     const trash = (): void => {
+      if (folder !== undefined) {
+        leaveFolder(folder);
+        return;
+      }
       const refused = expecting({ assets: 0, trashed: count });
       void invoke({ type: "assets:trash", ids }).then((outcome) => {
         if (!outcome.ok) return refused(outcome.problem);
         onGone(ids);
         onNote(`Moved ${assets(count)} to the trash`);
       });
+    };
+
+    /**
+     * `Delete` inside a folder (ADR-0067): every asset leaves the view, and
+     * only the ones in no other folder reach the trash.
+     *
+     * How many that is, the engine answers, so it is asked first and writes
+     * nothing: the window has to say how far the trash count will move before
+     * the change is announced (`onLeaving`). A membership changed between the
+     * two by somebody else costs only a re-page.
+     */
+    const leaveFolder = (here: TrashFolder): void => {
+      const asked = { ids, folder: here.id, subtree: here.subtree };
+      void (async () => {
+        const preview = await invoke({ type: "assets:deleteInFolderPreview", ...asked });
+        if (!preview.ok) return onProblem(preview.problem);
+        const refused = expecting({ assets: 0, trashed: preview.value.trashed });
+        const outcome = await invoke({ type: "assets:deleteInFolder", ...asked });
+        if (!outcome.ok) return refused(outcome.problem);
+        const { trashed, removed, stillIn } = outcome.value;
+        onGone(ids);
+        onNote(leftFolderLine(trashed, removed, here.name, stillIn.map(here.pathOf)));
+      })();
     };
 
     const restore = (): void => {
@@ -174,7 +221,61 @@ export function useTrashActions({
     };
 
     return { trash, restore, deletePermanently, emptyTrash };
-  }, [ids, onNote, onProblem, onConfirm, onGone, onLeaving]);
+  }, [ids, onNote, onProblem, onConfirm, onGone, onLeaving, folder]);
+}
+
+/**
+ * What the status bar says after a `Delete` inside a folder (ADR-0067 §3.1):
+ * both halves, because a file still in another folder has not gone anywhere a
+ * person would think to look for it in the trash.
+ *
+ * `stillIn` is the one removed asset's other folders, by path; it is empty when
+ * several were removed, and a path the window does not know is left out.
+ */
+export function leftFolderLine(
+  trashed: number,
+  removed: number,
+  folder: string,
+  stillIn: readonly (string | undefined)[],
+): string {
+  if (removed === 0) return `Moved ${assets(trashed)} to the trash`;
+  if (trashed === 0) {
+    if (removed > 1) {
+      return `Removed ${assets(removed)} from ${folder}. They are all still in other folders`;
+    }
+    const known = stillIn.filter((path): path is string => path !== undefined);
+    const where =
+      known.length === 1 && stillIn.length === 1
+        ? known[0]
+        : stillIn.length === 1
+          ? "another folder"
+          : `${counted(stillIn.length)} other folders`;
+    return `Removed 1 asset from ${folder}. It is still in ${where}`;
+  }
+  const rest =
+    removed === 1
+      ? `1 is still in another folder, so it was only removed from ${folder}`
+      : `${counted(removed)} are still in other folders, so they were only removed from ${folder}`;
+  return `Moved ${assets(trashed)} to the trash. ${capitalise(rest)}`;
+}
+
+/**
+ * What the status bar says after a folder is deleted (ADR-0067 §3.2).
+ */
+export function deletedFolderLine(folder: string, trashed: number, spared: number): string {
+  if (trashed === 0 && spared === 0) {
+    return `Deleted ${folder}. The assets in it are still in the library.`;
+  }
+  if (trashed === 0) {
+    return `Deleted ${folder}. The ${assets(spared)} in it are still in other folders`;
+  }
+  const kept =
+    spared === 0
+      ? ""
+      : spared === 1
+        ? ". 1 stayed in another folder"
+        : `. ${counted(spared)} stayed in other folders`;
+  return `Deleted ${folder}, and moved ${assets(trashed)} to the trash${kept}`;
 }
 
 /**

@@ -23,6 +23,7 @@ import {
   DuplicateTagError,
   DuplicateTagGroupNameError,
   deleteFolder,
+  deleteInFolder,
   deleteTags,
   EmptyCommentError,
   EmptyNameError,
@@ -38,12 +39,14 @@ import {
   pageOf,
   pages,
   poster,
+  previewFolderDeletion,
   queueStatus,
   rate,
   readFacetVocabulary,
   readSidebar,
   removeAssets,
   removeComment,
+  removeFromFolder,
   renameAsset,
   renameFolder,
   renameTagGroup,
@@ -537,7 +540,7 @@ describe("organizing a library", () => {
     const inner = await createFolder(library, "Inner", keep);
     await addToFolder(library, [ids[0] as AssetId], inner);
 
-    expect(await deleteFolder(library, keep)).toEqual({ trashed: 0 });
+    expect(await deleteFolder(library, keep)).toEqual({ trashed: 0, spared: 0 });
     expect(library.db.repo.assetDetail(ids[0] as AssetId)?.trashedAt).toBeNull();
     expect(library.db.repo.assetDetail(ids[0] as AssetId)?.folders).toEqual([]);
 
@@ -548,11 +551,90 @@ describe("organizing a library", () => {
     await addToFolder(library, [ids[0] as AssetId], gone);
     await addToFolder(library, [ids[0] as AssetId, ids[1] as AssetId], under);
 
-    expect(await deleteFolder(library, gone, { trashContents: true })).toEqual({ trashed: 2 });
+    expect(await deleteFolder(library, gone, { trashContents: true })).toEqual({
+      trashed: 2,
+      spared: 0,
+    });
     expect(library.db.repo.assetDetail(ids[0] as AssetId)?.trashedAt).not.toBeNull();
     expect(library.db.repo.assetDetail(ids[1] as AssetId)?.trashedAt).not.toBeNull();
     // Trashed, not removed: the rows are still there to be restored.
     expect(library.db.repo.stats().assets).toBe(ids.length);
+  });
+
+  it("spares what is in another folder when a folder's contents are trashed (ADR-0067 §3.2)", async () => {
+    const [only, shared, nested] = ids as [AssetId, AssetId, AssetId];
+    const design = await createFolder(library, "Design", null);
+    const icons = await createFolder(library, "Icons", design);
+    const portfolio = await createFolder(library, "Portfolio", null);
+    await addToFolder(library, [only, shared], design);
+    await addToFolder(library, [shared], portfolio);
+    // In the folder and its child and nowhere else: still only here.
+    await addToFolder(library, [nested], design);
+    await addToFolder(library, [nested], icons);
+
+    expect(previewFolderDeletion(library, design)).toEqual({ trashed: 2, spared: 1 });
+    expect(await deleteFolder(library, design, { trashContents: true })).toEqual({
+      trashed: 2,
+      spared: 1,
+    });
+    expect(library.db.repo.assetDetail(only)?.trashedAt).not.toBeNull();
+    expect(library.db.repo.assetDetail(nested)?.trashedAt).not.toBeNull();
+    const kept = library.db.repo.assetDetail(shared);
+    expect(kept?.trashedAt).toBeNull();
+    expect(kept?.folders.map((folder) => folder.id)).toEqual([portfolio]);
+
+    // And a rebuild agrees, because every line of it was journalled.
+    await library.rebuild();
+    expect(library.db.repo.assetDetail(shared)?.trashedAt).toBeNull();
+    expect(library.db.repo.assetDetail(only)?.trashedAt).not.toBeNull();
+  });
+
+  it("takes a file out of the folder on screen, and trashes one left in none (ADR-0067)", async () => {
+    const [only, shared, deep] = ids as [AssetId, AssetId, AssetId];
+    const design = await createFolder(library, "Design", null);
+    const icons = await createFolder(library, "Icons", design);
+    const portfolio = await createFolder(library, "Portfolio", null);
+    await addToFolder(library, [only, shared], design);
+    await addToFolder(library, [shared], portfolio);
+
+    expect(await deleteInFolder(library, [only, shared], design)).toEqual({
+      trashed: 1,
+      removed: 1,
+      stillIn: [portfolio],
+    });
+    expect(library.db.repo.assetDetail(only)?.trashedAt).not.toBeNull();
+    // Trashed, it keeps the folder, so restoring puts it back there.
+    expect(library.db.repo.assetDetail(only)?.folders.map((folder) => folder.id)).toEqual([design]);
+    const left = library.db.repo.assetDetail(shared);
+    expect(left?.trashedAt).toBeNull();
+    expect(left?.folders.map((folder) => folder.id)).toEqual([portfolio]);
+
+    // With the subfolders drawn, the subtree is "here": a file in Design/Icons
+    // and Portfolio leaves Icons, and one in Icons alone goes to the trash.
+    await addToFolder(library, [deep, shared], icons);
+    expect(await deleteInFolder(library, [deep, shared], design, { subtree: true })).toEqual({
+      trashed: 1,
+      removed: 1,
+      stillIn: [portfolio],
+    });
+    expect(library.db.repo.assetDetail(deep)?.trashedAt).not.toBeNull();
+    expect(library.db.repo.assetDetail(shared)?.folders.map((folder) => folder.id)).toEqual([
+      portfolio,
+    ]);
+  });
+
+  it("names nobody's folders when several files leave one (ADR-0067 §3.1)", async () => {
+    const [first, second] = ids as [AssetId, AssetId, AssetId];
+    const design = await createFolder(library, "Design", null);
+    const other = await createFolder(library, "Other", null);
+    await addToFolder(library, [first, second], design);
+    await addToFolder(library, [first, second], other);
+
+    expect(await deleteInFolder(library, [first, second], design)).toEqual({
+      trashed: 0,
+      removed: 2,
+      stillIn: [],
+    });
   });
 
   it("pages without an offset, and stops at the last short page", async () => {
@@ -621,6 +703,32 @@ describe("organizing a library", () => {
     // Every asset it is on is in the trash, and the tag is still a tag.
     expect(sidebar.tags.find((row) => row.name === "solo")?.count).toBe(0);
     expect(sidebar.places.find((place) => place.id === "trash")?.count).toBe(1);
+  });
+
+  it("finds what is in no folder, and draws a row for it with no count (ADR-0068)", async () => {
+    const [first, second, third] = ids as [AssetId, AssetId, AssetId];
+    const design = await createFolder(library, "Design", null);
+    const icons = await createFolder(library, "Icons", design);
+    await addToFolder(library, [first], design);
+    await addToFolder(library, [second], icons);
+
+    expect(search(library, "is:unfiled", PAGE).map((row) => row.id)).toEqual([third]);
+    expect(count(library, "-is:unfiled")).toBe(2);
+
+    // Out of its one folder, it is unfiled again; trashed, it is nowhere but Trash.
+    await removeFromFolder(library, [second], icons);
+    expect(count(library, "is:unfiled")).toBe(2);
+    await trashAssets(library, [third]);
+    expect(count(library, "is:unfiled")).toBe(1);
+
+    const places = readSidebar(library).places.map((place) => [place.id, place.count]);
+    expect(places).toEqual([
+      ["all", null],
+      ["recent", null],
+      ["unfiled", null],
+      ["untagged", null],
+      ["trash", 1],
+    ]);
   });
 
   it("counts an asset in two folders of one subtree once", async () => {

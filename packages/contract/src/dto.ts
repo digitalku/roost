@@ -215,6 +215,19 @@ export interface WireRecentLibrary {
  */
 export interface WireFolderDeleted {
   readonly trashed: number;
+  /** Left out of the trash: in a folder outside the one deleted (ADR-0067 §3.2). */
+  readonly spared: number;
+}
+
+/**
+ * What a `Delete` made inside a folder did (ADR-0067 §2): how many went to the
+ * trash, how many were only taken out of the folder, and, when exactly one was
+ * taken out, the folders it is still in, so the status line can name them.
+ */
+export interface WireLeftFolder {
+  readonly trashed: number;
+  readonly removed: number;
+  readonly stillIn: readonly number[];
 }
 
 /**

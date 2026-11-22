@@ -90,6 +90,7 @@ export {
   type WireImportReport,
   type WireInstallOutcome,
   type WireJournalNotice,
+  type WireLeftFolder,
   type WirePasted,
   type WirePlaceView,
   type WireProblem,

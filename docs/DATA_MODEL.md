@@ -524,6 +524,8 @@ created:2024-03-01            a bare date is the whole day, not midnight exactly
 imported:>2026-01-01
 rating:>=4                    1 to 5; anything else is a parse error, not an empty result
 is:untagged is:tagged is:rated is:unrated
+is:unfiled                    in no folder at all (ADR-0068), the sidebar's No folder;
+                              no `is:filed` beside it, since `-is:unfiled` says that
 is:favorite                   retired (ADR-0029) and still in the grammar: nothing sets one
                               any more, and a smart folder that says it must still parse
 is:trashed                    in the trash; also `is:trash`

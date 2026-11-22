@@ -1261,6 +1261,16 @@ Accepted on 2026-08-30, and the work splits in three. Only the first is one sitt
 
 ### Flakes
 
+- ☑ ~~**`workspace.test.ts` › *watches a shard directory created after it started* fails on this
+  laptop**~~, every run on 2026-11-22 and with that day's changes stashed as well: the save in a shard
+  made after the watcher started is never seen (`expected [] to include …`). Ubuntu 26.04, kernel
+  7.0, Node 22.23.5. **Probably the laptop, not the code:** the window checks the same day logged
+  `inotify_init() failed: Too many open files` and the engine's own *this platform will not watch
+  files/*, with `fs.inotify.max_user_instances` at 128 and about 200 inotify descriptors open. Raise
+  the limit and run it again before believing it; ADR-0047's watcher depends on it.
+  **It was the laptop.** With `fs.inotify.max_user_instances` raised to 1024 on 2026-11-22 the file
+  passes, 17 of 17. Raised with `sysctl` for that boot only; `/etc/sysctl.d/` keeps it.
+
 - [x] 🟡 **`no-ffmpeg.test.ts` — "imports everything, draws what it can" times out under load.** Seen
   twice on 2026-09-07 in `pnpm verify` and never when run alone; it took 5.4s on the run that
   failed. It spawns the built CLI and probes for ffmpeg, so it is the slowest test in the suite and

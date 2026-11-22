@@ -227,6 +227,8 @@ function toFlag(value: string, at: number): Flag {
       return "rated";
     case "unrated":
       return "unrated";
+    case "unfiled":
+      return "unfiled";
     case "trashed":
     case "trash":
       return "trashed";

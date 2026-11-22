@@ -165,6 +165,11 @@ export interface FakeEngineOptions {
   readonly trashSize?: number;
   /** Bytes a removal reports having freed from `files/` (ADR-0031). */
   readonly freedBytes?: number;
+  /**
+   * How many of a deleted folder's assets are in another folder as well, and
+   * so are spared from the trash (ADR-0067 §3.2). Zero when absent.
+   */
+  readonly sparedOnFolderDelete?: number;
   /** What `library:reclaimable` answers with; the reclaim itself echoes it. */
   readonly reclaimable?: WireReclaimable;
   /** What `dialog:chooseImport` answers with. `null` is a cancelled dialog. */
@@ -577,6 +582,29 @@ export class FakeEngine {
    * sent, and a fake that returned the new state would let a component pass
    * while skipping the re-read.
    */
+  #leaving(
+    ids: readonly string[],
+    folder: number,
+  ): { leaving: { trashed: number; removed: number; stillIn: number[] }; gone: Set<string> } {
+    let removed = 0;
+    let stillIn: number[] = [];
+    const gone = new Set<string>();
+    for (const id of new Set(ids)) {
+      const held = (this.details.get(id)?.folders ?? []).map((row) => row.id);
+      const elsewhere = held.filter((row) => row !== folder);
+      if (elsewhere.length === 0) {
+        gone.add(id);
+        continue;
+      }
+      removed += 1;
+      stillIn = elsewhere;
+    }
+    return {
+      leaving: { trashed: gone.size, removed, stillIn: removed === 1 ? stillIn : [] },
+      gone,
+    };
+  }
+
   #mutate(
     ids: readonly string[],
     change: (detail: WireAssetDetail) => WireAssetDetail,
@@ -1131,10 +1159,39 @@ export class FakeEngine {
           (row.folder === target.folder || row.path.startsWith(`${target.path}/`));
         // The row's count is a subtree count, so it *is* what the engine would
         // trash. Summing the descendants would count them twice.
-        const trashed = request.trashContents ? (target?.count ?? 0) : 0;
+        const spared = request.trashContents ? (this.#options.sparedOnFolderDelete ?? 0) : 0;
+        const trashed = request.trashContents ? (target?.count ?? 0) - spared : 0;
         this.folders = this.folders.filter((row) => !inside(row));
         this.emit({ type: "library:changed" });
-        return ok({ trashed });
+        return ok({ trashed, spared });
+      }
+
+      case "folder:deletePreview": {
+        const target = this.folders.find((row) => row.folder === request.folder);
+        const spared = this.#options.sparedOnFolderDelete ?? 0;
+        return ok({ trashed: (target?.count ?? 0) - spared, spared });
+      }
+
+      // An asset with a detail is in the folders the detail lists; one without
+      // is taken to be in this folder alone, and is trashed. `subtree` is not
+      // modelled: the fake's details name folders, not where they sit.
+      case "assets:deleteInFolderPreview":
+        return ok(this.#leaving(request.ids, request.folder).leaving);
+
+      case "assets:deleteInFolder": {
+        const { leaving, gone } = this.#leaving(request.ids, request.folder);
+        for (const id of request.ids) {
+          const detail = this.details.get(id);
+          if (detail === undefined || gone.has(id)) continue;
+          this.details.set(id, {
+            ...detail,
+            folders: detail.folders.filter((folder) => folder.id !== request.folder),
+          });
+        }
+        this.assets = this.assets.filter((asset) => !gone.has(asset.id));
+        this.#trashedHere += gone.size;
+        this.emit({ type: "library:changed" });
+        return ok(leaving);
       }
 
       case "comment:add": {

@@ -2663,6 +2663,58 @@ export class Repo {
   }
 
   /**
+   * What deleting a folder would do to the live assets in it (ADR-0067 §3.2):
+   * the ones in no folder outside `subtree`, which its checkbox trashes, and a
+   * count of the rest, which it spares.
+   *
+   * `subtree` is the folder and every folder beneath it, so an asset in a
+   * folder and its child is still only here. Walked from the folder ids as
+   * {@link Repo.assetsInFolders} is; the `NOT IN` list is not correlated, so
+   * SQLite builds it once.
+   */
+  folderContents(subtree: readonly number[]): { only: AssetId[]; shared: number } {
+    const rows = this.#s(
+      `SELECT m.asset_id AS id,
+              EXISTS (SELECT 1 FROM asset_folders o
+                       WHERE o.asset_id = m.asset_id
+                         AND o.folder_id NOT IN (SELECT value FROM json_each(@folders))) AS shared
+         FROM (${MEMBERS_OF_FOLDERS.replace("?", "@folders")}) m
+         JOIN assets a ON a.id = m.asset_id
+        WHERE a.trashed_at IS NULL
+        ORDER BY m.asset_id`,
+    ).all({ folders: JSON.stringify(subtree) }) as { id: AssetId; shared: 0 | 1 }[];
+    const only: AssetId[] = [];
+    let shared = 0;
+    for (const row of rows) {
+      if (row.shared === 1) shared += 1;
+      else only.push(row.id);
+    }
+    return { only, shared };
+  }
+
+  /**
+   * Every folder each of these assets is in, for a `Delete` made inside a
+   * folder to tell the ones only there from the ones somewhere else as well
+   * (ADR-0067 §2). An asset in none is absent from the map.
+   *
+   * Walked from the ids, one seek each on the membership key.
+   */
+  membershipsOf(assets: readonly AssetId[]): Map<AssetId, number[]> {
+    const rows = this.#s(
+      `SELECT af.asset_id AS id, af.folder_id AS folder
+         FROM json_each(?) e
+        CROSS JOIN asset_folders af ON af.asset_id = e.value`,
+    ).all(JSON.stringify(assets)) as { id: AssetId; folder: number }[];
+    const memberships = new Map<AssetId, number[]>();
+    for (const row of rows) {
+      const list = memberships.get(row.id);
+      if (list === undefined) memberships.set(row.id, [row.folder]);
+      else list.push(row.folder);
+    }
+    return memberships;
+  }
+
+  /**
    * Every tag, with its live asset count and its group.
    *
    * The count excludes trashed assets, for the reason {@link Repo.folderCounts}

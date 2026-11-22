@@ -468,7 +468,8 @@ the grid's roving ring and the preview's stepping both dead until something is c
 | **Export…** | a directory chooser, then a copy out | `Export N assets…` |
 | **Move to library ›** | a submenu of the recent libraries; the asset goes there with everything written about it, and leaves this one (ADR-0054) | the same, for the whole selection |
 | **Copy to library ›** | the same submenu; the asset arrives there and stays here too | the same |
-| **Move to trash** | reversible, so it asks nothing | `Move N assets to trash` |
+| **Remove from ‹folder›** `Ctrl+Delete` | only while a folder is on screen: takes it out of that folder and never trashes it (ADR-0067 §3.4) | the same, for the whole selection |
+| **Move to trash** | reversible, so it asks nothing. **Delete** while a folder is on screen, because a file in another folder too only leaves this one (ADR-0067) | `Move N assets to trash`, `Delete N assets` |
 
 **Move to library and Copy to library are over the grid only**, below a separator of their own.
 Over the preview, moving the asset on screen out of the library would leave the pane showing
@@ -628,7 +629,10 @@ version of this that ships by accident.
 
 **Only irreversible actions get one.** Moving assets to the trash is undone by restoring them, so
 it asks nothing; a dialog there would teach people to dismiss dialogs, and the next one would be
-the permanent delete. Emptying the trash and deleting permanently both ask.
+the permanent delete. Emptying the trash and deleting permanently both ask. **`Delete` inside a
+folder asks nothing either** (ADR-0067): a file in no other folder goes to the trash, one in another
+folder as well only leaves this one, both are undone, and the status bar says afterwards which
+happened to how many, naming the other folder when one file left.
 
 It is an **alert** dialog rather than a panel, and the three differences are the point: no close
 button, no dismissal by clicking outside it, and focus starting on **Cancel**. The accident being
@@ -640,6 +644,11 @@ the only place the `--danger-` ramp is used (§2).
 is one gesture with two outcomes — the shelf alone, or the shelf and what is on it (ADR-0033) — and
 the box chooses which rather than confirming that it happens. It starts unticked, because the
 ticked answer is the one that touches assets, and the body says in words what each answer does.
+**The box trashes only what is in no folder outside the one deleted** (ADR-0067 §3.2): its label
+counts those, a note under it says how many more are in other folders and stay there, and when
+every file is somewhere else as well there is no box, only the body saying so. The counts are the
+engine's, asked for as the dialog opens (`folder:deletePreview`), because the row's own count cannot
+tell a shared file from another.
 Two menu items would have been the alternative, and *Delete folder* beside *Delete folder and its
 contents* invites reading the shorter one as a safe abbreviation of the longer.
 
@@ -1202,6 +1211,8 @@ Library ▾                        library switcher, and where "Open library…"
 PLACES
   All assets                     everything, newest first
   Recent                         imported in the last 7 days
+  No folder                      ADR-0068. In no folder at all, `is:unfiled`; no count, as
+                                 Untagged has none, for the cost a nothing-matches walk has
   Untagged                       the pile that needs work — the reason this is here
   Tags                     42    ADR-0061. Not a query: the tags page, in the grid's place (§4.5)
   Trash                     3    ADR-0022. The only place with a count, and the count is what
@@ -1754,8 +1765,8 @@ first.
 
 **Each kind of place remembers its own** (ADR-0066): **All assets**, **Recent**, and **one set
 shared by every folder** — the whole menu, *Show folders* and the order included. Every other place
-(Untagged, Trash, a smart folder, a rating, a search) uses All assets'. The set follows the
-**place**, not the query: a folder with a tag ticked in the filter bar is still a folder. A place
+(No folder, Untagged, Trash, a smart folder, a rating, a search) uses All assets'. The set follows
+the **place**, not the query: a folder with a tag ticked in the filter bar is still a folder. A place
 whose set was never changed draws All assets' look in `Date added`, newest first, and keeps what it
 is changed to from then on. Which shuffle Random shows stays one per window, whichever place is in
 it. The window says which place it is on — it alone holds the sidebar's rows to compare the query
@@ -2421,7 +2432,7 @@ becomes a preference in M6.
 | `0`–`5` | Set rating on the selection (`0` clears to unrated) |
 | `T` | Focus the tag editor for the selection |
 | `Ctrl+C` | **Copy file** on the selection, or on the asset the preview is showing (ADR-0034 §5). Not while typing, and not over text somebody has selected — a name or a note in the inspector is text first |
-| `Delete` | Move the selection to the trash — and, inside the Trash place, delete it permanently after confirming (ADR-0022). On the tags page, delete the chosen tags after confirming (§4.5) |
+| `Delete` | Move the selection to the trash — and, inside the Trash place, delete it permanently after confirming (ADR-0022). Inside a folder, take it out of the folder, trashing only what is then in no folder (ADR-0067). On the tags page, delete the chosen tags after confirming (§4.5) |
 | `F2` | On the tags page, rename the chosen tag (§4.5) |
 | `Alt+←` / `Backspace` | Back, through the **places** this window has been (ADR-0044). A filter is not a place, so Back is not an undo for the filter bar — and travelling keeps the chips standing, exactly as clicking a folder does |
 | `Alt+→` | Forward, until something new is chosen and the way ahead is dropped |

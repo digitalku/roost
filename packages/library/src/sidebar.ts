@@ -252,12 +252,18 @@ const RECENT_DAYS = 7;
  * than a mode, so nothing in the grid, the toolbar, or the renderer has to
  * learn that Trash exists.
  *
+ * "No folder" sits above Untagged, as Eagle's *Uncategorized* does, and carries
+ * no count for the reason Untagged carries none: proving a library has nothing
+ * unfiled walks every asset, and the sidebar is re-read on every change
+ * (ADR-0068).
+ *
  */
 function places(trashed: number): PlaceEntry[] {
   const since = new Date((nowUnix() - RECENT_DAYS * 86_400) * 1000).toISOString().slice(0, 10);
   return [
     { id: "all", name: "All assets", query: "", count: null, stars: null },
     { id: "recent", name: "Recent", query: `imported:>${since}`, count: null, stars: null },
+    { id: "unfiled", name: "No folder", query: "is:unfiled", count: null, stars: null },
     { id: "untagged", name: "Untagged", query: "is:untagged", count: null, stars: null },
     { id: "trash", name: "Trash", query: "is:trashed", count: trashed, stars: null },
   ];

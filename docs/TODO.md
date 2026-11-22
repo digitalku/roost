@@ -276,6 +276,28 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
+### No folder in Places (ADR-0068) — accepted and built 2026-11-22
+
+- ☑ ~~**`is:unfiled` and the *No folder* row.**~~ Between Recent and Untagged, no count, All
+  assets' view. Tested in `query.test.ts` and `organize.test.ts`; not driven in a window.
+- 🟡 **A place that matches nothing walks the library.** `is:unfiled` costs 225 ms at a million
+  assets when every file has a folder (`BENCHMARKS.md`, 2026-11-22), and `is:untagged` has the same
+  shape and was never measured at that size. The fix would be a derived count of folders (and of
+  tags) per asset with a partial index on zero: rebuildable, so within invariant 1, but a migration
+  and two triggers' worth of upkeep on every membership write.
+- 🟢 **Whether *No folder* takes a drop** (ADR-0068 §4). It does not: a drop there would be a
+  removal from every folder.
+
+### A file in another folder is not trashed from this one (ADR-0067) — accepted and built 2026-11-22
+
+- ☑ ~~**`Delete` inside a folder, the folder dialog's checkbox and its note, *Remove from* in the
+  menu, the status lines, the CLI's spared count.**~~ Tested against the fake engine and a real
+  index; both reads measured at a million assets (`BENCHMARKS.md`).
+- 🟡 **No window check drives it.** `check-folders.mjs` or `check-trash.mjs` should press `Delete` on
+  a file in two folders and delete a folder that shares one, in a real window.
+- 🟢 **The status line names the other folder and cannot take you there.** The clickable notes being
+  designed for an import's duplicates are the answer to both.
+
 ### A view for each kind of place (ADR-0066) — built 2026-11-17
 
 - 🟢 **A query typed by hand that names a folder in the other depth** (`folder:` where the rows
@@ -1299,6 +1321,10 @@ claim and counts made cheap at a million. What is still open:
   in a live window.
 
 ### Flakes
+
+- 🟡 **`check-trash.mjs` stops at *Delete keeps its place*** on this laptop (2026-11-22): no cell is
+  found at the middle of the grid after the scroll, `Cannot read properties of null (reading 'x')`.
+  The same with that day's changes stashed, so it predates ADR-0067; every check before it passes.
 
 - 🟡 **`check-grid.mjs` and `check-folders.mjs` fail on their synthetic drags on Windows.**
   Seen 2026-09-21 after the format-2 port: the marquee section reports no sweep and the folder

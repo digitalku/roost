@@ -288,8 +288,9 @@ ${LIBRARY_FLAG}
       --parent <PATH>    Parent folder. Without it, create and move go to the
                          top level
       --trash-contents   On delete, also move every asset in the folder and its
-                         subfolders to the trash. Without it the folder goes and
-                         the assets stay, no longer filed anywhere
+                         subfolders to the trash, except those in another folder
+                         as well, which stay there. Without it the folder goes
+                         and the assets stay, no longer filed anywhere
 ${GLOBAL}`,
 
   smart: `Save, list, and update smart folders — RQL queries under a name.

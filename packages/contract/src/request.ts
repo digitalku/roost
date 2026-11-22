@@ -36,6 +36,7 @@ import type {
   WireFolderDeleted,
   WireImportReport,
   WireInstallOutcome,
+  WireLeftFolder,
   WirePasted,
   WireRecentLibrary,
   WireReclaimable,
@@ -438,6 +439,25 @@ export type Request =
       readonly folder: number;
     }
   /**
+   * `Delete` inside a folder (ADR-0067): each asset leaves the folder, and one
+   * left in no folder goes to the trash. `subtree` is whether the grid draws
+   * the folder's subfolders too, which the window knows from the filter bar's
+   * split and the engine cannot.
+   */
+  | {
+      readonly type: "assets:deleteInFolder";
+      readonly ids: readonly string[];
+      readonly folder: number;
+      readonly subtree: boolean;
+    }
+  /** What `assets:deleteInFolder` would do, writing nothing. */
+  | {
+      readonly type: "assets:deleteInFolderPreview";
+      readonly ids: readonly string[];
+      readonly folder: number;
+      readonly subtree: boolean;
+    }
+  /**
    * The folder tree's own three edits (ADR-0033).
    *
    * Separate from the membership pair above because they are about the shelf
@@ -476,6 +496,11 @@ export type Request =
       readonly folder: number;
       readonly trashContents: boolean;
     }
+  /**
+   * What `folder:delete` with `trashContents` would trash and spare, for the
+   * dialog that asks (ADR-0067 §3.3). Writes nothing.
+   */
+  | { readonly type: "folder:deletePreview"; readonly folder: number }
   /**
    * Every tag and every tag group, for the page that arranges them
    * (ADR-0061). Groups are numbered here, because two may share a name.
@@ -924,6 +949,8 @@ export interface Responses {
   "asset:tagRemove": null;
   "asset:folderAdd": null;
   "asset:folderRemove": null;
+  "assets:deleteInFolder": WireLeftFolder;
+  "assets:deleteInFolderPreview": WireLeftFolder;
   /** The new folder's id, so the window can go straight to it. */
   "folder:create": number;
   "folder:rename": null;
@@ -935,6 +962,7 @@ export interface Responses {
    */
   "folder:find": readonly number[] | null;
   "folder:delete": WireFolderDeleted;
+  "folder:deletePreview": WireFolderDeleted;
   "tags:list": WireTagList;
   "tag:rename": null;
   "tag:delete": null;
@@ -1380,6 +1408,36 @@ export const REQUEST_VALIDATORS: {
     return ok({ type: "asset:folderRemove", ids: ids.value, folder: folder.value });
   },
 
+  "assets:deleteInFolder": (source) => {
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
+    const folder = readFolder(source);
+    if (!folder.ok) return folder;
+    const subtree = readBoolean(source, "subtree");
+    if (!subtree.ok) return subtree;
+    return ok({
+      type: "assets:deleteInFolder",
+      ids: ids.value,
+      folder: folder.value,
+      subtree: subtree.value,
+    });
+  },
+
+  "assets:deleteInFolderPreview": (source) => {
+    const ids = readAssetIdArray(source, "ids");
+    if (!ids.ok) return ids;
+    const folder = readFolder(source);
+    if (!folder.ok) return folder;
+    const subtree = readBoolean(source, "subtree");
+    if (!subtree.ok) return subtree;
+    return ok({
+      type: "assets:deleteInFolderPreview",
+      ids: ids.value,
+      folder: folder.value,
+      subtree: subtree.value,
+    });
+  },
+
   "folder:create": (source) => {
     const name = readNonEmpty(source, "name");
     if (!name.ok) return name;
@@ -1437,6 +1495,11 @@ export const REQUEST_VALIDATORS: {
       folder: folder.value,
       trashContents: trashContents.value,
     });
+  },
+
+  "folder:deletePreview": (source) => {
+    const folder = readFolder(source);
+    return folder.ok ? ok({ type: "folder:deletePreview", folder: folder.value }) : folder;
   },
 
   "tags:list": () => ok({ type: "tags:list" }),

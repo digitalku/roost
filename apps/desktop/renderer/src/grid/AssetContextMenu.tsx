@@ -12,7 +12,13 @@ import { invoke } from "../bridge.js";
 import { playhead, usePlayer } from "../preview/playhead.js";
 import { timecode } from "../timecode.js";
 import { destinations, TransferMenu } from "./TransferMenu.js";
-import { assets, type ConfirmRequest, type RowChange, useTrashActions } from "./trash-actions.js";
+import {
+  assets,
+  type ConfirmRequest,
+  type RowChange,
+  type TrashFolder,
+  useTrashActions,
+} from "./trash-actions.js";
 
 /**
  * Right-click on the grid or on an open preview (`UI_SPEC.md` §3.3).
@@ -115,6 +121,14 @@ export interface AssetContextMenuProps {
    * is what offers **Remove custom thumbnail** (ADR-0060).
    */
   readonly chosenThumbnail?: boolean;
+  /**
+   * The folder on screen, when one is (ADR-0067). The trash row is then
+   * *Delete*, because a file in another folder too only leaves this one, and
+   * **Remove from** it is offered beside it, which never trashes.
+   */
+  readonly folder?: TrashFolder | undefined;
+  /** What `Ctrl+Delete` does: takes the selection out of {@link folder}. */
+  readonly onRemoveFromFolder?: (() => void) | undefined;
   readonly children: React.ReactNode;
 }
 
@@ -136,6 +150,8 @@ export function AssetContextMenu({
   onTransfer,
   transferring,
   chosenThumbnail,
+  folder,
+  onRemoveFromFolder,
   children,
 }: AssetContextMenuProps): React.JSX.Element {
   const count = ids.length;
@@ -266,6 +282,7 @@ export function AssetContextMenu({
     onConfirm,
     onGone,
     ...(onLeaving !== undefined && { onLeaving }),
+    folder,
   });
 
   const openHere =
@@ -509,7 +526,7 @@ export function AssetContextMenu({
                     <span className="menu-label">Empty trash</span>
                   </ContextMenu.Item>
                 </>
-              ) : (
+              ) : folder === undefined ? (
                 <ContextMenu.Item className="menu-item" onSelect={trash}>
                   <span className="menu-mark" />
                   <span className="menu-label">
@@ -517,6 +534,23 @@ export function AssetContextMenu({
                   </span>
                   <span className="menu-accelerator">Del</span>
                 </ContextMenu.Item>
+              ) : (
+                <>
+                  {onRemoveFromFolder !== undefined && (
+                    <ContextMenu.Item className="menu-item" onSelect={onRemoveFromFolder}>
+                      <span className="menu-mark" />
+                      <span className="menu-label">Remove from {folder.name}</span>
+                      <span className="menu-accelerator">Ctrl+Del</span>
+                    </ContextMenu.Item>
+                  )}
+                  <ContextMenu.Item className="menu-item" onSelect={trash}>
+                    <span className="menu-mark" />
+                    <span className="menu-label">
+                      {count === 1 ? "Delete" : `Delete ${count} assets`}
+                    </span>
+                    <span className="menu-accelerator">Del</span>
+                  </ContextMenu.Item>
+                </>
               )}
             </>
           )}

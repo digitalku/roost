@@ -144,6 +144,12 @@ describe("values", () => {
     expect(term("is:trash")).toEqual({ field: "flag", flag: "trashed" });
   });
 
+  it("knows a file in no folder, and nothing it would have to keep beside it (ADR-0068)", () => {
+    expect(term("is:unfiled")).toEqual({ field: "flag", flag: "unfiled" });
+    expect(buildQuery("is:unfiled").params).toEqual([]);
+    expect(kindOf("is:filed")).toBe("unknown-flag");
+  });
+
   it("no longer knows version 1's flags, and says so rather than guessing", () => {
     // `is:managed`, `is:referenced` and `is:partial-hash` described a storage
     // mode and a hashing scheme that version 2 does not have (RL-19, RL-18).

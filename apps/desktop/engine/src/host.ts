@@ -54,6 +54,7 @@ import {
   createTagGroup,
   type DeriveReport,
   deleteFolder,
+  deleteInFolder,
   deleteSubtitle,
   deleteTagGroup,
   deleteTags,
@@ -82,6 +83,8 @@ import {
   measureUnread,
   moveFolder,
   pinLibrary,
+  previewDeleteInFolder,
+  previewFolderDeletion,
   queueStatus,
   type Redrawn,
   Requested,
@@ -426,6 +429,18 @@ export class EngineHost {
           removeFromFolder(this.#require(), ids(request.ids), request.folder),
         );
 
+      case "assets:deleteInFolder":
+        return this.#editReporting(() =>
+          deleteInFolder(this.#require(), ids(request.ids), request.folder, {
+            subtree: request.subtree,
+          }),
+        );
+
+      case "assets:deleteInFolderPreview":
+        return previewDeleteInFolder(this.#require(), ids(request.ids), request.folder, {
+          subtree: request.subtree,
+        });
+
       // The tree's own three (ADR-0033). `create` answers with the id because
       // the window goes to the folder it just made; the other two follow the
       // house rule and answer with what the caller could not have known —
@@ -449,6 +464,9 @@ export class EngineHost {
             trashContents: request.trashContents,
           }),
         );
+
+      case "folder:deletePreview":
+        return previewFolderDeletion(this.#require(), request.folder);
 
       // The tags page (ADR-0061). Each edit is announced as any other is, so the
       // page, the sidebar and the filter bar all read again.

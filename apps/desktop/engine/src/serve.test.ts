@@ -811,6 +811,7 @@ describe("the engine's message loop", () => {
     expect(places.map((place) => place.name)).toEqual([
       "All assets",
       "Recent",
+      "No folder",
       "Untagged",
       "Trash",
     ]);
@@ -837,7 +838,8 @@ describe("the engine's message loop", () => {
     // "All assets" is the empty string — the engine's word for the whole
     // library — and not a term in the grammar.
     expect(places[0]?.query).toBe("");
-    expect(places[2]?.query).toBe("is:untagged");
+    expect(places[2]?.query).toBe("is:unfiled");
+    expect(places[3]?.query).toBe("is:untagged");
     // Recent is a real date, because RQL has no relative one and the grammar is
     // frozen by cross-implementation compatibility.
     expect(places[1]?.query).toMatch(/^imported:>\d{4}-\d{2}-\d{2}$/);

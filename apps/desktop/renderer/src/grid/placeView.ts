@@ -14,8 +14,9 @@ import type {
  * Decided by comparing the **place** with the queries the engine sent for the
  * sidebar's rows, as `inTrash` and `openFolder` are, and never by reading a
  * term here: the renderer assembles no RQL (`UI_SPEC.md` §4.1). Everything
- * that is neither Recent nor a folder — Untagged, Trash, a smart folder, a
- * rating, a search — is All assets, because each is a cut of the whole library.
+ * that is neither Recent nor a folder — No folder, Untagged, Trash, a smart
+ * folder, a rating, a search — is All assets, because each is a cut of the
+ * whole library.
  *
  * The place, not the query: a folder with a tag ticked in the filter bar is
  * still a folder.

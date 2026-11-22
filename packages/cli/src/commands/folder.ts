@@ -66,14 +66,21 @@ export async function folder(
       const [path] = rest;
       if (path === undefined) return usage(streams, "folder", "folder delete needs a path");
       return withLibrary(root, async (library) => {
-        const { trashed } = await deleteFolder(library, resolveFolder(library, path), {
+        const { trashed, spared } = await deleteFolder(library, resolveFolder(library, path), {
           trashContents,
         });
+        // What the trash left alone is said too (ADR-0067 §3.2): an asset in
+        // another folder as well stays there, and a count that came out short
+        // without saying why would read as a fault.
+        const kept =
+          spared === 0
+            ? ""
+            : ` ${spared === 1 ? "1 more is" : `${spared} more are`} in other folders and stayed there.`;
         // Which of the two things it did, always — the folder is gone either
         // way, and only one of them touched the assets (ADR-0033).
         streams.out(
           trashContents
-            ? `Deleted folder ${path}, and moved ${assets(trashed)} to the trash.`
+            ? `Deleted folder ${path}, and moved ${assets(trashed)} to the trash.${kept}`
             : `Deleted folder ${path}. The assets in it are still in the library.`,
         );
         return EXIT.ok;
