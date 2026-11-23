@@ -91,7 +91,15 @@ export type HandoffCost = (typeof HANDOFF_COSTS)[number];
  * `other` is not a failure. A format Roost cannot draw still imports, still
  * carries tags, and opens in the application that owns it.
  */
-export const ASSET_KINDS = ["image", "video", "audio", "document", "font", "other"] as const;
+export const ASSET_KINDS = [
+  "image",
+  "video",
+  "audio",
+  "document",
+  "font",
+  "text",
+  "other",
+] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
 /**
@@ -1288,6 +1296,44 @@ export type WirePasted =
  */
 export interface WireCreated {
   readonly id: string;
+}
+
+/** How a text asset's bytes were read (ADR-0070 §3.4). */
+export const WIRE_TEXT_ENCODINGS = [
+  "utf-8",
+  "utf-8-bom",
+  "utf-16le",
+  "utf-16be",
+  "windows-1252",
+] as const;
+export type WireTextEncoding = (typeof WIRE_TEXT_ENCODINGS)[number];
+
+/**
+ * A text asset, read for the pane's own view (ADR-0070 §3.4): at most 2 MiB of
+ * it, decoded by the engine, which is the one place a file's contents cross IPC.
+ */
+export type WireText =
+  | {
+      readonly kind: "text";
+      readonly text: string;
+      readonly encoding: WireTextEncoding;
+      /** A line ended in CRLF; a save writes CRLF back. */
+      readonly crlf: boolean;
+      /** Only the start was read; nothing is offered for editing. */
+      readonly truncated: boolean;
+      /** UTF-8 and read whole, so a save changes only what was edited. */
+      readonly editable: boolean;
+      /** What the file was when read, which `asset:saveText` checks. */
+      readonly size: number;
+      readonly mtimeMs: number;
+    }
+  | { readonly kind: "binary" }
+  | { readonly kind: "missing" };
+
+/** The file after a save, which the next save is checked against. */
+export interface WireTextSaved {
+  readonly size: number;
+  readonly mtimeMs: number;
 }
 
 /**

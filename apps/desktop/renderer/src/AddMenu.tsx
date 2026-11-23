@@ -9,11 +9,16 @@ import { useRef } from "react";
  * empty space — a place nobody right-clicks in an application they have just
  * opened, and one that is not even reachable while a file is on screen.
  *
- * **Add is the verb, and the items are where the bytes come from.** Two make
+ * **Add is the verb, and the items are where the bytes come from.** Three make
  * them here, three take them from the filesystem, and the separator is the
- * whole of the difference. Nothing else joins this menu: it is not a File menu
- * (ADR-0028 removed the menu bar), and a per-asset command belongs to the
- * asset.
+ * whole of the difference. A third group makes a folder, which holds no bytes
+ * but is the other thing a person adds to where they are (ADR-0033 §9). Nothing
+ * else joins this menu: it is not a File menu (ADR-0028 removed the menu bar),
+ * and a per-asset command belongs to the asset.
+ *
+ * **Everything here lands in the folder on screen** (ADR-0037 §2.3): a file
+ * made or imported joins it, and a new folder is made inside it. The menu does
+ * not say so; the dialog it opens does, and the status bar after an import.
  *
  * The two import items open **different dialogs**, not one dialog filtered.
  * Given both `openFile` and `openDirectory` every desktop draws the file
@@ -26,10 +31,17 @@ export interface AddMenuProps {
   readonly onNewFile: () => void;
   /** The same dialog, with the extension already typed. */
   readonly onNewTextDocument: () => void;
+  /** The same dialog with `.md` typed; the file opens in the pane, in Edit (ADR-0070). */
+  readonly onNewMarkdown: () => void;
   readonly onImportFiles: () => void;
   readonly onImportFolder: () => void;
   /** Opens the Eagle chooser, then the survey dialog (ADR-0032). */
   readonly onImportEagle: () => void;
+  /**
+   * Opens the folder dialog: a subfolder of the folder on screen, or a folder
+   * at the top of the tree where none is (ADR-0033 §9).
+   */
+  readonly onNewFolder: () => void;
   /** An import is running, and there is one at a time (`useImport`). */
   readonly busy: boolean;
 }
@@ -37,9 +49,11 @@ export interface AddMenuProps {
 export function AddMenu({
   onNewFile,
   onNewTextDocument,
+  onNewMarkdown,
   onImportFiles,
   onImportFolder,
   onImportEagle,
+  onNewFolder,
   busy,
 }: AddMenuProps): React.JSX.Element {
   /**
@@ -113,6 +127,35 @@ export function AddMenu({
           >
             <span className="menu-mark" />
             <span className="menu-label">New text document…</span>
+          </DropdownMenu.Item>
+
+          <DropdownMenu.Item
+            className="menu-item"
+            onSelect={() => {
+              opening.current = true;
+              onNewMarkdown();
+            }}
+          >
+            <span className="menu-mark" />
+            <span className="menu-label">New Markdown file…</span>
+          </DropdownMenu.Item>
+
+          <DropdownMenu.Separator className="menu-separator" />
+
+          {/*
+            Its own group: a folder is not bytes, so it is neither made here as
+            a file nor taken from the filesystem. Not disabled during an import,
+            because a folder is one journal line and has nothing to interleave.
+          */}
+          <DropdownMenu.Item
+            className="menu-item"
+            onSelect={() => {
+              opening.current = true;
+              onNewFolder();
+            }}
+          >
+            <span className="menu-mark" />
+            <span className="menu-label">New folder…</span>
           </DropdownMenu.Item>
 
           <DropdownMenu.Separator className="menu-separator" />

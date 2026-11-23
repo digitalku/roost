@@ -204,7 +204,9 @@ describe("a thumbnail somebody chose", () => {
     const photo = await file(library, "photo.png", await gradient(120, 90, 4, "png"));
     await runDerives(library, { sizes: [GRID_SIZE] });
     const own = picture(photo);
-    const text = join(dir, "notes.txt");
+    // Not a `.txt`: a text file is drawn now (ADR-0070), and anything this
+    // build can draw is accepted.
+    const text = join(dir, "notes.bin");
     await writeFile(text, "not a picture");
 
     await expect(chooseThumbnail(library, [photo], text)).rejects.toBeInstanceOf(NotAPictureError);

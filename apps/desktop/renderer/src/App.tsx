@@ -1102,15 +1102,31 @@ function LibraryView({
    * the engine's reading of the query once it has arrived, and until then from
    * the query itself — which is the place whenever nothing is ticked.
    */
-  const viewPlace = useMemo(() => {
-    const place =
+  const placeOnScreen = useMemo(
+    () =>
       placeHint.current.query === query
         ? placeHint.current.place
         : splitQuery === query
           ? split.place
-          : query;
-    return placeOf(place, sidebar);
-  }, [query, split, splitQuery, sidebar]);
+          : query,
+    [query, split, splitQuery],
+  );
+  const viewPlace = useMemo(() => placeOf(placeOnScreen, sidebar), [placeOnScreen, sidebar]);
+  /**
+   * The folder a file made or brought in here joins (ADR-0037 §2.3): New file,
+   * an import from the Add menu or a drop, a paste, and the parent of Add →
+   * New folder.
+   *
+   * The folder the **place** is, not the query, for the same reason as the
+   * view menu: a folder with a tag ticked in the filter bar is still the folder
+   * somebody is in, and a file made there that landed in no folder would be a
+   * file that vanished from the grid it was made in. `openFolder` stays exact,
+   * because the tiles and `Delete` follow the query (ADR-0043 §3, ADR-0067).
+   */
+  const landing = useMemo(
+    () => sidebar?.folders.find((folder) => folder.query === placeOnScreen),
+    [sidebar, placeOnScreen],
+  );
   const placeView = viewOf(settings, viewPlace);
 
   /**
@@ -2147,7 +2163,7 @@ function LibraryView({
 
   // An import changes the counts, the sidebar, and what the grid holds, so it
   // is the one thing in the window that has to reset the paging as well.
-  const importing = useImport(onImported, openFolder?.folder ?? null);
+  const importing = useImport(onImported, landing?.folder ?? null);
   const startImport = importing.start;
   const importRunning = importing.running;
 
@@ -2220,11 +2236,32 @@ function LibraryView({
    * deliberately does not have, because an external one is enough.
    */
   const [newFile, setNewFile] = useState<
-    { readonly name: string; readonly text: string } | undefined
+    | {
+        readonly name: string;
+        readonly text: string;
+        /**
+         * Where it goes, read when the dialog opens (ADR-0037 §2.3): the grid
+         * behind a dialog cannot change, but a reply can outlive the place.
+         */
+        readonly folder: SidebarFolderRow | undefined;
+        /** Open it in the pane, in Edit, once made: New Markdown file (ADR-0070). */
+        readonly edit: boolean;
+      }
+    | undefined
   >();
+  /** The text file the pane opens straight into Edit, once (ADR-0070 §3.2). */
+  const [editOnOpen, setEditOnOpen] = useState<string | undefined>();
+  const landingNow = useRef(landing);
+  landingNow.current = landing;
 
+  /** Opens the dialog with `name` in its field, in the folder on screen. */
+  const composeNamed = useCallback(
+    (name: string, text = "", edit = false) =>
+      setNewFile({ name, text, folder: landingNow.current, edit }),
+    [],
+  );
   /** Opens the dialog empty, which is what every door but one wants. */
-  const composeFile = useCallback(() => setNewFile({ name: "", text: "" }), []);
+  const composeFile = useCallback(() => composeNamed(""), [composeNamed]);
 
   /**
    * Paste (ADR-0026 §5), which is four gestures wearing one name.
@@ -2275,7 +2312,11 @@ function LibraryView({
 
   const paste = useCallback(() => {
     void (async () => {
-      const outcome = await invoke({ type: "clipboard:paste", take: "copy" });
+      const outcome = await invoke({
+        type: "clipboard:paste",
+        take: "copy",
+        folder: landingNow.current?.folder ?? null,
+      });
       if (!outcome.ok) return setActed(outcome.problem);
 
       const pasted = outcome.value;
@@ -2289,13 +2330,13 @@ function LibraryView({
       }
       // Words on the clipboard are something to put in a file rather than a
       // file, so they arrive as the new file's contents and still want a name.
-      if (pasted.kind === "text") return setNewFile({ name: "", text: pasted.text });
+      if (pasted.kind === "text") return composeNamed("", pasted.text);
       if (pasted.kind === "url") {
         return noteResult("Pasting never fetches a link — import it deliberately instead");
       }
       return noteResult("Nothing on the clipboard");
     })();
-  }, [noteResult, onImported]);
+  }, [noteResult, onImported, composeNamed]);
 
   /**
    * Opening an asset — from `Enter`, or from a double-click.
@@ -2528,10 +2569,12 @@ function LibraryView({
                   <AddMenu
                     busy={importing.running}
                     onNewFile={composeFile}
-                    onNewTextDocument={() => setNewFile({ name: ".txt", text: "" })}
+                    onNewTextDocument={() => composeNamed(".txt")}
+                    onNewMarkdown={() => composeNamed(".md", "", true)}
                     onImportFiles={() => chooseAndImport("files")}
                     onImportFolder={() => chooseAndImport("folders")}
                     onImportEagle={chooseEagle}
+                    onNewFolder={() => newFolder(landing ?? null)}
                   />
                 </div>
               </header>
@@ -2577,8 +2620,16 @@ function LibraryView({
                 generation={revision}
                 hasPrevious={stepAt > 0}
                 hasNext={stepAt >= 0 && stepAt + 1 < paging.assets.length}
-                onClose={() => setPreviewing(false)}
-                onStep={step}
+                onClose={() => {
+                  setPreviewing(false);
+                  // Once: the same file opened again later opens to be read.
+                  setEditOnOpen(undefined);
+                }}
+                onStep={(delta) => {
+                  setEditOnOpen(undefined);
+                  step(delta);
+                }}
+                editOnOpen={editOnOpen}
                 fitVideo={settings.fitVideoToWindow}
                 onFitVideo={applyFitVideo}
                 // The head's handle, while the inspector that is otherwise the
@@ -2703,6 +2754,7 @@ function LibraryView({
         <NewFileDialog
           initialName={newFile.name}
           initialText={newFile.text}
+          folder={newFile.folder}
           onClose={() => setNewFile(undefined)}
           onProblem={setActed}
           onCreated={(id, name) => {
@@ -2712,10 +2764,20 @@ function LibraryView({
             // what they are looking at, and the inspector is where they would
             // tag it.
             selection.click(id);
+            // A Markdown file made from Add is one somebody is about to write
+            // in, so it opens in the pane, in Edit (ADR-0070 §3.2).
+            if (newFile.edit) {
+              setEditOnOpen(id);
+              setPreviewing(true);
+            }
             // Always made, in version 2: an id is minted rather than derived
             // from the bytes, so a second empty file is a second asset rather
             // than the first one handed back (ADR-0046).
-            noteResult(`Made ${name}`);
+            noteResult(
+              newFile.folder === undefined
+                ? `Made ${name}`
+                : `Made ${name} in ${newFile.folder.name}`,
+            );
           }}
         />
       )}

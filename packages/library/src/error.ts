@@ -229,6 +229,19 @@ export class EditTooLargeError extends RoostError {
   }
 }
 
+/**
+ * A save that would undo somebody else's (ADR-0070 §3.4): the file on disk no
+ * longer has the size and modification time it was read with, so another
+ * application saved it meanwhile. The window offers to reload or to save anyway.
+ */
+export class ChangedOnDiskError extends RoostError {
+  readonly code = "changed_on_disk";
+
+  constructor(needle: string) {
+    super(`${needle} was changed on disk after it was opened`, { needle });
+  }
+}
+
 export class AmbiguousIdError extends RoostError {
   readonly code = "ambiguous_id";
 

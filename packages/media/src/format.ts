@@ -33,6 +33,7 @@ export const FORMATS = [
   "woff",
   "woff2",
   "zip",
+  "text",
   "unknown",
 ] as const;
 
@@ -66,6 +67,8 @@ const KIND_OF: Readonly<Record<Format, Kind>> = {
   woff: "font",
   woff2: "font",
   zip: "other",
+  // Markdown and plain text, shown and edited in the pane (ADR-0070).
+  text: "text",
   // GIMP's own file, layers and all. **Named, and `other` on purpose**: an
   // `.xcf` is a working file that belongs to GIMP, so a double-click hands it
   // there as it does a `.zip`, and the preview pane never tries to draw it. The
@@ -118,6 +121,9 @@ const MEDIA_TYPE_OF: Readonly<Record<Format, string>> = {
   woff: "font/woff",
   woff2: "font/woff2",
   zip: "application/zip",
+  // Served as text so nothing tries to draw it; the pane reads it through the
+  // engine, never through `roost://` (ADR-0070 §3.4).
+  text: "text/plain",
   // A guess would make a webview try to render bytes it cannot read; this makes
   // it offer to save the file instead.
   unknown: "application/octet-stream",
@@ -168,6 +174,9 @@ const FORMAT_OF_EXTENSION: Readonly<Record<string, Format>> = {
   woff: "woff",
   woff2: "woff2",
   zip: "zip",
+  md: "text",
+  markdown: "text",
+  txt: "text",
 };
 
 /**
@@ -241,6 +250,7 @@ const EXTENSION_OF: Readonly<Partial<Record<Format, string>>> = {
   otf: "otf",
   woff: "woff",
   woff2: "woff2",
+  text: "txt",
 };
 
 /**

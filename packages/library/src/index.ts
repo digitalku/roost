@@ -98,6 +98,7 @@ export {
   AlreadyALibraryError,
   AmbiguousFolderNameError,
   AmbiguousIdError,
+  ChangedOnDiskError,
   DuplicateFolderNameError,
   DuplicateTagError,
   DuplicateTagGroupNameError,
@@ -258,6 +259,7 @@ export {
   type TagList,
   type TagListEntry,
 } from "./tag-list.js";
+export { readText, saveText, type TextRead, type TextSaved } from "./text.js";
 export {
   ensurePreview,
   generateMissing,

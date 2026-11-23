@@ -367,7 +367,8 @@ describe("the organize commands", () => {
     expect(await ok("thumbnail", asset)).toEqual([expect.stringContaining("has a custom")]);
 
     // Not a picture: refused, by its code.
-    const text = join(dir, "notes.txt");
+    // Not a `.txt`, which is drawn now (ADR-0070).
+    const text = join(dir, "notes.bin");
     await writeFile(text, "words");
     const refused = capture();
     expect(await run(["thumbnail", asset, text, "-L", root], refused.streams)).not.toBe(EXIT.ok);

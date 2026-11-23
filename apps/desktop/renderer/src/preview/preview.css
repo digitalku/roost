@@ -705,3 +705,235 @@
 .preview-player:fullscreen .transport {
   padding: var(--space-3) var(--space-4);
 }
+
+/* Markdown and plain text (ADR-0070 §3.2). A column of reading width that
+   fills the pane's height and scrolls on its own, so a long file never pushes
+   the head off screen. */
+
+.text-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-self: stretch;
+  width: 100%;
+  max-width: 820px;
+  min-height: 0;
+}
+
+.text-plain,
+.text-markdown,
+.text-source {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-5) var(--space-6);
+  overflow: auto;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.text-plain,
+.text-source .cm-content {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  tab-size: 4;
+}
+
+/* A click on what is being read opens the editor (ADR-0070 §8.1). */
+.text-plain,
+.text-markdown {
+  cursor: text;
+}
+
+/* The editor (ADR-0070 §8). CodeMirror scrolls inside its own box, so the
+   frame's padding moves onto its content and the frame itself holds still. */
+.text-source {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+}
+
+.text-source:focus-within {
+  border-color: var(--border-focus);
+}
+
+.text-source .cm-editor {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.text-source .cm-editor.cm-focused {
+  outline: none;
+}
+
+.text-source .cm-scroller {
+  font-family: var(--font-mono);
+}
+
+.text-source .cm-content {
+  padding: var(--space-5) var(--space-6);
+  caret-color: var(--text);
+}
+
+.text-source .cm-cursor {
+  border-left-color: var(--text);
+}
+
+.text-source .cm-editor .cm-selectionBackground,
+.text-source .cm-editor.cm-focused .cm-selectionBackground,
+.text-source .cm-content ::selection {
+  background: var(--select-bg);
+}
+
+/* Markdown, drawn as it is written: whole lines for headings, so the marks at
+   their start grow with them, and dimmed marks everywhere. */
+.text-source .cm-md-h1 {
+  font-size: 1.8em;
+  line-height: 1.3;
+}
+
+.text-source .cm-md-h2 {
+  font-size: 1.5em;
+  line-height: 1.3;
+}
+
+.text-source .cm-md-h3 {
+  font-size: 1.25em;
+}
+
+.text-source .cm-md-h4,
+.text-source .cm-md-h5,
+.text-source .cm-md-h6 {
+  font-size: 1.1em;
+}
+
+.text-source .cm-md-heading,
+.text-source .cm-md-strong {
+  font-weight: 700;
+}
+
+.text-source .cm-md-emphasis {
+  font-style: italic;
+}
+
+.text-source .cm-md-strike {
+  text-decoration: line-through;
+}
+
+.text-source .cm-md-link {
+  color: var(--link);
+}
+
+.text-source .cm-md-url,
+.text-source .cm-md-mark {
+  color: var(--text-subtle);
+}
+
+.text-source .cm-md-code,
+.text-source .cm-md-code-line {
+  background: var(--surface-raised);
+}
+
+.text-source .cm-md-quote,
+.text-source .cm-md-quote-line {
+  color: var(--text-muted);
+}
+
+.text-source .cm-md-bullet {
+  color: var(--text-muted);
+}
+
+.text-markdown {
+  font-size: var(--text-md);
+  line-height: var(--leading-md);
+  overflow-wrap: anywhere;
+}
+
+.text-markdown > :first-child {
+  margin-top: 0;
+}
+
+.text-markdown h1,
+.text-markdown h2,
+.text-markdown h3 {
+  line-height: 1.25;
+}
+
+.text-markdown a {
+  color: var(--link);
+}
+
+.text-markdown code,
+.text-markdown pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: var(--surface-raised);
+  border-radius: var(--radius-sm);
+}
+
+.text-markdown code {
+  padding: 0 var(--space-1);
+}
+
+.text-markdown pre {
+  padding: var(--space-3);
+  overflow-x: auto;
+}
+
+.text-markdown pre code {
+  padding: 0;
+  background: none;
+}
+
+.text-markdown blockquote {
+  margin-left: 0;
+  padding-left: var(--space-4);
+  color: var(--text-muted);
+  border-left: 3px solid var(--border-strong);
+}
+
+.text-markdown table {
+  border-collapse: collapse;
+}
+
+.text-markdown th,
+.text-markdown td {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+}
+
+/* An image a Markdown file names, which is not drawn: its alt text, marked as
+   standing in for something. */
+.markdown-image {
+  padding: 0 var(--space-1);
+  color: var(--text-muted);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.text-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.text-conflict {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+}
+
+.text-conflict span {
+  flex: 1;
+}

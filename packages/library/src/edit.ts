@@ -1020,14 +1020,21 @@ export async function saveEdit(library: Library, id: AssetId, bytes: Uint8Array)
  * the second answered with the first, under the first one's name. An id is
  * minted rather than derived (RL-13), so two files a person made deliberately
  * are two assets — which is what they asked for both times.
+ *
+ * `folder` is the folder the window was showing, and the new asset joins it in
+ * the same journal batch as its `add`, as an import's does (ADR-0037 §2.3). It
+ * is checked before the file is written, so a folder the library has lost
+ * leaves no file in `files/` that nothing journalled.
  */
 export async function createAsset(
   library: Library,
   name: string,
   bytes: Uint8Array,
+  options: { readonly folder?: number } = {},
 ): Promise<AssetId> {
   const clean = cleanName(name, "file");
   if (bytes.length > MAX_EDIT_BYTES) throw new EditTooLargeError(bytes.length, MAX_EDIT_BYTES);
+  if (options.folder !== undefined) requireFolder(library, options.folder);
 
   // The importer's rule, spelled the same way: the **last** extension
   // component, lowercased, without the dot, so `notes.tar.gz` is `<id>.gz` and
@@ -1044,7 +1051,11 @@ export async function createAsset(
   // derive queued below is what learns them.
   const add: Record<string, unknown> = { op: "add", id, ext, name: display };
 
-  await apply(library, [add as unknown as Op]);
+  const ops = [add as unknown as Op];
+  if (options.folder !== undefined) {
+    ops.push({ op: "folder_add", asset: id, folder: options.folder });
+  }
+  await apply(library, ops);
   enqueueDerives(library, [id], JOB_PRIORITY.interactive);
 
   log.info("asset created from bytes", { asset: id, size: bytes.length });

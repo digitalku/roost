@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AssetId } from "@roost/core";
@@ -17,6 +17,7 @@ import {
   setNote,
   tagAdd,
   trashAssets,
+  UnknownFolderError,
 } from "@roost/library";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -169,6 +170,24 @@ describe("creating an asset from bytes the window typed", () => {
     expect(first).not.toBe(second);
     expect(library.db.repo.allIds()).toHaveLength(2);
     expect(library.db.repo.assetDetail(second)?.name).toBe("two");
+  });
+
+  it("files it in the folder it was made in, in the same batch (ADR-0037 §2.3)", async () => {
+    const folder = await createFolder(library, "Writing", null);
+    const id = await createAsset(library, "draft.md", text(""), { folder });
+
+    expect(library.db.repo.folderIdsFor(id)).toEqual([folder]);
+    await library.rebuild();
+    expect(library.db.repo.folderIdsFor(id)).toEqual([folder]);
+  });
+
+  it("writes no file for a folder the library does not have", async () => {
+    await expect(
+      createAsset(library, "draft.md", text(""), { folder: 999 }),
+    ).rejects.toBeInstanceOf(UnknownFolderError);
+    expect(library.db.repo.allIds()).toHaveLength(0);
+    // `files/` is made lazily, by the first write, so its absence is the answer.
+    await expect(readdir(join(library.root, "files"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("survives a rebuild, because creating one is an ordinary add", async () => {

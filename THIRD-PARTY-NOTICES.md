@@ -92,10 +92,14 @@ copyright notice and the disclaimer must appear in the distributed licence texts
 Workspace packages (`@roost/*`) are Roost's own and are not listed. Type-only packages are
 omitted because they are erased at build time and reach no artifact.
 
-**MIT** — 93 packages
+**MIT** — 120 packages
 
-`@floating-ui/core` · `@floating-ui/dom` · `@floating-ui/react-dom` · `@floating-ui/utils` ·
-`@hyzyla/pdfium` · `@img/colour` · `@napi-rs/blake-hash` · `@napi-rs/blake-hash-linux-x64-gnu` ·
+`@codemirror/autocomplete` · `@codemirror/commands` · `@codemirror/lang-css` ·
+`@codemirror/lang-html` · `@codemirror/lang-javascript` · `@codemirror/lang-markdown` ·
+`@codemirror/language` · `@codemirror/lint` · `@codemirror/state` · `@codemirror/streamparser` ·
+`@codemirror/view` · `@floating-ui/core` · `@floating-ui/dom` · `@floating-ui/react-dom` · `@floating-ui/utils` ·
+`@hyzyla/pdfium` · `@img/colour` · `@lezer/common` · `@lezer/css` · `@lezer/highlight` ·
+`@lezer/html` · `@lezer/javascript` · `@lezer/lr` · `@lezer/markdown` · `@marijn/find-cluster-break` · `@napi-rs/blake-hash` · `@napi-rs/blake-hash-linux-x64-gnu` ·
 `@radix-ui/number` · `@radix-ui/primitive` · `@radix-ui/react-accessible-icon` ·
 `@radix-ui/react-accordion` · `@radix-ui/react-alert-dialog` · `@radix-ui/react-arrow` ·
 `@radix-ui/react-aspect-ratio` · `@radix-ui/react-avatar` · `@radix-ui/react-checkbox` ·
@@ -118,15 +122,24 @@ omitted because they are erased at build time and reach no artifact.
 `@radix-ui/react-use-is-hydrated` · `@radix-ui/react-use-layout-effect` ·
 `@radix-ui/react-use-previous` · `@radix-ui/react-use-rect` · `@radix-ui/react-use-size` ·
 `@radix-ui/react-visually-hidden` · `@radix-ui/rect` · `aria-hidden` · `base64-js` ·
-`better-sqlite3` · `brotli` · `clone` · `detect-node-es` · `dfa` · `fast-deep-equal` · `fontkit`
-· `get-nonce` · `node-addon-api` · `pako` · `radix-ui` · `react` · `react-dom` ·
+`better-sqlite3` · `brotli` · `clone` · `crelt` · `detect-node-es` · `dfa` · `fast-deep-equal` · `fontkit`
+· `get-nonce` · `linkify-it` · `markdown-it` · `mdurl` · `node-addon-api` · `pako` · `punycode.js` · `radix-ui` · `react` · `react-dom` ·
 `react-remove-scroll` · `react-remove-scroll-bar` · `react-style-singleton` · `restructure` ·
-`scheduler` · `tiny-inflate` · `unicode-properties` · `unicode-trie` · `use-callback-ref` ·
-`use-sidecar`
+`scheduler` · `style-mod` · `tiny-inflate` · `uc.micro` · `unicode-properties` · `unicode-trie` · `use-callback-ref` ·
+`use-sidecar` · `w3c-keyname`
 
 **Apache-2.0** — 4 packages
 
 `@img/sharp-linux-x64` · `@swc/helpers` · `detect-libc` · `sharp`
+
+**BSD-2-Clause** — 1 package
+
+`entities`
+
+**Python-2.0** — 1 package
+
+`argparse`, which `markdown-it` names for its command-line tool; the window's bundle does not carry
+it (ADR-0070 §3.3).
 
 **ISC** — 1 package
 
@@ -148,7 +161,13 @@ omitted because they are erased at build time and reach no artifact.
 
 ## 4. Fonts, icons, and brand assets
 
-Roost's interface uses the operating system's font stack and ships no font files — invariant 7
-forbids a webfont, and no local one was added. The wordmark, the icon, and everything under
+Roost's interface uses the operating system's font stack — invariant 7 forbids a webfont, and the
+window loads no font file.
+
+**One font ships, for thumbnails only** (ADR-0070): **Noto Sans Mono** Regular, version 2.006,
+© 2015 Google LLC, under the **SIL Open Font License 1.1**, at
+`packages/media/fonts/NotoSansMono-Regular.ttf` with the licence beside it in
+`packages/media/fonts/OFL.txt`. The engine lays out the first lines of a text file with it and draws
+the outlines; the font is not modified, not sold on its own, and not used by the window. The wordmark, the icon, and everything under
 `assets/brand/` are Digitalku's own work and are **not** covered by any of the licences above:
 they are trademarks, and the licence to use Roost is not a licence to use its name or its mark.

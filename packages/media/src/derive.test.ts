@@ -75,6 +75,29 @@ describe("deriving what a file is worth", () => {
     expect(outcome.metadata.height).toBe(40);
   });
 
+  it("draws a Markdown file's first lines (ADR-0070)", async () => {
+    const path = await put("notes.md", "# Shopping\n\n- milk\n- bread\n");
+    const outcome = await derive(path, [GRID_SIZE]);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.thumbnails).toHaveLength(1);
+    // A sheet is square and says so by saying nothing: a cell with no
+    // dimensions lays out square.
+    expect(outcome.metadata.width).toBeUndefined();
+  });
+
+  it("parks a .txt that is not text as it parked before, and an empty one as empty", async () => {
+    const binary = await put("dump.txt", Buffer.from([0x41, 0x00, 0x42, 0x00, 0x43]));
+    expect(await derive(binary, [GRID_SIZE])).toEqual({
+      ok: false,
+      reason: "unsupported:unknown",
+    });
+
+    const empty = await put("blank.md", "\n\n");
+    expect(await derive(empty, [GRID_SIZE])).toEqual({ ok: false, reason: "empty:text" });
+  });
+
   it("reads a font's names and draws its specimen", async () => {
     const path = await put("fixture.ttf", makeFont({ family: "Timber Sans", style: "Bold" }));
 

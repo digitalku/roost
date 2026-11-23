@@ -1,5 +1,6 @@
+import { EditorView } from "@codemirror/view";
 import type { AssetKind, WireAssetDetail, WireComment } from "@roost/contract";
-import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ASSET_DRAG_TYPE } from "../dnd.js";
@@ -86,14 +87,215 @@ describe("the preview pane", () => {
     expect(document.querySelector("iframe, object, embed")).toBeNull();
   });
 
-  it("hands a text file to the application that owns it", async () => {
-    // A viewer and an editor were built on 2026-09-03 and withdrawn on
-    // 2026-09-04: showing a text file means owning an editor to go with it, and
-    // an external editor is enough. So a `.txt` reaches the same place every
-    // format Roost cannot draw does.
-    show("other", "txt");
+  it("hands a file it cannot show to the application that owns it", async () => {
+    show("other", "zip");
     expect(await screen.findByRole("button", { name: "Open externally" })).toBeDefined();
     expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  describe("Markdown and plain text (ADR-0070)", () => {
+    /** The editor on screen (ADR-0070 §8). */
+    const editor = (): EditorView => {
+      const dom = document.querySelector(".cm-editor");
+      const view = dom instanceof HTMLElement ? EditorView.findFromDOM(dom) : null;
+      if (view === null) throw new Error("no editor on screen");
+      return view;
+    };
+    /**
+     * Types at the end, through the editor's own API: happy-dom has no layout
+     * and no input events of the kind CodeMirror reads, so typing into its DOM
+     * proves nothing about it. A real window does (`check-text.mjs`).
+     */
+    const typeAtEnd = (text: string): void => {
+      const view = editor();
+      const end = view.state.doc.length;
+      view.dispatch({
+        changes: { from: end, insert: text },
+        selection: { anchor: end + text.length },
+      });
+    };
+
+    const text = (body: string, over: Record<string, unknown> = {}) => ({
+      texts: {
+        [HASH]: {
+          kind: "text" as const,
+          text: body,
+          encoding: "utf-8" as const,
+          crlf: false,
+          truncated: false,
+          editable: true,
+          size: body.length,
+          mtimeMs: 1_000,
+          ...over,
+        },
+      },
+    });
+
+    it("draws Markdown rendered, with raw HTML escaped and images left as words", async () => {
+      show(
+        "text",
+        "md",
+        {},
+        text(
+          "# Title\n\n<script>alert(1)</script>\n\n![a cat](cat.png) [site](https://example.com)",
+        ),
+      );
+      expect(await screen.findByRole("heading", { name: "Title" })).toBeDefined();
+      // `html: false`: the tag is text on screen, never an element.
+      expect(document.querySelector(".text-markdown script")).toBeNull();
+      expect(screen.getByText(/<script>alert\(1\)<\/script>/)).toBeDefined();
+      expect(document.querySelector(".text-markdown img")).toBeNull();
+      expect(screen.getByText("a cat")).toBeDefined();
+    });
+
+    it("opens an http link in the system's browser, and never in the window", async () => {
+      const user = show("text", "md", {}, text("[site](https://example.com) [local](notes.md)"));
+      await user.click(await screen.findByRole("link", { name: "site" }));
+      await user.click(screen.getByRole("link", { name: "local" }));
+      expect(engine.seen.filter((r) => r.type === "link:open")).toEqual([
+        { type: "link:open", url: "https://example.com" },
+      ]);
+    });
+
+    it("shows plain text as it is, and edits it only after Edit", async () => {
+      const user = show("text", "txt", {}, text("line one\n# not a heading"));
+      expect(await screen.findByText(/# not a heading/)).toBeDefined();
+      expect(screen.queryByRole("heading")).toBeNull();
+      expect(screen.queryByRole("textbox")).toBeNull();
+
+      // The arrows still step while reading.
+      await user.keyboard("{ArrowRight}");
+      expect(steps).toEqual([1]);
+
+      await user.click(screen.getByRole("button", { name: "Edit" }));
+      const field = screen.getByRole("textbox", { name: "Edit one.txt" });
+      await waitFor(() => expect(document.activeElement).toBe(field));
+      // While editing, an arrow moves the caret rather than stepping.
+      await user.keyboard("{ArrowRight}");
+      expect(steps).toEqual([1]);
+
+      typeAtEnd("!");
+      await user.keyboard("{Control>}s{/Control}");
+      await waitFor(() =>
+        expect(engine.seen.filter((r) => r.type === "asset:saveText")).toEqual([
+          {
+            type: "asset:saveText",
+            id: HASH,
+            text: "line one\n# not a heading!",
+            size: 24,
+            mtimeMs: 1_000,
+            bom: false,
+            crlf: false,
+            force: false,
+          },
+        ]),
+      );
+    });
+
+    it("has no Save button: Done saves, and so do closing and stepping (ADR-0070 §9)", async () => {
+      const user = show("text", "md", {}, text("draft"));
+      await user.click(await screen.findByRole("button", { name: "Edit" }));
+      expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+
+      typeAtEnd(" one");
+      await user.click(screen.getByRole("button", { name: "Done" }));
+      await waitFor(() => expect(engine.savedTexts.get(HASH)).toBe("draft one"));
+      expect(document.querySelector(".cm-editor")).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Edit" }));
+      typeAtEnd(" two");
+      await user.click(screen.getByRole("button", { name: "Next asset" }));
+      await waitFor(() => expect(steps).toEqual([1]));
+      expect(engine.savedTexts.get(HASH)).toBe("draft one two");
+
+      typeAtEnd(" three");
+      await user.click(screen.getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(closed).toBe(1));
+      expect(engine.savedTexts.get(HASH)).toBe("draft one two three");
+      // One save each, and none for leaving with nothing new.
+      expect(engine.seen.filter((r) => r.type === "asset:saveText")).toHaveLength(3);
+    });
+
+    it("leaves nothing to save when nothing was typed", async () => {
+      const user = show("text", "md", {}, text("draft"));
+      await user.click(await screen.findByRole("button", { name: "Edit" }));
+      await user.click(screen.getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(closed).toBe(1));
+      expect(engine.seen.some((r) => r.type === "asset:saveText")).toBe(false);
+    });
+
+    it("stays open when leaving would undo a save made elsewhere", async () => {
+      const user = show("text", "md", {}, { ...text("mine"), textConflicts: 1 });
+      await user.click(await screen.findByRole("button", { name: "Edit" }));
+      typeAtEnd("!");
+      await user.click(screen.getByRole("button", { name: "Close" }));
+
+      expect(await screen.findByRole("alert")).toBeDefined();
+      expect(closed).toBe(0);
+      expect(document.querySelector(".cm-editor")).not.toBeNull();
+    });
+
+    it("saves an edit left by any other way out", async () => {
+      const user = show("text", "md", {}, text("draft"));
+      await user.click(await screen.findByRole("button", { name: "Edit" }));
+      typeAtEnd(" kept");
+      // The pane goes without being asked: a sidebar row, a search.
+      cleanup();
+      await waitFor(() => expect(engine.savedTexts.get(HASH)).toBe("draft kept"));
+    });
+
+    it("refuses to undo a save made elsewhere, and offers to save anyway", async () => {
+      const user = show("text", "md", {}, { ...text("mine"), textConflicts: 1 });
+      await user.click(await screen.findByRole("button", { name: "Edit" }));
+      typeAtEnd("!");
+      await user.keyboard("{Control>}s{/Control}");
+
+      expect(await screen.findByRole("alert")).toBeDefined();
+      expect(engine.savedTexts.has(HASH)).toBe(false);
+      await user.click(screen.getByRole("button", { name: "Save anyway" }));
+      await waitFor(() => expect(engine.savedTexts.get(HASH)).toBe("mine!"));
+      expect(engine.seen.filter((r) => r.type === "asset:saveText").at(-1)).toMatchObject({
+        force: true,
+      });
+    });
+
+    it("opens the editor from a click on the text, but not from a link", async () => {
+      const user = show(
+        "text",
+        "md",
+        {},
+        text("# Title\n\nSome words. [site](https://example.com)"),
+      );
+      await user.click(await screen.findByRole("link", { name: "site" }));
+      expect(document.querySelector(".cm-editor")).toBeNull();
+
+      await user.click(screen.getByText(/Some words/));
+      expect(await screen.findByRole("textbox", { name: "Edit one.md" })).toBeDefined();
+      expect(editor().state.doc.toString()).toBe(
+        "# Title\n\nSome words. [site](https://example.com)",
+      );
+    });
+
+    it("leaves a selection made by dragging as a selection", async () => {
+      show("text", "txt", {}, text("copy this"));
+      const pre = await screen.findByText("copy this");
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      // The click that ends a drag, which leaves the selection in place; a
+      // simulated press would collapse it first.
+      fireEvent.click(pre);
+      expect(document.querySelector(".cm-editor")).toBeNull();
+      window.getSelection()?.removeAllRanges();
+    });
+
+    it("offers no edit for a file read as something other than UTF-8", async () => {
+      show("text", "txt", {}, text("Café", { encoding: "windows-1252", editable: false }));
+      const edit = await screen.findByRole("button", { name: "Edit" });
+      expect(edit.hasAttribute("disabled")).toBe(true);
+      expect(screen.getByText(/Read as windows-1252/)).toBeDefined();
+    });
   });
 
   it("hangs a caption track on the video, and never turns it on by itself", async () => {

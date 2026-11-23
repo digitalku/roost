@@ -85,6 +85,15 @@ export {
   syntheticFormatForExtension,
 } from "./synth.js";
 export {
+  type DecodedText,
+  decodeText,
+  encodeText,
+  isWritableEncoding,
+  renderTextPreview,
+  TEXT_ENCODINGS,
+  type TextEncoding,
+} from "./text.js";
+export {
   EAGER_SIZES,
   GRID_SIZE,
   generateThumbnails,

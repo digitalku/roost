@@ -93,6 +93,7 @@ import {
   readFacetVocabulary,
   readSidebar,
   readTagList,
+  readText,
   reclaim,
   reclaimableBytes,
   refreshThumbnails,
@@ -110,6 +111,7 @@ import {
   retryBlocked,
   retryFailed,
   runDerives,
+  saveText,
   sectionedPage,
   setComment,
   setNote,
@@ -387,11 +389,33 @@ export class EngineHost {
             this.#require(),
             request.name,
             new TextEncoder().encode(request.text),
+            request.folder === null ? {} : { folder: request.folder },
           );
           // Always a new asset in version 2, so the derive always has work.
           this.#requested.open(parseAssetId(id));
           void this.#runDerives();
           return { id };
+        });
+
+      // Text read for the pane's own view and saved from it (ADR-0070 §3.4).
+      case "asset:readText":
+        return readText(this.#require(), parseAssetId(request.id));
+
+      case "asset:saveText":
+        return this.#editReporting(async () => {
+          const id = parseAssetId(request.id);
+          const saved = await saveText(this.#require(), id, {
+            text: request.text,
+            size: request.size,
+            mtimeMs: request.mtimeMs,
+            bom: request.bom,
+            crlf: request.crlf,
+            force: request.force,
+          });
+          // `saveEdit` queued the derive; somebody is looking at this file.
+          this.#requested.open(id);
+          void this.#runDerives();
+          return saved;
         });
 
       case "asset:addSubtitle":

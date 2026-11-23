@@ -131,9 +131,22 @@ that is not reachable at all while a file is on screen.
 | --- | --- |
 | **New file…** | The dialog of §3.4, with an empty name |
 | **New text document…** | The same dialog, with `.txt` already typed and the caret in front of it |
+| **New Markdown file…** | The same dialog with `.md` typed; once made, the file opens in the preview, in Edit (ADR-0070) |
+| **New folder…** | The folder dialog of ADR-0033 §9: a subfolder of the folder on screen, or a folder at the top of the tree where none is |
 | **Import files…** | A file chooser. `Ctrl+I` |
 | **Import folder…** | A directory chooser. `Ctrl+Shift+I` |
 | **Import from Eagle…** | A directory chooser for one Eagle library, then §3.8 |
+
+**Everything Add makes or brings in lands in the folder on screen** (ADR-0037 §2.3). A new file and
+an import join it, and **New folder…** makes a subfolder of it, as the sidebar's *New subfolder*
+does. The folder is the one the **place** is, not the query: a folder with a tag ticked in the
+filter bar is still the folder somebody is in, and with *Show subfolder contents* on it is still
+that folder, never one of the subfolders the grid also draws. Outside a folder — All assets, Recent,
+No folder, a smart folder, a search — nothing is filed, and a new folder goes at the top of the tree.
+The folder is read when the dialog opens or the run starts, and the New file dialog names it
+(*It goes into Design.*). A paste lands the same way. **New folder…** sits in a group of its own
+between the two, because a folder is neither bytes made here nor bytes taken from the filesystem,
+and it stays enabled while an import runs.
 
 **The two import items are two dialogs, not one dialog filtered.** A chooser given both `openFile`
 and `openDirectory` is drawn as a *file* chooser on GTK, macOS and Windows alike, and merely permits
@@ -667,13 +680,13 @@ one guess the dialog can make, made where the menu has already said what was wan
 **not an answer**: **Create** stays disabled until something is typed in front of it, or the file
 would be called `.txt`.
 
-**The library holds one empty file however many are made**, and that is reported rather than
-prevented: every empty file has the same hash, and `assets.hash` is the primary key, so the second
-answers with the first under the first one's name. The status bar says so. An external editor
-cannot fill one in afterwards either — originals are immutable and addressed by their content, so
-editing outside writes bytes belonging to a *different* asset. Asking for contents as well was
-tried on 2026-09-04 and withdrawn the next day: the dialog asks the question it does not know the
-answer to, and no more.
+**Two empty files made in a row are two assets**: an id is minted rather than derived from the bytes
+(ADR-0046), and an external editor fills one in by writing over it (RL-20). Asking for contents as
+well was tried on 2026-09-04 and withdrawn the next day: the dialog asks the question it does not
+know the answer to, and no more.
+
+**It lands in the folder on screen** (§1, ADR-0037 §2.3), read as the dialog opens, and the
+description says which: *It goes into Design.* The status bar then says *Made notes.md in Design*.
 
 Words from the clipboard become the contents without a field, because pasting has already said
 what they are; the dialog says how many characters it is about to keep.
@@ -2055,7 +2068,7 @@ window check.
 | Video / audio | `<video>` / `<audio>` over `roost://file/`, which answers range requests, under a transport of ours — `controls` is off. **Fit** in the head scales a small video up to the pane |
 | PDF | Page-through: `PageUp` / `PageDown` and two buttons, each page an `<img>` over `roost://page/<hash>/<n>@1024`. Arrow keys keep stepping between assets, so a document does not trap the keyboard |
 | Font | The specimen sheet the derive pass drew, with the family and style under it |
-| Text | The file itself, monospace, wrapped, with the encoding named under it — `.txt`, `.md`, `.srt`, a log. **Edit** makes it a textarea in the same box |
+| Text | `.md` rendered, `.txt` as itself in monospace, wrapped, with the encoding named under it when it is not plain UTF-8. A click or **Edit** makes it an editor in the same box, Markdown drawn as it is written (ADR-0070) |
 | Anything else | The thumbnail, the metadata, and **Open externally** |
 
 **A photograph can be looked at closely.** Asked for on 2026-09-07 — *"jika view foto. tambahkan
@@ -2181,16 +2194,43 @@ pixel and the grid behind the preview must not re-render for a number it does no
 The transport is drawn whether or not anything is on the timeline, so writing the first comment
 does not move the picture it is about.
 
-**Text is handed to the application that owns it.** A viewer and an editor were built on
-2026-09-03 and withdrawn on 2026-09-04, at the user's word: an external editor is enough, and
-showing a text file in the pane means owning an editor to go with it — the encoding, the page
-keys, four refusals, and a save that produces a new asset. So a `.txt` and a `.srt` reach the same
-place every format Roost cannot draw does.
+**Markdown and plain text are read and edited here** (ADR-0070). A viewer and an editor were built
+on 2026-09-03 and withdrawn the next day, when a save still made a new asset; ADR-0046 made a save a
+write, and the owner asked again on 2026-11-23.
 
-**What that costs is worth saying**, because it is why the decision could have gone either way:
-nothing in the window can change an asset's contents, and a subtitle cannot be read without
-leaving Roost. `roost save` keeps the capability in the CLI, where it is a deliberate command
-rather than a pane that has to be defended.
+- **Read first.** A `.md` or `.markdown` is drawn rendered by `markdown-it` with raw HTML escaped, so
+  nothing a file says becomes an element of the window. An `http(s)` link opens in the system's
+  browser (`link:open`) and nothing else is followed; an image is not drawn, and shows its alt text
+  in a dashed box. A `.txt` is drawn as itself, monospace and wrapped. The column is at most 820 px
+  wide and scrolls on its own.
+- **A click on the text opens the editor** with the caret where the click landed (ADR-0070 §8.1):
+  exact for a `.txt`, and for Markdown the clicked block's source line and the words after the
+  click. A click on a link still opens the link, and a drag that selects text stays a selection.
+  **Edit** in the head, or `E` with the pane focused, opens it too, the caret at the top.
+- **The editor is CodeMirror 6, drawing Markdown as it is written** (ADR-0070 §8.2). A heading's
+  whole line is large and bold as soon as `## ` is typed; bold, italic, strikethrough, links and
+  code are drawn as such; the marks (`##`, `**`, backticks, a link's URL) stay, dimmed, so what is on
+  screen is what is saved. A bullet list's `-`, `*` or `+` is drawn as `•` and stays in the file.
+  **Enter continues a list** (`- `, `1. ` to `2. `, `- [ ] `) and Enter in an empty item ends it;
+  Backspace at an item's start removes its mark; Tab and Shift+Tab indent. A `.txt` gets the same
+  editor without the styling. There an arrow moves the caret and nothing in the window reads the
+  keys.
+- **There is no Save button: leaving saves** (ADR-0070 §9). **Done** (`Escape`) writes the edit and
+  goes back to reading; stepping to another asset and **Close** write it and then step or close; any
+  other way out — a sidebar row, a search — writes it as the editor goes. `Ctrl+S` saves on the spot
+  and stays. Nothing typed, nothing written. The head shows *Saving…* on Done while it writes.
+- **Edit is offered for UTF-8 read whole.** A file read as Windows-1252 or UTF-16, or one over 2 MB
+  of which only the start was read, is shown with a note saying so and Edit disabled, its title
+  saying why: saving it would change bytes nobody edited, or lose the rest. A byte-order mark and CRLF
+  line endings are written back as they were read.
+- **A save made elsewhere is not undone.** If the file changed on disk after it was opened, the
+  save is refused and Done, the step or Close stays where it was, with a bar saying so: **Reload**
+  (the file as it is now, the edit let go) and **Save anyway**. Leaving by another door then writes
+  nothing, and the other application's save stands. While nobody is editing, a file saved in another application is read again when the
+  watcher has re-derived it (ADR-0047).
+- A file with a text extension that holds something else says so, with **Open externally**.
+
+`.srt` stays a subtitle (ADR-0025) and other text formats stay `other`, for now.
 
 **A caption track is a `<track>`, served as WebVTT** (ADR-0025). The `.srt` is an ordinary asset in
 the library; `roost://subtitle/<hash>` converts it on the way out, because `<track>` accepts WebVTT
@@ -2446,6 +2486,15 @@ In the preview, with a picture open (§7):
 | Key | Action |
 | --- | --- |
 | `+` / `-` | Zoom in · out, about the middle of the pane. Not a digit: `0`–`5` set the rating on the selection, and a preview does not take that away from the asset it is showing |
+
+In the preview, with a Markdown or text file open (ADR-0070):
+
+| Key | Action |
+| --- | --- |
+| `E` | Edit, where the file may be edited. Read only while the pane itself has focus. A click on the text does the same, with the caret there |
+| `Enter` | In a Markdown list, the next item; in an empty item, the end of the list |
+| `Ctrl+S` | Save over the file, in the editor, and stay. Every other key typed there is the editor's: the arrows move the caret |
+| `Escape` | In the editor, Done: save and go back to reading |
 
 In the preview, with a video or an audio file open (ADR-0024):
 

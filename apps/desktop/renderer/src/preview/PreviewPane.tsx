@@ -10,6 +10,7 @@ import { fallbackToGrid, gridSrc, previewSrc, showLoaded } from "../thumbnail.js
 import { Picture, type PictureHandle } from "./Picture.js";
 import { playhead, SKIP_MS } from "./playhead.js";
 import { sound } from "./sound.js";
+import { type TextHandle, TextView } from "./TextView.js";
 import { Transport } from "./Transport.js";
 import { Unshowable } from "./Unshowable.js";
 
@@ -87,6 +88,11 @@ export interface PreviewPaneProps {
    * both are held.
    */
   readonly onDragOut?: (ids: readonly string[]) => boolean;
+  /**
+   * The asset to open straight into Edit, if it is a text file: the Markdown
+   * file somebody has just made (ADR-0070 §3.2).
+   */
+  readonly editOnOpen?: string | undefined;
 }
 
 /**
@@ -181,6 +187,7 @@ export function PreviewPane({
   onFitVideo,
   menu,
   onDragOut,
+  editOnOpen,
 }: PreviewPaneProps): React.JSX.Element {
   const [detail, setDetail] = useState<WireAssetDetail | undefined>();
   const [page, setPage] = useState(0);
@@ -193,6 +200,22 @@ export function PreviewPane({
    * holds the focus. This ref is the whole of the line between the two.
    */
   const picture = useRef<PictureHandle>(null);
+  /** The text on screen, if what is on screen is a text file (ADR-0070). */
+  const text = useRef<TextHandle>(null);
+  /**
+   * Saves an unsaved text edit, then does what was asked: closing the pane,
+   * stepping, or leaving the editor (ADR-0070 §9). A refused save does nothing
+   * more, so the editor stays with the refusal on screen.
+   */
+  const saveThen = useCallback((then: () => void) => {
+    void (async () => {
+      const editor = text.current;
+      if (editor?.dirty() && !(await editor.save())) return;
+      then();
+    })();
+  }, []);
+  const close = useCallback(() => saveThen(onClose), [saveThen, onClose]);
+  const step = useCallback((delta: -1 | 1) => saveThen(() => onStep(delta)), [saveThen, onStep]);
   /**
    * The slot at the head of the pane, for whatever is on screen to draw into.
    *
@@ -271,15 +294,28 @@ export function PreviewPane({
         }
         if (event.key === "Escape") {
           event.preventDefault();
-          onClose();
+          close();
         }
         if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
           event.preventDefault();
-          onStep(-1);
+          step(-1);
         }
         if (event.key === "ArrowRight" || event.key === "ArrowDown") {
           event.preventDefault();
-          onStep(1);
+          step(1);
+        }
+        // Edit, on a text file that may be edited (ADR-0070 §3.2). Only from
+        // the pane itself, so `E` in a field of the head stays a letter.
+        if (
+          event.key.toLowerCase() === "e" &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.altKey &&
+          event.target === event.currentTarget &&
+          text.current !== null
+        ) {
+          event.preventDefault();
+          text.current.edit();
         }
         // Zoom, where there is something to zoom (`UI_SPEC.md` §7). `+` and
         // `-` rather than a digit: `0`–`5` set the rating on the selection
@@ -330,7 +366,7 @@ export function PreviewPane({
           aria-label="Previous asset"
           title="Previous asset"
           disabled={!hasPrevious}
-          onClick={() => onStep(-1)}
+          onClick={() => step(-1)}
         >
           <Arrow back />
         </button>
@@ -340,11 +376,11 @@ export function PreviewPane({
           aria-label="Next asset"
           title="Next asset"
           disabled={!hasNext}
-          onClick={() => onStep(1)}
+          onClick={() => step(1)}
         >
           <Arrow />
         </button>
-        <button type="button" onClick={onClose}>
+        <button type="button" onClick={close}>
           Close
         </button>
       </header>
@@ -358,6 +394,9 @@ export function PreviewPane({
             tools={tools}
             fitVideo={fitVideo}
             onFitVideo={onFitVideo}
+            textRef={text}
+            editOnOpen={editOnOpen === detail.id}
+            saveThen={saveThen}
           />
         )}
       </div>
@@ -381,6 +420,9 @@ function Stage({
   tools,
   fitVideo,
   onFitVideo,
+  textRef,
+  editOnOpen,
+  saveThen,
 }: {
   readonly detail: WireAssetDetail;
   readonly page: number;
@@ -390,6 +432,9 @@ function Stage({
   readonly tools: HTMLElement | null;
   readonly fitVideo: boolean;
   readonly onFitVideo: (on: boolean) => void;
+  readonly textRef: React.RefObject<TextHandle | null>;
+  readonly editOnOpen: boolean;
+  readonly saveThen: (then: () => void) => void;
 }): React.JSX.Element {
   const original = `roost://file/${detail.id}`;
 
@@ -442,6 +487,20 @@ function Stage({
 
   if (detail.kind === "font") {
     return <Specimen key={detail.id} detail={detail} />;
+  }
+
+  // Markdown and plain text, read and edited here (ADR-0070).
+  if (detail.kind === "text") {
+    return (
+      <TextView
+        key={detail.id}
+        detail={detail}
+        tools={tools}
+        editOnOpen={editOnOpen}
+        saveThen={saveThen}
+        ref={textRef}
+      />
+    );
   }
 
   return <Fallback detail={detail} />;

@@ -70,7 +70,9 @@ export interface Capability {
 /** Which backend owns which format. The one table `derive` dispatches through. */
 export const CAPABILITY_FORMATS: Readonly<Record<CapabilityName, readonly Format[]>> = {
   images: ["jpeg", "png", "webp", "gif", "tiff", "avif", "raw"],
-  vectors: ["svg", "ttf", "otf", "woff", "woff2"],
+  // A text file is drawn as outlines through the same rasteriser as a font's
+  // specimen (ADR-0070 §3.5), so it is this backend's.
+  vectors: ["svg", "ttf", "otf", "woff", "woff2", "text"],
   documents: ["pdf"],
   media: ["mp4", "mkv", "webm", "ogg", "flac", "mp3", "wav"],
   // `heic` is the whole of it, and it is deliberately not in `images`: sharp

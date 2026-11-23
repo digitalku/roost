@@ -1,3 +1,4 @@
+import { extname } from "node:path";
 import type { DerivedMetadata } from "@roost/core";
 import { capability, capabilityFor, mediaDecoders } from "./capability.js";
 import { readDimensions, renderThumbnails, type Thumbnail } from "./decoder.js";
@@ -10,11 +11,12 @@ import {
   waveformPeaks,
 } from "./ffmpeg.js";
 import { readFont, renderSpecimen } from "./font.js";
-import type { Format } from "./format.js";
+import { type Format, formatFromExtension } from "./format.js";
 import { decodeHeif } from "./heif.js";
 import { sniffFile } from "./probe.js";
 import { looksLikeRaw, type RawFacts, readRaw } from "./raw.js";
 import { EAGER_SIZES } from "./serving.js";
+import { decodeText, readTextStart, renderTextPreview } from "./text.js";
 import { rasteriseSvgFile, VECTOR_RENDER_WIDTH } from "./vector.js";
 import { drawWaveform } from "./waveform.js";
 
@@ -69,7 +71,13 @@ export async function derive(
   sizes: readonly number[] = EAGER_SIZES,
   posterMs?: number,
 ): Promise<DeriveOutcome> {
-  const format = await sniffFile(path);
+  const sniffed = await sniffFile(path);
+  // Text has no signature, so a file the bytes cannot name is named by its
+  // extension when that says text, and the bytes then confirm it (ADR-0070).
+  const format =
+    sniffed === "unknown" && formatFromExtension(extname(path).slice(1)) === "text"
+      ? "text"
+      : sniffed;
   const backend = capabilityFor(format);
 
   if (backend === undefined) return { ok: false, reason: `unsupported:${format}` };
@@ -187,6 +195,7 @@ async function deriveVector(
   format: Format,
   sizes: readonly number[],
 ): Promise<DeriveOutcome> {
+  if (format === "text") return deriveText(path, sizes);
   if (format === "svg") {
     const raster = await rasteriseSvgFile(path, VECTOR_RENDER_WIDTH);
     return {
@@ -286,5 +295,28 @@ async function deriveMedia(
       sizes,
     ),
     metadata,
+  };
+}
+
+/**
+ * A text file's first lines (ADR-0070 §3.5).
+ *
+ * Two ways to have nothing to draw, and both park rather than fail: bytes that
+ * are not text after all are `unsupported:unknown`, which is what they were
+ * before this build, and an empty file is `empty:text` until somebody writes
+ * in it — a save queues it again. No dimensions: a sheet is square, and a cell
+ * with none lays out square.
+ */
+async function deriveText(path: string, sizes: readonly number[]): Promise<DeriveOutcome> {
+  const start = await readTextStart(path);
+  const decoded = decodeText(start, false);
+  if (decoded === undefined) return { ok: false, reason: "unsupported:unknown" };
+  const markdown = /\.(md|markdown)$/i.test(path);
+  const raster = await renderTextPreview(decoded.text, markdown, VECTOR_RENDER_WIDTH);
+  if (raster === undefined) return { ok: false, reason: "empty:text" };
+  return {
+    ok: true,
+    thumbnails: await renderThumbnails({ bytes: raster.png }, sizes),
+    metadata: {},
   };
 }

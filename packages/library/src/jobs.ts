@@ -221,9 +221,14 @@ export interface QueueStatus {
  * An image nothing here draws — a BMP, a RAW with no embedded preview — is not
  * in this list: a picture that cannot be shown is still worth a word.
  */
-export const EXPECTED_ABSENCES: readonly string[] = FORMATS.filter(
-  (format) => kindOf(format) === "other",
-).map((format) => `unsupported:${format}`);
+export const EXPECTED_ABSENCES: readonly string[] = [
+  ...FORMATS.filter((format) => kindOf(format) === "other").map(
+    (format) => `unsupported:${format}`,
+  ),
+  // An empty text file has nothing to draw until somebody writes in it, and a
+  // save queues it again (ADR-0070 §3.5).
+  "empty:text",
+];
 
 export function queueStatus(library: Library): QueueStatus {
   const counts = library.db.repo.jobCounts();
@@ -468,7 +473,13 @@ const NAMED_ONLY: readonly string[] = FORMATS.filter(
  * 64-byte read each time a library opens.
  */
 function releaseNowNamed(library: Library): number {
-  return library.db.repo.requeueBlockedWithExt("derive", "unsupported:unknown", NAMED_ONLY);
+  return library.db.repo.requeueBlockedWithExt("derive", "unsupported:unknown", [
+    ...NAMED_ONLY,
+    // Markdown and plain text, which an older build parked as `unknown` and
+    // this one draws (ADR-0070 §3.5). A `.txt` that is not text parks the same
+    // way again, which costs one 4 KiB read each time a library opens.
+    ...extensionsNaming("text"),
+  ]);
 }
 
 /** Retries work that failed, while it is still worth retrying. */

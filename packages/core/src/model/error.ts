@@ -8,6 +8,7 @@ export const ERROR_CODES = [
   "already_a_library",
   "ambiguous_folder_name",
   "ambiguous_id",
+  "changed_on_disk",
   "dangling_reference",
   "duplicate_folder_name",
   "duplicate_tag",

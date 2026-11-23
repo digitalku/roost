@@ -276,6 +276,51 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
+### Add inside a folder (ADR-0037 §7, ADR-0033 §9) — built 2026-11-23
+
+- ☑ ~~**New file made inside a folder landed in no folder.**~~ `asset:create` carries the folder on
+  screen and `createAsset` files it in the same batch. `save.test.ts`, `import.test.tsx`.
+- ☑ ~~**An import into a folder with a filter ticked landed in no folder.**~~ The folder is the
+  place's now (`landing` in `App.tsx`), not the whole query's. `import.test.tsx`.
+- ☑ ~~**A paste landed in no folder.**~~ `clipboard:paste` carries it, reversing ADR-0037 §4's
+  sentence; to be confirmed by the owner. `import.test.tsx`.
+- ☑ ~~**Add → New folder…**~~ A subfolder of the folder on screen, or a top-level folder.
+  `import.test.tsx`.
+- 🟡 **`Delete` and *Remove from* with a filter ticked over a folder.** They still follow
+  `openFolder`, which matches the whole query, so `Delete` in *Design* with `tag:red` ticked trashes
+  rather than taking the file out of Design (ADR-0067). Whether a filter should keep them a folder's
+  is the owner's to say; the tiles (ADR-0043 §3) rightly stay exact.
+- 🟢 **No window check drives any of it.** The import chooser is native (ADR-0037 §4); New file
+  and New folder could be driven by `check-folders.mjs`.
+
+### Markdown and plain text inside Roost (ADR-0070) — accepted and built 2026-11-23
+
+- ☑ ~~**`.md` and `.txt` read, rendered and edited in the pane, saved over the file.**~~
+  `asset:readText`, `asset:saveText` with `changed_on_disk`, `TextView`, the unsaved-edit dialog.
+  `tests/text.test.ts`, `PreviewPane.test.tsx`.
+- ☑ ~~**A thumbnail of the first lines.**~~ `deriveText` in `@roost/media`, Noto Sans Mono drawn as
+  outlines. `text.test.ts`, `derive.test.ts`.
+- ☑ ~~**New Markdown file…**, opening in Edit.~~ `import.test.tsx`.
+- ☑ ~~**A click on the text is Edit; Markdown drawn as it is written; Enter continues a list.**~~
+  ADR-0070 §8, CodeMirror 6. `SourceEditor.test.tsx`, `PreviewPane.test.tsx`, `check-text.mjs`.
+- 🟢 **A click on rendered Markdown places the caret by a guess**: the block's source line and the
+  words after the click. Exact would need markdown-it's inline positions, which it does not keep.
+- 🟢 **Hiding the marks until the caret reaches the line**, as Obsidian does, was declined for now
+  (ADR-0070 §8.2); a setting if it is ever wanted.
+- ☑ ~~**A window check.**~~ `scripts/check-text.mjs`: the sheet in the grid, the preview rendered
+  with raw HTML escaped, `E` and the editor's keys, `Ctrl+S` over the file, a save made elsewhere
+  refused. 8 of 8 on 2026-11-23. It does not yet watch the thumbnail redrawn after a save.
+- 🟢 **The status bar said *2 thumbnails not drawn yet*** in that check while the `.md`'s picture
+  was on screen. Not looked into; may be the count lagging the on-screen derive (ADR-0065).
+- ☑ ~~**Leaving the preview by another door loses an edit unasked.**~~ Every way out saves since
+  ADR-0070 §9 (no Save button). `PreviewPane.test.tsx`, `check-text.mjs`.
+- 🟢 **Quitting the application with an edit open.** The editor's save on the way out is sent as
+  the window goes; whether it reaches the engine before main stops it was not tried.
+- 🟢 **The font is 510 KB, and a Latin subset would be about a fifth.** Needs `pyftsubset` or a
+  similar tool at build time; not worth a dependency yet.
+- 🟢 **Other text formats** (`.json`, `.csv`, `.log`, `.srt` as text) are `other` or subtitles still.
+  A list to extend when asked, not a rule.
+
 ### library_busy and dragging out on GNOME (ADR-0069, 2026-11-23)
 
 - ☑ ~~**`library_busy` with Roost closed.**~~ Main quit without waiting for the engine, so the
@@ -996,11 +1041,8 @@ an ordinary write, and `supersede`, `superseded_by`, `is:superseded` and `carryO
 gone. What is still true is the 2026-09-04 withdrawal: **no text editor in the window**, because
 an external one is enough.
 
-- 🟢 **A text asset has no thumbnail**, so it fails its derive job with `unsupported:text` exactly
-  as a `.zip` does. Unchanged behaviour — it was `unsupported:unknown` before — but now that text
-  is a kind, rendering the first lines into a thumbnail is a thing that could be done, and the
-  grid would stop showing a wall of identical extension badges. Not scheduled; written down so it
-  is a choice rather than an oversight.
+- ☑ ~~**A text asset has no thumbnail.**~~ Drawn from its first lines since 2026-11-23 (ADR-0070),
+  which also brought the viewer and the editor back.
 
 - 🟢 **Closed 2026-09-21 by ADR-0046: adopting a referenced asset.** There is no referenced
   mode to adopt out of — version 2 has one storage mode (RL-19). The question is gone rather than

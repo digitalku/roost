@@ -1,4 +1,4 @@
-import type { WireProblem } from "@roost/contract";
+import type { SidebarFolderRow, WireProblem } from "@roost/contract";
 import { Dialog } from "radix-ui";
 import { useRef, useState } from "react";
 import { invoke } from "./bridge.js";
@@ -11,13 +11,13 @@ import { invoke } from "./bridge.js";
  * asks the one that matters first.
  *
  * **It asks for nothing else.** The user's decision on 2026-09-05, after using
- * the version that also asked for contents: a name and a button. What that
- * costs is real and is said where it happens rather than guarded against here —
- * an empty file has one BLAKE3 id and `assets.id` is the primary key, so
- * the library holds **one** empty file however many are made, and the second
- * answers with the first. Nor can an external editor fill one in afterwards:
- * originals are immutable and addressed by their content, so editing outside
- * writes bytes that belong to a *different* asset.
+ * the version that also asked for contents: a name and a button. Two empty
+ * files made in a row are two assets, since an id is minted rather than derived
+ * from the bytes (ADR-0046), and an external editor fills one in by writing
+ * over it (RL-20).
+ *
+ * **It lands in the folder on screen**, as an import does (ADR-0037 §2.3), and
+ * says so, because a file that joins a folder is a journal line nobody typed.
  *
  * Words from the clipboard arrive as `initialText` and become the contents
  * without a field, because pasting has already said what they are (ADR-0026
@@ -35,6 +35,7 @@ import { invoke } from "./bridge.js";
 export function NewFileDialog({
   initialName,
   initialText,
+  folder,
   onClose,
   onCreated,
   onProblem,
@@ -53,6 +54,8 @@ export function NewFileDialog({
    * there is no second value to keep in step with the first.
    */
   readonly initialText: string;
+  /** The folder the file joins, or `undefined` for none (ADR-0037 §2.3). */
+  readonly folder: SidebarFolderRow | undefined;
   readonly onClose: () => void;
   /** `created` is false when the library already held those bytes. */
   readonly onCreated: (id: string, name: string) => void;
@@ -69,7 +72,12 @@ export function NewFileDialog({
 
   const create = async (): Promise<void> => {
     setSaving(true);
-    const outcome = await invoke({ type: "asset:create", name, text: initialText });
+    const outcome = await invoke({
+      type: "asset:create",
+      name,
+      text: initialText,
+      folder: folder?.folder ?? null,
+    });
     setSaving(false);
     if (!outcome.ok) return onProblem(outcome.problem);
     onCreated(outcome.value.id, name);
@@ -102,9 +110,13 @@ export function NewFileDialog({
         >
           <Dialog.Title className="dialog-title">New file</Dialog.Title>
           <Dialog.Description className="dialog-body">
-            {initialText === ""
-              ? "The name carries the extension."
-              : `The name carries the extension. It will hold the ${initialText.length} characters you pasted.`}
+            {[
+              "The name carries the extension.",
+              initialText === ""
+                ? ""
+                : ` It will hold the ${initialText.length} characters you pasted.`,
+              folder === undefined ? "" : ` It goes into ${folder.name}.`,
+            ].join("")}
           </Dialog.Description>
 
           <label className="field" htmlFor="new-file-name">

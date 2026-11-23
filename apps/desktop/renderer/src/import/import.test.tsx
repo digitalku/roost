@@ -346,6 +346,134 @@ describe("importing", () => {
     );
   });
 
+  it("imports into the folder on screen when a tag is ticked over it", async () => {
+    // ADR-0037 §2.3. A filter narrows what the folder shows; it does not move
+    // the person out of it, so a file brought in there still joins it.
+    const user = await open(WITH_DESIGN);
+    const field = screen.getByRole("searchbox", { name: "Search" });
+    await user.type(field, 'folder:"Design" tag:red{Enter}');
+    await waitFor(() =>
+      expect(engine.seen.some((r) => r.type === "query:split" && r.query.includes("tag:red"))).toBe(
+        true,
+      ),
+    );
+
+    fire("drop", [droppedFile("/photos/one.png")]);
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "import:paths")[0]).toMatchObject({ folder: 7 }),
+    );
+  });
+
+  it("imports from Add into the folder on screen", async () => {
+    const user = await open({ ...WITH_DESIGN, importDialog: ["/photos/holiday"] });
+    await user.click(screen.getByRole("button", { name: /Design/ }));
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(await screen.findByRole("menuitem", { name: /Import files…/ }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "import:paths")[0]).toMatchObject({
+        paths: ["/photos/holiday"],
+        folder: 7,
+      }),
+    );
+  });
+
+  it("makes a new file in the folder on screen, and says so", async () => {
+    // ADR-0037 §2.3: New file is a way in like an import, and a file made
+    // inside a folder that landed in none would leave the grid it was made in.
+    const user = await open(WITH_DESIGN);
+    await user.click(screen.getByRole("button", { name: /Design/ }));
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(await screen.findByRole("menuitem", { name: "New file…" }));
+
+    expect(await screen.findByText(/It goes into Design\./)).toBeDefined();
+    await user.type(screen.getByLabelText("Name"), "notes.md");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "asset:create")).toEqual([
+        { type: "asset:create", name: "notes.md", text: "", folder: 7 },
+      ]),
+    );
+    expect(await screen.findByText(/Made notes\.md in Design/)).toBeDefined();
+  });
+
+  it("makes a Markdown file from Add and opens it to be written in (ADR-0070)", async () => {
+    const user = await open(WITH_DESIGN);
+    await user.click(screen.getByRole("button", { name: /Design/ }));
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(await screen.findByRole("menuitem", { name: "New Markdown file…" }));
+
+    const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
+    expect(name.value).toBe(".md");
+    await user.type(name, "plan", { initialSelectionStart: 0, initialSelectionEnd: 0 });
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "asset:create")).toEqual([
+        { type: "asset:create", name: "plan.md", text: "", folder: 7 },
+      ]),
+    );
+    // Straight into the editor, which has the keyboard.
+    const editor = await screen.findByRole("textbox", { name: "Edit plan.md" });
+    await waitFor(() => expect(document.activeElement).toBe(editor));
+  });
+
+  it("pastes into the folder on screen", async () => {
+    const user = await open({
+      ...WITH_DESIGN,
+      assets: [],
+      stats: { assets: 0 },
+      clipboard: { kind: "empty" },
+    });
+    await user.click(screen.getByRole("button", { name: /Design/ }));
+    const empty = await screen.findByText("Nothing matches this query.");
+    empty.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await user.click(await screen.findByRole("menuitem", { name: "Paste" }));
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "clipboard:paste")).toEqual([
+        { type: "clipboard:paste", take: "copy", folder: 7 },
+      ]),
+    );
+  });
+
+  it("makes a subfolder of the folder on screen from Add → New folder", async () => {
+    // ADR-0033 §8: the sidebar's *New subfolder*, reached from where the
+    // person already is.
+    const user = await open(WITH_DESIGN);
+    await user.click(screen.getByRole("button", { name: /Design/ }));
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(await screen.findByRole("menuitem", { name: "New folder…" }));
+
+    expect(await screen.findByText("Inside Design.")).toBeDefined();
+    const name = screen.getByLabelText("Name");
+    // The menu does not hand the focus back over the dialog it opened.
+    expect(document.activeElement).toBe(name);
+    await user.type(name, "Icons{Enter}");
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "folder:create")).toEqual([
+        { type: "folder:create", name: "Icons", parent: 7 },
+      ]),
+    );
+  });
+
+  it("makes a top-level folder from Add → New folder where no folder is open", async () => {
+    const user = await open(WITH_DESIGN);
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(await screen.findByRole("menuitem", { name: "New folder…" }));
+
+    await user.type(await screen.findByLabelText("Name"), "Archive{Enter}");
+
+    await waitFor(() =>
+      expect(engine.seen.filter((r) => r.type === "folder:create")).toEqual([
+        { type: "folder:create", name: "Archive", parent: null },
+      ]),
+    );
+  });
+
   it("asks about the files that were already here, and files them when told to", async () => {
     const user = await open({
       ...WITH_DESIGN,

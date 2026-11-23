@@ -40,6 +40,7 @@ import type {
   WireTagEntry,
   WireTagList,
   WireTagRule,
+  WireText,
   WireThumbnailChosen,
   WireTransferReport,
 } from "@roost/contract";
@@ -89,6 +90,13 @@ export interface FakeEngineOptions {
    * with each of the four.
    */
   readonly clipboard?: WirePasted;
+  /**
+   * What `asset:readText` answers for an id (ADR-0070). An id with no entry
+   * reads as an empty UTF-8 file, which is what a new Markdown file is.
+   */
+  readonly texts?: Readonly<Record<string, WireText>>;
+  /** `asset:saveText` refuses this many times with `changed_on_disk` first. */
+  readonly textConflicts?: number;
   /** What `asset:thumbnail` answers with: by default, set on every id asked. */
   readonly thumbnail?: WireThumbnailChosen;
   /** What `dialog:openLibrary` answers with. `null` is a cancelled dialog. */
@@ -416,6 +424,9 @@ export class FakeEngine {
    * still showing the version it just replaced.
    */
   #saves = 0;
+  #textConflicts = 0;
+  /** What `asset:saveText` wrote, by id, which a later read answers with. */
+  readonly savedTexts = new Map<string, string>();
   /**
    * Mutable: the folder tree an edit changes (ADR-0033).
    *
@@ -440,6 +451,7 @@ export class FakeEngine {
 
   constructor(options: FakeEngineOptions = {}) {
     this.#options = options;
+    this.#textConflicts = options.textConflicts ?? 0;
     this.folders = options.sidebar?.folders ?? [];
     this.foundFolders = options.foundFolders ?? {};
     this.tagList = options.tagList ?? { groups: [], tags: [] };
@@ -878,6 +890,43 @@ export class FakeEngine {
         // saw `true` for anything else would be testing a kinder fake.
         return ok(/^https?:\/\/\S+$/.test(request.url));
 
+      case "asset:readText": {
+        const saved = this.savedTexts.get(request.id);
+        if (saved !== undefined) {
+          return ok({
+            kind: "text",
+            text: saved,
+            encoding: "utf-8",
+            crlf: false,
+            truncated: false,
+            editable: true,
+            size: saved.length,
+            mtimeMs: 2_000,
+          });
+        }
+        return ok(
+          this.#options.texts?.[request.id] ?? {
+            kind: "text",
+            text: "",
+            encoding: "utf-8",
+            crlf: false,
+            truncated: false,
+            editable: true,
+            size: 0,
+            mtimeMs: 1_000,
+          },
+        );
+      }
+
+      case "asset:saveText": {
+        if (!request.force && this.#textConflicts > 0) {
+          this.#textConflicts -= 1;
+          return problem("changed_on_disk", `${request.id} was changed on disk`, {});
+        }
+        this.savedTexts.set(request.id, request.text);
+        return ok({ size: request.text.length, mtimeMs: 2_000 });
+      }
+
       case "clipboard:paste":
         return ok(this.#options.clipboard ?? { kind: "empty" });
 
@@ -936,15 +985,9 @@ export class FakeEngine {
       }
 
       case "asset:create": {
+        // Always a new asset, as in version 2: an id is minted, never derived
+        // from the bytes (RL-13), so an empty file is a file like any other.
         const text = request.text;
-        if (text === "") {
-          return problem("empty_file", `${request.name} has nothing in it`, {});
-        }
-        const held = [...this.details.values()].find(
-          (detail) => detail.name === request.name && detail.size === text.length,
-        );
-        if (held !== undefined) return ok({ id: held.id, created: false });
-
         this.#saves += 1;
         const id = `${(this.#saves + 0xa0).toString(16)}${fakeDetail(1).id.slice(2)}`;
         this.details.set(id, {
@@ -952,7 +995,7 @@ export class FakeEngine {
           id,
           name: request.name,
           ext: request.name.split(".").pop() ?? "",
-          kind: "other",
+          kind: /\.(md|markdown|txt)$/i.test(request.name) ? "text" : "other",
           size: text.length,
         });
         this.emit({ type: "library:changed" });

@@ -101,13 +101,14 @@ describe("sniffing a header", () => {
     expect(sniff(new Uint8Array(0))).toBe("unknown");
   });
 
-  it("leaves a text file to the application that owns it", () => {
-    // A `text` format and kind were added on 2026-09-03 and withdrawn on
-    // 2026-09-04: showing a text file means owning an editor to go with it, and
-    // an external editor is enough. So `.txt` sniffs as unknown and its
-    // extension names nothing.
+  it("names Markdown and plain text by extension, and sniffs nothing as text", () => {
+    // Text has no signature, so the bytes never say `text`; the extension does,
+    // and the derive confirms it (ADR-0070). A subtitle stays a subtitle.
     expect(sniff(bytes("1\n00:00:01,000 --> 00:00:02,000\nHello.\n"))).toBe("unknown");
-    expect(formatFromExtension("txt")).toBe("unknown");
+    expect(formatFromExtension("txt")).toBe("text");
+    expect(formatFromExtension("MD")).toBe("text");
+    expect(formatFromExtension("markdown")).toBe("text");
+    expect(kindOf("text")).toBe("text");
     expect(formatFromExtension("srt")).toBe("unknown");
     // SVG stays what it was: text underneath, and an image here.
     expect(formatFromExtension("svg")).toBe("svg");

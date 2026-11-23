@@ -146,10 +146,10 @@ const PATTERNS: readonly (Explanation & { readonly match: RegExp })[] = [
     steps: ["Reconnect the drive the file is on, then press Try again."],
   },
   {
-    match: /^unsupported:text$/,
-    line: "Nothing here draws a text file yet",
-    hint: "It imported, it is searchable, and it opens in whatever owns it — only the picture is missing.",
-    steps: ["Open it externally to read it."],
+    // ADR-0070 §3.5: nothing to draw until somebody writes in it.
+    match: /^empty:text$/,
+    line: "This file is empty",
+    hint: "Its thumbnail is drawn from its first lines, and it has none yet.",
   },
   {
     match: /^unsupported:unknown$/,

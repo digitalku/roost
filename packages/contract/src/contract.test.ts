@@ -107,6 +107,8 @@ describe("validating a request", () => {
       "asset:thumbnailRefresh",
       "asset:create",
       "clipboard:paste",
+      "asset:readText",
+      "asset:saveText",
       "asset:addSubtitle",
       "asset:subtitleDelete",
       "asset:rename",

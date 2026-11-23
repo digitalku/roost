@@ -184,7 +184,7 @@ describe("importing", () => {
     // tags, and is searchable by name; what a format decides is whether there
     // is a thumbnail and whether the preview can draw it, and neither is a
     // condition of being in the library (`CONCEPT.md` §5).
-    const files = ["notes.txt", "model.blend", "archive.zip", "Makefile"];
+    const files = ["notes.bin", "model.blend", "archive.zip", "Makefile"];
     for (const [index, name] of files.entries()) {
       await writeFile(join(source, name), `contents ${index}`);
     }
@@ -201,7 +201,7 @@ describe("importing", () => {
       .allIds()
       .map((hash) => library.db.repo.assetDetail(hash)?.ext)
       .sort();
-    expect(extensions).toEqual(["", "blend", "txt", "zip"]);
+    expect(extensions).toEqual(["", "bin", "blend", "zip"]);
 
     // Findable by name, which is the whole point of it being in the library.
     for (const name of files) {

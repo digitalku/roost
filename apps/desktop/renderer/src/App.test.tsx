@@ -1232,7 +1232,7 @@ describe("making files in the window (ADR-0026 §4, §5)", () => {
 
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:create")).toEqual([
-        { type: "asset:create", name: "notes.md", text: "" },
+        { type: "asset:create", name: "notes.md", text: "", folder: null },
       ]),
     );
   });
@@ -1263,7 +1263,7 @@ describe("making files in the window (ADR-0026 §4, §5)", () => {
 
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:create")).toEqual([
-        { type: "asset:create", name: "shopping.txt", text: "" },
+        { type: "asset:create", name: "shopping.txt", text: "", folder: null },
       ]),
     );
   });
@@ -1281,7 +1281,7 @@ describe("making files in the window (ADR-0026 §4, §5)", () => {
 
     await waitFor(() =>
       expect(engine.seen.filter((request) => request.type === "asset:create")).toEqual([
-        { type: "asset:create", name: "notes.txt", text: "pasted words" },
+        { type: "asset:create", name: "notes.txt", text: "pasted words", folder: null },
       ]),
     );
   });

@@ -581,4 +581,6 @@ Violating any of these is a bug, regardless of what it enables:
    say that one existed, never what it was, so replaying it would restore nothing.
 10. The renderer is sandboxed, context-isolated, and reaches the engine only through the
     preload's typed surface.
-11. Image bytes never travel through IPC, and are never base64-encoded.
+11. Image bytes never travel through IPC, and are never base64-encoded. The one file's contents that
+    do cross is a text asset's, decoded by the engine and bounded at 2 MiB, for the pane's own
+    view and editor (`asset:readText`, `asset:saveText`, ADR-0070 §3.4).

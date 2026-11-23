@@ -6,12 +6,11 @@
  * `other` is not a failure. A format Roost cannot draw still imports, still
  * carries tags, and still opens in the application that owns it.
  *
- * **There is deliberately no `text`.** One was added on 2026-09-03 and withdrawn
- * on 2026-09-04: showing a text file in the pane means owning an editor to go
- * with it, and the user's answer was that an external editor is enough. A `.txt`
- * is `other`, and `other` opens in the application that owns it.
+ * **`text` is Markdown and plain text** (ADR-0070), shown and edited in the
+ * pane. It was added on 2026-09-03 and withdrawn the next day, when a save still
+ * made a new asset; ADR-0046 made a save a write, and the owner asked again.
  */
-export const KINDS = ["image", "video", "audio", "document", "font", "other"] as const;
+export const KINDS = ["image", "video", "audio", "document", "font", "text", "other"] as const;
 
 export type Kind = (typeof KINDS)[number];
 

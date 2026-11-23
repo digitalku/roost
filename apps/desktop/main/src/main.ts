@@ -333,7 +333,7 @@ async function answerHere(
   if (request.type === "asset:copyImage") return copyImage(request.id);
   if (request.type === "asset:dragOut") return dragOut(engine, request.ids, sender);
   if (request.type === "handoff:cost") return assets.handoffCost();
-  if (request.type === "clipboard:paste") return paste(engine, request.take);
+  if (request.type === "clipboard:paste") return paste(engine, request.take, request.folder);
   if (request.type === "asset:thumbnail") return chooseThumbnail(engine, request.ids, request.from);
   if (request.type === "clipboard:copyText") {
     clipboard.writeText(request.text);
@@ -726,11 +726,11 @@ const GNOME_DESKTOPS = /gnome|cinnamon|mate|unity|budgie|pantheon/i;
  * (invariant 12). The temp file is ours and is removed once the import has read
  * it — originals are never moved or deleted, and this was never one.
  */
-async function paste(engine: Engine, take: Take): Promise<WirePasted> {
+async function paste(engine: Engine, take: Take, folder: number | null): Promise<WirePasted> {
   const paths = pathsFromUriList(
     clipboard.read("text/uri-list") || clipboard.read("x-special/gnome-copied-files"),
   );
-  if (paths.length > 0) return importVia(engine, paths, take);
+  if (paths.length > 0) return importVia(engine, paths, take, folder);
 
   const image = clipboard.readImage();
   if (!image.isEmpty()) {
@@ -743,7 +743,7 @@ async function paste(engine: Engine, take: Take): Promise<WirePasted> {
       // Copied rather than moved: the temporary file is this function's own
       // and is deleted below either way, so the distinction is about what the
       // importer reports (RL-26) rather than about the file.
-      return await importVia(engine, [temp], "copy");
+      return await importVia(engine, [temp], "copy", folder);
     } finally {
       await rm(temp, { force: true });
     }
@@ -824,15 +824,16 @@ async function importVia(
   engine: Engine,
   paths: readonly string[],
   take: Take,
+  folder: number | null,
 ): Promise<WirePasted> {
-  // No folder: a paste is ADR-0026's gesture rather than ADR-0037's, and half
-  // of what it can carry — text, a URL — is not a file at all.
+  // Into the folder on screen, as every other way a file arrives does
+  // (ADR-0037 §2.3).
   const report = await engine.request({
     type: "import:paths",
     paths,
     take,
     tags: [],
-    folder: null,
+    folder,
   });
   return { kind: "imported", report: report as WireImportReport };
 }

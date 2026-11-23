@@ -386,7 +386,8 @@ is listed here, so the order stays visible instead of becoming folklore.
   started**: *Import from URL…*, invariant 7's one exception written out explicitly.
   **ADR-0046 superseded the reasoning on 2026-09-21**: identity is an id now, so a save is an
   ordinary write over the file, `supersede` and `is:superseded` are gone, and the question this
-  left open — *Duplicate into library to edit* not being able to mean duplicate — went with them
+  left open — *Duplicate into library to edit* not being able to mean duplicate — went with them.
+  **ADR-0070 brought the viewer and the editor back on 2026-11-23**, for `.md` and `.txt`.
 - ☐ **Subtitles** — ADR-0025, **Accepted** 2026-09-03, **stage 1 built 2026-09-05**: the `.srt` is
   an ordinary asset, the attachment is a journal line, Eagle's convention survives only as an
   import-time heuristic, and a track is served as WebVTT because `<track>` accepts nothing else.
@@ -451,6 +452,13 @@ support · library merge · on-image annotation.
 ---
 
 ## Decision status
+
+**ADR-0070 — Markdown and plain text inside Roost** was proposed and **accepted** on 2026-11-23,
+all four questions as recommended, and built the same day: `.md` and `.txt` are a `text` kind, read
+in the pane and edited after **Edit**, saved over the file unless it changed on disk; *New Markdown
+file…*; a thumbnail of the first lines in a bundled Noto Sans Mono. It reverses the 2026-09-04
+withdrawal. No format change, no migration. **ADR-0037 §7 and ADR-0033 §9** the same day: everything
+Add makes lands in the folder on screen, and Add → New folder.
 
 **ADR-0066 — a view for each kind of place** was proposed and **accepted** on 2026-11-17: the view
 menu is remembered for All assets, for Recent, and once for every folder; every other place uses All

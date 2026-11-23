@@ -50,6 +50,8 @@ import type {
   WireSubtitlesAdded,
   WireTagList,
   WireTagRule,
+  WireText,
+  WireTextSaved,
   WireThumbnailChosen,
   WireTransferReport,
 } from "./dto.js";
@@ -358,7 +360,16 @@ export type Request =
    *
    * Answers the new asset's id.
    */
-  | { readonly type: "asset:create"; readonly name: string; readonly text: string }
+  | {
+      readonly type: "asset:create";
+      readonly name: string;
+      readonly text: string;
+      /**
+       * The folder the new file joins, or `null` for none: the folder on
+       * screen, as an import's is (ADR-0037 §2.3).
+       */
+      readonly folder: number | null;
+    }
   /**
    * Reads the clipboard and does what its contents deserve (ADR-0026 §5).
    *
@@ -366,8 +377,33 @@ export type Request =
    * ambient authority (invariant 11), and the engine has no shell. File paths
    * are imported, image bytes are imported under a synthesised name, text comes
    * back for a draft, and a URL is left alone — pasting never fetches.
+   *
+   * `folder` is the folder on screen, which pasted files and a pasted image
+   * join as an import's do (ADR-0037 §2.3); `null` where none is.
    */
-  | { readonly type: "clipboard:paste"; readonly take: Take }
+  | { readonly type: "clipboard:paste"; readonly take: Take; readonly folder: number | null }
+  /**
+   * Reads a text asset for the pane's own view (ADR-0070 §3.4): decoded by the
+   * engine, at most 2 MiB, with what the file was when it was read.
+   */
+  | { readonly type: "asset:readText"; readonly id: string }
+  /**
+   * Writes edited text over a text asset's file, as UTF-8 with the mark and
+   * line endings it was read with (ADR-0070 §3.4). Nothing is journalled.
+   *
+   * Refused with `changed_on_disk` when the file no longer has the `size` and
+   * `mtimeMs` it was read with, unless `force` — *Save anyway*.
+   */
+  | {
+      readonly type: "asset:saveText";
+      readonly id: string;
+      readonly text: string;
+      readonly size: number;
+      readonly mtimeMs: number;
+      readonly bom: boolean;
+      readonly crlf: boolean;
+      readonly force: boolean;
+    }
   /**
    * Imports files and attaches them to this asset as caption tracks
    * (ADR-0025).
@@ -941,6 +977,8 @@ export interface Responses {
   "asset:thumbnailRefresh": number;
   "asset:rename": null;
   "asset:create": WireCreated;
+  "asset:readText": WireText;
+  "asset:saveText": WireTextSaved;
   /** How many caption tracks were attached (ADR-0025). */
   "asset:addSubtitle": WireSubtitlesAdded;
   "asset:subtitleDelete": null;
@@ -1340,12 +1378,53 @@ export const REQUEST_VALIDATORS: {
     // here, since the dialog asks for a name and nothing else.
     const text = readString(source, "text");
     if (!text.ok) return text;
-    return ok({ type: "asset:create", name: name.value, text: text.value });
+    const folder = readNullable(source, "folder", readFolderIn);
+    if (!folder.ok) return folder;
+    return ok({ type: "asset:create", name: name.value, text: text.value, folder: folder.value });
   },
 
   "clipboard:paste": (source) => {
     const take = readOneOf(source, "take", TAKES);
-    return take.ok ? ok({ type: "clipboard:paste", take: take.value }) : take;
+    if (!take.ok) return take;
+    const folder = readNullable(source, "folder", readFolderIn);
+    if (!folder.ok) return folder;
+    return ok({ type: "clipboard:paste", take: take.value, folder: folder.value });
+  },
+
+  "asset:readText": (source) => {
+    const id = readAssetId(source, "id");
+    return id.ok ? ok({ type: "asset:readText", id: id.value }) : id;
+  },
+
+  "asset:saveText": (source) => {
+    const id = readAssetId(source, "id");
+    if (!id.ok) return id;
+    const text = readString(source, "text");
+    if (!text.ok) return text;
+    const size = readInteger(source, "size");
+    if (!size.ok) return size;
+    // A modification time in milliseconds carries a fraction, so it is a
+    // finite number rather than an integer.
+    const mtimeMs = source["mtimeMs"];
+    if (typeof mtimeMs !== "number" || !Number.isFinite(mtimeMs)) {
+      return bad("mtimeMs: expected a finite number");
+    }
+    const bom = readBoolean(source, "bom");
+    if (!bom.ok) return bom;
+    const crlf = readBoolean(source, "crlf");
+    if (!crlf.ok) return crlf;
+    const force = readBoolean(source, "force");
+    if (!force.ok) return force;
+    return ok({
+      type: "asset:saveText",
+      id: id.value,
+      text: text.value,
+      size: size.value,
+      mtimeMs,
+      bom: bom.value,
+      crlf: crlf.value,
+      force: force.value,
+    });
   },
 
   "asset:addSubtitle": (source) => {
