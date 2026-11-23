@@ -60,6 +60,19 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.8" date="2026-11-23">
+      <description>
+        <p>Markdown and text files can be read and written inside Roost.</p>
+        <ul>
+          <li>A .md or .txt file opens in the preview: Markdown is shown formatted, and clicking the text starts editing it there.</li>
+          <li>While editing Markdown, headings grow and dashes become bullets as you type, and Enter continues a list.</li>
+          <li>Changes are saved when you press Done, move to the next file or close the preview. A file changed in another application meanwhile is not overwritten.</li>
+          <li>Markdown and text files get a thumbnail of their first lines.</li>
+          <li>Add has New Markdown file and New folder.</li>
+          <li>A file made, imported or pasted inside a folder now goes into that folder, also while a filter is ticked.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.7" date="2026-11-23">
       <description>
         <p>A library left locked by an earlier version opens again.</p>
