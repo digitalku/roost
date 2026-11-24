@@ -276,6 +276,17 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
+### Copy this frame (ADR-0034 §9) — built 2026-11-25
+
+- ☑ ~~**Copy this frame over a video in the preview.**~~ Drawn from the `<video>` into a canvas at
+  the video's own size and written with `navigator.clipboard.write`, the bytes never leaving the
+  window. `frame.test.ts`, `AssetContextMenu.test.tsx`, `check-frame.mjs`.
+- 🟡 **Main installs no permission handler**, so Electron grants a page every permission it asks
+  for: camera, microphone, notifications, geolocation. Roost asks for none of them, and the window
+  loads only its own code (invariant 11), so nothing uses this today; but a sandbox that grants by
+  default is one invariant short. A handler that allows `clipboard-sanitized-write` and refuses the
+  rest would close it, and *Copy this frame* is the one thing it must keep working.
+
 ### A file saved elsewhere, seen in the preview (2026-11-24)
 
 - ☑ ~~**The preview kept the old picture until a restart.**~~ Reported 2026-11-24: a photograph

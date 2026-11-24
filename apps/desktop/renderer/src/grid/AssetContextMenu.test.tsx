@@ -475,6 +475,7 @@ describe("choosing which frame a video's thumbnail comes from", () => {
     show();
     await open();
     expect(screen.queryByRole("menuitem", { name: "Set this frame as the thumbnail" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Copy this frame" })).toBeNull();
   });
 
   it("is not offered over audio, which has no frames", async () => {
@@ -483,6 +484,76 @@ describe("choosing which frame a video's thumbnail comes from", () => {
     show();
     await open();
     expect(screen.queryByRole("menuitem", { name: "Set this frame as the thumbnail" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "Copy this frame" })).toBeNull();
+  });
+
+  describe("Copy this frame (ADR-0034 §9)", () => {
+    let written: ClipboardItem[][];
+
+    beforeEach(() => {
+      written = [];
+      vi.stubGlobal(
+        "ClipboardItem",
+        class {
+          readonly items: Record<string, unknown>;
+          constructor(items: Record<string, unknown>) {
+            this.items = items;
+          }
+        },
+      );
+      vi.spyOn(navigator.clipboard, "write").mockImplementation((items) => {
+        written.push(items);
+        return Promise.resolve();
+      });
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    });
+
+    it("puts the frame on screen on the clipboard as a PNG, from the window", async () => {
+      playing(91.5);
+      const png = new Blob(["png"], { type: "image/png" });
+      vi.spyOn(playhead, "frame").mockReturnValue(Promise.resolve(png));
+      const user = show();
+      await open();
+
+      await user.click(screen.getByRole("menuitem", { name: "Copy this frame" }));
+
+      await waitFor(() => expect(notes).toEqual(["Copied the frame at 1:31.5"]));
+      const [items] = written;
+      // The encoder's promise, handed over inside the gesture rather than awaited
+      // first, and nothing sent to the engine: the bytes never leave the window.
+      const item = items?.[0] as unknown as { items: Record<string, unknown> };
+      expect(Object.keys(item.items)).toEqual(["image/png"]);
+      expect(await item.items["image/png"]).toBe(png);
+      expect(engine.seen.some((request) => request.type === "asset:copyImage")).toBe(false);
+    });
+
+    it("says so when there is no frame yet, and leaves the clipboard alone", async () => {
+      playing(0);
+      vi.spyOn(playhead, "frame").mockReturnValue(undefined);
+      const user = show();
+      await open();
+
+      await user.click(screen.getByRole("menuitem", { name: "Copy this frame" }));
+
+      await waitFor(() => expect(notes).toEqual(["There is no frame on screen to copy yet"]));
+      expect(written).toEqual([]);
+    });
+
+    it("says so when the clipboard refuses", async () => {
+      playing(3);
+      vi.spyOn(playhead, "frame").mockReturnValue(Promise.resolve(new Blob(["png"])));
+      vi.spyOn(navigator.clipboard, "write").mockRejectedValue(new Error("refused"));
+      const user = show();
+      await open();
+
+      await user.click(screen.getByRole("menuitem", { name: "Copy this frame" }));
+
+      await waitFor(() => expect(notes).toEqual(["The frame could not be copied"]));
+    });
   });
 
   it("sends the moment the player is at", async () => {

@@ -192,6 +192,28 @@ export function AssetContextMenu({
   };
 
   /**
+   * The frame on screen, onto the clipboard as a picture (ADR-0034 §9).
+   *
+   * Written by the window, not by main: the frame is in the `<video>` already,
+   * and the PNG never leaves this process (invariant 12). The clipboard is asked
+   * now, inside the gesture, and given the encoder's promise to fill, because a
+   * write that waited for the encoder could arrive after the window had lost
+   * the focus Chromium's clipboard requires.
+   */
+  const copyFrame = (): void => {
+    const at = playhead.now();
+    const png = playhead.frame();
+    if (png === undefined || at === null) {
+      onNote("There is no frame on screen to copy yet");
+      return;
+    }
+    navigator.clipboard.write([new ClipboardItem({ "image/png": png })]).then(
+      () => onNote(`Copied the frame at ${timecode(at)}`),
+      () => onNote("The frame could not be copied"),
+    );
+  };
+
+  /**
    * A thumbnail somebody chose, from the clipboard or a file (ADR-0060).
    *
    * Main finds the image and the engine draws it; the cells change when the
@@ -409,6 +431,11 @@ export function AssetContextMenu({
                   >
                     <span className="menu-mark" />
                     <span className="menu-label">Set this frame as the thumbnail</span>
+                  </ContextMenu.Item>
+
+                  <ContextMenu.Item className="menu-item" onSelect={copyFrame}>
+                    <span className="menu-mark" />
+                    <span className="menu-label">Copy this frame</span>
                   </ContextMenu.Item>
 
                   {/* Always beside it rather than only when a moment is set: the

@@ -510,6 +510,11 @@ are drawn only when there is a video player on screen — over the grid there is
 at, and audio has none at all — and only over one asset, because one frame belongs to one video.
 The test for "has frames" is the element's own `requestVideoFrameCallback`, not its tag name.
 
+**Copy this frame** (ADR-0034 §9) stands between the two, under the same rule. It puts the frame the
+player is showing on the clipboard as a PNG at the video's own size, drawn by the window from the
+`<video>` rather than read from the file again, and the status bar says *Copied the frame at
+0:02.5*, or *There is no frame on screen to copy yet* before the first frame is decoded.
+
 Neither draws a picture: the engine journals the moment, redraws both thumbnails from it, and the
 status bar says what happened, because the cell changes a beat later and a gesture with no visible
 result reads as a gesture that failed. **Use the default frame** is drawn beside the other whether

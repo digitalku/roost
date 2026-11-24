@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { framePng } from "./frame.js";
 
 /**
  * The player on screen, for whoever needs to drive it.
@@ -64,6 +65,16 @@ class Playhead {
   frames(): boolean {
     const media = this.#media;
     return media !== undefined && "requestVideoFrameCallback" in media;
+  }
+
+  /**
+   * The frame on screen as a PNG, or `undefined` when there is none to take
+   * (ADR-0034 §9). A promise rather than the bytes, so the clipboard can be
+   * asked inside the gesture and filled when the encoder finishes.
+   */
+  frame(): Promise<Blob> | undefined {
+    const media = this.#media;
+    return media instanceof HTMLVideoElement ? framePng(media) : undefined;
   }
 
   /** Where the player is, in milliseconds, or `null` when there is no player. */
