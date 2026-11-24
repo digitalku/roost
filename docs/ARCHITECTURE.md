@@ -327,7 +327,10 @@ Two routes:
 - `roost://file/<id>` — the asset's own bytes, from `files/` and nowhere else (RL-19). Returned
   as a **stream**, with byte-range support, so a 4 GB video costs a chunk rather than its size.
   The size is read from the file rather than from the index, because a range answered against a
-  stale size hands a player the wrong bytes.
+  stale size hands a player the wrong bytes. Served `immutable`, so the window adds `?h=` the
+  content hash, as it does to `roost://render/` and `roost://page/`: a file saved elsewhere is a new
+  address (`preview/fileVersion.ts`), and the first hash a file opened before its derive receives
+  is adopted without moving, or a video would restart for bytes that did not change.
 - `roost://page/<id>/<index>@<width>` (**M4**) — one page of a document, rendered on demand and
   cached like a thumbnail, since the id, the page, and the width fix the pixels. Neither a
   stored thumbnail nor the file itself: page-through needs a picture per page, and a library that

@@ -87,6 +87,41 @@ describe("the preview pane", () => {
     expect(document.querySelector("iframe, object, embed")).toBeNull();
   });
 
+  it("shows a file saved elsewhere, which only a derive announces", async () => {
+    // Reported 2026-11-24: a photograph flipped in another editor, its
+    // thumbnail updated, and the preview still unflipped until a restart. The
+    // pane re-read only on `library:changed`, which a save elsewhere never
+    // sends, and the address it loaded is served `immutable`.
+    show("image", "png", { contentHash: "1".repeat(64), derivedAt: 100 });
+    const image = await screen.findByRole("img", { name: "one.png" });
+    expect(image.getAttribute("src")).toBe(`roost://file/${HASH}?h=${"1".repeat(64)}`);
+
+    const held = engine.details.get(HASH);
+    if (held === undefined) throw new Error("the fake holds the detail");
+    engine.details.set(HASH, { ...held, contentHash: "2".repeat(64), derivedAt: 200 });
+    engine.emit({
+      type: "assets:derived",
+      assets: [{ id: HASH, derivedAt: 200, undrawn: null, chosen: false }],
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("img", { name: "one.png" }).getAttribute("src")).toBe(
+        `roost://file/${HASH}?h=${"2".repeat(64)}`,
+      ),
+    );
+  });
+
+  it("versions a rendition and a document's pages the same way", async () => {
+    show("image", "heic", { browserDrawable: false, contentHash: "3".repeat(64) });
+    const image = await screen.findByRole("img");
+    expect(image.getAttribute("src")).toBe(`roost://render/${HASH}?h=${"3".repeat(64)}`);
+    cleanup();
+
+    show("document", "pdf", { pageCount: 2, contentHash: "4".repeat(64) });
+    const page = await screen.findByRole("img", { name: "Page 1 of 2" });
+    expect(page.getAttribute("src")).toBe(`roost://page/${HASH}/0@1024?h=${"4".repeat(64)}`);
+  });
+
   it("hands a file it cannot show to the application that owns it", async () => {
     show("other", "zip");
     expect(await screen.findByRole("button", { name: "Open externally" })).toBeDefined();

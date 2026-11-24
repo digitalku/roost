@@ -12,6 +12,7 @@ import { FileProblem } from "../FileProblem.js";
 import { bytes, counted } from "../format.js";
 import type { ConfirmRequest } from "../grid/trash-actions.js";
 import { Placeholder } from "../Placeholder.js";
+import { useRedrawn } from "../redrawn.js";
 import { fallbackToGrid, previewSrc, showLoaded } from "../thumbnail.js";
 import { duration } from "../timecode.js";
 import { Comments } from "./Comments.js";
@@ -145,6 +146,12 @@ export function Inspector({
    * the summary of a selection the user has already dragged past.
    */
   const latest = useRef(0);
+  /**
+   * A file saved by another application: a derive and no change (ADR-0047), so
+   * without this the panel kept the old picture, size and dimensions. Only one
+   * asset's detail holds any of them; a summary has nothing a derive moves.
+   */
+  const redrawn = useRedrawn(ids.length === 1 ? ids : []);
 
   const read = useCallback(async () => {
     const ticket = latest.current + 1;
@@ -176,13 +183,14 @@ export function Inspector({
   }, [ids]);
 
   /*
-   * `generation` is a trigger, not a value the body reads: something outside
-   * the panel changed the library and what is on screen may no longer be true.
+   * `generation` and `redrawn` are triggers, not values the body reads:
+   * something outside the panel changed the library or the file, and what is on
+   * screen may no longer be true.
    */
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     void read();
-  }, [read, generation]);
+  }, [read, generation, redrawn]);
 
   if (ids.length === 0) {
     return (

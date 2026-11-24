@@ -125,6 +125,31 @@ describe("the inspector", () => {
     vi.useRealTimers();
   });
 
+  it("redraws its picture when the file is saved elsewhere", async () => {
+    // A save by another application announces a derive and no change
+    // (ADR-0047), so a panel that re-read only on a change kept the old picture.
+    const { container } = show({ derivedAt: 100 });
+    await waitFor(() =>
+      expect(container.querySelector(".inspector-preview img")?.getAttribute("src")).toContain(
+        "v=100",
+      ),
+    );
+
+    const held = engine.details.get(HASH);
+    if (held === undefined) throw new Error("the fake holds the detail");
+    engine.details.set(HASH, { ...held, derivedAt: 200 });
+    engine.emit({
+      type: "assets:derived",
+      assets: [{ id: HASH, derivedAt: 200, undrawn: null, chosen: false }],
+    });
+
+    await waitFor(() =>
+      expect(container.querySelector(".inspector-preview img")?.getAttribute("src")).toContain(
+        "v=200",
+      ),
+    );
+  });
+
   it("lists the caption tracks, and detaching does not delete one", async () => {
     // Here rather than in the sidebar: a sidebar row is a query, and a query
     // cannot mean "the tracks of whatever is selected" (ADR-0025).

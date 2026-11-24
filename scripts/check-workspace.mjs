@@ -51,8 +51,18 @@ const cellsExpression = `
 
 const srcOf = (cells, id) => cells.find((cell) => cell.id === id)?.src ?? null;
 
-/** Writes over a file the way another application's Save does. */
+/**
+ * Writes over a file the way another application's Save does.
+ *
+ * A second first. A file noticed as changed has its derive time cleared
+ * (`refresh.ts`), so the derive that follows writes the clock, in whole
+ * seconds, with nothing to stay ahead of: two saves in one second come back
+ * under one thumbnail address, which Chromium does not ask about again. That
+ * is a bug (`TODO.md` §3), and it flaked this check whenever the window opened
+ * quickly; the pause keeps the check about what it checks.
+ */
 async function saveOverIt(path, bytes) {
+  await new Promise((done) => setTimeout(done, 1100));
   await writeFile(path, bytes);
   // A save in the same second as the import would leave `mtime` unchanged, and
   // the comparison is deliberately `size` and `mtime` rather than a hash.
@@ -89,6 +99,54 @@ try {
   check("the thumbnail's address changed, so Chromium asks again", srcOf(after, first) !== before);
   check("it is still the same asset", srcOf(after, first)?.includes(first) === true);
   check("nothing else moved", after.length === cells.length);
+
+  section("the preview open on it, and another save");
+
+  // Reported 2026-11-24: the thumbnail moved and the preview did not, until
+  // Roost was restarted. `roost://file/<id>` is served `immutable`, and the pane
+  // re-read its detail only on `library:changed`, which a save elsewhere never
+  // sends. A new shape is what proves the bytes, not merely the address, were
+  // read again.
+  await cdp.evaluate(`
+    (() => {
+      const cell = document.querySelector('.cell[data-id="${first}"]');
+      cell.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      cell.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }));
+      cell.click();
+      document.querySelector(".grid").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    })()`);
+  const pictureExpression = `(() => {
+    const image = document.querySelector(".preview-photo-image");
+    return {
+      src: image?.getAttribute("src") ?? null,
+      width: image?.complete ? image.naturalWidth : 0,
+      height: image?.complete ? image.naturalHeight : 0,
+      inspector: document.querySelector(".inspector-preview img")?.getAttribute("src") ?? null,
+    };
+  })()`;
+  const opened = await cdp.settle(pictureExpression, (found) => found.width > 0);
+  check("the preview draws the file at the size it was saved", opened.width === 64);
+
+  await saveOverIt(firstPath, await gradient(96, 48, 42, "png"));
+  const resaved = await cdp.settle(
+    pictureExpression,
+    (found) => found.width === 96 && found.inspector !== opened.inspector,
+    { attempts: 60, everyMs: 250 },
+  );
+  check("the preview's address moved", resaved.src !== opened.src);
+  check(
+    "and it draws the new bytes, not the cached ones",
+    resaved.width === 96 && resaved.height === 48,
+  );
+  check("the inspector's picture moved with it", resaved.inspector !== opened.inspector);
+
+  await cdp.evaluate(`
+    document.querySelector(".preview").dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    )`);
+  await cdp.settle("document.querySelector('.preview') === null", (gone) => gone === true);
 
   section("the file is still the application's to write (RL-21)");
 

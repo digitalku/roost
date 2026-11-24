@@ -276,6 +276,27 @@ Ahead of the rest of M6, at the user's order. `packaging/flatpak/` holds the man
 - 🟢 **`ELECTRON_SKIP_BINARY_DOWNLOAD=1` is set in CI** and must be removed at M3, the first
   milestone that starts Electron. Until then it saves ~150 MB per run for a binary nothing runs.
 
+### A file saved elsewhere, seen in the preview (2026-11-24)
+
+- ☑ ~~**The preview kept the old picture until a restart.**~~ Reported 2026-11-24: a photograph
+  flipped in another editor, the thumbnail updated, the preview did not. Two causes: the pane and
+  the inspector re-read their detail only on `library:changed`, which a save elsewhere never sends
+  (only `assets:derived`), and `roost://file/`, `roost://render/` and `roost://page/` carried
+  nothing that moves with the bytes while `roost://file/` is served `immutable`. Both re-read on a
+  derive that names their asset now (`redrawn.ts`), and the three addresses carry `?h=` the content
+  hash (`preview/fileVersion.ts`), the first hash adopted without moving so a video opened before its
+  derive does not restart. `fileVersion.test.ts`, `PreviewPane.test.tsx`, `Inspector.test.tsx`,
+  `check-workspace.mjs`.
+- 🟡 **Two saves in one second come back under one thumbnail address.** `refreshAsset` and
+  `saveEdit` call `clearDerived`, which sets `derived_at` to `NULL`, so the derive after it writes
+  `max(now, 0)`: `putDerived`'s promise to move forward has nothing to move forward from, and a key
+  that had already run ahead of the clock can even come back lower. The grid's cell and the
+  inspector then keep the first save's picture. Found by `check-workspace.mjs` saving twice inside a
+  second, which it now waits past. The fix belongs in the engine: keep the last key across the
+  clear, without breaking the `derived_at IS NULL` the sweep and the counts read.
+- 🟢 **A subtitle edited elsewhere stays as it was.** `roost://subtitle/<id>` is `immutable` too,
+  and a `WireSubtitle` carries no hash to version it with.
+
 ### Add inside a folder (ADR-0037 §7, ADR-0033 §9) — built 2026-11-23
 
 - ☑ ~~**New file made inside a folder landed in no folder.**~~ `asset:create` carries the folder on

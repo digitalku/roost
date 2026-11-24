@@ -2063,7 +2063,7 @@ window check.
 
 | Kind | Renders as |
 | --- | --- |
-| Image | `<img src="roost://file/<id>">`, fit to pane, and zoomable: the wheel, two buttons and a readout, `+`/`-`, click to toggle 1:1, drag to pan |
+| Image | `<img src="roost://file/<id>?h=<hash>">` (the hash, so a save elsewhere is redrawn), fit to pane, and zoomable: the wheel, two buttons and a readout, `+`/`-`, click to toggle 1:1, drag to pan |
 | SVG | Same, sandboxed — scripts in an SVG do not run |
 | Video / audio | `<video>` / `<audio>` over `roost://file/`, which answers range requests, under a transport of ours — `controls` is off. **Fit** in the head scales a small video up to the pane |
 | PDF | Page-through: `PageUp` / `PageDown` and two buttons, each page an `<img>` over `roost://page/<hash>/<n>@1024`. Arrow keys keep stepping between assets, so a document does not trap the keyboard |

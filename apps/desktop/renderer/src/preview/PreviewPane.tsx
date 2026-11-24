@@ -6,7 +6,9 @@ import { codecName } from "../deriveReason.js";
 import { dragOneAsset } from "../dnd.js";
 import { counted } from "../format.js";
 import { KindGlyph, Placeholder } from "../Placeholder.js";
+import { useRedrawn } from "../redrawn.js";
 import { fallbackToGrid, gridSrc, previewSrc, showLoaded } from "../thumbnail.js";
+import { useFileVersion } from "./fileVersion.js";
 import { Picture, type PictureHandle } from "./Picture.js";
 import { playhead, SKIP_MS } from "./playhead.js";
 import { sound } from "./sound.js";
@@ -227,6 +229,8 @@ export function PreviewPane({
   const [tools, setTools] = useState<HTMLElement | null>(null);
   /** Which asset the page number belongs to, so a re-read does not turn back. */
   const detailHash = useRef<string | undefined>(undefined);
+  /** A save elsewhere, which announces a derive and no change (ADR-0047). */
+  const redrawn = useRedrawn([id]);
 
   const pages = detail?.kind === "document" ? (detail.pageCount ?? 0) : 0;
   const turn = (delta: number): void => {
@@ -234,8 +238,9 @@ export function PreviewPane({
   };
 
   /*
-   * `generation` is a trigger rather than a value the body reads: something
-   * outside the pane changed the library, and what is on screen may be stale.
+   * `generation` and `redrawn` are triggers rather than values the body reads:
+   * something outside the pane changed the library, or another application
+   * saved over the file, and what is on screen may be stale.
    */
   // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
@@ -255,7 +260,7 @@ export function PreviewPane({
     return () => {
       current = false;
     };
-  }, [id, generation]);
+  }, [id, generation, redrawn]);
 
   // The pane takes focus when it opens: it is the thing the keyboard is now
   // for, and a preview that needs a click before the arrow keys work is a
@@ -436,13 +441,14 @@ function Stage({
   readonly editOnOpen: boolean;
   readonly saveThen: (then: () => void) => void;
 }): React.JSX.Element {
-  const original = `roost://file/${detail.id}`;
+  const version = useFileVersion(detail.id, detail.contentHash);
+  const original = `roost://file/${detail.id}${version}`;
 
   if (detail.kind === "image") {
     // A rendition where a browser cannot read the file itself — HEIC, RAW, TIFF
     // (ADR-0040 §7). Everything else is the original, which is what makes an SVG
     // stay a vector.
-    const src = detail.browserDrawable ? original : `roost://render/${detail.id}`;
+    const src = detail.browserDrawable ? original : `roost://render/${detail.id}${version}`;
     // An SVG renders through the same `<img>`, which is what sandboxes it:
     // scripts in an image do not run, and neither do external references.
     // Keyed on the id like every other kind here, which is also what puts the
@@ -481,7 +487,14 @@ function Stage({
   // its thumbnail rather than to a pager with one page in it.
   if (detail.kind === "document" && detail.pageCount !== null && detail.pageCount > 0) {
     return (
-      <Pages key={detail.id} detail={detail} pages={detail.pageCount} page={page} onTurn={onTurn} />
+      <Pages
+        key={detail.id}
+        detail={detail}
+        pages={detail.pageCount}
+        page={page}
+        onTurn={onTurn}
+        version={version}
+      />
     );
   }
 
@@ -538,11 +551,14 @@ function Pages({
   pages,
   page,
   onTurn,
+  version,
 }: {
   readonly detail: WireAssetDetail;
   readonly pages: number;
   readonly page: number;
   readonly onTurn: (delta: number) => void;
+  /** {@link useFileVersion}: a document saved elsewhere is new pages. */
+  readonly version: string;
 }): React.JSX.Element {
   const shown = Math.min(page, pages - 1);
 
@@ -550,7 +566,7 @@ function Pages({
     <div className="preview-pages">
       <img
         className="preview-media"
-        src={`roost://page/${detail.id}/${shown}@1024`}
+        src={`roost://page/${detail.id}/${shown}@1024${version}`}
         alt={`Page ${shown + 1} of ${pages}`}
       />
       <div className="preview-pager">
