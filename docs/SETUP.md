@@ -553,6 +553,12 @@ are kept in `$XDG_STATE_HOME/roost/remote/`, outside the library. The protocol i
 [`REMOTE.md`](REMOTE.md). **The Flatpak cannot share yet**: it has no network permission, so it
 listens on its own loopback alone (`TODO.md` §3).
 
+To try a phone, or the Android emulator, without sharing a library of your own,
+`node scripts/serve-remote-sample.mjs` builds a sample library of 60 pictures with tags and two
+folders, password `roost-remote`, opens it in the built window with a state directory of its own,
+and shares it on port 7387 until Ctrl+C, when it deletes everything it made. The emulator reaches
+it at `10.0.2.2:7387`. The client is Roost Remote, in `../roost-remote-android`.
+
 ## 5. A test library, cheaply
 
 `roost fixture` builds a reproducible synthetic library — the same seed produces the same
