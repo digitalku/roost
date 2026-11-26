@@ -1,6 +1,6 @@
 {
   "name": "@roost/server",
-  "version": "0.2.10",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Sharing a library on the local network: HTTP routes, pairing, devices and events for a phone (ADR-0072).",

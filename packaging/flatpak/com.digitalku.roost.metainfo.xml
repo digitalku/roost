@@ -60,6 +60,16 @@
   </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.0" date="2026-11-27">
+      <description>
+        <p>A library can have a password.</p>
+        <ul>
+          <li>Set password… in the ☰ menu asks for it every time the library is opened, here and from the command line. It keeps others out of Roost; it does not encrypt the files.</li>
+          <li>A library with a password can no longer be opened by Roost 0.2 or older. Libraries without one are unchanged.</li>
+          <li>Share on this network…, for opening a library from a phone, is new in the ☰ menu, but this Flatpak cannot use the network yet, and the dialog says so.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.10" date="2026-11-25">
       <description>
         <p>The frame a video is showing can be copied as a picture.</p>
