@@ -31,6 +31,9 @@ versions that came with it.
 
 Still open, and none of it blocks M0:
 
+- 🟢 **ADR-0073 — adding a file from a phone — was accepted on 2026-11-27**, every answer as
+  recommended, and built on both sides the same day: `POST /api/1/upload`, `import:received`,
+  `REMOTE.md` revision 1.1.
 - 🟢 **ADR-0072 — a server for a phone — was accepted on 2026-11-26**, and its server half built:
   the window serves, plain HTTP, a password required, deleting for good allowed behind the client's
   confirmation. The Android client, the Flatpak's network permission and `roost serve` are in §3,
@@ -197,7 +200,11 @@ password, and deleting for good is allowed behind the client's confirmation.
 - 🟢 **HTTPS with a pinned certificate** (`REMOTE.md` §1, reserved), if plain HTTP on the home
   Wi-Fi stops being acceptable. The owner chose plain HTTP for now.
 - 🟢 **Finding the server by itself** (mDNS) and a QR code with the address. Typed addresses for now.
-- 🟢 **Uploading from the phone** is bytes coming in, and needs an ADR of its own.
+- ☑ ~~**Uploading from the phone**~~, done 2026-11-27 (ADR-0073): `POST /api/1/upload`, one raw
+  file per request, streamed into `staging/` and imported by `import:received`, which only main
+  sends; `discover` takes a path under `staging/` although it is inside the library.
+  `check-remote.mjs` 25 of 25, and tried from the emulator with the Photo Picker, the file picker
+  and a share from Google Photos. Roost Remote's side is in its own repository.
 
 ### Flathub first (ADR-0063, decided 2026-10-25)
 

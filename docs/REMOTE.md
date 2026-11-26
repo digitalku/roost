@@ -1,6 +1,6 @@
 # Roost Remote — the protocol a phone speaks
 
-**API version 1 · Document revision 1.0 · Status: DRAFT**
+**API version 1 · Document revision 1.1 · Status: DRAFT**
 
 **Normative for a client.** This is what an application on another device, the Android client
 first, writes against to open a library that a Roost window is sharing on the local network
@@ -44,10 +44,11 @@ keep every route below unchanged.
 **RR-4.** `GET /api/1/hello` needs no token and answers:
 
 ```json
-{ "api": 1, "build": "0.2.10", "library": { "id": "7b2e9c41-…", "name": "pribadi" } }
+{ "api": 1, "build": "0.2.10", "library": { "id": "7b2e9c41-…", "name": "pribadi" }, "upload": true }
 ```
 
-`library` is `null` while sharing is on and the window has no library open. A client SHOULD show the
+`library` is `null` while sharing is on and the window has no library open. `upload` is there from
+revision 1.1, on a server that takes files (§6), and absent before it. A client SHOULD show the
 name before asking for the password, so the owner knows which library they are about to pair with.
 
 **RR-5.** `POST /api/1/pair` with `{ "password": "…", "device": "Pixel 9" }` pairs the device under
@@ -147,21 +148,64 @@ goes on showing the old picture. `/bytes/file/` takes `?h=<content hash>` for th
 A missing thumbnail is a 404 with a short cache life, not an error: the picture has not been drawn
 yet, and `derive:onScreen` is how to ask for it.
 
-## 6. Status codes
+## 6. Adding a file
+
+Revision 1.1 (ADR-0073). A server at revision 1.0 answers this route with 404 and says no
+`upload` in its `hello`.
+
+**RR-15.** `POST /api/1/upload`, with the token, adds **one file** to the library. The body is the
+file's bytes and nothing else, `Content-Type: application/octet-stream`, with a `Content-Length`;
+a chunked body is refused with 411. What describes the file is in the query:
+
+| | |
+|---|---|
+| `name` | The file's name, percent-encoded UTF-8. Required. No `/`, `\`, NUL, `.` or `..`, at most 255 bytes |
+| `folder` | The id of the folder it joins. Absent for none |
+| `modified` | The file's modification time, milliseconds since the epoch. Optional |
+
+A client SHOULD send `folder` when a folder is on screen, as the window files an import in the
+folder it shows (ADR-0037 §7), and SHOULD send `modified` when it knows it, so the asset is dated as
+the file is rather than as it arrived. A file larger than the library's free space less 1 GiB is
+refused with 507 before any of it is read. Two files are two requests; the server imports them one
+at a time.
+
+**RR-16.** The answer is an `Outcome` of `WireReceived`:
+
+```json
+{ "ok": true, "value": { "id": "a1b2c3d4e5f6", "duplicateOf": null } }
+{ "ok": true, "value": { "id": null, "duplicateOf": "f6e5d4c3b2a1" } }
+```
+
+The first is a new asset. The second is a file whose bytes the library already held: nothing was
+added, and `duplicateOf` is that asset. A client SHOULD say so rather than call it a failure, and
+MAY offer `asset:folderAdd` with it. `{ "ok": false, "problem" }` is the engine refusing, such as a
+folder that no longer exists (`unknown_folder`) or a file it could not take (`upload_failed`).
+
+A body that ends before its `Content-Length` is no upload: nothing is imported and nothing is
+answered. Closing the connection is how a client cancels. Once the last byte has arrived the file
+is imported even if the client has gone, so a retry after a lost answer can meet its own file as a
+duplicate.
+
+**RR-17.** A client MUST NOT send a file nobody asked it to send: a file the person picked, or one
+another application shared with it, and never a folder walked on its own.
+
+## 7. Status codes
 
 | | |
 |---|---|
 | 200 | Answered. For `/api/1/request`, read `ok` |
-| 400 `invalid_request` | The body is not JSON, or not a request the contract accepts |
+| 400 `invalid_request` | The body is not JSON, or not a request the contract accepts, or an upload's query is wrong (RR-15) |
 | 401 `not_paired` | No token, a token unpaired, or a password changed since (RR-7) |
 | 403 `not_allowed_remotely`, `password_wrong` | RR-9, RR-5 |
 | 404 `not_found` | No such route, or no such picture yet |
+| 411 `length_required` | An upload with no `Content-Length` (RR-15) |
 | 429 `too_many_attempts` | RR-5 |
 | 503 `not_shared` | No library with a password is shared now |
+| 507 `no_space` | An upload larger than the library's free space less 1 GiB (RR-15) |
 
 Every error body is `{ "ok": false, "problem": { "code", "message", "detail" } }`.
 
-## 7. Changing this document
+## 8. Changing this document
 
 A change that a version 1 client would misread raises the API version and adds routes under it,
 leaving version 1's in place. Anything else raises the document revision. Either one is argued in

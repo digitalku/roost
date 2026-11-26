@@ -1111,6 +1111,15 @@ export interface WireFiled {
   readonly expired: boolean;
 }
 
+/**
+ * What one file sent from a phone became (ADR-0073 §3.2): a new asset, or the
+ * asset that already held the same bytes. Exactly one of the two is set.
+ */
+export interface WireReceived {
+  readonly id: string | null;
+  readonly duplicateOf: string | null;
+}
+
 /** One file that could not be imported, and why. */
 export interface WireImportFailure {
   readonly path: string;

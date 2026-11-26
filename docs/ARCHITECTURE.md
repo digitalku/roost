@@ -90,7 +90,10 @@ build error and a design error.
 
 `@roost/server` sits beside it: the HTTP transport for a phone, which depends on `@roost/core` and
 `@roost/contract` and is imported by `main` alone. It knows nothing of the engine: main hands it
-the route to the engine and the byte server, so a phone gets the window's answers (ADR-0072 §3.2).
+the route to the engine and the byte server, so a phone gets the window's answers (ADR-0072 §3.2). A
+file sent from a phone is streamed by it into the library's `staging/` and handed to main, which
+asks the engine to import that one path (`import:received`, ADR-0073): the bytes go from the socket
+to a file, and the engine is given a path, never a buffer (invariant 12).
 `docs/REMOTE.md` is the protocol it speaks.
 
 `@roost/contract` sits outside that chain. It is imported by `main`, `preload`, `renderer`, and

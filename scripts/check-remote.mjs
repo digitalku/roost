@@ -9,7 +9,8 @@
  * ticked in the dialog, main listening, a pairing checked by the engine, a
  * request answered by the same engine the window asks, a tag a phone added
  * landing in the journal and reaching the window, a thumbnail served by the
- * same byte server, and nothing listening once the box is unticked.
+ * same byte server, a file sent from the phone imported by the engine
+ * (ADR-0073), and nothing listening once the box is unticked.
  *
  * It plays the phone itself, with `fetch` on loopback. **It builds its own
  * library and its own state directory**, so no paired device and no recent
@@ -19,6 +20,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { Library } from "@roost/library";
+import { gradient } from "@roost/media";
 import { ledger } from "./lib/checks.mjs";
 import { imageLibrary, scratch } from "./lib/fixtures.mjs";
 import { launch } from "./lib/window.mjs";
@@ -161,6 +163,40 @@ try {
     await Promise.all(months.map((month) => readFile(join(root, "journal", month), "utf8")))
   ).join("");
   check("the journal holds it", journal.includes('"dari-hp"'));
+
+  section("a file from the phone");
+  const sent = await gradient(80, 60, 513, "png");
+  const upload = () =>
+    fetch(`${base}/api/1/upload?name=${encodeURIComponent("dari hp.png")}&modified=1700000000000`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/octet-stream",
+      },
+      body: sent,
+    }).then((answer) => answer.json());
+  const first = await upload();
+  check("an upload becomes a new asset", first.ok === true && first.value.id !== null, first);
+  const counted = await (await post("/api/1/request", { type: "library:stats" }, token)).json();
+  check("the library holds four", counted.ok === true && counted.value.assets === 4, counted);
+  const again = await upload();
+  check(
+    "the same bytes again are its duplicate, not a fifth",
+    again.ok === true && again.value.id === null && again.value.duplicateOf === first.value.id,
+    again,
+  );
+  const staging = await readdir(join(root, "staging")).catch(() => []);
+  check("staging is empty once answered", staging.length === 0, staging);
+  const added = (
+    await Promise.all(
+      (
+        await readdir(join(root, "journal"))
+      ).map((month) => readFile(join(root, "journal", month), "utf8")),
+    )
+  ).join("");
+  const line = added.split("\n").find((entry) => entry.includes('"name":"dari hp"')) ?? "";
+  check("the journal holds its add, by its name", line.includes('"ext":"png"'), line);
+  check("dated as the phone dated it", line.includes('"created":1700000000'), line);
 
   section("bytes at the window's own paths");
   const path = thumb.replace(/^roost:\/\//, "/bytes/");

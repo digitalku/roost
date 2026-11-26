@@ -94,6 +94,7 @@ import {
   readSidebar,
   readTagList,
   readText,
+  receiveFile,
   reclaim,
   reclaimableBytes,
   refreshThumbnails,
@@ -589,6 +590,9 @@ export class EngineHost {
       case "import:fileDuplicates":
         return this.#fileDuplicates(request.folder);
 
+      case "import:received":
+        return this.#received(request.path, request.folder);
+
       case "eagle:survey":
         // No library is required, and none is opened: this reads somebody
         // else's directory and writes nothing (ADR-0032 §6).
@@ -868,6 +872,25 @@ export class EngineHost {
   }
 
   /**
+   * One file a phone sent (ADR-0073 §3.5). Not the window's import: nothing
+   * here tells the window's progress, `import:cancel` cannot reach it, and the
+   * window's duplicates are left as they were. Closing the library waits for
+   * it, because a placed file is a committed file (ADR-0055).
+   */
+  async #received(path: string, folder: number | null): Promise<ResponseOf<"import:received">> {
+    const running = receiveFile(this.#require(), path, folder);
+    const done = running.catch(() => undefined);
+    this.#receiving.add(done);
+    try {
+      const received = await running;
+      this.onChanged?.();
+      return received;
+    } finally {
+      this.#receiving.delete(done);
+    }
+  }
+
+  /**
    * Runs an import that `import:cancel` can stop, and that closing the library
    * stops and waits for (ADR-0055 §3.3).
    */
@@ -1101,6 +1124,9 @@ export class EngineHost {
     readonly controller: AbortController;
     readonly done: Promise<unknown>;
   }>();
+
+  /** Files from a phone being imported (ADR-0073 §3.5), waited for by `close`. */
+  readonly #receiving = new Set<Promise<unknown>>();
 
   /**
    * Moves or copies into another library, one at a time.
@@ -1358,6 +1384,7 @@ export class EngineHost {
     const importing = [...this.#importing];
     for (const run of importing) run.controller.abort();
     await Promise.all(importing.map((run) => run.done));
+    await Promise.all([...this.#receiving]);
 
     if (open === undefined) return;
     await open.close();

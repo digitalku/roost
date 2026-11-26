@@ -773,6 +773,10 @@ export class FakeEngine {
         return ok(this.#open);
       }
 
+      // Main refuses both from a window (ADR-0072 §3.5, ADR-0073 §3.5).
+      case "import:received":
+        return problem("remote", "invalid request", {});
+
       case "library:checkPassword": {
         const library = this.#open === undefined ? undefined : this.#libraries.get(this.#open.root);
         return ok(library?.password !== undefined && library.password === request.password);

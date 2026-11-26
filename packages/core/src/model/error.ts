@@ -51,6 +51,7 @@ export const ERROR_CODES = [
   "unreadable_schema_version",
   "unsound_reclaim",
   "unsupported_platform",
+  "upload_failed",
   "remote", // an error that crossed a process boundary; see fromWire()
 ] as const;
 

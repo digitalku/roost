@@ -1,10 +1,19 @@
-import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { createWriteStream } from "node:fs";
+import { readFile, rm, statfs, utimes } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
-import { checkRequest, type Event, type Outcome, type Request } from "@roost/contract";
-import { logger } from "@roost/core";
+import {
+  checkRequest,
+  type Event,
+  type Outcome,
+  type Request,
+  type WireReceived,
+} from "@roost/contract";
+import { logger, makeDirectoryInside, STAGING_DIR } from "@roost/core";
 import { addressesToType, isLocalAddress } from "./addresses.js";
 import { REMOTE_EVENTS, REMOTE_REQUESTS } from "./allowed.js";
 import { type Device, DeviceStore } from "./devices.js";
@@ -23,6 +32,12 @@ const MAX_BODY = 1024 * 1024;
 /** Server-sent events need traffic now and then, or a proxy or a phone gives up on them. */
 const HEARTBEAT_MS = 25_000;
 
+/** ADR-0073 §3.4: what an upload must leave free on the library's filesystem. */
+export const UPLOAD_MARGIN = 1024 ** 3;
+
+/** The longest file name most filesystems take, in bytes. */
+const MAX_NAME_BYTES = 255;
+
 /** ADR-0072 §3.5: five wrong passwords in a minute, and a minute of refusals. */
 const PAIR_FAILURES = 5;
 const PAIR_WINDOW_MS = 60_000;
@@ -37,6 +52,8 @@ export interface SharingHost {
   bytes(request: globalThis.Request): Promise<globalThis.Response>;
   /** Whether `password` is the open library's (the engine's check, RL-5c). */
   checkPassword(password: string): Promise<boolean>;
+  /** Imports a file staged in the library's `staging/` (ADR-0073 §3.5). */
+  receive(path: string, folder: number | null): Promise<Outcome<WireReceived>>;
 }
 
 /** The library the window holds, as far as sharing needs to know it. */
@@ -53,6 +70,8 @@ export interface SharingOptions {
   readonly port?: number;
   /** Unix seconds. Replaced by tests. */
   readonly now?: () => number;
+  /** Free bytes on the library's filesystem. Replaced by tests. */
+  readonly freeSpace?: (root: string) => Promise<number>;
 }
 
 /** What the window's dialog draws (ADR-0072 §3.1). */
@@ -89,6 +108,7 @@ export class LibrarySharing {
   readonly #stateDir: string;
   readonly #port: number;
   readonly #now: () => number;
+  readonly #freeSpace: (root: string) => Promise<number>;
 
   #library: SharedLibrary | undefined;
   #store: DeviceStore | undefined;
@@ -98,12 +118,15 @@ export class LibrarySharing {
   readonly #failures = new Map<string, number[]>();
   #heartbeat: ReturnType<typeof setInterval> | undefined;
   #changing: Promise<unknown> = Promise.resolve();
+  /** Received files are imported one at a time (ADR-0073 §3.5). */
+  #receiving: Promise<unknown> = Promise.resolve();
 
   constructor(host: SharingHost, options: SharingOptions) {
     this.#host = host;
     this.#stateDir = options.stateDir;
     this.#port = options.port ?? DEFAULT_REMOTE_PORT;
     this.#now = options.now ?? (() => Math.floor(Date.now() / 1000));
+    this.#freeSpace = options.freeSpace ?? freeSpace;
   }
 
   /** One change at a time: a close and an open arriving together must not interleave. */
@@ -217,6 +240,11 @@ export class LibrarySharing {
     server.on("connection", (socket) => {
       if (!isLocalAddress(socket.remoteAddress)) socket.destroy();
     });
+    // Node ends a request that has not arrived in five minutes, and a video
+    // from a phone can take longer than that over Wi-Fi (ADR-0073). Only a
+    // paired device gets as far as sending a body, and the headers keep their
+    // own limit.
+    server.requestTimeout = 0;
     try {
       await listen(server, this.#port, "::").catch((error: NodeJS.ErrnoException) => {
         // A machine with IPv6 turned off cannot bind `::`; IPv4 is enough.
@@ -286,6 +314,9 @@ export class LibrarySharing {
     }
 
     if (path === `${api}/request` && method === "POST") return this.#request(request, response);
+    if (path === `${api}/upload` && method === "POST") {
+      return this.#upload(request, response, url, library.root);
+    }
     if (path === `${api}/events` && method === "GET") return this.#events(response, device);
     if (path.startsWith("/bytes/") && (method === "GET" || method === "HEAD")) {
       return this.#bytes(request, response, url);
@@ -299,6 +330,8 @@ export class LibrarySharing {
       api: REMOTE_API_VERSION,
       build: this.#host.build,
       library: library === undefined ? null : { id: library.id, name: library.name },
+      // REMOTE.md revision 1.1: a client shows its button only where this is.
+      upload: true,
     });
   }
 
@@ -352,6 +385,89 @@ export class LibrarySharing {
       );
     }
     json(response, 200, await this.#host.answer(checked.value));
+  }
+
+  /**
+   * One file, its bytes the body (ADR-0073 §3.1). Streamed into `staging/`,
+   * imported from there by a move, and the staging directory removed whatever
+   * the answer was.
+   */
+  async #upload(
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    root: string,
+  ): Promise<void> {
+    // A refusal sent before the body is read: the client is still sending, so
+    // the connection goes with the answer rather than being reused.
+    const refuse = (status: number, code: string, message: string): void => {
+      response.setHeader("connection", "close");
+      problem(response, status, code, message);
+    };
+
+    const name = uploadName(url.searchParams.get("name"));
+    if (name === undefined) return refuse(400, "invalid_request", "name: expected a file name");
+    const folder = positive(url.searchParams.get("folder"));
+    if (folder === undefined) return refuse(400, "invalid_request", "folder: expected a folder id");
+    const modified = moment(url.searchParams.get("modified"));
+    if (modified === undefined) return refuse(400, "invalid_request", "modified: expected ms");
+
+    const header = request.headers["content-length"];
+    const length = header !== undefined && /^\d+$/.test(header) ? Number(header) : undefined;
+    if (length === undefined || request.headers["transfer-encoding"] !== undefined) {
+      return refuse(411, "length_required", "The file's length is needed first");
+    }
+    if (length > (await this.#freeSpace(root)) - UPLOAD_MARGIN) {
+      return refuse(507, "no_space", "There is not enough free space on the library's disk");
+    }
+
+    const directory = join(root, STAGING_DIR, `upload-${randomUUID()}`);
+    let answer: Outcome<WireReceived> | undefined;
+    try {
+      answer = await this.#receive(request, directory, name, length, modified, folder, root);
+    } finally {
+      // Before the answer, so that nothing is left behind once it has arrived.
+      await rm(directory, { recursive: true, force: true });
+    }
+    // `undefined`: the phone left before its last byte, and nobody is listening.
+    if (answer !== undefined) json(response, 200, answer);
+  }
+
+  /** The body into `staging/`, and the file handed to main to import. */
+  async #receive(
+    request: IncomingMessage,
+    directory: string,
+    name: string,
+    length: number,
+    modified: number | null,
+    folder: number | null,
+    root: string,
+  ): Promise<Outcome<WireReceived> | undefined> {
+    // Through `makeDirectoryInside`, so a library whose folder was renamed
+    // under it gets no new directory at its old path (ADR-0056).
+    await makeDirectoryInside(root, directory);
+    const path = join(directory, name);
+    let arrived = 0;
+    request.on("data", (chunk: Buffer) => {
+      arrived += chunk.length;
+    });
+    try {
+      await pipeline(request, createWriteStream(path, { flags: "wx" }));
+    } catch {
+      log.info("an upload ended before its last byte", { arrived, length });
+      return undefined;
+    }
+    if (arrived !== length) {
+      log.info("an upload ended before its last byte", { arrived, length });
+      return undefined;
+    }
+    if (modified !== null) await utimes(path, modified / 1000, modified / 1000);
+
+    // From here the import runs to the end, answered or not: a placed file is
+    // a committed file (ADR-0055).
+    const next = this.#receiving.then(() => this.#host.receive(path, folder));
+    this.#receiving = next.catch(() => undefined);
+    return next;
   }
 
   #events(response: ServerResponse, device: Device): void {
@@ -430,6 +546,38 @@ async function passwordKey(root: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+async function freeSpace(root: string): Promise<number> {
+  const stats = await statfs(root);
+  return stats.bavail * stats.bsize;
+}
+
+/**
+ * The name a phone gave its file, if it can be a file's name in one directory:
+ * no separator, no NUL, not `.` or `..`, and short enough for the filesystem.
+ * RL-36's normalisation is the importer's, as for every name.
+ */
+export function uploadName(name: string | null): string | undefined {
+  if (name === null) return undefined;
+  if (name.trim() === "" || name === "." || name === "..") return undefined;
+  if (name.includes("/") || name.includes("\\") || name.includes("\0")) return undefined;
+  if (Buffer.byteLength(name) > MAX_NAME_BYTES) return undefined;
+  return name;
+}
+
+/** A folder id, `null` when absent, `undefined` when it is not one. */
+function positive(value: string | null): number | null | undefined {
+  if (value === null) return null;
+  if (!/^[1-9]\d{0,15}$/.test(value)) return undefined;
+  return Number(value);
+}
+
+/** Milliseconds since the epoch, `null` when absent, `undefined` when not one. */
+function moment(value: string | null): number | null | undefined {
+  if (value === null) return null;
+  if (!/^\d{1,15}$/.test(value)) return undefined;
+  return Number(value);
 }
 
 function bearer(request: IncomingMessage): string | undefined {

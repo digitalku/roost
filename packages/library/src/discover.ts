@@ -1,5 +1,6 @@
 import { opendir, realpath, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
+import { STAGING_DIR } from "@roost/core";
 import { mapWithConcurrency } from "./concurrency.js";
 
 /**
@@ -20,12 +21,15 @@ export async function* discover(
   includeHidden = false,
 ): AsyncGenerator<string> {
   // Importing a library into itself would walk `files/` and re-import every
-  // object under a new name.
+  // object under a new name. `staging/` is the one exception: a file a phone
+  // sent is staged there before it is imported (ADR-0073 §3.3).
   const root = await realpath(libraryRoot).catch(() => resolve(libraryRoot));
+  const staging = join(root, STAGING_DIR);
+  const excluded = (path: string): boolean => isInside(path, root) && !isInside(path, staging);
 
   for (const source of sources) {
     const start = resolve(source);
-    if (isInside(start, root)) continue;
+    if (excluded(start)) continue;
 
     let entry: Awaited<ReturnType<typeof stat>>;
     try {
@@ -60,7 +64,7 @@ export async function* discover(
         for await (const child of dir) {
           const path = join(current, child.name);
           if (!includeHidden && isHidden(child.name)) continue;
-          if (isInside(path, root)) continue;
+          if (excluded(path)) continue;
           // Symlinks are not followed, so a link back into the tree cannot make
           // the walk cycle, and a link into a library cannot smuggle it in.
           if (child.isDirectory()) stack.push(path);

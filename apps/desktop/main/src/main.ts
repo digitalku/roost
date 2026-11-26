@@ -12,6 +12,7 @@ import type {
   WireAbout,
   WireImportReport,
   WirePasted,
+  WireReceived,
   WireRemoteStatus,
   WireSettings,
   WireThumbnailChosen,
@@ -167,6 +168,18 @@ if (!app.requestSingleInstanceLock()) {
       bytes: (request) => assets.handle(request),
       checkPassword: async (password) =>
         (await engine.request({ type: "library:checkPassword", password })) === true,
+      receive: async (path, folder) => {
+        try {
+          const value = await engine.request({ type: "import:received", path, folder });
+          if (!isReceived(value)) throw new Error("import:received answered with no asset");
+          return { ok: true, value };
+        } catch (error) {
+          if (error instanceof EngineProblem || error instanceof EngineGoneError) {
+            return { ok: false, problem: error.problem };
+          }
+          return { ok: false, problem: { code: "remote", message: "request failed", detail: {} } };
+        }
+      },
     },
     { stateDir: stateDir(), port: remotePort() },
   );
@@ -257,6 +270,13 @@ async function route(engine: Engine, payload: unknown, sender: WebContents): Pro
   // nothing to pair, and a password checked from one is a password guessed.
   if (request.type === "library:checkPassword") {
     log.warn("refused a password check from a window");
+    return { ok: false, problem: { code: "remote", message: "invalid request", detail: {} } };
+  }
+  // Main's own as well: the file a phone sent, from where main staged it
+  // (ADR-0073 §3.5). From a window it would be an import of any path at all
+  // with the window's own import nowhere to be seen.
+  if (request.type === "import:received") {
+    log.warn("refused a received file from a window");
     return { ok: false, problem: { code: "remote", message: "invalid request", detail: {} } };
   }
   // Which requests a window made, and in what order, is the first thing anyone
@@ -862,6 +882,17 @@ async function paste(engine: Engine, take: Take, folder: number | null): Promise
   return isHttpUrl(text)
     ? { kind: "url", url: text }
     : { kind: "text", text: clipboard.readText() };
+}
+
+/** The engine's answer to `import:received`, narrowed from what crossed the port. */
+function isReceived(value: unknown): value is WireReceived {
+  if (typeof value !== "object" || value === null) return false;
+  const id: unknown = Reflect.get(value, "id");
+  const duplicateOf: unknown = Reflect.get(value, "duplicateOf");
+  return (
+    (typeof id === "string" || id === null) &&
+    (typeof duplicateOf === "string" || duplicateOf === null)
+  );
 }
 
 /**

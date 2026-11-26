@@ -38,6 +38,7 @@ import type {
   WireInstallOutcome,
   WireLeftFolder,
   WirePasted,
+  WireReceived,
   WireRecentLibrary,
   WireReclaimable,
   WireRemoteStatus,
@@ -836,6 +837,16 @@ export type Request =
    */
   | { readonly type: "import:fileDuplicates"; readonly folder: number | null }
   /**
+   * Imports one file a phone sent, from where main staged it (ADR-0073 §3.5).
+   *
+   * Asked by **main** only, and refused from a window as `library:checkPassword`
+   * is. It is not the window's import: no progress, nothing `import:cancel`
+   * stops, and no duplicates kept for `import:fileDuplicates`, so a phone's file
+   * raises nothing on a desktop nobody is watching. The file is moved, never
+   * copied: it is main's own, inside the library's `staging/`.
+   */
+  | { readonly type: "import:received"; readonly path: string; readonly folder: number | null }
+  /**
    * What an Eagle library holds, without importing any of it (ADR-0032 §6).
    *
    * Writes nothing, and needs no library open: reading what is in an Eagle
@@ -1083,6 +1094,7 @@ export interface Responses {
   "import:cancel": boolean;
   "import:paths": WireImportReport;
   "import:fileDuplicates": WireFiled;
+  "import:received": WireReceived;
   "eagle:survey": WireEagleSurvey;
   "eagle:import": WireEagleReport;
   "derive:status": WireDeriveStatus;
@@ -1816,6 +1828,14 @@ export const REQUEST_VALIDATORS: {
   "assets:transferCancel": () => ok({ type: "assets:transferCancel" }),
 
   "import:cancel": () => ok({ type: "import:cancel" }),
+
+  "import:received": (source) => {
+    const path = readNonEmpty(source, "path");
+    if (!path.ok) return path;
+    const folder = readNullable(source, "folder", readFolderIn);
+    if (!folder.ok) return folder;
+    return ok({ type: "import:received", path: path.value, folder: folder.value });
+  },
 
   "import:paths": (source) => {
     const paths = readStringArray(source, "paths");

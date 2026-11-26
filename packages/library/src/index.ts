@@ -121,6 +121,7 @@ export {
   NotEditableError,
   PasswordRequiredError,
   PasswordWrongError,
+  ReceiveFailedError,
   SameLibraryError,
   TransferRunningError,
   UnknownAssetError,
@@ -200,6 +201,7 @@ export {
   withLibrarySuffix,
 } from "./naming.js";
 export type { PasswordRecord, Unlock } from "./password.js";
+export { type Received, receiveFile } from "./receive.js";
 export {
   forgetLibrary,
   listRecent,

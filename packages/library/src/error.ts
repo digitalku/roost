@@ -154,6 +154,15 @@ export class UnknownAssetError extends RoostError {
   }
 }
 
+/** A file a phone sent that the importer could not take (ADR-0073 §3.5). */
+export class ReceiveFailedError extends RoostError {
+  readonly code = "upload_failed";
+
+  constructor(reason: string) {
+    super(`The file could not be added (${reason})`, { reason });
+  }
+}
+
 export class UnknownCommentError extends RoostError {
   readonly code = "unknown_comment";
 

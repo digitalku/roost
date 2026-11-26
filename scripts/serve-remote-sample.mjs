@@ -36,6 +36,13 @@ const window = await launch({
   env: { ROOST_REMOTE_PORT: String(port), XDG_STATE_HOME: join(dir, "state") },
 });
 const { cdp } = window;
+// Said rather than left to Node's "unsettled top-level await": a window that
+// went away on its own is a bug in it, and its last words are what explain it.
+window.child.on("exit", async (code, signal) => {
+  console.error(`the window exited (${signal ?? code})\n${window.noise().slice(-4000)}`);
+  await dispose();
+  process.exit(1);
+});
 const opened = await cdp.evaluate(
   `window.roost.invoke({ type: "library:open", path: ${JSON.stringify(root)}, password: ${JSON.stringify(PASSWORD)} })`,
 );

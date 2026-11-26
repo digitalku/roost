@@ -188,6 +188,7 @@ describe("validating a request", () => {
       "assets:transfer",
       "assets:transferCancel",
       "import:cancel",
+      "import:received",
       "import:paths",
       "import:fileDuplicates",
       "eagle:survey",
@@ -548,6 +549,21 @@ describe("validating an import's destination", () => {
         checkRequest({ type: "import:paths", paths, take: "copy", tags: [], folder }),
       ).toMatchObject({ ok: false });
     }
+  });
+
+  it("takes one staged path for a file a phone sent, and its folder", () => {
+    // ADR-0073 §3.5: main's own request, so its shape is checked like any other.
+    const path = "/library.roost/staging/upload-1/beach.jpg";
+    expect(checkRequest({ type: "import:received", path, folder: null })).toEqual({
+      ok: true,
+      value: { type: "import:received", path, folder: null },
+    });
+    expect(checkRequest({ type: "import:received", path: "", folder: null })).toMatchObject({
+      ok: false,
+    });
+    expect(checkRequest({ type: "import:received", path, folder: 0 })).toMatchObject({
+      ok: false,
+    });
   });
 
   it("files the last run's duplicates in a folder, or each in its own", () => {

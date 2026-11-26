@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Request as ContractRequest } from "@roost/contract";
@@ -18,6 +19,8 @@ let root: string;
 let sharing: LibrarySharing;
 let answered: ContractRequest[];
 let bytesAsked: string[];
+let received: { path: string; folder: number | null; bytes: string; mtimeMs: number }[];
+let free: number;
 let base: string;
 
 const library = (hasPassword = true): SharedLibrary => ({
@@ -48,6 +51,8 @@ beforeEach(async () => {
   await writeManifest("a".repeat(64));
   answered = [];
   bytesAsked = [];
+  received = [];
+  free = 100 * 1024 ** 3;
   sharing = new LibrarySharing(
     {
       build: "test",
@@ -60,8 +65,18 @@ beforeEach(async () => {
         return new Response("PICTURE", { status: 200, headers: { "content-type": "image/webp" } });
       },
       checkPassword: async (password) => password === "secret",
+      receive: async (path, folder) => {
+        const bytes = await readFile(path, "utf8");
+        received.push({ path, folder, bytes, mtimeMs: (await stat(path)).mtimeMs });
+        return { ok: true, value: { id: "a1b2c3d4e5f6", duplicateOf: null } };
+      },
     },
-    { stateDir: join(dir, "state"), port: 0, now: () => 1_800_000_000 },
+    {
+      stateDir: join(dir, "state"),
+      port: 0,
+      now: () => 1_800_000_000,
+      freeSpace: async () => free,
+    },
   );
 });
 
@@ -123,6 +138,7 @@ describe("when it listens", () => {
         answer: async () => ({ ok: true, value: null }),
         bytes: async () => new Response(null, { status: 404 }),
         checkPassword: async () => false,
+        receive: async () => ({ ok: true, value: { id: null, duplicateOf: null } }),
       },
       { stateDir: join(dir, "state"), port: 0 },
     );
@@ -142,6 +158,7 @@ describe("pairing", () => {
       api: 1,
       build: "test",
       library: { id: "7b2e9c41-5d3a-4f86-9e10-c4a8b6d2f053", name: "pribadi" },
+      upload: true,
     });
 
     const refused = await post("/api/1/request", { type: "library:stats" });
@@ -289,5 +306,104 @@ describe("the local network", () => {
     ]) {
       expect(isLocalAddress(address), String(address)).toBe(false);
     }
+  });
+});
+
+describe("adding a file from a phone", () => {
+  const upload = (query: string, body: string, token?: string) =>
+    fetch(`${base}/api/1/upload?${query}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      },
+      body,
+    });
+
+  /** What is left in `staging/`: nothing, once an upload has been answered. */
+  const staged = async (): Promise<string[]> => readdir(join(root, "staging")).catch(() => []);
+
+  it("stages the bytes under the file's name, hands them over, and removes them", async () => {
+    await start();
+    const token = await pair();
+    const name = encodeURIComponent("pantai sore.jpg");
+    const answer = await upload(`name=${name}&folder=7&modified=1700000000000`, "BYTES", token);
+
+    expect(answer.status).toBe(200);
+    expect(await answer.json()).toEqual({
+      ok: true,
+      value: { id: "a1b2c3d4e5f6", duplicateOf: null },
+    });
+    expect(received).toHaveLength(1);
+    const [file] = received;
+    expect(file?.bytes).toBe("BYTES");
+    expect(file?.folder).toBe(7);
+    // Under the library's `staging/`, in a directory of its own, by its name
+    // (ADR-0073 §3.3), dated as the phone dated it.
+    expect(file?.path).toMatch(/[/\\]staging[/\\]upload-[0-9a-f-]+[/\\]pantai sore\.jpg$/);
+    expect(file?.path.startsWith(root)).toBe(true);
+    expect(file?.mtimeMs).toBe(1_700_000_000_000);
+    expect(await staged()).toEqual([]);
+  });
+
+  it("refuses a device that is not paired, and a name that is not a file's", async () => {
+    await start();
+    expect((await upload("name=a.jpg", "BYTES")).status).toBe(401);
+    const token = await pair();
+    for (const query of ["", "name=", "name=..", `name=${encodeURIComponent("a/b.jpg")}`]) {
+      const answer = await upload(query, "BYTES", token);
+      expect(answer.status).toBe(400);
+      expect(await answer.json()).toMatchObject({ problem: { code: "invalid_request" } });
+    }
+    expect((await upload("name=a.jpg&folder=0", "BYTES", token)).status).toBe(400);
+    expect((await upload("name=a.jpg&modified=yesterday", "BYTES", token)).status).toBe(400);
+    expect(received).toEqual([]);
+  });
+
+  it("refuses a file larger than the free space less the margin, before a byte is written", async () => {
+    await start();
+    const token = await pair();
+    free = 1024 ** 3 + 4;
+    const answer = await upload("name=big.mov", "BYTES", token);
+    expect(answer.status).toBe(507);
+    expect(await answer.json()).toMatchObject({ problem: { code: "no_space" } });
+    expect(received).toEqual([]);
+    expect(await staged()).toEqual([]);
+  });
+
+  it("wants the length first", async () => {
+    await start();
+    const token = await pair();
+    // A stream body goes chunked, with no `Content-Length`.
+    const answer = await fetch(`${base}/api/1/upload?name=a.jpg`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: new Blob(["BYTES"]).stream(),
+      duplex: "half",
+    } as RequestInit);
+    expect(answer.status).toBe(411);
+    expect(received).toEqual([]);
+  });
+
+  it("imports nothing from a body cut off before its length", async () => {
+    await start();
+    const token = await pair();
+    const url = new URL(`${base}/api/1/upload?name=cut.mov`);
+    await new Promise<void>((resolve) => {
+      const request = httpRequest(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-length": "1000" },
+      });
+      request.on("error", () => resolve());
+      request.on("close", () => resolve());
+      request.write("only a little", () => setTimeout(() => request.destroy(), 50));
+    });
+    // The server notices on its own time: wait for the staging to empty.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    for (let tries = 0; tries < 50 && (await staged()).length > 0; tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(received).toEqual([]);
+    expect(await staged()).toEqual([]);
   });
 });

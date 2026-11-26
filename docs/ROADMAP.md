@@ -453,6 +453,13 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
+**ADR-0073 — adding a file from a phone** was proposed and **accepted** on 2026-11-27, every answer
+as recommended, and built the same day on both sides. One file per `POST /api/1/upload`, as raw
+bytes, streamed into `staging/` and imported by a request only main sends (`import:received`), so
+the window's progress bar and duplicates pop-up stay the window's. A file lands in the folder on
+the phone's screen; a duplicate is said, with *Add to folder*. `REMOTE.md` revision 1.1, `hello`
+saying `upload: true`. No format change.
+
 **ADR-0072 — a server for a phone** was proposed and **accepted** on 2026-11-26, and its server half
 built the same day, as preparation for an Android client. The owner chose **the window as the
 server** and **plain HTTP**, both against the recommendation, no library without a password, as

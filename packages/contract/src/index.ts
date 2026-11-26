@@ -95,6 +95,7 @@ export {
   type WirePasted,
   type WirePlaceView,
   type WireProblem,
+  type WireReceived,
   type WireRecentLibrary,
   type WireReclaimable,
   type WireRedrawn,
