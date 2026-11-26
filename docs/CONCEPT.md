@@ -159,14 +159,18 @@ Legend: **M** = must have (v1.0) · **S** = should have · **C** = could have ·
 ### 5.2 Explicit non-goals
 
 - Not a photo *editor*. No retouching, no filters, no layers.
-- Not a cloud service. No sync server, no sharing links, no accounts.
+- Not a cloud service. No sync server, no sharing links, no accounts. **Sharing a library on the
+  owner's own network, turned on by the owner, for the owner's own phone** is not one (ADR-0072):
+  nothing leaves the house, a device is paired with the library's password rather than signed in,
+  and Tailscale, not Roost, is how it reaches further.
 - Not a DAM for teams. Multi-user, permissions, and check-in/check-out are out of scope.
 - Not a file manager replacement. A library holds what was imported into it; Roost does not
   browse arbitrary filesystems. Accepting any file is not the same as replacing the thing that
   browses every file.
 - No telemetry, no crash reporting phone-home, no auto-update that talks to us silently.
 - Not a web app. The renderer runs against a local engine over a private protocol; it is not
-  going to be hosted, and no code should be written to keep that door open.
+  going to be hosted, and no code should be written to keep that door open. Sharing a library with a phone
+  (ADR-0072) serves the contract's answers and the bytes to a native client, never the renderer.
 
 ## 6. What makes Roost better than a clone
 

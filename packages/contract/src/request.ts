@@ -40,6 +40,7 @@ import type {
   WirePasted,
   WireRecentLibrary,
   WireReclaimable,
+  WireRemoteStatus,
   WireRemoval,
   WireSelectionSummary,
   WireSettings,
@@ -136,6 +137,22 @@ export type Request =
       readonly current?: string;
       readonly next: string | null;
     }
+  /**
+   * Whether `password` is the open library's (ADR-0072 §3.5).
+   *
+   * Asked by **main**, for a phone pairing, and answered by the engine with the
+   * same check opening the library makes. A window is refused it: main's route
+   * drops it, because a window has nothing to pair.
+   */
+  | { readonly type: "library:checkPassword"; readonly password: string }
+  /**
+   * Sharing the open library on the local network (ADR-0072 §3.1): what the
+   * dialog draws, ticking the box, and unpairing a device. Answered by main,
+   * which holds the listener.
+   */
+  | { readonly type: "remote:status" }
+  | { readonly type: "remote:share"; readonly on: boolean }
+  | { readonly type: "remote:revoke"; readonly device: string }
   /**
    * End the application (ADR-0028).
    *
@@ -962,6 +979,10 @@ export interface Responses {
   "library:close": null;
   "library:rename": LibrarySummary;
   "library:setPassword": LibrarySummary;
+  "library:checkPassword": boolean;
+  "remote:status": WireRemoteStatus;
+  "remote:share": WireRemoteStatus;
+  "remote:revoke": WireRemoteStatus;
   "app:quit": null;
   "app:about": WireAbout;
   "library:stats": LibraryStats;
@@ -1153,6 +1174,26 @@ export const REQUEST_VALIDATORS: {
       ...(current.value === undefined ? {} : { current: current.value }),
     });
   },
+  "library:checkPassword": (source) => {
+    const password = readString(source, "password");
+    if (!password.ok) return password;
+    return ok({ type: "library:checkPassword", password: password.value });
+  },
+
+  "remote:status": () => ok({ type: "remote:status" }),
+
+  "remote:share": (source) => {
+    const on = readBoolean(source, "on");
+    if (!on.ok) return on;
+    return ok({ type: "remote:share", on: on.value });
+  },
+
+  "remote:revoke": (source) => {
+    const device = readNonEmpty(source, "device");
+    if (!device.ok) return device;
+    return ok({ type: "remote:revoke", device: device.value });
+  },
+
   "app:quit": () => ok({ type: "app:quit" }),
   "app:about": () => ok({ type: "app:about" }),
   "library:stats": () => ok({ type: "library:stats" }),

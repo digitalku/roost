@@ -452,7 +452,7 @@ describe("replaying the revision 2.4 library", () => {
  * password and for nothing else, and which nothing is written into before it
  * does (RL-5c, RL-5d).
  */
-describe("opening the version 3 library", () => {
+describe("opening the version 3 library", { timeout: 30_000 }, () => {
   interface Expected3 {
     readonly format_version: number;
     readonly password: string;

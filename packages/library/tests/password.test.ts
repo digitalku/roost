@@ -16,6 +16,13 @@ import { hashPassword, parsePasswordRecord, passwordMatches } from "../src/passw
  * folder is touched before it does, and that the version follows the field.
  */
 
+/**
+ * Each check runs scrypt at the cost a library is given, 128 MiB and a fifth
+ * of a second alone, on purpose; several in one test, beside the rest of the
+ * suite, outlast vitest's five seconds.
+ */
+const SCRYPT = { timeout: 30_000 };
+
 let dir: string;
 
 beforeEach(async () => {
@@ -39,7 +46,7 @@ async function lockedLibrary(name = "locked"): Promise<string> {
   return root;
 }
 
-describe("the password record", () => {
+describe("the password record", SCRYPT, () => {
   it("matches the password it was made from, and no other", async () => {
     const record = await hashPassword("correct horse");
     expect(record).toMatchObject({ kdf: "scrypt", n: 2 ** 17, r: 8, p: 1 });
@@ -83,7 +90,7 @@ describe("the password record", () => {
   });
 });
 
-describe("setting and removing a password", () => {
+describe("setting and removing a password", SCRYPT, () => {
   it("writes version 3 with the field, and version 2 without it", async () => {
     const root = join(dir, "toggle.roost");
     const library = await Library.create(root, "toggle");
@@ -158,7 +165,7 @@ describe("setting and removing a password", () => {
   });
 });
 
-describe("opening a library with a password (RL-5d)", () => {
+describe("opening a library with a password (RL-5d)", SCRYPT, () => {
   it("refuses it without the password, and touches nothing in the folder", async () => {
     const root = await lockedLibrary();
     // With no index, an open that got any further would make one.
@@ -213,7 +220,7 @@ describe("opening a library with a password (RL-5d)", () => {
   });
 });
 
-describe("the version and the field agree (RL-5c)", () => {
+describe("the version and the field agree (RL-5c)", SCRYPT, () => {
   const base = {
     id: "e0ec4720-c791-4a56-84a5-2c7fc11bb00e",
     name: "Fixture",

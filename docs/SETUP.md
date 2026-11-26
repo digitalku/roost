@@ -546,6 +546,13 @@ encrypted. With Roost closed, open `library.json` in the library's folder, delet
 field, and change `"roost_library_version": 3` to `2`. Both halves, or Roost reports the folder as
 not a library (RL-5c).
 
+**A phone can open a library the window has open** (ADR-0072), once the library has a password:
+**Share on this network…** in the `☰`, tick the box, and type one of the addresses it lists into
+the phone. The port is 7387, and `ROOST_REMOTE_PORT` moves it. The phones paired with a library
+are kept in `$XDG_STATE_HOME/roost/remote/`, outside the library. The protocol is
+[`REMOTE.md`](REMOTE.md). **The Flatpak cannot share yet**: it has no network permission, so it
+listens on its own loopback alone (`TODO.md` §3).
+
 ## 5. A test library, cheaply
 
 `roost fixture` builds a reproducible synthetic library — the same seed produces the same

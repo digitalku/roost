@@ -453,6 +453,13 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
+**ADR-0072 — a server for a phone** was proposed and **accepted** on 2026-11-26, and its server half
+built the same day, as preparation for an Android client. The owner chose **the window as the
+server** and **plain HTTP**, both against the recommendation, no library without a password, as
+recommended, and deleting for good from the phone, behind the client's confirmation, against it.
+**Share on this network…** in the `☰`; `@roost/server` in main, carrying the contract and
+`roost://` over HTTP to a paired device; `docs/REMOTE.md` is the protocol. No format change.
+
 **ADR-0071 — a password on a library** was proposed and **accepted** on 2026-11-26, and built the
 same day. It gates the library and encrypts nothing. The hash is in `library.json`, it is asked at
 every open, and the CLI asks too. The owner chose **against the recommendation** that an older build

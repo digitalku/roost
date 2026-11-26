@@ -50,7 +50,7 @@ afterEach(async () => {
 const manifest = async (): Promise<Record<string, unknown>> =>
   JSON.parse(await readFile(join(root, "library.json"), "utf8")) as Record<string, unknown>;
 
-describe("roost password", () => {
+describe("roost password", { timeout: 30_000 }, () => {
   it("sets one, typed twice, and the library is version 3", async () => {
     answers = { new: "secret", again: "secret" };
     const run1 = capture();

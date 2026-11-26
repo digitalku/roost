@@ -102,7 +102,8 @@ Window — and it carried a Reload that throws away the query and the selection,
 and a Paste meaning something other than Roost's (§3.3). It is removed on Linux and Windows, and
 the commands that belong to the application live in the toolbar's `☰` instead: **Show sidebar**,
 **Show inspector**, **Copy and drag by name**, **Reclaim space…**, **Rename library…** (§3.15),
-**Set password…** or **Change password…** and **Remove password…** (§3.16), **Close library**,
+**Set password…** or **Change password…** and **Remove password…** (§3.16), **Share on this
+network…** (§3.17), **Close library**,
 **About Roost…** and **Quit**, and nothing that already has a home. The two
 pane checkboxes are first, and they are the only items in here used more than once: they say **what the
 window is made of**, which is why they are not in the view control — that menu says how the
@@ -329,6 +330,7 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `RenameLibraryDialog` | overlay | the draft name | Rename library…, which renames the folder. §3.15, ADR-0056 |
 | `PasswordPrompt` | overlay | — | Asks for a library's password before it opens, from the picker or a transfer. Holds nothing it is given. §3.16, ADR-0071 |
 | `PasswordDialog` | overlay | the three fields | Set, change or remove the open library's password. §3.16, ADR-0071 |
+| `ShareDialog` | overlay | the sharing status, read every 2 s | Share on this network…: the box, the addresses, the paired phones. §3.17, ADR-0072 |
 | `Toolbar` | toolbar | — | Composes the four below |
 | `SearchField` | toolbar | draft text | RQL input; §5 |
 | `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, and a Sort By submenu of six orders. Remembered per kind of place. ADR-0018, ADR-0039, ADR-0066 |
@@ -1247,6 +1249,31 @@ password* or *Removed the password*.
 
 **A second window onto an open library does not ask**, and neither does *Rename library…*, which
 closes and reopens the library with the proof the first open was given, not the password.
+
+### 3.17 Sharing the library with a phone
+
+**Share on this network…** in the `☰`, after the password items, opens a dialog titled *Share on
+this network* (ADR-0072). One sentence says what it is: a phone on the same network, or on the
+owner's Tailscale, can open this library while Roost has it open here, and it asks for the
+library's password once, to pair.
+
+**A library without a password cannot be shared.** The dialog then says so, *"the password is what
+lets a phone in"*, and offers **Set password…**, which opens §3.16's dialog in its place. No checkbox
+is drawn, because one would do nothing.
+
+**With a password**, one checkbox: *Share this library on this network*, with the note *Remembered
+for this library, on this computer*. Ticked and listening, the dialog lists the addresses to type
+into the phone, `http://192.168.1.20:7387` and the Tailscale address when there is one, in a
+monospaced face and selectable. Under them, one muted line says what plain HTTP means: on the
+owner's own Wi-Fi the password and the phone's key are not encrypted, and Tailscale encrypts them
+away from home. Ticked and **not** listening, the problem is said in the danger colour, *Port 7387
+is in use by another program*. Listening with no address to offer, the dialog says the computer has
+no address a phone could reach, and that the Flatpak has no network permission yet.
+
+**Paired phones** follow, one line each: the name the phone gave, *Paired 2 hours ago* or *Seen
+just now*, and **Unpair**. *None yet.* when there are none. The dialog reads its status every two
+seconds while it is open, so a phone that pairs while the owner watches appears without the dialog
+being closed.
 
 ## 4. Navigation
 

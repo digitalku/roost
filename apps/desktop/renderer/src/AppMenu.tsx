@@ -61,6 +61,12 @@ export interface AppMenuProps {
   readonly hasPassword: boolean;
   readonly onPassword: (change: PasswordChange) => void;
   /**
+   * Share the library on this network, for a phone (ADR-0072 §3.1). After the
+   * password because sharing needs one, and the dialog says so when there is
+   * none.
+   */
+  readonly onShare: () => void;
+  /**
    * Delete the objects nothing references (ADR-0031).
    *
    * Here because it is the application acting on the whole library rather than
@@ -91,6 +97,7 @@ export function AppMenu({
   onRenameLibrary,
   hasPassword,
   onPassword,
+  onShare,
   onReclaim,
   onAbout,
   onQuit,
@@ -180,6 +187,11 @@ export function AppMenu({
               <span className="menu-label">Set password…</span>
             </DropdownMenu.Item>
           )}
+
+          <DropdownMenu.Item className="menu-item" onSelect={onShare}>
+            <span className="menu-mark" />
+            <span className="menu-label">Share on this network…</span>
+          </DropdownMenu.Item>
 
           <DropdownMenu.Item className="menu-item" onSelect={onCloseLibrary}>
             <span className="menu-mark" />

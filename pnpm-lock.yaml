@@ -72,6 +72,9 @@ importers:
       '@roost/media':
         specifier: workspace:*
         version: link:../../../packages/media
+      '@roost/server':
+        specifier: workspace:*
+        version: link:../../../packages/server
     devDependencies:
       '@types/node':
         specifier: 22.20.1
@@ -233,6 +236,19 @@ importers:
 
   packages/search:
     dependencies:
+      '@roost/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: 22.20.1
+        version: 22.20.1
+
+  packages/server:
+    dependencies:
+      '@roost/contract':
+        specifier: workspace:*
+        version: link:../contract
       '@roost/core':
         specifier: workspace:*
         version: link:../core

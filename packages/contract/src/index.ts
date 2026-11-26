@@ -98,6 +98,8 @@ export {
   type WireRecentLibrary,
   type WireReclaimable,
   type WireRedrawn,
+  type WireRemoteDevice,
+  type WireRemoteStatus,
   type WireRemoval,
   type WireSection,
   type WireSelectionSummary,

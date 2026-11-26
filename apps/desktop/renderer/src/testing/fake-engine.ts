@@ -31,6 +31,8 @@ import type {
   WireProblem,
   WireRecentLibrary,
   WireReclaimable,
+  WireRemoteDevice,
+  WireRemoteStatus,
   WireSelectionSummary,
   WireSettings,
   WireSharedText,
@@ -104,6 +106,12 @@ export interface FakeEngineOptions {
   readonly textConflicts?: number;
   /** What `asset:thumbnail` answers with: by default, set on every id asked. */
   readonly thumbnail?: WireThumbnailChosen;
+  /**
+   * The phones paired with the open library, and whether its box starts
+   * ticked (ADR-0072). Answered as main would: listening while it is ticked
+   * and the library has a password, at one address.
+   */
+  readonly remote?: { readonly sharing?: boolean; readonly devices?: readonly WireRemoteDevice[] };
   /** What `dialog:openLibrary` answers with. `null` is a cancelled dialog. */
   readonly openLibraryDialog?: string | null;
   /** What `dialog:chooseLocation` answers with. */
@@ -452,10 +460,14 @@ export class FakeEngine {
   #nextFolderId: number;
   #open: LibrarySummary | undefined;
   #recent: readonly WireRecentLibrary[];
+  #sharing: boolean;
+  #devices: readonly WireRemoteDevice[];
   #listeners = new Set<(event: unknown) => void>();
 
   constructor(options: FakeEngineOptions = {}) {
     this.#options = options;
+    this.#sharing = options.remote?.sharing ?? false;
+    this.#devices = options.remote?.devices ?? [];
     this.#textConflicts = options.textConflicts ?? 0;
     this.folders = options.sidebar?.folders ?? [];
     this.foundFolders = options.foundFolders ?? {};
@@ -712,6 +724,22 @@ export class FakeEngine {
     return this.#options.byQuery?.[query];
   }
 
+  #remoteStatus(): WireRemoteStatus {
+    const open = this.#open;
+    const hasPassword =
+      open !== undefined && this.#libraries.get(open.root)?.password !== undefined;
+    const listening = this.#sharing && hasPassword;
+    return {
+      sharing: this.#sharing,
+      listening,
+      hasPassword,
+      port: 7387,
+      addresses: listening ? ["http://192.168.1.20:7387"] : [],
+      problem: null,
+      devices: this.#devices,
+    };
+  }
+
   #answer(request: Request): Outcome<unknown> {
     this.seen.push(request);
 
@@ -744,6 +772,22 @@ export class FakeEngine {
         this.#remember(this.#open);
         return ok(this.#open);
       }
+
+      case "library:checkPassword": {
+        const library = this.#open === undefined ? undefined : this.#libraries.get(this.#open.root);
+        return ok(library?.password !== undefined && library.password === request.password);
+      }
+
+      case "remote:status":
+        return ok(this.#remoteStatus());
+
+      case "remote:share":
+        this.#sharing = request.on;
+        return ok(this.#remoteStatus());
+
+      case "remote:revoke":
+        this.#devices = this.#devices.filter((device) => device.id !== request.device);
+        return ok(this.#remoteStatus());
 
       case "library:setPassword": {
         const open = this.#open;

@@ -31,6 +31,10 @@ versions that came with it.
 
 Still open, and none of it blocks M0:
 
+- 🟢 **ADR-0072 — a server for a phone — was accepted on 2026-11-26**, and its server half built:
+  the window serves, plain HTTP, a password required, deleting for good allowed behind the client's
+  confirmation. The Android client, the Flatpak's network permission and `roost serve` are in §3,
+  under *A phone onto a library on a server*.
 - 🟢 **ADR-0071 — a password on a library — was accepted on 2026-11-26** and built the same day:
   `library.json`, asked at every open, the CLI too, and **format version 3** for a library with a
   password, so that an older build refuses it (the owner's choice, against the recommendation). The
@@ -165,27 +169,35 @@ Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a se
   library. ADR-0071 §2 accepts it, as a gate and not a secret. Worth revisiting if the server mode
   makes the password a real door.
 
-### A phone onto a library on a server (asked 2026-11-26, no ADR yet)
+### A phone onto a library on a server (ADR-0072, server built 2026-11-26)
 
-The owner wants a native Android app that opens a Roost library kept on a server. It is **not** a
-whole Roost on the phone and **not** a library read over SMB: SQLite and the journal's append are
-not safe over a network filesystem, the lock (ADR-0069) means nothing across machines, inotify
-sees nothing there, and the engine needs Node and native modules Android does not have. The shape
-recommended in conversation is a **headless server mode** running the same engine beside the
-files, with the phone as a thin client of `@roost/contract` over HTTP and `roost://` mapped to
-HTTP with range requests. The owner's answers, to be written into that ADR:
+The owner wants a native Android app, for their own devices through Google Play's internal testing,
+that opens a library kept on another machine and writes to it. ADR-0072 decided the server half:
+**the window serves** the library it has open, over **plain HTTP**, only a library with a
+password, and deleting for good is allowed behind the client's confirmation.
 
-- **It writes**: tags, and whatever else the contract already allows, not only browsing.
-- **LAN only.** Access from outside goes through Tailscale, which the owner sets up; Roost does not
-  expose itself to the internet.
-- **Native**, not the React renderer in a WebView.
-- **Google Play, internal testing only**, for the owner's own devices. Perhaps public one day if
-  people ask.
-- **ADR-0071's password comes first**, and is the secret a device needs to pair.
-
-The ADR has to amend `CONCEPT.md` §5.2 (*not a web app*, *no sync server*) and invariant 7, and say
-how invariant 10 still holds (pairing, not an account). It is not in `ROADMAP.md` yet, so it also
-has to say where it goes.
+- ☑ ~~**The server**~~, done 2026-11-26: `@roost/server` (routes, pairing, devices in
+  `$XDG_STATE_HOME/roost/remote/`, the LAN-only filter, the allowlist, server-sent events), carried
+  by main; **Share on this network…** in the `☰`; `docs/REMOTE.md`, API 1, revision 1.0.
+  `check-remote.mjs`, 19 of 19, playing the phone with `fetch`.
+- 🟡 **The Android client, Roost Remote**, a repository of its own at `../roost-remote-android`
+  (both names the owner's, 2026-11-26), written against `docs/REMOTE.md`. Kotlin and
+  Compose, cleartext allowed for the typed host only (RR-3), the token in the keystore (RR-6), a
+  confirmation before every delete for good (RR-10).
+- 🟡 **The Flatpak cannot share**: ADR-0063 gave it no network, so it listens on its own loopback.
+  Adding `--share=network` to `packaging/flatpak/` is a change to what the published Flatpak may
+  do, and is the owner's call. Until then sharing works from a checkout or `pnpm start`.
+- 🟢 **`roost serve`, headless** (ADR-0072 §3.11), for a machine with no desktop, and what ADR-0005
+  is owed. Needs `EngineHost` and `AssetServer` moved out of `apps/desktop` into a package the CLI
+  can host. **Later, at the owner's word** (2026-11-26): Roost is for the window first, and the
+  phone is a companion to it.
+- 🟢 **A `roost-cli` launcher in the Flatpak.** The CLI is shipped and runs under Electron's Node
+  (tried 2026-11-26 on 0.2.10: `init`, `import`, `stats`, `thumb`), but only through
+  `flatpak run --command=sh … ELECTRON_RUN_AS_NODE=1 …`. Later, with `roost serve`.
+- 🟢 **HTTPS with a pinned certificate** (`REMOTE.md` §1, reserved), if plain HTTP on the home
+  Wi-Fi stops being acceptable. The owner chose plain HTTP for now.
+- 🟢 **Finding the server by itself** (mDNS) and a QR code with the address. Typed addresses for now.
+- 🟢 **Uploading from the phone** is bytes coming in, and needs an ADR of its own.
 
 ### Flathub first (ADR-0063, decided 2026-10-25)
 

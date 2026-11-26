@@ -20,6 +20,12 @@
       "path": "packages/library"
     },
     {
+      "path": "packages/server"
+    },
+    {
+      "path": "packages/server/tsconfig.tests.json"
+    },
+    {
       "path": "packages/cli"
     },
     {

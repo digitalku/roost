@@ -1477,3 +1477,58 @@ button:disabled {
 .nav-arrow[data-direction="up"] {
   transform: rotate(90deg);
 }
+
+/* Sharing the library with a phone (ADR-0072 §3.1, `UI_SPEC.md` §3.17): the
+   addresses to type, then the phones already paired, each on one line. */
+.share-addresses {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.share-address-list,
+.share-device-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.share-address-list code {
+  font-family: var(--font-mono);
+  user-select: text;
+}
+
+.share-devices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.share-devices-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.share-device {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.share-device-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-device-when {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}

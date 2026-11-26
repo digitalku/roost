@@ -1476,6 +1476,35 @@ export interface WireTransferProgress {
  * `electron .` run has no way to know. Between the two, one of them is
  * populated in every build anybody can report a bug from.
  */
+/**
+ * Sharing the open library on the local network, for the window's dialog
+ * (ADR-0072 §3.1). Answered by main, which holds the listener.
+ */
+export interface WireRemoteStatus {
+  /** The box is ticked for this library, on this machine. */
+  readonly sharing: boolean;
+  /** A phone could reach it now. */
+  readonly listening: boolean;
+  /** Sharing needs one (ADR-0072 §3.5). */
+  readonly hasPassword: boolean;
+  readonly port: number;
+  /** What to type into the phone, `http://192.168.1.20:7387`. */
+  readonly addresses: readonly string[];
+  /** Why it is ticked and not listening, said for a person. */
+  readonly problem: string | null;
+  readonly devices: readonly WireRemoteDevice[];
+}
+
+/** A phone paired with this library on this machine. */
+export interface WireRemoteDevice {
+  readonly id: string;
+  readonly name: string;
+  /** Unix seconds. */
+  readonly pairedAt: number;
+  /** Unix seconds; `null` until it has asked for something. */
+  readonly lastSeen: number | null;
+}
+
 export interface WireAbout {
   /** `null` in an unpackaged build, which has no version of its own. */
   readonly version: string | null;

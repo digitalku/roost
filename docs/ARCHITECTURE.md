@@ -68,6 +68,7 @@ roost/
 │   ├── search/                # RQL grammar, parser, filter compiler
 │   ├── library/               # orchestration: Library handle, import, edit, search, thumbnails, doctor
 │   ├── contract/              # IPC message shapes and their validators — no runtime dependencies
+│   ├── server/                # sharing a library on the local network, for a phone (ADR-0072)
 │   └── cli/                   # `roost` binary — headless driver over library
 └── apps/
     └── desktop/
@@ -86,6 +87,11 @@ Dependency direction is strictly downward:
 `@roost/media` and `@roost/search` are siblings — neither knows the other exists, and both see
 only `@roost/core`. `@roost/core` must never depend on another workspace package. Cycles are a
 build error and a design error.
+
+`@roost/server` sits beside it: the HTTP transport for a phone, which depends on `@roost/core` and
+`@roost/contract` and is imported by `main` alone. It knows nothing of the engine: main hands it
+the route to the engine and the byte server, so a phone gets the window's answers (ADR-0072 §3.2).
+`docs/REMOTE.md` is the protocol it speaks.
 
 `@roost/contract` sits outside that chain. It is imported by `main`, `preload`, `renderer`, and
 `engine`, and it depends on nothing — not on `@roost/core`, not on Node built-ins, not on the
@@ -578,7 +584,10 @@ Violating any of these is a bug, regardless of what it enables:
 6. Nothing is ever written into a user directory. A file **inside** the library is a different
    matter: it is a workspace, and an edit over it is ordinary (RL-20). Nothing may hold one open
    in a way that stops another application writing to it (RL-21).
-7. No network calls at runtime, except explicit user-initiated "import from URL".
+7. No network calls at runtime, except explicit user-initiated "import from URL", and **sharing a
+   library on the local network** (ADR-0072): turned on by the owner per library, never by
+   default, listening only while that library is open with a password, and answering only
+   addresses that are not on the internet. A window that never ticks the box opens no socket.
 8. `@roost/core` depends on no other workspace package.
 9. Every user-authored mutation is journalled before it touches `index.db`. **One exception, by
    the user's choice** (ADR-0060): a thumbnail somebody chose is written to `thumbs/roost.db`

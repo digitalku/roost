@@ -12,6 +12,7 @@ import type {
   WireAbout,
   WireImportReport,
   WirePasted,
+  WireRemoteStatus,
   WireSettings,
   WireThumbnailChosen,
 } from "@roost/contract";
@@ -26,10 +27,12 @@ import {
   logger,
   setLogLevel,
   setSink,
+  stateDir,
   stderrSink,
   teeSink,
 } from "@roost/core";
 import { extensionsOfKind, SUBTITLE_EXTENSIONS } from "@roost/media/serving";
+import { DEFAULT_REMOTE_PORT, LibrarySharing, type SharedLibrary } from "@roost/server";
 import {
   app,
   BrowserWindow,
@@ -89,6 +92,15 @@ const EVENT_CHANNEL = "roost:event";
  * than inside `whenReady`.
  */
 const assets = new AssetServer();
+
+/**
+ * The open library shared on the local network, for a phone (ADR-0072).
+ *
+ * Made once the engine is, because a phone's requests go to it. It listens only
+ * while a library is open, has a password, and has its box ticked, so a window
+ * that never ticks it opens no socket (invariant 7).
+ */
+let sharing: LibrarySharing | undefined;
 protocol.registerSchemesAsPrivileged([
   { scheme: ROOST_SCHEME, privileges: { ...ROOST_SCHEME_PRIVILEGES } },
 ]);
@@ -130,9 +142,34 @@ if (!app.requestSingleInstanceLock()) {
     // The engine has closed a library whose folder left its path, so the
     // connection here points at a directory that is not where it was
     // (ADR-0056 §3.4).
-    if (event.type === "library:lost") assets.detach();
+    if (event.type === "library:lost") {
+      assets.detach();
+      void sharing?.follow(undefined);
+    }
     broadcast(event);
+    sharing?.emit(event);
   });
+  sharing = new LibrarySharing(
+    {
+      build: app.isPackaged ? app.getVersion() : "unpackaged",
+      // The phone's requests take the window's path to the engine, after the
+      // same `checkRequest` and an allowlist of their own (ADR-0072 §3.6).
+      answer: async (request) => {
+        try {
+          return { ok: true, value: await engine.request(request) };
+        } catch (error) {
+          if (error instanceof EngineProblem || error instanceof EngineGoneError) {
+            return { ok: false, problem: error.problem };
+          }
+          return { ok: false, problem: { code: "remote", message: "request failed", detail: {} } };
+        }
+      },
+      bytes: (request) => assets.handle(request),
+      checkPassword: async (password) =>
+        (await engine.request({ type: "library:checkPassword", password })) === true,
+    },
+    { stateDir: stateDir(), port: remotePort() },
+  );
   app.on("second-instance", () => {
     const [existing] = BrowserWindow.getAllWindows();
     if (existing === undefined) return;
@@ -179,13 +216,18 @@ if (!app.requestSingleInstanceLock()) {
   app.on("will-quit", (event) => {
     if (!engineStopped) {
       event.preventDefault();
-      void engine.stop().finally(() => {
-        engineStopped = true;
-        // The read-only connection is main's, not the engine's, so stopping
-        // the engine does not close it.
-        assets.detach();
-        app.quit();
-      });
+      // The phones first: a request arriving while the engine stops would be
+      // answered with the engine gone.
+      void (sharing?.stop() ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(() => engine.stop())
+        .finally(() => {
+          engineStopped = true;
+          // The read-only connection is main's, not the engine's, so stopping
+          // the engine does not close it.
+          assets.detach();
+          app.quit();
+        });
       return;
     }
     // The log file holds a descriptor, and JavaScript has no destructor — the
@@ -211,6 +253,12 @@ async function route(engine: Engine, payload: unknown, sender: WebContents): Pro
   }
 
   const request: Request = checked.value;
+  // Main's own question for a phone pairing (ADR-0072 §3.5). A window has
+  // nothing to pair, and a password checked from one is a password guessed.
+  if (request.type === "library:checkPassword") {
+    log.warn("refused a password check from a window");
+    return { ok: false, problem: { code: "remote", message: "invalid request", detail: {} } };
+  }
   // Which requests a window made, and in what order, is the first thing anyone
   // debugging this path wants. The payload is not logged: it holds paths.
   log.debug("request", { type: request.type });
@@ -246,6 +294,13 @@ async function route(engine: Engine, payload: unknown, sender: WebContents): Pro
 function followLibrary(request: Request, value: unknown): void {
   if (request.type === "library:close") {
     assets.detach();
+    void sharing?.follow(undefined);
+    return;
+  }
+  // A password set or removed decides whether the library can be shared at
+  // all (ADR-0072 §3.5); nothing else about it moved.
+  if (request.type === "library:setPassword") {
+    void sharing?.follow(sharedFrom(value));
     return;
   }
   if (
@@ -255,6 +310,7 @@ function followLibrary(request: Request, value: unknown): void {
   ) {
     return;
   }
+  void sharing?.follow(sharedFrom(value));
 
   const root = isSummary(value) ? value.root : undefined;
   if (root === undefined) return;
@@ -273,6 +329,46 @@ function followLibrary(request: Request, value: unknown): void {
 async function reattach(engine: Engine): Promise<void> {
   const current = await engine.request({ type: "library:current" }).catch(() => null);
   if (isSummary(current)) followLibrary({ type: "library:open", path: current.root }, current);
+}
+
+/** What sharing needs of a library summary, or `undefined` when it is not one. */
+function sharedFrom(value: unknown): SharedLibrary | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const root = Reflect.get(value, "root");
+  const id = Reflect.get(value, "id");
+  const name = Reflect.get(value, "name");
+  const hasPassword = Reflect.get(value, "hasPassword");
+  if (typeof root !== "string" || typeof id !== "string" || typeof name !== "string") {
+    return undefined;
+  }
+  return { root, id, name, hasPassword: hasPassword === true };
+}
+
+/**
+ * The port phones reach. `ROOST_REMOTE_PORT` moves it, for the window checks
+ * and for a machine where something else has 7387 (ADR-0072 §3.7).
+ */
+function remotePort(): number {
+  const given = Number(process.env.ROOST_REMOTE_PORT);
+  return Number.isInteger(given) && given > 0 && given < 65536 ? given : DEFAULT_REMOTE_PORT;
+}
+
+/** Sharing's status, for the window's dialog; a window with no engine yet shares nothing. */
+async function remote(request: Request): Promise<WireRemoteStatus> {
+  if (sharing === undefined) {
+    return {
+      sharing: false,
+      listening: false,
+      hasPassword: false,
+      port: remotePort(),
+      addresses: [],
+      problem: null,
+      devices: [],
+    };
+  }
+  if (request.type === "remote:share") return sharing.share(request.on);
+  if (request.type === "remote:revoke") return sharing.revoke(request.device);
+  return sharing.status();
 }
 
 function isSummary(value: unknown): value is { root: string } {
@@ -310,6 +406,10 @@ const ANSWERED_HERE: ReadonlySet<RequestType> = new Set([
   // as a request like everything else the renderer can ask for.
   "app:quit",
   "app:about",
+  // The listener for phones is main's (ADR-0072 §3.2).
+  "remote:status",
+  "remote:share",
+  "remote:revoke",
 ]);
 
 async function answerHere(
@@ -324,8 +424,16 @@ async function answerHere(
   | WirePasted
   | WireAbout
   | WireThumbnailChosen
+  | WireRemoteStatus
   | null
 > {
+  if (
+    request.type === "remote:status" ||
+    request.type === "remote:share" ||
+    request.type === "remote:revoke"
+  ) {
+    return remote(request);
+  }
   if (request.type === "asset:openExternally") return openExternally(request.id);
   if (request.type === "asset:reveal") return reveal(request.id);
   if (request.type === "asset:copyPath") return copyPaths(request.ids);

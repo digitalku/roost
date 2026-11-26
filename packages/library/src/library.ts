@@ -222,6 +222,16 @@ export class Library {
   }
 
   /**
+   * Whether `password` is the library's: the check opening it makes (RL-5d),
+   * for a phone pairing with it (ADR-0072 §3.5). `false` for a library without
+   * one, which has nothing to pair with.
+   */
+  async checkPassword(password: string): Promise<boolean> {
+    const record = this.#manifest.password;
+    return record !== null && (await passwordMatches(record, password));
+  }
+
+  /**
    * Sets, changes or removes the password (ADR-0071 §3.3).
    *
    * `current` must be the password the library has now, when it has one: the

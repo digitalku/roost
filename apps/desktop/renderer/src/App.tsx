@@ -63,6 +63,7 @@ import { type PasswordChange, PasswordDialog } from "./library/PasswordDialog.js
 import { PasswordPrompt } from "./library/PasswordPrompt.js";
 import { RecentList } from "./library/RecentList.js";
 import { RenameLibraryDialog } from "./library/RenameLibraryDialog.js";
+import { ShareDialog } from "./library/ShareDialog.js";
 import { NavButtons } from "./NavButtons.js";
 import { NewFileDialog } from "./NewFileDialog.js";
 import { INSPECTOR, PaneResizer, SIDEBAR } from "./PaneResizer.js";
@@ -1812,6 +1813,7 @@ function LibraryView({
   // window draws from it (ADR-0071 §3.3).
   const [hasPassword, setHasPassword] = useState(opened.summary.hasPassword);
   const [passwordChange, setPasswordChange] = useState<PasswordChange | undefined>();
+  const [shareOpen, setShareOpen] = useState(false);
 
   const newFolder = useCallback((parent: SidebarFolderRow | null) => {
     setNaming({
@@ -2433,6 +2435,7 @@ function LibraryView({
       onRenameLibrary={() => setRenamingLibrary(true)}
       hasPassword={hasPassword}
       onPassword={setPasswordChange}
+      onShare={() => setShareOpen(true)}
       onReclaim={reclaim}
       onAbout={() => setAbout(true)}
       onQuit={() => {
@@ -2906,6 +2909,15 @@ function LibraryView({
           busy={transferring.running !== undefined}
           onSubmit={transferring.unlock}
           onCancel={transferring.dismiss}
+        />
+      )}
+      {shareOpen && (
+        <ShareDialog
+          onClose={() => setShareOpen(false)}
+          onSetPassword={() => {
+            setShareOpen(false);
+            setPasswordChange("set");
+          }}
         />
       )}
       {passwordChange !== undefined && (

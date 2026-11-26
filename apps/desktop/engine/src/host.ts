@@ -214,6 +214,9 @@ export class EngineHost {
       case "library:rename":
         return this.#rename(request.name);
 
+      case "library:checkPassword":
+        return this.#require().checkPassword(request.password);
+
       case "library:setPassword": {
         const library = this.#require();
         await library.changePassword(request.current, request.next);
@@ -737,6 +740,9 @@ export class EngineHost {
       case "dialog:chooseLocation":
       case "app:quit":
       case "app:about":
+      case "remote:status":
+      case "remote:share":
+      case "remote:revoke":
         // A dialog belongs to a window and this process has none, the clipboard
         // and the browser belong to the desktop, quitting is the application's
         // business rather than the library's, and which build this is belongs
