@@ -102,7 +102,8 @@ Window — and it carried a Reload that throws away the query and the selection,
 and a Paste meaning something other than Roost's (§3.3). It is removed on Linux and Windows, and
 the commands that belong to the application live in the toolbar's `☰` instead: **Show sidebar**,
 **Show inspector**, **Copy and drag by name**, **Reclaim space…**, **Rename library…** (§3.15),
-**Close library**, **About Roost…** and **Quit**, and nothing that already has a home. The two
+**Set password…** or **Change password…** and **Remove password…** (§3.16), **Close library**,
+**About Roost…** and **Quit**, and nothing that already has a home. The two
 pane checkboxes are first, and they are the only items in here used more than once: they say **what the
 window is made of**, which is why they are not in the view control — that menu says how the
 *results* are drawn, and every other item in it changes a cell (ADR-0028 §6). **Copy and drag by
@@ -326,6 +327,8 @@ The inventory, with what each one owes. "Owns state" means it holds state no par
 | `RecentList` | picker | — | The libraries this machine has opened. Pin, forget; §3.1 |
 | `LostNotice` | picker | — | Why the picker is up when nobody closed the library: its folder left its path. §3.15, ADR-0056 |
 | `RenameLibraryDialog` | overlay | the draft name | Rename library…, which renames the folder. §3.15, ADR-0056 |
+| `PasswordPrompt` | overlay | — | Asks for a library's password before it opens, from the picker or a transfer. Holds nothing it is given. §3.16, ADR-0071 |
+| `PasswordDialog` | overlay | the three fields | Set, change or remove the open library's password. §3.16, ADR-0071 |
 | `Toolbar` | toolbar | — | Composes the four below |
 | `SearchField` | toolbar | draft text | RQL input; §5 |
 | `ViewMenu` | toolbar | — | One button, one menu: the views, the proportion checkbox, zoom, and a Sort By submenu of six orders. Remembered per kind of place. ADR-0018, ADR-0039, ADR-0066 |
@@ -1218,6 +1221,32 @@ The button is there when the folder was found beside the old one, which is what 
 folder moved to another directory, or a drive unplugged, cannot be found, and the notice says so
 instead: *"The folder of traveling was moved, or its drive removed, while it was open."* *Open
 library…* above it is then the way back. Opening anything clears the notice.
+
+### 3.16 A password on the library
+
+**A library may ask for a password before it opens** (ADR-0071, `FORMAT.md` RL-5c, RL-5d). It
+encrypts nothing, and the window never pretends otherwise.
+
+**At the picker**, opening a library that has one, from the recent list or *Open library…*, puts a
+dialog over the picker: the title *"pribadi has a password"*, one sentence, *"Type it to open the
+library."*, a password field, and **Cancel** and **Open**. Asking is not a failure, so the
+picker's problem line stays empty. A wrong answer keeps the dialog, empties the field and says
+*"That is not the password."*; Cancel leaves the picker as it was. **Move to library** and **Copy
+to library** ask the same question about the target, before anything is copied, and the transfer
+starts again once it is answered.
+
+**In the `☰`**, beside *Rename library…*: **Set password…** for a library without one, **Change
+password…** and **Remove password…** for a library with one. One dialog, in three shapes. Setting
+asks for the new password twice, and says *"The two do not match."* until they do. Changing asks
+for the current one first and then the new one twice. Removing asks for the current one. The body
+sentence says what a password is: Roost asks for it before it opens the library, it does not
+encrypt anything, whoever can read the folder can read the library, and a Roost older than this one
+cannot open the library while it has one. Removing it says that any Roost will then open the
+library without asking. The status bar says *Set a password on the library*, *Changed the
+password* or *Removed the password*.
+
+**A second window onto an open library does not ask**, and neither does *Rename library…*, which
+closes and reopens the library with the proof the first open was given, not the password.
 
 ## 4. Navigation
 

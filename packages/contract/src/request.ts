@@ -83,8 +83,14 @@ import {
  * describes something nobody built.
  */
 export type Request =
-  /** Open an existing library. Refused if the directory holds no `library.json`. */
-  | { readonly type: "library:open"; readonly path: string }
+  /**
+   * Open an existing library. Refused if the directory holds no `library.json`.
+   *
+   * `password` only for a library that has one (ADR-0071): the first open is
+   * sent without it, and `password_required` is what tells the window to ask.
+   * It is checked by the engine and kept by nobody.
+   */
+  | { readonly type: "library:open"; readonly path: string; readonly password?: string }
   /**
    * Create a library called `name` inside `parent`, and open it.
    *
@@ -118,6 +124,18 @@ export type Request =
    * the folder, and opens it again, and every window hears `library:renamed`.
    */
   | { readonly type: "library:rename"; readonly name: string }
+  /**
+   * Set, change or remove the open library's password (ADR-0071 §3.3).
+   *
+   * `current` is the password it has now, required when it has one; `next` of
+   * `null` removes it. Answers with the summary, whose `hasPassword` the `☰`
+   * reads to offer Set or Change and Remove.
+   */
+  | {
+      readonly type: "library:setPassword";
+      readonly current?: string;
+      readonly next: string | null;
+    }
   /**
    * End the application (ADR-0028).
    *
@@ -736,6 +754,8 @@ export type Request =
       readonly ids: readonly string[];
       readonly target: string;
       readonly take: Take;
+      /** The target's password, when it has one (ADR-0071 §3.2). */
+      readonly password?: string;
     }
   /**
    * Stop the transfer that is running (ADR-0054 §3.9).
@@ -941,6 +961,7 @@ export interface Responses {
   "recent:pin": readonly WireRecentLibrary[];
   "library:close": null;
   "library:rename": LibrarySummary;
+  "library:setPassword": LibrarySummary;
   "app:quit": null;
   "app:about": WireAbout;
   "library:stats": LibraryStats;
@@ -1072,7 +1093,13 @@ export const REQUEST_VALIDATORS: {
   "library:open": (source) => {
     const path = readNonEmpty(source, "path");
     if (!path.ok) return path;
-    return ok({ type: "library:open", path: path.value });
+    const password = readOptionalString(source, "password");
+    if (!password.ok) return password;
+    return ok({
+      type: "library:open",
+      path: path.value,
+      ...(password.value === undefined ? {} : { password: password.value }),
+    });
   },
 
   "library:create": (source) => {
@@ -1111,6 +1138,20 @@ export const REQUEST_VALIDATORS: {
     const name = readNonEmpty(source, "name");
     if (!name.ok) return name;
     return ok({ type: "library:rename", name: name.value });
+  },
+
+  "library:setPassword": (source) => {
+    const current = readOptionalString(source, "current");
+    if (!current.ok) return current;
+    // Non-empty when it is set: an empty password is not one, and the engine
+    // says so too, but a window that sent one has a bug worth hearing about.
+    const next = readNullable(source, "next", readNonEmpty);
+    if (!next.ok) return next;
+    return ok({
+      type: "library:setPassword",
+      next: next.value,
+      ...(current.value === undefined ? {} : { current: current.value }),
+    });
   },
   "app:quit": () => ok({ type: "app:quit" }),
   "app:about": () => ok({ type: "app:about" }),
@@ -1720,7 +1761,15 @@ export const REQUEST_VALIDATORS: {
     if (!target.ok) return target;
     const take = readOneOf(source, "take", TAKES);
     if (!take.ok) return take;
-    return ok({ type: "assets:transfer", ids: ids.value, target: target.value, take: take.value });
+    const password = readOptionalString(source, "password");
+    if (!password.ok) return password;
+    return ok({
+      type: "assets:transfer",
+      ids: ids.value,
+      target: target.value,
+      take: take.value,
+      ...(password.value === undefined ? {} : { password: password.value }),
+    });
   },
 
   "assets:transferCancel": () => ok({ type: "assets:transferCancel" }),
@@ -1838,6 +1887,17 @@ export const MAX_PAGE_LIMIT = 10_000;
  * below. Whether the folder still exists is the engine's to answer, and it
  * raises rather than inventing one.
  */
+/**
+ * A string that may be left out. A password is the only one so far, and it is
+ * read as given: whitespace is a character somebody may have meant.
+ */
+function readOptionalString(
+  source: Record<string, unknown>,
+  field: string,
+): Checked<string | undefined> {
+  return source[field] === undefined ? ok(undefined) : readString(source, field);
+}
+
 function readFolder(source: Record<string, unknown>): Checked<number> {
   return readFolderIn(source, "folder");
 }

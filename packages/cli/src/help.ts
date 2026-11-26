@@ -33,6 +33,7 @@ export const COMMANDS = [
   "remove",
   "move",
   "copy",
+  "password",
   "doctor",
 ] as const;
 
@@ -78,12 +79,16 @@ Commands:
   remove    Remove assets from the library. Originals are not deleted
   move      Move assets into another library, with everything written about them
   copy      Copy assets into another library, leaving this one as it was
+  password  Set, change or remove the password a library asks for before it opens
   doctor    Check a library against itself, and reclaim what nothing references
 
 Options:
 ${GLOBAL}
 
-Run \`roost <COMMAND> --help\` for the options a command takes.`;
+Run \`roost <COMMAND> --help\` for the options a command takes.
+
+A library with a password asks for it when a command opens it: typed at the
+terminal, or from $ROOST_PASSWORD when there is none.`;
 
 const PER_COMMAND: Readonly<Record<Command, string>> = {
   init: `Create a new library.
@@ -534,6 +539,33 @@ Usage: roost copy --to <LIBRARY> <ASSET>... [OPTIONS]
 
 Options:
       --to <LIBRARY>     The library to copy into
+${LIBRARY_FLAG}
+${GLOBAL}`,
+  password: `Set, change or remove a library's password (ADR-0071).
+
+Roost asks for the password before it opens the library: the window, every
+command here, and \`move\` or \`copy\` into it. **It encrypts nothing.** The
+files, the journal and the index stay as readable as ever, and whoever can read
+the folder can read the library. A Roost older than this one cannot open a
+library while it has a password; removing it makes the library readable by any
+Roost again.
+
+Passwords are typed at the terminal and not shown. Without a terminal they come
+from the environment, never from an argument, which \`ps\` and the shell's
+history would keep:
+
+  ROOST_PASSWORD          The library's current password
+  ROOST_NEW_PASSWORD      The new one, for set and change
+  ROOST_TARGET_PASSWORD   The password of the library move or copy writes into
+
+Forgotten it? Delete the "password" field from library.json and set
+"roost_library_version" to 2. Nothing is lost: nothing was encrypted.
+
+Usage: roost password set [OPTIONS]
+       roost password change [OPTIONS]
+       roost password remove [OPTIONS]
+
+Options:
 ${LIBRARY_FLAG}
 ${GLOBAL}`,
   doctor: `Check a library against itself.

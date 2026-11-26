@@ -446,3 +446,73 @@ describe("replaying the revision 2.4 library", () => {
     expect(existsSync(join(REVISION, "library.roost", "index.db"))).toBe(false);
   });
 });
+
+/**
+ * Version 3 (ADR-0071): a library with a password, which opens for that
+ * password and for nothing else, and which nothing is written into before it
+ * does (RL-5c, RL-5d).
+ */
+describe("opening the version 3 library", () => {
+  interface Expected3 {
+    readonly format_version: number;
+    readonly password: string;
+    readonly not_the_password: string;
+    readonly library: { readonly id: string; readonly name: string; readonly created_at: number };
+    readonly assets: readonly {
+      readonly id: string;
+      readonly name: string;
+      readonly tags: readonly string[];
+    }[];
+  }
+
+  const VERSION = join(CONFORMANCE, "version-3");
+  let work3: string;
+  let copy: string;
+  let expected3: Expected3;
+
+  beforeAll(async () => {
+    expected3 = JSON.parse(await readFile(join(VERSION, "expected.json"), "utf8")) as Expected3;
+    work3 = await mkdtemp(join(tmpdir(), "roost-conformance-3-"));
+    copy = join(work3, `library${LIBRARY_SUFFIX}`);
+    await cp(join(VERSION, "library.roost"), copy, { recursive: true });
+  });
+
+  afterAll(async () => {
+    if (work3 !== undefined) await rm(work3, { recursive: true, force: true });
+  });
+
+  it("reads the manifest at version 3, with its password", async () => {
+    const manifest = await readManifest(copy);
+    expect(manifest.roost_library_version).toBe(expected3.format_version);
+    expect(manifest.id).toBe(expected3.library.id);
+    expect(manifest.password?.kdf).toBe("scrypt");
+  });
+
+  it("refuses to open without the password, or with another, and writes nothing", async () => {
+    const before = (await readdir(copy, { recursive: true })).sort();
+    await expect(Library.open(copy)).rejects.toMatchObject({ code: "password_required" });
+    await expect(
+      Library.open(copy, { exclusive: true, password: expected3.not_the_password }),
+    ).rejects.toMatchObject({ code: "password_wrong" });
+    expect((await readdir(copy, { recursive: true })).sort()).toEqual(before);
+  });
+
+  it("opens for its password, and replays like any other library", async () => {
+    const library = await Library.open(copy, { password: expected3.password });
+    try {
+      expect(library.name).toBe(expected3.library.name);
+      for (const want of expected3.assets) {
+        expect(library.db.repo.assetDetail(parseAssetId(want.id))).toMatchObject({
+          name: want.name,
+          tags: want.tags,
+        });
+      }
+    } finally {
+      await library.close();
+    }
+  });
+
+  it("leaves no cache inside the fixture it was handed", () => {
+    expect(existsSync(join(VERSION, "library.roost", "index.db"))).toBe(false);
+  });
+});

@@ -1,9 +1,10 @@
 import { logDir } from "@roost/core";
-import { Library, queueStatus } from "@roost/library";
+import { queueStatus } from "@roost/library";
 import { bytes, row } from "../format.js";
+import { openLibrary } from "../open.js";
 
 export async function stats(root: string, out: (line: string) => void): Promise<void> {
-  const library = await Library.open(root);
+  const library = await openLibrary(root);
   try {
     const counts = library.stats();
     out(library.name);

@@ -1,0 +1,11 @@
+{
+  "format_version": 3,
+  "password": "roost",
+  "not_the_password": "Roost",
+  "library": {
+    "id": "7b2e9c41-5d3a-4f86-9e10-c4a8b6d2f053",
+    "name": "library",
+    "created_at": 1767225600
+  },
+  "assets": [{ "id": "P4SSW0RDQ7KM", "name": "behind a password", "tags": ["private"] }]
+}

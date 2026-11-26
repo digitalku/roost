@@ -27,6 +27,23 @@ export interface Transferring {
   readonly stopping: boolean;
   readonly start: (ids: readonly string[], target: WireRecentLibrary, take: Take) => void;
   readonly cancel: () => void;
+  /**
+   * The target answered that it has a password, and the transfer waits for it
+   * (ADR-0071 §3.2). Nothing was copied: the target is checked before anything
+   * is opened.
+   */
+  readonly asking: TransferAsking | undefined;
+  /** Starts the waiting transfer again with this password for the target. */
+  readonly unlock: (password: string) => void;
+  /** Gives the waiting transfer up. */
+  readonly dismiss: () => void;
+}
+
+export interface TransferAsking {
+  readonly ids: readonly string[];
+  readonly target: WireRecentLibrary;
+  readonly take: Take;
+  readonly wrong: boolean;
 }
 
 export interface TransferOptions {
@@ -45,6 +62,7 @@ export function useTransfer({ onNote, onProblem, onLeft }: TransferOptions): Tra
   const [running, setRunning] = useState<TransferRun | undefined>();
   const [progress, setProgress] = useState<WireTransferProgress | undefined>();
   const [stopping, setStopping] = useState(false);
+  const [asking, setAsking] = useState<TransferAsking | undefined>();
   // Read by `start`, which must refuse a second run in the same tick as the
   // first — before a render has had the chance to disable the menu.
   const busy = useRef(false);
@@ -57,19 +75,32 @@ export function useTransfer({ onNote, onProblem, onLeft }: TransferOptions): Tra
     [],
   );
 
-  const start = useCallback(
-    (ids: readonly string[], target: WireRecentLibrary, take: Take) => {
+  const run = useCallback(
+    (ids: readonly string[], target: WireRecentLibrary, take: Take, password?: string) => {
       if (busy.current || ids.length === 0) return;
       busy.current = true;
+      setAsking(undefined);
       setRunning({ name: target.name, take, ids });
       setProgress(undefined);
       setStopping(false);
-      void invoke({ type: "assets:transfer", ids, target: target.root, take }).then((outcome) => {
+      void invoke({
+        type: "assets:transfer",
+        ids,
+        target: target.root,
+        take,
+        ...(password === undefined ? {} : { password }),
+      }).then((outcome) => {
         busy.current = false;
         setRunning(undefined);
         setProgress(undefined);
         setStopping(false);
-        if (!outcome.ok) return onProblem(outcome.problem);
+        if (!outcome.ok) {
+          const code = outcome.problem.code;
+          if (code === "password_required" || code === "password_wrong") {
+            return setAsking({ ids, target, take, wrong: code === "password_wrong" });
+          }
+          return onProblem(outcome.problem);
+        }
         if (outcome.value.removed > 0) onLeft(ids);
         onNote(transferLine(outcome.value, take, target.name));
       });
@@ -77,13 +108,28 @@ export function useTransfer({ onNote, onProblem, onLeft }: TransferOptions): Tra
     [onNote, onProblem, onLeft],
   );
 
+  const start = useCallback(
+    (ids: readonly string[], target: WireRecentLibrary, take: Take) => run(ids, target, take),
+    [run],
+  );
+
+  const unlock = useCallback(
+    (password: string) => {
+      if (asking === undefined) return;
+      run(asking.ids, asking.target, asking.take, password);
+    },
+    [asking, run],
+  );
+
+  const dismiss = useCallback(() => setAsking(undefined), []);
+
   const cancel = useCallback(() => {
     if (!busy.current) return;
     setStopping(true);
     void invoke({ type: "assets:transferCancel" });
   }, []);
 
-  return { running, progress, stopping, start, cancel };
+  return { running, progress, stopping, start, cancel, asking, unlock, dismiss };
 }
 
 /** How far through, as a whole percentage: by bytes, or by assets where there are none. */

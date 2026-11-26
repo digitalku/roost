@@ -5,4 +5,6 @@
  * a container where no window can open. Everything here goes through
  * `@roost/library`, the same service layer the desktop shell will use.
  */
+
+export { type PasswordRole, type PasswordSource, setPasswordSource } from "./open.js";
 export { EXIT, run, type Streams } from "./run.js";

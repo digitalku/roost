@@ -139,3 +139,58 @@ describe("how far a transfer is, as a percentage", () => {
     expect(percentOf({ done: 0, total: 0, bytesDone: 0, bytesTotal: 0 })).toBe(0);
   });
 });
+
+/**
+ * A target with a password (ADR-0071 §3.2): the transfer waits for it, asks,
+ * and goes again with it. Nothing was copied by the refused attempt.
+ */
+describe("a transfer to a library with a password", () => {
+  afterEach(cleanup);
+
+  function Harness(): React.JSX.Element {
+    const transferring = useTransfer({
+      onNote: () => {},
+      onProblem: () => {},
+      onLeft: () => {},
+    });
+    return (
+      <>
+        <button type="button" onClick={() => transferring.start(IDS, PHOTOS, "copy")}>
+          go
+        </button>
+        <output>
+          {transferring.asking === undefined
+            ? "not asking"
+            : `asking ${transferring.asking.target.name}${transferring.asking.wrong ? ", wrong" : ""}`}
+        </output>
+        <button type="button" onClick={() => transferring.unlock("guess")}>
+          guess
+        </button>
+        <button type="button" onClick={() => transferring.unlock("secret")}>
+          secret
+        </button>
+      </>
+    );
+  }
+
+  it("asks for the target's password, says when it is wrong, and goes again with it", async () => {
+    const engine = new FakeEngine({
+      assets: [fakeAsset(0), fakeAsset(1)],
+      existing: [{ root: PHOTOS.root, name: "Photos", password: "secret" }],
+    });
+    install(engine);
+    render(<Harness />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "go" }));
+    expect(await screen.findByText("asking Photos")).toBeDefined();
+
+    await user.click(screen.getByRole("button", { name: "guess" }));
+    expect(await screen.findByText("asking Photos, wrong")).toBeDefined();
+
+    await user.click(screen.getByRole("button", { name: "secret" }));
+    await waitFor(() => expect(screen.getByText("not asking")).toBeDefined());
+    const sent = engine.seen.filter((request) => request.type === "assets:transfer");
+    expect(sent.map((request) => request.password)).toEqual([undefined, "guess", "secret"]);
+  });
+});

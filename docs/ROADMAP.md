@@ -453,6 +453,14 @@ support · library merge · on-image annotation.
 
 ## Decision status
 
+**ADR-0071 — a password on a library** was proposed and **accepted** on 2026-11-26, and built the
+same day. It gates the library and encrypts nothing. The hash is in `library.json`, it is asked at
+every open, and the CLI asks too. The owner chose **against the recommendation** that an older build
+must refuse such a library. So a library with a password is **format version 3**, the format's first
+version change: `FORMAT.md` is Format 3, revision 3.0, with RL-5c and RL-5d, and a library without
+a password stays version 2. It came first because the server mode for a phone (`TODO.md` §3) will
+ask for the same password.
+
 **ADR-0070 — Markdown and plain text inside Roost** was proposed and **accepted** on 2026-11-23,
 all four questions as recommended, and built the same day: `.md` and `.txt` are a `text` kind, read
 in the pane and edited after **Edit**, saved over the file unless it changed on disk; *New Markdown

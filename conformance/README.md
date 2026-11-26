@@ -10,6 +10,7 @@ to extend, in the same commit as the requirement a new case checks.
 | [`expected.json`](expected.json) | The state a correct replay produces |
 | [`made-before-the-rule/`](made-before-the-rule/) | A library whose folder has no `.roost` suffix, which must open anyway |
 | [`revision-2.4/`](revision-2.4/) | `tag_delete`: its own library and `expected.json`, required from revision 2.4 |
+| [`version-3/`](version-3/) | A library with a password: version 3, opened only for `roost` (RL-5c, RL-5d), required from version 3 |
 
 **The suite is layered by revision (RL-54).** `library.roost` is required of every implementation.
 Each revision that adds operations adds a library of its own, and an implementation passes the ones
@@ -99,4 +100,22 @@ says so (RL-37, RL-40).
 | `tag_delete` of `never-was` | A no-op, **not** a dangling reference: a tag is named, never numbered |
 | `wood` added again after the delete | A new tag, in no group: the old one's place in `Material` went with it |
 | `glass` in `Material`, untouched | Deleting one tag of a group leaves the group and the others |
+
+## Version 3 — a password
+
+[`version-3/library.roost`](version-3/library.roost/) is a version 3 library whose password is
+`roost`, with one asset in it. [`version-3/expected.json`](version-3/expected.json) names the
+password, a text that is not it, and the asset. Required of an implementation of version 3; one of
+version 2 refuses it as too new (RL-6), which is the point of the version.
+
+| Case | Checks |
+|---|---|
+| Opened with no password | Refused as `password_required`, and nothing in the folder is created, changed or locked (RL-5d) |
+| Opened with `Roost` | Refused as `password_wrong`: the password is compared exactly, after NFC (RL-5c) |
+| Opened with `roost` | Opens, and the journal replays as any other library's does |
+| The `password` record | `scrypt` at RL-5c's bounds, salt and hash in lowercase hex |
+
+A version 3 manifest without the field, and a version 2 one with it, are both *not a library*
+(RL-5c). They are checked by this build's own tests rather than by a fixture, because a fixture of
+a broken manifest is a fixture of nothing.
 

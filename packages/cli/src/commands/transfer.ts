@@ -4,7 +4,7 @@ import { type TransferReport, transferToLibrary } from "@roost/library";
 import { assets, resolveAll } from "../assets.js";
 import { bytes } from "../format.js";
 import { EXIT, type Streams } from "../io.js";
-import { withLibrary } from "../open.js";
+import { passwordToOpen, withLibrary } from "../open.js";
 
 /**
  * `roost move` and `roost copy`: assets into another library (ADR-0054).
@@ -20,6 +20,9 @@ export async function transfer(
   take: Take,
   streams: Streams,
 ): Promise<number> {
+  // Asked before anything starts, so a refused password is a refusal and not a
+  // transfer that stopped halfway through its first file (ADR-0071 §3.2).
+  const password = await passwordToOpen(resolve(target), "target");
   return withLibrary(root, async (library) => {
     const ids = resolveAll(library, needles);
     // Ctrl+C stops the transfer the way the window's × does (ADR-0054 §3.9):
@@ -39,7 +42,7 @@ export async function transfer(
       library,
       resolve(target),
       ids,
-      { take, signal: controller.signal },
+      { take, signal: controller.signal, ...(password === undefined ? {} : { password }) },
       (running) => {
         const now = performance.now();
         if (running.done < running.total && now - told < 250) return;

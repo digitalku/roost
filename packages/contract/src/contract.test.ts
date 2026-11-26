@@ -68,6 +68,36 @@ describe("validating a request", () => {
     expect(smuggled).toEqual({ ok: true, value: { type: "library:open", path: "/x" } });
   });
 
+  it("carries a password when one is given, and only as a string (ADR-0071)", () => {
+    expect(checkRequest({ type: "library:open", path: "/x", password: "p w" })).toEqual({
+      ok: true,
+      value: { type: "library:open", path: "/x", password: "p w" },
+    });
+    expect(checkRequest({ type: "library:open", path: "/x", password: 1234 }).ok).toBe(false);
+
+    expect(checkRequest({ type: "library:setPassword", next: "new" })).toEqual({
+      ok: true,
+      value: { type: "library:setPassword", next: "new" },
+    });
+    expect(checkRequest({ type: "library:setPassword", current: "old", next: null })).toEqual({
+      ok: true,
+      value: { type: "library:setPassword", current: "old", next: null },
+    });
+    // An empty new password is a window with a bug, not a password.
+    expect(checkRequest({ type: "library:setPassword", next: "" }).ok).toBe(false);
+    expect(checkRequest({ type: "library:setPassword" }).ok).toBe(false);
+
+    expect(
+      checkRequest({
+        type: "assets:transfer",
+        ids: ["ABCDEFGHJKMN"],
+        target: "/t",
+        take: "copy",
+        password: "x",
+      }),
+    ).toMatchObject({ ok: true, value: { password: "x" } });
+  });
+
   it("has a validator for every request type", () => {
     // The mapped type is what actually enforces this — a member without a
     // validator does not compile. This asserts the list the engine dispatches
@@ -81,6 +111,7 @@ describe("validating a request", () => {
       "recent:pin",
       "library:close",
       "library:rename",
+      "library:setPassword",
       "app:quit",
       "app:about",
       "library:stats",

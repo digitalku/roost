@@ -15,7 +15,7 @@ import {
   type Stats,
   type Storage,
 } from "@roost/core";
-import { LibraryBusyError } from "./error.js";
+import { LibraryBusyError, PasswordRequiredError, PasswordWrongError } from "./error.js";
 import {
   indexMatchesJournal,
   type JournalNotice,
@@ -28,11 +28,20 @@ import {
 import {
   type Manifest,
   newManifest,
+  PASSWORD_FORMAT_VERSION,
+  PLAIN_FORMAT_VERSION,
   readManifest,
   refuseExistingLibrary,
   writeManifest,
 } from "./manifest.js";
 import { libraryNameFromPath } from "./naming.js";
+import {
+  hashPassword,
+  issueUnlock,
+  passwordMatches,
+  type Unlock,
+  unlockMatches,
+} from "./password.js";
 import {
   type PlaceView,
   readSettings,
@@ -73,6 +82,21 @@ export interface OpenOptions {
    * those seconds looks hung (`UI_SPEC.md` §0.6).
    */
   readonly onFold?: (progress: FoldProgress) => void;
+
+  /**
+   * The library's password, when it has one (RL-5d, ADR-0071).
+   *
+   * Checked before the lock, the index, the journal and the settings, so a
+   * wrong one touches nothing. Ignored by a library without a password.
+   */
+  readonly password?: string;
+
+  /**
+   * Proof the password was given to an earlier open of this library, in place
+   * of the password itself: what a rename hands back when it opens the library
+   * again (ADR-0056, ADR-0071 §3.2).
+   */
+  readonly unlock?: Unlock;
 }
 
 /** Bytes of the journal folded so far, out of the bytes it had when the fold began. */
@@ -90,7 +114,9 @@ export interface FoldProgress {
  */
 export class Library {
   readonly root: string;
-  readonly manifest: Manifest;
+
+  #manifest: Manifest;
+  #unlock: Unlock | undefined;
 
   #db: Db;
   #journal: Journal;
@@ -108,7 +134,7 @@ export class Library {
     settings: Settings,
   ) {
     this.root = root;
-    this.manifest = manifest;
+    this.#manifest = manifest;
     this.#db = db;
     this.#journal = journal;
     this.#lock = lock;
@@ -133,6 +159,7 @@ export class Library {
     // derived from the canonical root and says nothing about whether a library
     // is there at all.
     const manifest = await readManifest(root);
+    const unlock = await checkPassword(root, manifest, options);
 
     let lock: InstanceLock | undefined;
     if (options.exclusive === true) {
@@ -149,6 +176,7 @@ export class Library {
       // can fail: an absent or damaged file is the defaults (ADR-0019).
       const settings = await readSettings(root);
       const library = new Library(root, manifest, db, journal, lock, settings);
+      library.#unlock = unlock;
 
       // The index is a cache the format does not describe (RL-2), so a library
       // written by another implementation arrives with no cache of ours — or
@@ -173,6 +201,53 @@ export class Library {
       await lock?.release();
       throw error;
     }
+  }
+
+  /** `library.json`, as this library last read or wrote it. */
+  get manifest(): Manifest {
+    return this.#manifest;
+  }
+
+  /** Whether the library asks for a password before it opens (RL-5c). */
+  get hasPassword(): boolean {
+    return this.#manifest.password !== null;
+  }
+
+  /**
+   * Proof that this open was given the password, for opening it again without
+   * asking (ADR-0071 §3.2). `undefined` for a library without one.
+   */
+  get unlock(): Unlock | undefined {
+    return this.#unlock;
+  }
+
+  /**
+   * Sets, changes or removes the password (ADR-0071 §3.3).
+   *
+   * `current` must be the password the library has now, when it has one: the
+   * window is already open, and a person who walked up to it should still not
+   * be able to change what the owner typed. `next` of `null` removes it. The
+   * manifest moves between versions 2 and 3 in one atomic rewrite (RL-5d), and
+   * nothing is journalled: the password is not something the library means.
+   */
+  async changePassword(current: string | undefined, next: string | null): Promise<void> {
+    const record = this.#manifest.password;
+    if (record !== null) {
+      if (current === undefined) throw new PasswordRequiredError(this.root);
+      if (!(await passwordMatches(record, current))) throw new PasswordWrongError(this.root);
+    }
+    if (record === null && next === null) return;
+
+    const password = next === null ? null : await hashPassword(next);
+    const manifest: Manifest = {
+      ...this.#manifest,
+      roost_library_version: password === null ? PLAIN_FORMAT_VERSION : PASSWORD_FORMAT_VERSION,
+      password,
+    };
+    await writeManifest(this.root, manifest);
+    this.#manifest = manifest;
+    this.#unlock = password === null ? undefined : issueUnlock(password);
+    log.info(password === null ? "password removed" : "password set", { root: this.root });
   }
 
   /**
@@ -400,4 +475,21 @@ export class Library {
 
     return report;
   }
+}
+
+/**
+ * RL-5d: a library with a password opens for its password, or for an unlock
+ * an earlier open of it issued, and for nothing else.
+ */
+async function checkPassword(
+  root: string,
+  manifest: Manifest,
+  options: OpenOptions,
+): Promise<Unlock | undefined> {
+  const record = manifest.password;
+  if (record === null) return undefined;
+  if (options.unlock !== undefined && unlockMatches(options.unlock, record)) return options.unlock;
+  if (options.password === undefined) throw new PasswordRequiredError(root);
+  if (!(await passwordMatches(record, options.password))) throw new PasswordWrongError(root);
+  return issueUnlock(record);
 }

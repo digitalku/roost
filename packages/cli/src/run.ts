@@ -26,6 +26,7 @@ import {
   source,
   trash,
 } from "./commands/mark.js";
+import { isPasswordAction, PASSWORD_ACTIONS, password } from "./commands/password.js";
 import { poster } from "./commands/poster.js";
 import { query } from "./commands/query.js";
 import { rebuild } from "./commands/rebuild.js";
@@ -118,6 +119,7 @@ const COMMAND_OPTIONS: Readonly<Record<Command, OptionTable>> = {
   remove: {},
   move: { to: { type: "string" } },
   copy: { to: { type: "string" } },
+  password: {},
   doctor: {
     deep: { type: "boolean" },
     reclaim: { type: "boolean" },
@@ -181,6 +183,12 @@ export async function run(argv: readonly string[], streams: Streams): Promise<nu
     // itself rather than dressed up as one.
     const wire = toWire(error);
     streams.warn(`error [${wire.code}]: ${wire.message}`);
+    // The one refusal whose remedy is not in the message, because the engine
+    // that wrote it does not know it was asked from a script (ADR-0071 §3.4).
+    if (wire.code === "password_required") {
+      streams.warn("Run it in a terminal to be asked, or set ROOST_PASSWORD.");
+      streams.warn("For the library `move` and `copy` write into, set ROOST_TARGET_PASSWORD.");
+    }
     return EXIT.failed;
   }
 }
@@ -512,6 +520,14 @@ async function dispatch(
         return usage(streams, command, `${command} needs at least one asset`);
       }
       return transfer(await library(), target, positionals, command, streams);
+    }
+
+    case "password": {
+      const action = positionals[0];
+      if (action === undefined || !isPasswordAction(action) || positionals.length > 1) {
+        return usage(streams, command, `password needs one of ${PASSWORD_ACTIONS.join(", ")}`);
+      }
+      return password(await library(), action, streams);
     }
 
     case "doctor": {

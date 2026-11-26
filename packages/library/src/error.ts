@@ -441,3 +441,35 @@ export class InvalidLibraryNameError extends RoostError {
     super(`"${name}" cannot be a library name: ${reason}`, { name, reason });
   }
 }
+
+/**
+ * The library has a password and none was given (RL-5d, ADR-0071).
+ *
+ * Its own code rather than `password_wrong`, because it is the ordinary first
+ * answer to opening such a library: the window asks on this one and says
+ * nothing is wrong, and says something is on the other.
+ */
+export class PasswordRequiredError extends RoostError {
+  readonly code = "password_required";
+
+  constructor(root: string) {
+    super(`${root} has a password`, { root });
+  }
+}
+
+/** The password given is not the library's. */
+export class PasswordWrongError extends RoostError {
+  readonly code = "password_wrong";
+
+  constructor(root: string) {
+    super(`That is not the password of ${root}`, { root });
+  }
+}
+
+export class EmptyPasswordError extends RoostError {
+  readonly code = "empty_password";
+
+  constructor() {
+    super("A password cannot be empty", {});
+  }
+}

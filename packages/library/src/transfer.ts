@@ -69,6 +69,11 @@ export interface TransferOptions {
    * would have been: a cancelled move is a smaller move, not an undone one.
    */
   readonly signal?: AbortSignal;
+  /**
+   * The target's password, when it has one (ADR-0071 §3.2). The target is
+   * opened like any other library, so the gate holds there too.
+   */
+  readonly password?: string;
 }
 
 /**
@@ -154,7 +159,10 @@ export async function transferToLibrary(
   // Before the open, not after it: opening the open library exclusively would
   // report it busy, which is true and names the wrong mistake.
   await refuseSameLibrary(source.root, targetRoot);
-  const target = await Library.open(targetRoot, { exclusive: true });
+  const target = await Library.open(targetRoot, {
+    exclusive: true,
+    ...(options.password === undefined ? {} : { password: options.password }),
+  });
   try {
     return await transferAssets(source, target, ids, options, onProgress);
   } finally {

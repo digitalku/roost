@@ -534,6 +534,18 @@ unpackaged Electron reports `WM_CLASS` as `electron` whatever it is launched as 
 accurate here because every other Electron application on a machine ships its own packaged
 binary. Packaging settles it (M6).
 
+**A library can have a password** (ADR-0071), set from **Set password…** in the `☰` or with
+`roost password set`. It encrypts nothing: it makes Roost ask before it opens the library. The
+CLI asks at the terminal, or reads `ROOST_PASSWORD` when there is no terminal
+(`ROOST_TARGET_PASSWORD` for the library `move` and `copy` write into, `ROOST_NEW_PASSWORD` for
+`roost password set` and `change`). A library with one is format version 3, and **Roost 0.2.10 and
+older cannot open it** until the password is removed.
+
+**A forgotten password is removed by hand**, and nothing is lost by it, because nothing was
+encrypted. With Roost closed, open `library.json` in the library's folder, delete the `"password"`
+field, and change `"roost_library_version": 3` to `2`. Both halves, or Roost reports the folder as
+not a library (RL-5c).
+
 ## 5. A test library, cheaply
 
 `roost fixture` builds a reproducible synthetic library — the same seed produces the same

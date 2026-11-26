@@ -1,6 +1,6 @@
 import { isClean, platformName, platformOf } from "@roost/core";
-import { Library } from "@roost/library";
 import { row } from "../format.js";
+import { openLibrary } from "../open.js";
 
 export async function rebuild(
   root: string,
@@ -9,7 +9,7 @@ export async function rebuild(
 ): Promise<void> {
   // Exclusive: a rebuild deletes `index.db` out from under anything else
   // holding it open, which is exactly what the single-instance lock is for.
-  const library = await Library.open(root, { exclusive: true });
+  const library = await openLibrary(root, { exclusive: true });
   try {
     const before = library.stats().assets;
     const report = await library.rebuild();

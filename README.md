@@ -248,7 +248,7 @@ but recovering from a bad build means going forward to a fixed one, not back to 
 | --- | --- |
 | [Concept](docs/CONCEPT.md) | Vision, scope, feature map, non-goals |
 | [Architecture](docs/ARCHITECTURE.md) | Packages, processes, IPC, invariants |
-| [Format](docs/FORMAT.md) | *Roost Library Format 2*, the normative specification of a library on disk |
+| [Format](docs/FORMAT.md) | *Roost Library Format 3*, the normative specification of a library on disk |
 | [Storage](docs/STORAGE_SPEC.md) | How this build meets the format — the map from each `RL-n` to the code |
 | [Data model](docs/DATA_MODEL.md) | Query language, schema growth plan |
 | [UI spec](docs/UI_SPEC.md) | Layout, tokens, components, interaction, keyboard map |
@@ -264,7 +264,7 @@ notice and the licence text come along (ADR-0062).
 
 **The format is open as well, and that is the part that protects your data.** Every change is
 appended to a plain JSONL journal you can read in any text editor, and the layout is a numbered
-specification, *Roost Library Format 2* ([`docs/FORMAT.md`](docs/FORMAT.md)), with a conformance
+specification, *Roost Library Format 3* ([`docs/FORMAT.md`](docs/FORMAT.md)), with a conformance
 suite in [`conformance/`](conformance/). You can walk away with all of it.
 
 Third-party components, and what their licences oblige, are listed in

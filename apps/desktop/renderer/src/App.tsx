@@ -59,6 +59,8 @@ import { Inspector } from "./inspector/Inspector.js";
 import { JournalNotice } from "./JournalNotice.js";
 import { isTyping } from "./keyboard.js";
 import { type Opening, OpeningStatus, openingName } from "./library/OpeningStatus.js";
+import { type PasswordChange, PasswordDialog } from "./library/PasswordDialog.js";
+import { PasswordPrompt } from "./library/PasswordPrompt.js";
 import { RecentList } from "./library/RecentList.js";
 import { RenameLibraryDialog } from "./library/RenameLibraryDialog.js";
 import { NavButtons } from "./NavButtons.js";
@@ -224,6 +226,11 @@ export function App(): React.JSX.Element {
   const [recent, setRecent] = useState<readonly WireRecentLibrary[]>([]);
   /** The library whose folder left its path while it was open, if that is why the picker is up. */
   const [lost, setLost] = useState<EventOf<"library:lost"> | undefined>();
+  // A library that answered `password_required`, and whether the last answer
+  // to it was wrong (ADR-0071 §3.2). The text typed is never held here.
+  const [unlocking, setUnlocking] = useState<
+    { readonly path: string; readonly name: string; readonly wrong: boolean } | undefined
+  >();
 
   // Focus moved deliberately, in the frame after the form appears, rather than
   // with `autoFocus`: this form opens in response to a click, so putting the
@@ -347,16 +354,29 @@ export function App(): React.JSX.Element {
    * engine records the open either way, so two call sites would be two chances
    * for them to diverge about what opening means.
    */
-  const openPath = async (path: string) => {
+  const openPath = async (path: string, password?: string) => {
     setLost(undefined);
     setBusy(true);
     const known = recent.find((entry) => entry.root === path);
-    setOpening({ name: known?.name ?? openingName(path, LIBRARY_SUFFIX), fraction: undefined });
-    const outcome = await invoke({ type: "library:open", path });
+    const shown = known?.name ?? openingName(path, LIBRARY_SUFFIX);
+    setOpening({ name: shown, fraction: undefined });
+    const outcome = await invoke({
+      type: "library:open",
+      path,
+      ...(password === undefined ? {} : { password }),
+    });
     setBusy(false);
     setOpening(undefined);
     if (!outcome.ok) {
       setOpened(undefined);
+      // Not a failure to report: the library is asking, and the prompt is the
+      // answer. A wrong password asks again, saying so.
+      const code = outcome.problem.code;
+      if (code === "password_required" || code === "password_wrong") {
+        setProblem(undefined);
+        return setUnlocking({ path, name: shown, wrong: code === "password_wrong" });
+      }
+      setUnlocking(undefined);
       // The recent list is the likeliest way to reach a library that has been
       // moved since it was last opened, so it is re-read on a failure: the row
       // that just failed comes back marked missing rather than looking fine.
@@ -364,6 +384,7 @@ export function App(): React.JSX.Element {
       if (list.ok) setRecent(list.value);
       return setProblem(outcome.problem);
     }
+    setUnlocking(undefined);
     await readStats(outcome.value);
   };
 
@@ -530,6 +551,15 @@ export function App(): React.JSX.Element {
           onForget={(root) => void forget(root)}
           onPin={(root, pinned) => void pin(root, pinned)}
         />
+        {unlocking !== undefined && (
+          <PasswordPrompt
+            name={unlocking.name}
+            wrong={unlocking.wrong}
+            busy={busy}
+            onSubmit={(password) => void openPath(unlocking.path, password)}
+            onCancel={() => setUnlocking(undefined)}
+          />
+        )}
       </section>
     </Frame>
   );
@@ -1777,6 +1807,11 @@ function LibraryView({
   /** Whether About is on screen (ADR-0038 §5.1). */
   const [about, setAbout] = useState(false);
   const [renamingLibrary, setRenamingLibrary] = useState(false);
+  // Held here rather than read from `opened.summary`, which this view does not
+  // replace: the dialog's answer is the summary, and this is the one fact the
+  // window draws from it (ADR-0071 §3.3).
+  const [hasPassword, setHasPassword] = useState(opened.summary.hasPassword);
+  const [passwordChange, setPasswordChange] = useState<PasswordChange | undefined>();
 
   const newFolder = useCallback((parent: SidebarFolderRow | null) => {
     setNaming({
@@ -2396,6 +2431,8 @@ function LibraryView({
       onByName={(on) => applyView({ handOutByName: on })}
       onCloseLibrary={onClose}
       onRenameLibrary={() => setRenamingLibrary(true)}
+      hasPassword={hasPassword}
+      onPassword={setPasswordChange}
       onReclaim={reclaim}
       onAbout={() => setAbout(true)}
       onQuit={() => {
@@ -2862,6 +2899,32 @@ function LibraryView({
       {about && <AboutDialog onClose={() => setAbout(false)} />}
       {/* Every window redraws its head from `library:renamed`, this one too, so
           all the answer has to do here is say so. */}
+      {transferring.asking !== undefined && (
+        <PasswordPrompt
+          name={transferring.asking.target.name}
+          wrong={transferring.asking.wrong}
+          busy={transferring.running !== undefined}
+          onSubmit={transferring.unlock}
+          onCancel={transferring.dismiss}
+        />
+      )}
+      {passwordChange !== undefined && (
+        <PasswordDialog
+          change={passwordChange}
+          onClose={() => setPasswordChange(undefined)}
+          onChanged={(summary) => {
+            setPasswordChange(undefined);
+            setHasPassword(summary.hasPassword);
+            noteResult(
+              passwordChange === "remove"
+                ? "Removed the password"
+                : passwordChange === "set"
+                  ? "Set a password on the library"
+                  : "Changed the password",
+            );
+          }}
+        />
+      )}
       {renamingLibrary && (
         <RenameLibraryDialog
           current={opened.summary.name}

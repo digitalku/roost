@@ -128,6 +128,7 @@ import {
   tagRename,
   transferToLibrary,
   trashAssets,
+  type Unlock,
   unsoundForReclaim,
   watchFiles,
   watchRoot,
@@ -181,6 +182,7 @@ export class EngineHost {
           await Library.open(resolve(request.path), {
             exclusive: true,
             onFold: this.#foldAnnouncer(),
+            ...(request.password === undefined ? {} : { password: request.password }),
           }),
         );
 
@@ -211,6 +213,12 @@ export class EngineHost {
 
       case "library:rename":
         return this.#rename(request.name);
+
+      case "library:setPassword": {
+        const library = this.#require();
+        await library.changePassword(request.current, request.next);
+        return summarize(library);
+      }
 
       case "library:stats":
         return statsOf(this.#require());
@@ -690,7 +698,12 @@ export class EngineHost {
         // this host's library (ADR-0054 §3.7).
         return this.#editReporting(async () =>
           wireTransfer(
-            await this.#transfer(resolve(request.target), ids(request.ids), request.take),
+            await this.#transfer(
+              resolve(request.target),
+              ids(request.ids),
+              request.take,
+              request.password,
+            ),
           ),
         );
 
@@ -1090,7 +1103,12 @@ export class EngineHost {
    * reports every four megabytes, which is hundreds of times a second from a
    * fast disk, and each is a message across two process boundaries.
    */
-  async #transfer(target: string, assets: AssetId[], take: Take): Promise<TransferReport> {
+  async #transfer(
+    target: string,
+    assets: AssetId[],
+    take: Take,
+    password: string | undefined,
+  ): Promise<TransferReport> {
     if (this.#transferring !== undefined) throw new TransferRunningError();
     const library = this.#require();
     const controller = new AbortController();
@@ -1099,7 +1117,7 @@ export class EngineHost {
       library,
       target,
       assets,
-      { take, signal: controller.signal },
+      { take, signal: controller.signal, ...(password === undefined ? {} : { password }) },
       (progress) => {
         const now = performance.now();
         const last = progress.done === progress.total;
@@ -1149,21 +1167,30 @@ export class EngineHost {
     const from = library.root;
     if ((await renameTarget(from, name)) === undefined) return summarize(library);
 
+    // Opened again with the proof this open was given, not the password, which
+    // nothing here kept (ADR-0071 §3.2).
+    const unlock = library.unlock;
     await this.close();
     let root: string;
     try {
       root = await renameLibrary(from, name);
     } catch (error) {
-      await this.#reopen(from);
+      await this.#reopen(from, unlock);
       throw error;
     }
-    const summary = await this.#reopen(root);
+    const summary = await this.#reopen(root, unlock);
     this.onRenamed?.(summary);
     return summary;
   }
 
-  async #reopen(root: string): Promise<LibrarySummary> {
-    return this.#open(await Library.open(root, { exclusive: true, onFold: this.#foldAnnouncer() }));
+  async #reopen(root: string, unlock: Unlock | undefined): Promise<LibrarySummary> {
+    return this.#open(
+      await Library.open(root, {
+        exclusive: true,
+        onFold: this.#foldAnnouncer(),
+        ...(unlock === undefined ? {} : { unlock }),
+      }),
+    );
   }
 
   /**
@@ -1455,6 +1482,7 @@ function summarize(library: Library): LibrarySummary {
     id: library.manifest.id,
     formatVersion: library.manifest.roost_library_version,
     schemaVersion: library.db.schemaVersion(),
+    hasPassword: library.hasPassword,
     // Mapped field by field rather than spread: the engine's shape and the
     // wire's are allowed to differ, and this is the place that notices when
     // they do (ADR-0007).

@@ -7,12 +7,12 @@ import {
   type ImportReport,
   importEagle,
   importInto,
-  Library,
   rankedStages,
   resolveFolder,
   surveyEagle,
 } from "@roost/library";
 import { bytes, plural, rate, row, seconds } from "../format.js";
+import { openLibrary } from "../open.js";
 
 export interface ImportArgs {
   readonly paths: readonly string[];
@@ -32,7 +32,7 @@ export async function runImport(
   progress: (line: string) => void,
   warn: (line: string) => void,
 ): Promise<void> {
-  const library = await Library.open(root);
+  const library = await openLibrary(root);
   try {
     // Resolved before the walk starts, so a folder that is not there is a
     // usage error rather than a run that dies partway (ADR-0037 §2).
@@ -203,7 +203,7 @@ export async function runEagleImport(
   warn: (line: string) => void,
 ): Promise<void> {
   const source = resolve(args.path);
-  const library = await Library.open(root);
+  const library = await openLibrary(root);
   try {
     const tell = throttled();
     const report = await stoppable(warn, (signal) =>

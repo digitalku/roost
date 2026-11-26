@@ -1,6 +1,6 @@
 # Roost Library Format
 
-**Format version 2 · Document revision 2.4 · Status: DRAFT**
+**Format version 3 · Document revision 3.0 · Status: DRAFT**
 
 **This document belongs to this repository** (ADR-0052). It was written in the `roost-library`
 repository and copied here unchanged at revision 2.0 on 2026-09-26. From then on it is kept here, it
@@ -11,7 +11,10 @@ the folder the library's name: RL-5 rewords `name`, and RL-7b is new. **Revision
 ADR-0060) corrected what RL-2 says of `thumbs/`: an implementation may keep there pictures somebody
 chose, and those are lost with it. **Revision 2.4** (2026-10-24, ADR-0061) added the operation
 `tag_delete` to `OPS.md`, and with it the suite's first library of a revision (RL-54).
-`docs/STORAGE_SPEC.md` maps each requirement to the code that meets it,
+**Version 3, revision 3.0** (2026-11-26, ADR-0071) is the first version change since this document
+came home: a library may carry a password (RL-5c), and a library that does is version 3 so that no
+reader written against version 2 opens it without asking. A library without one is still version 2,
+and is unchanged. `docs/STORAGE_SPEC.md` maps each requirement to the code that meets it,
 `OPS.md` beside this file is the operation registry, and `conformance/` at the repository root is
 the suite.
 
@@ -36,14 +39,17 @@ again at version 2.
 
 ## 0. The two numbers
 
-**Format version** — the integer in `library.json`. It is `2`. It changes only when a library
-becomes unreadable by an implementation written against the previous version.
+**Format version** — the integer in `library.json`. It is `2`, or `3` for a library with a
+password (RL-5c). It changes only when a library becomes unreadable, or would be read wrongly, by
+an implementation written against the previous version.
 
-**Document revision** — `2.0` here. It changes when an operation is added, a sentence is corrected,
+**Document revision** — `3.0` here. It changes when an operation is added, a sentence is corrected,
 or an ambiguity is closed. **The format does not move when it changes.**
 
-An implementation states both: *"Roost Library Format 2, revision 2.0"*. It may state an older
-revision and still conform — that is what the two numbers are for.
+An implementation states both: *"Roost Library Format 3, revision 3.0"*. It may state an older
+revision and still conform — that is what the two numbers are for. An implementation of version 3
+reads every library of version 2 as well: version 3 is version 2 with one field added that an older
+reader must not ignore, and nothing else about the library differs.
 
 ---
 
@@ -113,7 +119,7 @@ library if any is absent or of the wrong type:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `roost_library_version` | integer | The format version. `2` |
+| `roost_library_version` | integer | The format version. `2`, or `3` for a library with a password (RL-5c) |
 | `id` | string | A UUID, stable for the life of the library |
 | `name` | string | What the library was called when an implementation created or last renamed it. Informative: a library is **called** by its folder's name (RL-7b) |
 | `created_at` | integer | Unix seconds |
@@ -126,6 +132,50 @@ preserve them when it rewrites the file.
 
 This file decides whether a directory is a library at all. An implementation that guesses at a
 damaged one is an implementation that can write into somebody's work by accident.
+
+**RL-5c.** A library MAY carry a **password** (revision 3.0). A library that carries one MUST be
+version `3` and MUST have a `password` field. A library that does not MUST be version `2` and MUST
+NOT have one. A manifest that breaks either half is not a library (RL-5b): it means something wrote
+half a change.
+
+```json
+"password": {
+  "kdf": "scrypt",
+  "n": 131072,
+  "r": 8,
+  "p": 1,
+  "salt": "3f9d2c4e8a1b7f6052e4c9d0a8b3e1f7",
+  "hash": "…64 lowercase hex characters…"
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `kdf` | string | `scrypt`, and nothing else in this revision |
+| `n` | integer | scrypt's cost: a power of two, from 2^14 to 2^20 |
+| `r` | integer | scrypt's block size, 1 to 32 |
+| `p` | integer | scrypt's parallelism, 1 to 16 |
+| `salt` | string | At least 16 random bytes, as lowercase hex: 32 to 128 characters, an even number |
+| `hash` | string | scrypt of the password with that salt, 32 bytes, as 64 lowercase hex characters |
+
+The password is the UTF-8 encoding of its text in Unicode **NFC** (RL-36's reason: the same password
+typed on two keyboards must be the same bytes). `128 × n × r` MUST NOT exceed 256 MiB, which is the
+memory scrypt needs to check it, and a field outside any of these bounds is a manifest that fails
+RL-5b. Hex, not base64, because nothing in a library is base64 (RL-51).
+
+**RL-5d.** An implementation opening a library that carries a password MUST NOT read the journal,
+`files/` or any cache, and MUST NOT write anything in the directory, until it has been given text
+whose hash matches. Setting a password MUST write version `3` and the field in one rewrite of
+`library.json`, and removing it MUST write version `2` without it, in one rewrite as well. A rewrite
+of `library.json` SHOULD be atomic: a manifest left half-written is not a library. A temporary file
+for it belongs in `staging/`, never in the root (RL-3).
+
+*What a password is not.* It encrypts nothing. Every file, the journal and every cache stay as
+readable as they are in a library without one, and that is deliberate: a library that only one
+program can read is the closed format this one exists to replace. Anybody who can read the folder
+can read the library, and can remove the password by deleting the field and writing `2`. What it
+does is make an implementation, and a server in front of one, ask before it opens the library. The
+password is not journalled, because it is not something the library *means*.
 
 **RL-6.** An implementation meeting a `roost_library_version` **higher than it supports** MUST
 refuse to open the library, MUST say so in terms the person can act on, and MUST NOT modify anything
@@ -415,12 +465,18 @@ cannot show"* is a sentence nobody can act on.
 operation belonging to one platform MUST carry one, separated by a dot: `win.shell_pin`.
 
 **RL-42 — A new operation MUST NOT raise the format version.** Neither may a new field, nor a
-platform feature, nor a new table in anybody's cache.
+platform feature, nor a new table in anybody's cache — with RL-43's one exception, a field an older
+reader must not ignore.
 
 **RL-43 — The version rises only when an older reader would be *wrong*.** Reading incompletely is
 handled by RL-37 and RL-40. The version rises for: a change to the directory layout, a change to the
 meaning of an existing field, a change to the shape of an identifier, a change to the naming of
-files under `files/`, or a newly required field in `library.json`.
+files under `files/`, a newly required field in `library.json`, or a field in `library.json` that
+**an older reader must not ignore** (revision 3.0). The password is the first of those (RL-5c): a
+reader that passed through it without knowing it was there would open what it was asked not to,
+which is getting the library wrong rather than reading it incompletely. Such a field raises the
+version **only for the libraries that carry it**, so that every other library stays readable by
+every older build.
 
 **RL-44 — Unknown fields on a known operation MUST be ignored, never rejected**, and the record MUST
 NOT be rewritten to remove them.
@@ -558,15 +614,18 @@ and any name beginning with `roost`.
 1. A change is argued in an ADR in `docs/adr/`: what breaks today, and what the alternatives cost.
 2. Additive changes (a new operation, a new optional field, a clarification) raise the **document
    revision**, and `OPS.md` records which revision introduced what.
-3. A change that would make a current library unreadable raises the **format version**. The first
-   such change also decides the value that marks the library, so that no program still written
-   against revision 2.0 opens it believing it understands it (ADR-0052 §4).
+3. A change that would make a current library unreadable, or read wrongly, raises the **format
+   version**. The first such change also decides the value that marks the library, so that no
+   program still written against revision 2.0 opens it believing it understands it (ADR-0052 §4).
+   That change was the password, and the value is `3` (ADR-0071), carried only by a library that
+   has one.
 4. This document, `OPS.md`, `conformance/` and the code change **in the same commit**. A requirement
    with nothing to check it is a requirement the build will quietly stop meeting.
 
 Which number moves turns on one question: would a build written before the change read the new
 library **wrongly**, or merely **incompletely**? Incompletely is a revision; wrongly is a version.
-**A new feature is always the first.**
+**A new feature is almost always the first.** The exception so far is a feature whose whole point
+is that a reader must not pass it by (RL-43).
 
 Until 2026-09-26 this section pointed to `CHANGING.md` in the `roost-library` repository, which
 required a change to be made there before any implementation built it. That procedure no longer
@@ -603,3 +662,11 @@ retired in `roost-net`'s own decision records rather than assumed away here.
 On 2026-09-26 the TypeScript implementation took this document into its own repository and stopped
 following `roost-library` (ADR-0052). Nothing in the format changed on that day. Opening the same
 library from `roost-net` is no longer a goal.
+
+### Version 3
+
+Version 3 was written on 2026-11-26 (ADR-0071), after the owner asked for a password on a library
+that encrypts nothing and that every older build must refuse. It is **version 2 plus RL-5c and
+RL-5d, and nothing else**: the layout, the identifiers, the journal and `files/` are untouched, and
+an implementation of version 3 reads every version 2 library. Only a library with a password is
+version 3. Removing the password makes it version 2 again.

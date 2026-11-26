@@ -1,5 +1,6 @@
 import { DropdownMenu } from "radix-ui";
 import { counted } from "./format.js";
+import type { PasswordChange } from "./library/PasswordDialog.js";
 
 /**
  * The application menu, as one button in the toolbar (ADR-0028).
@@ -52,6 +53,14 @@ export interface AppMenuProps {
    */
   readonly onRenameLibrary: () => void;
   /**
+   * Whether the library has a password, and the three things to do about it
+   * (ADR-0071 §3.3): *Set password…* without one, *Change password…* and
+   * *Remove password…* with one. Beside Rename for the same reason Rename is
+   * beside Close: they are about the library as a whole.
+   */
+  readonly hasPassword: boolean;
+  readonly onPassword: (change: PasswordChange) => void;
+  /**
    * Delete the objects nothing references (ADR-0031).
    *
    * Here because it is the application acting on the whole library rather than
@@ -80,6 +89,8 @@ export function AppMenu({
   onByName,
   onCloseLibrary,
   onRenameLibrary,
+  hasPassword,
+  onPassword,
   onReclaim,
   onAbout,
   onQuit,
@@ -151,6 +162,24 @@ export function AppMenu({
             <span className="menu-mark" />
             <span className="menu-label">Rename library…</span>
           </DropdownMenu.Item>
+
+          {hasPassword ? (
+            <>
+              <DropdownMenu.Item className="menu-item" onSelect={() => onPassword("change")}>
+                <span className="menu-mark" />
+                <span className="menu-label">Change password…</span>
+              </DropdownMenu.Item>
+              <DropdownMenu.Item className="menu-item" onSelect={() => onPassword("remove")}>
+                <span className="menu-mark" />
+                <span className="menu-label">Remove password…</span>
+              </DropdownMenu.Item>
+            </>
+          ) : (
+            <DropdownMenu.Item className="menu-item" onSelect={() => onPassword("set")}>
+              <span className="menu-mark" />
+              <span className="menu-label">Set password…</span>
+            </DropdownMenu.Item>
+          )}
 
           <DropdownMenu.Item className="menu-item" onSelect={onCloseLibrary}>
             <span className="menu-mark" />

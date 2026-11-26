@@ -1,6 +1,7 @@
-import { generateMissing, Library, queueStatus, retryBlocked, retryFailed } from "@roost/library";
+import { generateMissing, queueStatus, retryBlocked, retryFailed } from "@roost/library";
 import { capabilities } from "@roost/media";
 import { bytes, rate, row, seconds } from "../format.js";
+import { openLibrary } from "../open.js";
 
 export interface ThumbArgs {
   readonly sizes: readonly number[];
@@ -17,7 +18,7 @@ export async function thumb(
   out: (line: string) => void,
   progress: (line: string) => void,
 ): Promise<void> {
-  const library = await Library.open(root);
+  const library = await openLibrary(root);
   try {
     if (args.retryBlocked === true) {
       const released = retryBlocked(library);

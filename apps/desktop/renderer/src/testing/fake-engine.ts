@@ -71,6 +71,11 @@ export interface FakeLibrary {
    * like. A test about the notice sets it.
    */
   readonly journal?: WireJournalNotice;
+  /**
+   * The library's password, in the clear, because this is a fake (ADR-0071).
+   * Absent is a library without one.
+   */
+  readonly password?: string;
 }
 
 export interface FakeEngineOptions {
@@ -726,8 +731,37 @@ export class FakeEngine {
               })
             : problem("library_not_found", `${request.path} is not there`, { path: request.path });
         }
+        if (found.password !== undefined && request.password !== found.password) {
+          return request.password === undefined
+            ? problem("password_required", `${request.path} has a password`, {
+                root: request.path,
+              })
+            : problem("password_wrong", `That is not the password of ${request.path}`, {
+                root: request.path,
+              });
+        }
         this.#open = summarize(found);
         this.#remember(this.#open);
+        return ok(this.#open);
+      }
+
+      case "library:setPassword": {
+        const open = this.#open;
+        const library = open === undefined ? undefined : this.#libraries.get(open.root);
+        if (library === undefined) return problem("remote", "No library is open", {});
+        if (library.password !== undefined && request.current !== library.password) {
+          return request.current === undefined
+            ? problem("password_required", `${library.root} has a password`, {
+                root: library.root,
+              })
+            : problem("password_wrong", `That is not the password of ${library.root}`, {
+                root: library.root,
+              });
+        }
+        const { password: _old, ...rest } = library;
+        const next = request.next === null ? rest : { ...rest, password: request.next };
+        this.#libraries.set(library.root, next);
+        this.#open = summarize(next);
         return ok(this.#open);
       }
 
@@ -1347,6 +1381,16 @@ export class FakeEngine {
       // A move takes the assets out of this library, as the engine's does once
       // the target holds them; a copy leaves it as it was.
       case "assets:transfer": {
+        // The target is opened like any other library (ADR-0071 §3.2), and a
+        // refusal there comes before anything is copied.
+        const target = this.#libraries.get(request.target);
+        if (target?.password !== undefined && request.password !== target.password) {
+          return request.password === undefined
+            ? problem("password_required", `${target.root} has a password`, { root: target.root })
+            : problem("password_wrong", `That is not the password of ${target.root}`, {
+                root: target.root,
+              });
+        }
         const moved = request.take === "move";
         if (moved) {
           const gone = new Set(request.ids);
@@ -1736,13 +1780,14 @@ function summarize(library: FakeLibrary): LibrarySummary {
     root: library.root,
     name: library.name,
     id: "00000000-0000-4000-8000-000000000000",
-    formatVersion: 1,
+    formatVersion: library.password === undefined ? 2 : 3,
     // A stand-in, not a claim: the renderer never reads this number, and it
     // cannot import the migration list to learn the real one.
     schemaVersion: 6,
     // Nothing skipped, which is what a library this fake ever holds looks like.
     // A test that wants the notice drawn sets this itself.
     journal: library.journal ?? { skipped: [], dangling: 0 },
+    hasPassword: library.password !== undefined,
   };
 }
 

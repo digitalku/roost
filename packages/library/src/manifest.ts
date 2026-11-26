@@ -1,21 +1,34 @@
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { IoError } from "@roost/core";
+import { IoError, makeDirectoryInside, STAGING_DIR } from "@roost/core";
 import {
   AlreadyALibraryError,
   LibraryNotFoundError,
   LibraryTooNewError,
   NotALibraryError,
 } from "./error.js";
+import { type PasswordRecord, parsePasswordRecord } from "./password.js";
 
 /** `library.json` — what makes a directory a Roost library. */
 export const MANIFEST_FILE = "library.json";
 
 /**
- * The library format this build writes and understands: Roost Library Format
- * **2**, and no other (`FORMAT.md` RL-6, RL-6a).
+ * The highest library format this build reads: Roost Library Format **3**
+ * (`FORMAT.md` RL-6).
+ *
+ * Version 3 is version 2 with a password (RL-5c), and only a library that has
+ * one carries it, so this build reads both and writes whichever the library's
+ * password calls for. Nothing else about the two differs.
  */
-export const LIBRARY_FORMAT_VERSION = 2;
+export const LIBRARY_FORMAT_VERSION = 3;
+
+/** A library without a password, and the lowest version this build reads (RL-6a). */
+export const PLAIN_FORMAT_VERSION = 2;
+
+/** A library with a password (RL-5c, ADR-0071). */
+export const PASSWORD_FORMAT_VERSION = 3;
+
+const PASSWORD_FIELD = "password";
 
 /** The four fields RL-5 requires, in the order it publishes them. */
 const REQUIRED_FIELDS = ["roost_library_version", "id", "name", "created_at"] as const;
@@ -35,6 +48,13 @@ export interface Manifest {
   /** Unix seconds. */
   readonly created_at: number;
   /**
+   * The password's hash, or `null` for a library without one (RL-5c).
+   *
+   * Not in {@link unrecognised}: it decides the version the file is written
+   * with, so it is read and written here, never carried past as an unknown.
+   */
+  readonly password: PasswordRecord | null;
+  /**
    * Every other field the file carried, kept verbatim.
    *
    * RL-5a: an implementation ignores what it does not recognise **and
@@ -49,10 +69,11 @@ export interface Manifest {
 
 export function newManifest(name: string, createdAt: number): Manifest {
   return {
-    roost_library_version: LIBRARY_FORMAT_VERSION,
+    roost_library_version: PLAIN_FORMAT_VERSION,
     id: crypto.randomUUID(),
     name,
     created_at: createdAt,
+    password: null,
     unrecognised: {},
   };
 }
@@ -112,7 +133,7 @@ export async function readManifest(root: string): Promise<Manifest> {
 
   // RL-6a: a lower version is not a library this build reads (RL-5b), and it
   // is refused before the other three fields for the same reason as above.
-  if (version < LIBRARY_FORMAT_VERSION) {
+  if (version < PLAIN_FORMAT_VERSION) {
     throw new NotALibraryError(
       root,
       `roost_library_version ${version} is not a version this build reads`,
@@ -128,8 +149,25 @@ export async function readManifest(root: string): Promise<Manifest> {
     throw new NotALibraryError(root, "created_at is missing or not an integer");
   }
 
+  // RL-5c: the version and the field say the same thing, or something wrote
+  // half a change. Either half alone is refused rather than believed, because
+  // believing the version would refuse a password nobody can type, and
+  // believing the field would open what a version 2 reader opens unasked.
+  let password: PasswordRecord | null = null;
+  if (version === PASSWORD_FORMAT_VERSION) {
+    if (!(PASSWORD_FIELD in raw)) {
+      throw new NotALibraryError(root, "version 3 without a password");
+    }
+    const parsed = parsePasswordRecord(raw[PASSWORD_FIELD]);
+    if (typeof parsed === "string") throw new NotALibraryError(root, parsed);
+    password = parsed;
+  } else if (PASSWORD_FIELD in raw) {
+    throw new NotALibraryError(root, "a password in a version 2 library");
+  }
+
   const unrecognised: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(raw)) {
+    if (key === PASSWORD_FIELD) continue;
     if (!(REQUIRED_FIELDS as readonly string[]).includes(key)) unrecognised[key] = value;
   }
 
@@ -138,6 +176,7 @@ export async function readManifest(root: string): Promise<Manifest> {
     id,
     name,
     created_at: createdAt,
+    password,
     unrecognised,
   };
 }
@@ -152,16 +191,32 @@ export async function readManifest(root: string): Promise<Manifest> {
  */
 export async function writeManifest(root: string, manifest: Manifest): Promise<void> {
   const path = join(root, MANIFEST_FILE);
+  // The version follows the password, whatever the manifest handed in says:
+  // the two are one fact (RL-5c), and a caller that changed one and forgot the
+  // other would write a file this build then refuses to open.
   const document = {
-    roost_library_version: manifest.roost_library_version,
+    roost_library_version:
+      manifest.password === null ? PLAIN_FORMAT_VERSION : PASSWORD_FORMAT_VERSION,
     id: manifest.id,
     name: manifest.name,
     created_at: manifest.created_at,
     ...manifest.unrecognised,
+    ...(manifest.password === null ? {} : { [PASSWORD_FIELD]: manifest.password }),
   };
+
+  // Written beside and renamed into place (RL-5d): a rewrite now moves the
+  // version, and a file left half-written by a crash is not a library at all.
+  // The temporary file goes in `staging/`, which the format reserves for what
+  // is transient, because RL-3 forbids anything unlisted in the root, and
+  // staging is swept at every open.
+  const staging = join(root, STAGING_DIR);
+  const temporary = join(staging, `manifest-${crypto.randomUUID()}.json`);
   try {
-    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+    await makeDirectoryInside(root, staging);
+    await writeFile(temporary, `${JSON.stringify(document, null, 2)}\n`, "utf8");
+    await rename(temporary, path);
   } catch (cause) {
+    await rm(temporary, { force: true }).catch(() => undefined);
     throw new IoError("write", path, cause);
   }
 }

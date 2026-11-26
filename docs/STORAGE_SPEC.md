@@ -1,6 +1,6 @@
 # Storage — how this build meets the library format
 
-**Roost Library Format 2, revision 2.4.** The normative document is [`FORMAT.md`](FORMAT.md),
+**Roost Library Format 3, revision 3.0.** The normative document is [`FORMAT.md`](FORMAT.md),
 beside this file, with [`OPS.md`](OPS.md) for the journal operations and `conformance/` at the
 repository root for the suite. This file is **not** a specification and binds nothing on its own:
 it is the map from that document's numbered requirements to the code here, plus the notes that
@@ -10,6 +10,12 @@ belong to this build.
 > this build conformed to it (ADR-0045). Since ADR-0052 it is this repository's own: copied home at
 > revision 2.0, changed here, in the same commit as the code. The map stays separate from the
 > format so that the normative text and this build's notes about it cannot blur into each other.
+
+## Status (2026-11-26)
+
+**This build reads and writes Formats 2 and 3** (ADR-0071). Version 3 is version 2 with a password
+(RL-5c), carried only by a library that has one: `writeManifest` writes the version the password
+calls for, and *Remove password…* makes a library version 2 again.
 
 ## Status (2026-09-21)
 
@@ -47,6 +53,8 @@ construction or by a rule nothing here can break.
 | RL-4 | A library is a readable `library.json` with an integer version | `library/src/manifest.ts` |
 | RL-5, RL-5b | All four fields required; a bad file is *not a library*, never repaired | `manifest.ts` · `tests/standard.test.ts` |
 | RL-5a | Unrecognised fields ignored on read and **kept on write** | `Manifest.unrecognised` |
+| RL-5c | Version 3 if and only if a `password` record, scrypt within its bounds | `manifest.ts` (`readManifest`, `writeManifest`), `password.ts` (`parsePasswordRecord`) · `tests/password.test.ts`, `conformance/version-3/` |
+| RL-5d | Nothing read or written before the password matches; set and remove in one atomic rewrite, through `staging/` | `checkPassword` in `library.ts`, before the lock; `Library.changePassword`; `writeManifest` renames into place · `tests/password.test.ts`, `format-conformance.test.ts` |
 | RL-6 | A higher version refuses to open and touches nothing | `LibraryTooNewError`, thrown before any handle is taken |
 | RL-6a | A **lower** version is *not a library*, and nothing is read or repaired | `NotALibraryError`, checked before the other three fields |
 | RL-7, RL-7a | `<name>.roost` on write; never required on read, never renamed | `library/src/naming.ts` (ADR-0014) |

@@ -78,7 +78,7 @@ describe("validating library.json (RL-5, RL-5b)", () => {
   });
 
   it("refuses a format version from a later build without touching the directory", async () => {
-    const root = await manifestFile("from-the-future", { ...GOOD, roost_library_version: 3 });
+    const root = await manifestFile("from-the-future", { ...GOOD, roost_library_version: 4 });
     await expect(readManifest(root)).rejects.toMatchObject({ code: "library_too_new" });
 
     // RL-6's second half: nothing is created, and no cache is rebuilt. A higher

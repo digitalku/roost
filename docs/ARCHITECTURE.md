@@ -561,8 +561,10 @@ Violating any of these is a bug, regardless of what it enables:
    and RL-51's forbidden list govern storage, import and rebuild — not the schema, which RL-2
    leaves to the implementation. It is this repository's own (ADR-0052): a change to it is argued
    in an ADR, made in the same commit as the code, and raises a document revision or a format
-   version (§12 of it). **This build reads format 2 only**: a manifest at any
-   other version is refused before anything else is read (RL-6, RL-6a, ADR-0053).
+   version (§12 of it). **This build reads formats 2 and 3**, version 3 being a library with a
+   password (RL-5c, ADR-0071): a manifest at any other version is refused before anything else is
+   read (RL-6, RL-6a, ADR-0053), and a library with a password is read no further than its
+   manifest until the password matches (RL-5d).
 1. The index is derivable from the journal plus `files/`. Always. Any state that exists
    only in `index.db` is a bug — except the two marks that say how far the index has folded
    each journal month, which are a **cache of the fold** and are discarded, never trusted, when

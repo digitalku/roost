@@ -105,6 +105,7 @@ export {
   EditTooLargeError,
   EmptyCommentError,
   EmptyNameError,
+  EmptyPasswordError,
   FolderCycleError,
   InvalidLibraryNameError,
   InvalidMomentError,
@@ -118,6 +119,8 @@ export {
   NotAPictureError,
   NotAVideoError,
   NotEditableError,
+  PasswordRequiredError,
+  PasswordWrongError,
   SameLibraryError,
   TransferRunningError,
   UnknownAssetError,
@@ -182,6 +185,8 @@ export {
   MANIFEST_FILE,
   type Manifest,
   newManifest,
+  PASSWORD_FORMAT_VERSION,
+  PLAIN_FORMAT_VERSION,
   readManifest,
   writeManifest,
 } from "./manifest.js";
@@ -194,6 +199,7 @@ export {
   libraryNameFromPath,
   withLibrarySuffix,
 } from "./naming.js";
+export type { PasswordRecord, Unlock } from "./password.js";
 export {
   forgetLibrary,
   listRecent,

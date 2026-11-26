@@ -193,6 +193,8 @@ export interface LibrarySummary {
   readonly formatVersion: number;
   readonly schemaVersion: number;
   readonly journal: WireJournalNotice;
+  /** Whether the library asks for a password before it opens (ADR-0071). */
+  readonly hasPassword: boolean;
 }
 
 /**

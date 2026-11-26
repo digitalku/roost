@@ -31,6 +31,11 @@ versions that came with it.
 
 Still open, and none of it blocks M0:
 
+- 🟢 **ADR-0071 — a password on a library — was accepted on 2026-11-26** and built the same day:
+  `library.json`, asked at every open, the CLI too, and **format version 3** for a library with a
+  password, so that an older build refuses it (the owner's choice, against the recommendation). The
+  work is in §3, under *A password on a library*.
+
 - 🟢 **ADR-0060 was accepted on 2026-10-05**, the day it was proposed: a thumbnail chosen by hand,
   kept in `thumbs/roost.db` alone, at the user's choosing. The work is in §3, under *A thumbnail
   somebody chose*.
@@ -136,6 +141,51 @@ Two things that are no longer blocked, but are still easy to get wrong:
 ## 3. To build — the working list
 
 Ordered by milestone. Items here are additional detail to `ROADMAP.md`, not a second copy of it.
+
+### A password on a library (ADR-0071, built 2026-11-26)
+
+- ☑ ~~**The engine**~~, done 2026-11-26: `password.ts` (scrypt from `node:crypto`, `n = 2^17`),
+  `readManifest` reading versions 2 and 3, `writeManifest` writing the version the password calls
+  for and renaming into place through `staging/`, the check in `Library.open` before the lock, and
+  `Library.changePassword`. An **unlock**, not the password, is what a rename reopens with.
+- ☑ ~~**The format**~~, done 2026-11-26: Format 3, revision 3.0, RL-5c and RL-5d, RL-42 and RL-43
+  amended; `conformance/version-3/`, whose password is `roost`.
+- ☑ ~~**The window**~~, done 2026-11-26: `PasswordPrompt` at the picker and for a transfer's target,
+  `PasswordDialog` from the `☰`. `check-password.mjs`, 16 of 16.
+- ☑ ~~**The CLI**~~, done 2026-11-26: `roost password set|change|remove`, `ROOST_PASSWORD`,
+  `ROOST_TARGET_PASSWORD`, `ROOST_NEW_PASSWORD`, and a prompt on a terminal that does not echo.
+- 🟡 **The next release raises a format version.** Roost 0.2.10 and older refuse a library with a
+  password, as `library_too_new`. Say so in the release notes, and consider calling it 0.3.0. The
+  Flatpak was not built or tried with this change.
+- 🟢 **A second window does not hear about a password changed in the first.** Its `☰` keeps
+  offering what it offered when it opened, and the engine refuses the wrong one with
+  `password_required`, which the dialog draws as its message. An event like `library:renamed`
+  would fix it; nothing asks for one yet.
+- 🟢 **Chromium's disk cache keeps thumbnails of a library that was once open**, outside the
+  library. ADR-0071 §2 accepts it, as a gate and not a secret. Worth revisiting if the server mode
+  makes the password a real door.
+
+### A phone onto a library on a server (asked 2026-11-26, no ADR yet)
+
+The owner wants a native Android app that opens a Roost library kept on a server. It is **not** a
+whole Roost on the phone and **not** a library read over SMB: SQLite and the journal's append are
+not safe over a network filesystem, the lock (ADR-0069) means nothing across machines, inotify
+sees nothing there, and the engine needs Node and native modules Android does not have. The shape
+recommended in conversation is a **headless server mode** running the same engine beside the
+files, with the phone as a thin client of `@roost/contract` over HTTP and `roost://` mapped to
+HTTP with range requests. The owner's answers, to be written into that ADR:
+
+- **It writes**: tags, and whatever else the contract already allows, not only browsing.
+- **LAN only.** Access from outside goes through Tailscale, which the owner sets up; Roost does not
+  expose itself to the internet.
+- **Native**, not the React renderer in a WebView.
+- **Google Play, internal testing only**, for the owner's own devices. Perhaps public one day if
+  people ask.
+- **ADR-0071's password comes first**, and is the secret a device needs to pair.
+
+The ADR has to amend `CONCEPT.md` §5.2 (*not a web app*, *no sync server*) and invariant 7, and say
+how invariant 10 still holds (pairing, not an account). It is not in `ROADMAP.md` yet, so it also
+has to say where it goes.
 
 ### Flathub first (ADR-0063, decided 2026-10-25)
 
