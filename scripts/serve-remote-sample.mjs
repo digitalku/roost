@@ -3,15 +3,16 @@
  *
  *     node scripts/serve-remote-sample.mjs
  *
- * Builds a library of 60 pictures with tags, two folders and the password
- * `roost-remote`, launches the built window on it with its own state directory,
+ * Builds a library of 60 pictures with tags, two folders, a one-minute video
+ * when ffmpeg is installed, and the password `roost-remote`, launches the built window on it with its own state directory,
  * ticks **Share on this network…** and stays up until it is stopped with
  * Ctrl+C, when it deletes everything it made. An emulator reaches it at
  * `10.0.2.2:7387`; no library or paired device of yours is touched.
  */
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { Library } from "@roost/library";
-import { foldersInto, imageLibrary, scratch, tagsOnto } from "./lib/fixtures.mjs";
+import { importInto, Library } from "@roost/library";
+import { foldersInto, imageLibrary, run, scratch, tagsOnto, videoClip } from "./lib/fixtures.mjs";
 import { launch } from "./lib/window.mjs";
 
 const PASSWORD = "roost-remote";
@@ -25,8 +26,17 @@ await foldersInto(root, [
   { name: "Liburan", assets: 20 },
   { name: "Bali", parent: "Liburan", assets: 6 },
 ]);
+// Long enough to seek in, which is what the phone's transport is tried with.
+const clip = await run("ffmpeg", ["-version"]).then(
+  async () => {
+    await mkdir(join(dir, "clip"));
+    return videoClip(join(dir, "clip", "testsrc.mp4"), { seconds: 60, size: "640x360" });
+  },
+  () => null,
+);
 {
   const library = await Library.open(root);
+  if (clip !== null) await importInto(library, [clip]);
   await library.changePassword(undefined, PASSWORD);
   await library.close();
 }
