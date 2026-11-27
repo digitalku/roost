@@ -25,6 +25,11 @@ finish-args:
   - --filesystem=home
   - --filesystem=/run/media
   - --talk-name=org.freedesktop.FileManager1
+  # Share on this network…, for a phone (ADR-0072): the listener has to be on
+  # the machine's own addresses, not the sandbox's loopback. It answers only
+  # local and Tailscale addresses, and Roost reaches out to nothing (ADR-0063 §4,
+  # amended 2026-11-27).
+  - --share=network
 
 modules:
   # The runtime has no libvips, and sharp is built from source against one

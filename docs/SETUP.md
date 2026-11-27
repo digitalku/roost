@@ -550,8 +550,8 @@ not a library (RL-5c).
 **Share on this network…** in the `☰`, tick the box, and type one of the addresses it lists into
 the phone. The port is 7387, and `ROOST_REMOTE_PORT` moves it. The phones paired with a library
 are kept in `$XDG_STATE_HOME/roost/remote/`, outside the library. The protocol is
-[`REMOTE.md`](REMOTE.md). **The Flatpak cannot share yet**: it has no network permission, so it
-listens on its own loopback alone (`TODO.md` §3).
+[`REMOTE.md`](REMOTE.md). The Flatpak shares too, from the release after 0.3.0, which gives it
+`--share=network` for this alone (ADR-0063 §4, amended 2026-11-27).
 
 To try a phone, or the Android emulator, without sharing a library of your own,
 `node scripts/serve-remote-sample.mjs` builds a sample library of 60 pictures with tags and two

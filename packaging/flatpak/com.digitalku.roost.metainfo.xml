@@ -23,7 +23,8 @@
     </ul>
     <p>
       The library is an open format: the files themselves, and a plain-text journal of everything
-      written about them. Roost needs no account and makes no network connection.
+      written about them. Roost needs no account and connects to nothing on the internet. It
+      listens on your own network only when you share a library with your phone.
     </p>
   </description>
   <launchable type="desktop-id">com.digitalku.roost.desktop</launchable>

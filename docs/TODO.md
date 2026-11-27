@@ -36,7 +36,7 @@ Still open, and none of it blocks M0:
   `REMOTE.md` revision 1.1.
 - 🟢 **ADR-0072 — a server for a phone — was accepted on 2026-11-26**, and its server half built:
   the window serves, plain HTTP, a password required, deleting for good allowed behind the client's
-  confirmation. The Android client, the Flatpak's network permission and `roost serve` are in §3,
+  confirmation. The Android client and `roost serve` are in §3,
   under *A phone onto a library on a server*.
 - 🟢 **ADR-0071 — a password on a library — was accepted on 2026-11-26** and built the same day:
   `library.json`, asked at every open, the CLI too, and **format version 3** for a library with a
@@ -187,9 +187,9 @@ password, and deleting for good is allowed behind the client's confirmation.
   (both names the owner's, 2026-11-26), written against `docs/REMOTE.md`. Kotlin and
   Compose, cleartext allowed for the typed host only (RR-3), the token in the keystore (RR-6), a
   confirmation before every delete for good (RR-10).
-- 🟡 **The Flatpak cannot share**: ADR-0063 gave it no network, so it listens on its own loopback.
-  Adding `--share=network` to `packaging/flatpak/` is a change to what the published Flatpak may
-  do, and is the owner's call. Until then sharing works from a checkout or `pnpm start`.
+- ☑ ~~**The Flatpak cannot share**~~, done 2026-11-27 at the owner's word: `--share=network` in the
+  manifest (ADR-0063 §4, ADR-0072 §3.9 amended), for the release after 0.3.0, and the dialog no
+  longer blames the Flatpak when it has no address.
 - 🟢 **`roost serve`, headless** (ADR-0072 §3.11), for a machine with no desktop, and what ADR-0005
   is owed. Needs `EngineHost` and `AssetServer` moved out of `apps/desktop` into a package the CLI
   can host. **Later, at the owner's word** (2026-11-26): Roost is for the window first, and the

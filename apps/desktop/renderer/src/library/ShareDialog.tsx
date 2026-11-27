@@ -119,8 +119,8 @@ export function ShareDialog({
                 <div className="share-addresses">
                   {status.addresses.length === 0 ? (
                     <p className="dialog-body">
-                      This computer has no address a phone could reach. In the Flatpak, Roost has no
-                      network permission yet.
+                      This computer has no address a phone could reach. Connect it to a network, or
+                      start Tailscale, and the addresses appear here.
                     </p>
                   ) : (
                     <>

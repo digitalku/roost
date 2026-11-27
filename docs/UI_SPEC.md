@@ -1268,7 +1268,7 @@ monospaced face and selectable. Under them, one muted line says what plain HTTP 
 owner's own Wi-Fi the password and the phone's key are not encrypted, and Tailscale encrypts them
 away from home. Ticked and **not** listening, the problem is said in the danger colour, *Port 7387
 is in use by another program*. Listening with no address to offer, the dialog says the computer has
-no address a phone could reach, and that the Flatpak has no network permission yet.
+no address a phone could reach, and to connect it to a network or start Tailscale.
 
 **Paired phones** follow, one line each: the name the phone gave, *Paired 2 hours ago* or *Seen
 just now*, and **Unpair**. *None yet.* when there are none. The dialog reads its status every two
